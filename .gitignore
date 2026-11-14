@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+.local/
+**/target/
+**/node_modules/
+**/dist/
+**/coverage/
+**/test-results/
+**/playwright-report/
+.idea/
+.vscode/
+*.iml
+*.log
+*.tsbuildinfo
+__pycache__/

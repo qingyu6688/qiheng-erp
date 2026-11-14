@@ -1,0 +1,56 @@
+@forward 'element-plus/theme-chalk/src/common/var.scss' with (
+  $colors: (
+    'primary': (
+      'base': #1e5bd7,
+    ),
+    'success': (
+      'base': #12805c,
+    ),
+    'warning': (
+      'base': #a15c07,
+    ),
+    'danger': (
+      'base': #c2341f,
+    ),
+    'error': (
+      'base': #c2341f,
+    ),
+    'info': (
+      'base': #4e5969,
+    ),
+  ),
+  $text-color: (
+    'primary': #1d2129,
+    'regular': #1d2129,
+    'secondary': #4e5969,
+    'placeholder': #6b7380,
+    'disabled': #6b7380,
+  ),
+  $border-color: (
+    '': #c9cdd4,
+    'light': #e3e6eb,
+  ),
+  $bg-color: (
+    'page': #f5f6f8,
+  ),
+  $fill-color: (
+    'light': #f7f8fa,
+  )
+);
+@use 'element-plus/theme-chalk/src/base.scss';
+@use 'element-plus/theme-chalk/src/alert.scss';
+@use 'element-plus/theme-chalk/src/button.scss';
+@use 'element-plus/theme-chalk/src/dialog.scss';
+@use 'element-plus/theme-chalk/src/form.scss';
+@use 'element-plus/theme-chalk/src/form-item.scss';
+@use 'element-plus/theme-chalk/src/icon.scss';
+@use 'element-plus/theme-chalk/src/input.scss';
+@use 'element-plus/theme-chalk/src/select.scss';
+@use 'element-plus/theme-chalk/src/option.scss';
+@use 'element-plus/theme-chalk/src/table.scss';
+@use 'element-plus/theme-chalk/src/table-column.scss';
+@use 'element-plus/theme-chalk/src/tag.scss';
+@use 'element-plus/theme-chalk/src/overlay.scss';
+@use 'element-plus/theme-chalk/src/popper.scss';
+@use 'element-plus/theme-chalk/src/scrollbar.scss';
+@use 'element-plus/theme-chalk/src/tooltip.scss';

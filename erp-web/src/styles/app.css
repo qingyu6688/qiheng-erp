@@ -1,0 +1,394 @@
+@tailwind utilities;
+
+:root {
+  font-family: Inter, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  color: #1d2129;
+  background: #f5f6f8;
+  font-size: 14px;
+  line-height: 1.57;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-width: 320px;
+}
+button,
+input,
+textarea {
+  font-family: inherit;
+}
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid #1e5bd7;
+  outline-offset: 3px;
+}
+h1 {
+  margin: 0 0 20px;
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+}
+p {
+  color: #4e5969;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 650;
+  font-size: 18px;
+  letter-spacing: 0.02em;
+}
+.brand-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 6px;
+  background: #1e5bd7;
+  color: #fff;
+}
+.brand-icon svg {
+  width: 25px;
+  height: 25px;
+}
+.icon,
+.nav-link svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.small-icon {
+  width: 13px;
+  height: 13px;
+  margin-left: 6px;
+}
+.auth-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.login-panel,
+.panel {
+  border: 1px solid #e3e6eb;
+  border-radius: 6px;
+  background: #fff;
+}
+.login-panel {
+  width: min(100%, 416px);
+  padding: 32px;
+}
+.login-panel .brand {
+  border-bottom: 1px solid #e3e6eb;
+  padding-bottom: 24px;
+  margin-bottom: 24px;
+}
+.login-panel h1 {
+  margin-bottom: 24px;
+}
+.login-submit {
+  width: 100%;
+  margin-top: 4px;
+}
+.form-alert {
+  margin: 8px 0 16px;
+}
+.status-code {
+  font-size: 32px;
+  font-weight: 600;
+  color: #4e5969;
+  font-variant-numeric: tabular-nums;
+}
+.shell {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+}
+.sidebar {
+  background: #fff;
+  border-right: 1px solid #e3e6eb;
+}
+.sidebar .brand {
+  height: 72px;
+  padding: 0 24px;
+  border-bottom: 1px solid #e3e6eb;
+}
+.sidebar nav {
+  padding: 16px 12px;
+}
+.nav-group + .nav-group {
+  margin-top: 24px;
+}
+.nav-caption {
+  padding: 8px 12px;
+  color: #6b7380;
+  font-size: 12px;
+}
+.nav-link {
+  text-decoration: none;
+  color: #4e5969;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 4px;
+}
+.nav-link:hover {
+  background: #f5f6f8;
+}
+.nav-link.router-link-active {
+  color: #1e5bd7;
+  background: #e9effb;
+  font-weight: 600;
+}
+.workspace {
+  min-width: 0;
+}
+.topbar {
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  background: white;
+  border-bottom: 1px solid #e3e6eb;
+}
+.breadcrumb,
+.topbar-actions {
+  color: #4e5969;
+}
+.topbar-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.company-select {
+  width: 180px;
+}
+.account-name {
+  border-left: 1px solid #e3e6eb;
+  padding-left: 16px;
+  margin-left: 8px;
+}
+.content {
+  padding: 24px;
+  max-width: 1800px;
+  margin: 0 auto;
+}
+.page-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+.page-heading h1 {
+  margin: 0;
+}
+.filters {
+  display: flex;
+  gap: 16px;
+  align-items: end;
+  flex-wrap: wrap;
+  padding: 20px 24px;
+}
+.filter-field {
+  display: grid;
+  gap: 4px;
+  width: min(100%, 265px);
+}
+.filter-field.small {
+  width: 130px;
+}
+.filter-field label {
+  color: #4e5969;
+  font-size: 13px;
+}
+.table-panel {
+  overflow: hidden;
+}
+.table-scroll {
+  overflow-x: auto;
+}
+.warehouse-table {
+  --el-table-header-bg-color: #f7f8fa;
+  --el-table-header-text-color: #4e5969;
+  font-size: 14px;
+  min-width: 720px;
+}
+.warehouse-table .el-table__cell {
+  height: 44px;
+  padding: 6px 0;
+}
+.warehouse-table thead .el-table__cell {
+  height: 40px;
+}
+.warehouse-table .cell {
+  padding-inline: 16px;
+}
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.text-link {
+  display: inline;
+  background: transparent;
+  border: 0;
+  padding: 2px 0;
+  color: #1e5bd7;
+  font: inherit;
+  cursor: pointer;
+}
+.text-link:hover {
+  text-decoration: underline;
+}
+.text-link:disabled {
+  color: #6b7380;
+  cursor: wait;
+}
+.record-link {
+  font-weight: 500;
+}
+.empty-state {
+  padding: 44px 12px;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  line-height: 22px;
+  color: #6b7380;
+}
+.empty-state strong {
+  color: #4e5969;
+  font-weight: 550;
+}
+.empty-icon {
+  width: 32px;
+  height: 32px;
+  margin-bottom: 8px;
+}
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  color: #4e5969;
+  font-variant-numeric: tabular-nums;
+}
+.load-error {
+  margin: 8px 24px;
+  padding: 4px 12px;
+  color: #912817;
+  background: #fff5f3;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.list-notice {
+  border-radius: 0;
+}
+.password-panel {
+  max-width: 480px;
+  padding: 24px;
+}
+.password-panel > .el-button {
+  margin-top: 16px;
+}
+.record-details {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 12px 16px;
+  margin: 0;
+}
+.record-details dt {
+  color: #4e5969;
+}
+.record-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.confirm-text {
+  margin: 0;
+}
+.el-dialog {
+  --el-dialog-border-radius: 6px;
+  max-width: calc(100vw - 32px);
+}
+.el-dialog__footer {
+  margin-top: 8px;
+}
+.el-tag.el-tag--success {
+  color: #106b4c;
+}
+.el-tag.el-tag--info {
+  color: #4e5969;
+}
+@media (max-width: 800px) {
+  .shell {
+    display: block;
+  }
+  .sidebar {
+    border: 0;
+    border-bottom: 1px solid #e3e6eb;
+  }
+  .sidebar .brand {
+    height: 56px;
+    padding: 0 16px;
+  }
+  .sidebar nav {
+    display: flex;
+    padding: 6px 12px;
+    gap: 6px;
+  }
+  .nav-group + .nav-group {
+    margin: 0;
+  }
+  .nav-caption,
+  .breadcrumb {
+    display: none;
+  }
+  .nav-link {
+    padding: 6px 10px;
+  }
+  .topbar {
+    height: auto;
+    padding: 8px 16px;
+    justify-content: flex-end;
+  }
+  .content {
+    padding: 16px;
+  }
+  .filters {
+    padding: 16px;
+    gap: 8px;
+  }
+  .pagination {
+    padding: 12px 16px;
+  }
+}
+@media (max-width: 480px) {
+  .company-icon {
+    display: none;
+  }
+  .company-select {
+    width: 132px;
+  }
+  .account-name {
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .filter-field {
+    width: 100%;
+  }
+  .filter-field.small {
+    flex: 1;
+  }
+  .login-panel {
+    padding: 24px;
+  }
+}

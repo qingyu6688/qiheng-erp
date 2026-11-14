@@ -1,0 +1,20 @@
+-- 共用的运营账本账户目录。
+INSERT INTO ledger_account (id, code, name, category, normal_direction, needs_partner, needs_cash_account, needs_warehouse) VALUES
+  (1,  'FUNDS',                '资金（现金及银行）', 'asset',     'D', 0, 1, 0),
+  (2,  'AR',                   '应收账款',           'asset',     'D', 1, 0, 0),
+  (3,  'AP',                   '应付账款',           'liability', 'C', 1, 0, 0),
+  (4,  'INVENTORY',            '库存商品',           'asset',     'D', 0, 0, 1),
+  (5,  'GOODS_IN_TRANSIT',     '在途库存',           'asset',     'D', 0, 0, 1),
+  (6,  'INPUT_VAT',            '进项税额',           'asset',     'D', 0, 0, 0),
+  (7,  'OUTPUT_VAT',           '销项税额',           'liability', 'C', 0, 0, 0),
+  (8,  'SALES_REVENUE',        '销售收入',           'income',    'C', 0, 0, 0),
+  (9,  'FEE_INCOME',           '代收费用收入',       'income',    'C', 0, 0, 0),
+  (10, 'OTHER_INCOME',         '其他收入',           'income',    'C', 0, 0, 0),
+  (11, 'COGS',                 '销售成本',           'expense',   'D', 0, 0, 0),
+  (12, 'COST_VARIANCE',        '成本差异',           'expense',   'D', 0, 0, 0),
+  (13, 'INVENTORY_ADJUSTMENT', '库存盘盈盘亏、报废及运损', 'expense', 'D', 0, 0, 1),
+  (14, 'PURCHASE_FEE',         '采购费用',           'expense',   'D', 0, 0, 0),
+  (15, 'TRANSFER_FEE',         '转账手续费',         'expense',   'D', 0, 1, 0),
+  (16, 'OTHER_EXPENSE',        '其他支出',           'expense',   'D', 0, 0, 0),
+  (17, 'OPENING_EQUITY',       '期初权益',           'equity',    'C', 0, 0, 0),
+  (18, 'GOODS_SHIPPED',        '发出商品',           'asset',     'D', 0, 0, 1);
