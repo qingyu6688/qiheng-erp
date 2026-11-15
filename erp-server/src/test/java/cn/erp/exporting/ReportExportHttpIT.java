@@ -6,6 +6,7 @@ import cn.erp.reporting.*;
 import cn.erp.shared.Ids;
 import java.net.*;
 import java.net.http.*;
+import java.time.Instant;
 import java.util.*;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -78,6 +79,14 @@ class ReportExportHttpIT {
         assertThat(http("GET","/export-jobs/"+id+"/download",null,null,false,company).statusCode()).isEqualTo(403);
         assertThat(http("POST","/export-jobs/"+id+"/download-ticket","{}",null,true,company).statusCode()).isEqualTo(409);
         new ExportWorker(jobs,access,reports,files,json,compensation).runOne();
+        var list = http("GET", "/export-jobs", null, null, false, company);
+        assertThat(list.statusCode()).isEqualTo(200);
+        var row = json.readTree(list.body()).path("data").path("items").get(0);
+        assertThat(row.path("id").asText()).isEqualTo(Long.toString(id));
+        for (String field : List.of("createdAt", "finishedAt", "expireAt", "asOf")) {
+            assertThat(row.path(field).asText()).endsWith("Z");
+            assertThat(Instant.parse(row.path(field).asText())).isNotNull();
+        }
         var ticket=http("POST","/export-jobs/"+id+"/download-ticket","{}",null,true,company);
         assertThat(ticket.statusCode()).isEqualTo(200);String path=json.readTree(ticket.body()).path("data").path("url").asText().replace("/api/v1","");
         assertThat(http("GET","/export-jobs/"+id+"/download",null,null,false,company).statusCode()).isEqualTo(403);

@@ -19,7 +19,9 @@ async function submit(page: Page, content: string, filename: string): Promise<st
   await page.locator('#import-file').setInputFiles({ name: filename, mimeType: 'text/csv', buffer: Buffer.from(content, 'utf8') })
   const response = page.waitForResponse(item => item.url().endsWith('/api/v1/import-jobs') && item.request().method() === 'POST')
   await page.getByRole('button', { name: '开始导入', exact: true }).click(); const result = await response
-  expect(result.status()).toBe(202); const body = await result.json() as { data: { id: string } }; return body.data.id
+  expect(result.status()).toBe(202)
+  const body = await result.json() as { data: { id: string } }
+  return body.data.id
 }
 
 test('模板下载、部分成功错误清单、同文件去重和库存期初草稿跳转', async ({ page }, testInfo) => {
@@ -35,7 +37,23 @@ test('模板下载、部分成功错误清单、同文件去重和库存期初�
 
   const skuCode = 'E2E-M7-IMPORT-SKU'
   const content = '\uFEFFproductCode,code,name,spec,defaultTaxRate,purchasePrice,salePrice,status\r\nE2E-M6-PROD,' + skuCode + ',导入验收商品,规格,0,10,20,active\r\nMISSING,E2E-M7-INVALID,错误商品,,0,,20,active\r\n'
+  const jobDetails = page.waitForResponse(response =>
+    response.request().method() === 'GET' && /\/api\/v1\/import-jobs\/\d+$/.test(response.url()),
+  )
   const first = await submit(page, content, '商品导入.csv')
+  const result = await jobDetails
+  expect(result.ok()).toBe(true)
+  const { data: job } = await result.json() as { data: { id: string; createdAt: string } }
+  expect(job.id).toBe(first)
+  expect(job.createdAt).toMatch(/Z$/)
+  const timeParts = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(job.createdAt))
+  const { month, day, hour, minute } = Object.fromEntries(timeParts.map(part => [part.type, part.value]))
+  const beijingTime = `${month}-${day} ${hour}:${minute}`
+  const jobRow = page.locator('.el-table__body-wrapper').getByRole('row').filter({ hasText: '商品 SKU' })
+  await expect(jobRow.getByRole('cell', { name: beijingTime, exact: true })).toBeVisible()
   const detail = page.locator('section.panel').filter({ has: page.getByRole('heading', { level: 2, name: '处理结果 · 商品 SKU' }) })
   await expect(detail.getByText('部分成功', { exact: true })).toBeVisible({ timeout: 30_000 })
   await expect(detail.getByText('所属商品编码不存在', { exact: true })).toBeVisible()

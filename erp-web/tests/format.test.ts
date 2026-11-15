@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   formatMoney,
   formatPrice,
@@ -48,6 +48,17 @@ describe('上海业务时间显示', () => {
       expect(formatDateTimeSeconds(input, now)).toBe('—')
       expect(formatPrintTime(input)).toBe('—')
       expect(formatRelativeTime(input, now)).toBe('—')
+    }
+  })
+  it('导入上传时间按北京时间显示，无时区时间仅提示', () => {
+    expect(formatDateTime('2026-11-15T13:47:00.123Z', now)).toBe('11-15 21:47')
+    expect(formatDateTime('2026-11-15T21:47:00.123+08:00', now)).toBe('11-15 21:47')
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      expect(formatDateTime('2026-11-15T13:47:00.123', now)).toBe('—')
+      expect(warning).toHaveBeenCalledTimes(1)
+    } finally {
+      warning.mockRestore()
     }
   })
 })

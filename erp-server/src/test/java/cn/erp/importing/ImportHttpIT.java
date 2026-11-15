@@ -4,6 +4,7 @@ import cn.erp.ErpApplication;
 import java.net.*;
 import java.net.http.*;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,8 +27,21 @@ class ImportHttpIT extends ImportTestData {
         assertThat(template.statusCode()).isEqualTo(200);assertThat(template.body()).isEqualTo(ImportCsv.template("partner"));
         var created=upload("partner","A,成功单位,,,customer\r\nB,错误角色,,,other",key(),true);
         assertThat(created.statusCode()).isEqualTo(202);String id=json.readTree(created.body()).path("data").path("id").asText();
+        jdbc.update("""
+                UPDATE import_job SET created_at='2026-11-15 13:47:00.123'
+                WHERE tenant_id=? AND company_id=? AND id=?
+                """, tenant, company, id);
         processor.processNext();var result=get("/import-jobs/"+id);
         assertThat(result.statusCode()).isEqualTo(200);assertThat(json.readTree(result.body()).path("data").path("status").asText()).isEqualTo("partial");
+        var list = get("/import-jobs");
+        assertThat(list.statusCode()).isEqualTo(200);
+        var row = json.readTree(list.body()).path("data").path("items").get(0);
+        assertThat(row.path("id").asText()).isEqualTo(id);
+        assertThat(row.path("createdAt").asText()).isEqualTo("2026-11-15T13:47:00.123Z");
+        for (String field : new String[]{"startedAt", "finishedAt"}) {
+            assertThat(row.path(field).asText()).endsWith("Z");
+            assertThat(Instant.parse(row.path(field).asText())).isNotNull();
+        }
         var errors=get("/import-jobs/"+id+"/errors");assertThat(errors.statusCode()).isEqualTo(200);
         assertThat(json.readTree(errors.body()).path("data").path("items").get(0).path("rowNo").asInt()).isEqualTo(3);
         assertThat(result.body()).doesNotContain("storageKey","file_fingerprint","options_json");

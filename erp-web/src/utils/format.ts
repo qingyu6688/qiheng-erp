@@ -23,6 +23,10 @@ export function formatQuantity(value: Quantity | undefined | null, unit = ''): s
 const businessTimeZone = 'Asia/Shanghai'
 function dateParts(value: string | null | undefined): Record<string, string> | undefined {
   if (!value || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return undefined
+  if (!/(?:Z|[+-]\d{2}:\d{2})$/.test(value)) {
+    if (import.meta.env.DEV) console.warn('接口返回的时间缺少时区，已跳过显示。')
+    return undefined
+  }
   const date = new Date(value)
   if (!Number.isFinite(date.getTime())) return undefined
   return Object.fromEntries(
