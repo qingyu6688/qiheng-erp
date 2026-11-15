@@ -81,7 +81,8 @@ public class PurchaseOrderQueries {
         }
         args.add(limit+1);
         var rows=jdbc.queryForList("SELECT * FROM purchase_order"+filter+" ORDER BY id DESC LIMIT ?",args.toArray());
-        var items=rows.stream().limit(limit).map(row->{var item=camel(row);item.put("documentNo",row.get("order_no"));item.put("supplier",reference("business_partner",scope,number(row,"supplier_id")));item.put("allowedActions",actions(scope,row));return item;}).toList();
+        var suppliers=cn.erp.shared.ScopedReferences.load(jdbc,scope,"business_partner",rows.stream().limit(limit).map(row->number(row,"supplier_id")).toList());
+        var items=rows.stream().limit(limit).map(row->{var item=camel(row);item.put("documentNo",row.get("order_no"));item.put("supplier",cn.erp.shared.ScopedReferences.get(suppliers,number(row,"supplier_id")));item.put("allowedActions",actions(scope,row));return item;}).toList();
         return page(items,rows.size()>limit?items.getLast().get("id").toString():null);
     }
 

@@ -13,6 +13,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import static org.assertj.core.api.Assertions.*;
 
@@ -42,7 +43,7 @@ class AccountingIT {
 
     @AfterEach
     void cleanup() {
-        for(String table:List.of("inbox_event","outbox_event","ledger_balance","journal_line","settlement_allocation","partner_open_item","refund_request","receipt","payment","receivable","payable","sales_order","audit_log")) {
+        for(String table:List.of("inbox_event","outbox_event","ledger_balance","ledger_projection_lock","journal_line","settlement_allocation","partner_open_item","refund_request","receipt","payment","receivable","payable","sales_order","audit_log")) {
             if(table.equals("inbox_event")) {jdbc.update("DELETE FROM inbox_event WHERE event_id IN(SELECT id FROM outbox_event WHERE tenant_id=?)",tenant);}
             else {jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);}
         }
@@ -65,6 +66,33 @@ class AccountingIT {
     }
 
     @Test
+    void ledgerReplaysCommittedSourceFromAnOlderRepeatableReadSnapshot() {
+        var posting=posting(Ids.next(),"100.00");
+        var stale=new TransactionTemplate(transactions);
+        stale.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        try(var pool=Executors.newSingleThreadExecutor()) {
+            stale.executeWithoutResult(status->{
+                assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM journal WHERE tenant_id=?",Long.class,tenant)).isZero();
+                var winner=pool.submit(()->ledger.post(scope,posting));
+                try {
+                    long committed=winner.get(10,TimeUnit.SECONDS);
+                    assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM journal WHERE tenant_id=?",Long.class,tenant)).isZero();
+                    assertThat(ledger.post(scope,posting)).isEqualTo(committed);
+                } catch(InterruptedException error) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError("等待并发过账提交时被中断",error);
+                } catch(ExecutionException | TimeoutException error) {
+                    throw new AssertionError("并发过账未提交",error);
+                }
+            });
+        }
+        assertThat(balance()).isEqualByComparingTo("100.00");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM journal WHERE tenant_id=?",Long.class,tenant)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM journal_line WHERE tenant_id=?",Long.class,tenant)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM outbox_event WHERE tenant_id=? AND event_type='journal.posted'",Long.class,tenant)).isEqualTo(1);
+    }
+
+    @Test
     void insufficientFundsAndOuterFailureRollbackJournalLinesCashAndOutbox() {
         assertThatThrownBy(()->ledger.post(scope,new LedgerService.Posting("payment",Ids.next(),0,period,DATE,List.of(line("OTHER_EXPENSE","D","1.00",null),line("FUNDS","C","1.00",account)))))
                 .isInstanceOfSatisfying(ApiException.class,e->assertThat(e.getErrorCode()).isEqualTo("CASH_BALANCE_INSUFFICIENT"));
@@ -83,6 +111,30 @@ class AccountingIT {
         assertThat(balance()).isEqualByComparingTo("0.00");
         jdbc.update("UPDATE accounting_period SET status='closed',closed_at=UTC_TIMESTAMP(3) WHERE id=?",period);
         assertThatThrownBy(()->ledger.post(scope,posting(Ids.next(),"1.00"))).isInstanceOfSatisfying(ApiException.class,e->assertThat(e.getErrorCode()).isEqualTo("PERIOD_CLOSED"));
+    }
+
+    @Test
+    void concurrentReversalFromAnOlderSnapshotCannotReverseTwice() {
+        long original=ledger.post(scope,posting(Ids.next(),"30.00"));
+        var stale=new TransactionTemplate(transactions);
+        stale.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        try(var pool=Executors.newSingleThreadExecutor()) {
+            assertThatThrownBy(()->stale.executeWithoutResult(status->{
+                assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM journal WHERE reverses_journal_id=?",Long.class,original)).isZero();
+                var winner=pool.submit(()->ledger.reverse(scope,original,"document_reversal",Ids.next(),0,period,DATE));
+                try {
+                    winner.get(10,TimeUnit.SECONDS);
+                } catch(InterruptedException error) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError("等待并发冲销提交时被中断",error);
+                } catch(ExecutionException | TimeoutException error) {
+                    throw new AssertionError("并发冲销未提交",error);
+                }
+                ledger.reverse(scope,original,"document_reversal",Ids.next(),0,period,DATE);
+            })).isInstanceOfSatisfying(ApiException.class,error->assertThat(error.getErrorCode()).isEqualTo("STATE_CONFLICT"));
+        }
+        assertThat(balance()).isEqualByComparingTo("0.00");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM journal WHERE reverses_journal_id=?",Long.class,original)).isEqualTo(1);
     }
 
     @Test

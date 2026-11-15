@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -60,9 +61,14 @@ public class LedgerService {
     public long reverse(ActorScope scope,long originalJournalId,String sourceType,long sourceId,int revision,
                         long periodId,LocalDate date) {
         lockOpenPeriod(scope,periodId,date);
-        var original=jdbc.queryForList("SELECT id FROM journal WHERE tenant_id=? AND company_id=? AND id=? AND posting_action='post' FOR UPDATE",scope.tenantId(),scope.companyId(),originalJournalId);
+        // 独占锁放在可更新的公司协调行，凭证本身保持只追加。
+        jdbc.update("""
+                INSERT INTO ledger_projection_lock(tenant_id,company_id) VALUES(?,?)
+                ON DUPLICATE KEY UPDATE company_id=company_id
+                """,scope.tenantId(),scope.companyId());
+        var original=jdbc.queryForList("SELECT id FROM journal WHERE tenant_id=? AND company_id=? AND id=? AND posting_action='post' FOR SHARE",scope.tenantId(),scope.companyId(),originalJournalId);
         if(original.isEmpty()) {throw AccountingAmounts.missing();}
-        var reversals=jdbc.queryForList("SELECT source_type,source_id,source_revision FROM journal WHERE tenant_id=? AND company_id=? AND reverses_journal_id=?",scope.tenantId(),scope.companyId(),originalJournalId);
+        var reversals=jdbc.queryForList("SELECT source_type,source_id,source_revision FROM journal WHERE tenant_id=? AND company_id=? AND reverses_journal_id=? FOR SHARE",scope.tenantId(),scope.companyId(),originalJournalId);
         if(!reversals.isEmpty()) {
             var prior=reversals.getFirst();
             if(!sourceType.equals(prior.get("source_type")) || ((Number)prior.get("source_id")).longValue()!=sourceId || ((Number)prior.get("source_revision")).intValue()!=revision) {throw AccountingAmounts.conflict("原凭证已冲销");}
@@ -76,38 +82,44 @@ public class LedgerService {
         if(debit.signum()<=0 || debit.compareTo(credit)!=0 || (long)debit.precision()-debit.scale()>22) {
             throw AccountingAmounts.invalid("分录借贷必须相等且总金额在允许范围内");
         }
-        var existing=findSource(scope,posting,action);
-        if(!existing.isEmpty()) {return verifyReplay(scope,posting,action,reverses,existing.getFirst());}
+        var existing=findSource(scope,posting,action,false);
+        if(!existing.isEmpty()) {return verifyReplay(scope,posting,reverses,existing.getFirst());}
         lockOpenPeriod(scope,posting.periodId(),posting.businessDate());
-        for(Line line:posting.lines()) {validateDimensions(scope,line);}
+        validateDimensions(scope,posting.lines());
         long id=Ids.next();
-        jdbc.update("""
-                INSERT INTO journal(id,tenant_id,company_id,period_id,business_date,source_type,source_id,
-                  posting_action,source_revision,total_debit,total_credit,reverses_journal_id,posted_at,created_by)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3),?) ON DUPLICATE KEY UPDATE id=id
-                """,id,scope.tenantId(),scope.companyId(),posting.periodId(),posting.businessDate(),posting.sourceType(),posting.sourceId(),action,posting.revision(),debit,credit,reverses,scope.userId());
-        var claimed=jdbc.queryForMap("SELECT * FROM journal WHERE tenant_id=? AND company_id=? AND source_type=? AND source_id=? AND posting_action=? AND source_revision=? FOR UPDATE",
-                scope.tenantId(),scope.companyId(),posting.sourceType(),posting.sourceId(),action,posting.revision());
-        if(((Number)claimed.get("id")).longValue()!=id) {return verifyReplay(scope,posting,action,reverses,claimed);}
-        int number=0;
-        for(Line line:posting.lines()) {
+        try {
             jdbc.update("""
+                    INSERT INTO journal(id,tenant_id,company_id,period_id,business_date,source_type,source_id,
+                      posting_action,source_revision,total_debit,total_credit,reverses_journal_id,posted_at,created_by)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3),?)
+                    """,id,scope.tenantId(),scope.companyId(),posting.periodId(),posting.businessDate(),posting.sourceType(),posting.sourceId(),action,posting.revision(),debit,credit,reverses,scope.userId());
+        } catch(DuplicateKeyException conflict) {
+            // 凭证只追加。共享锁读取最新已提交凭证，避免沿用本事务的旧快照。
+            var claimed=findSource(scope,posting,action,true);
+            if(claimed.isEmpty()) {throw conflict;}
+            return verifyReplay(scope,posting,reverses,claimed.getFirst());
+        }
+        int number=0;var inserts=new ArrayList<Object[]>();
+        for(Line line:posting.lines()) {
+            inserts.add(new Object[]{Ids.next(),scope.tenantId(),scope.companyId(),id,++number,line.accountCode(),line.direction(),line.amount(),line.partnerId(),line.cashAccountId(),line.warehouseId(),line.skuId(),line.sourceLineId(),line.memo()});
+        }
+        jdbc.batchUpdate("""
                     INSERT INTO journal_line(id,tenant_id,company_id,journal_id,line_no,account_code,direction,
                       amount,partner_id,cash_account_id,warehouse_id,sku_id,source_line_id,memo)
                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                    """,Ids.next(),scope.tenantId(),scope.companyId(),id,++number,line.accountCode(),line.direction(),line.amount(),line.partnerId(),line.cashAccountId(),line.warehouseId(),line.skuId(),line.sourceLineId(),line.memo());
-        }
+                    """,inserts);
         applyCash(scope,posting.lines());
         outbox.publish(scope.tenantId(),"journal",id,0,"journal.posted",Map.of("journalId",Long.toString(id)));
         return id;
     }
 
-    private List<Map<String,Object>> findSource(ActorScope scope,Posting posting,String action) {
-        return jdbc.queryForList("SELECT * FROM journal WHERE tenant_id=? AND company_id=? AND source_type=? AND source_id=? AND posting_action=? AND source_revision=?",
+    private List<Map<String,Object>> findSource(ActorScope scope,Posting posting,String action,boolean current) {
+        return jdbc.queryForList("SELECT * FROM journal WHERE tenant_id=? AND company_id=? AND source_type=? AND source_id=? AND posting_action=? AND source_revision=?"
+                        +(current?" FOR SHARE":""),
                 scope.tenantId(),scope.companyId(),posting.sourceType(),posting.sourceId(),action,posting.revision());
     }
 
-    private long verifyReplay(ActorScope scope,Posting posting,String action,Long reverses,Map<String,Object> row) {
+    private long verifyReplay(ActorScope scope,Posting posting,Long reverses,Map<String,Object> row) {
         long id=((Number)row.get("id")).longValue();
         if(((Number)row.get("period_id")).longValue()!=posting.periodId() || !((java.sql.Date)row.get("business_date")).toLocalDate().equals(posting.businessDate()) || !Objects.equals(nullableLong(row.get("reverses_journal_id")),reverses) || !readLines(scope,id).equals(posting.lines())) {
             throw new ApiException(409,"IDEMPOTENCY_KEY_REUSED","同一来源过账的内容不一致");
@@ -120,15 +132,28 @@ public class LedgerService {
                 (r,n)->new Line(r.getString("account_code"),r.getString("direction"),r.getBigDecimal("amount"),nullableLong(r.getObject("partner_id")),nullableLong(r.getObject("cash_account_id")),nullableLong(r.getObject("warehouse_id")),nullableLong(r.getObject("sku_id")),nullableLong(r.getObject("source_line_id")),r.getString("memo")),scope.tenantId(),scope.companyId(),journalId);
     }
 
-    private void validateDimensions(ActorScope scope,Line line) {
-        var accounts=jdbc.queryForList("SELECT needs_partner,needs_cash_account,needs_warehouse FROM ledger_account WHERE code=?",line.accountCode());
-        if(accounts.isEmpty()) {throw AccountingAmounts.invalid("账本账户不存在");}
-        var account=accounts.getFirst();
+    private void validateDimensions(ActorScope scope,List<Line> lines) {
+        var accounts=new HashMap<String,Map<String,Object>>();
+        for(var account:jdbc.queryForList("SELECT code,needs_partner,needs_cash_account,needs_warehouse FROM ledger_account")) {accounts.put(account.get("code").toString(),account);}
+        var partners=new HashSet<Long>();var cash=new HashSet<Long>();var warehouses=new HashSet<Long>();var skus=new HashSet<Long>();
+        for(var line:lines) {
+        var account=accounts.get(line.accountCode());
+        if(account==null) {throw AccountingAmounts.invalid("账本账户不存在");}
         if(flag(account.get("needs_partner")) && line.partnerId()==null || flag(account.get("needs_cash_account")) && line.cashAccountId()==null || flag(account.get("needs_warehouse")) && line.warehouseId()==null) {throw AccountingAmounts.invalid("账本分录缺少必要的业务维度");}
-        if(line.partnerId()!=null) {exists("SELECT COUNT(*) FROM business_partner WHERE tenant_id=? AND id=?",scope.tenantId(),line.partnerId());}
-        if(line.cashAccountId()!=null) {exists("SELECT COUNT(*) FROM cash_account WHERE tenant_id=? AND company_id=? AND id=? AND currency='CNY'",scope.tenantId(),scope.companyId(),line.cashAccountId());}
-        if(line.warehouseId()!=null) {exists("SELECT COUNT(*) FROM warehouse WHERE tenant_id=? AND company_id=? AND id=?",scope.tenantId(),scope.companyId(),line.warehouseId());}
-        if(line.skuId()!=null) {exists("SELECT COUNT(*) FROM sku WHERE tenant_id=? AND id=?",scope.tenantId(),line.skuId());}
+        if(line.partnerId()!=null) {partners.add(line.partnerId());}
+        if(line.cashAccountId()!=null) {cash.add(line.cashAccountId());}
+        if(line.warehouseId()!=null) {warehouses.add(line.warehouseId());}
+        if(line.skuId()!=null) {skus.add(line.skuId());}
+        }
+        dimensions(scope,"business_partner",partners,false,"");dimensions(scope,"cash_account",cash,true," AND currency='CNY'");
+        dimensions(scope,"warehouse",warehouses,true,"");dimensions(scope,"sku",skus,false,"");
+    }
+
+    private void dimensions(ActorScope scope,String table,Set<Long> ids,boolean company,String extra) {
+        if(ids.isEmpty()) {return;}
+        var args=new ArrayList<Object>();args.add(scope.tenantId());if(company) {args.add(scope.companyId());}args.addAll(ids);
+        String filter="tenant_id=?"+(company?" AND company_id=?":"")+" AND id IN ("+String.join(",",Collections.nCopies(ids.size(),"?"))+")"+extra;
+        if(jdbc.queryForObject("SELECT COUNT(*) FROM "+table+" WHERE "+filter,Long.class,args.toArray())!=ids.size()) {throw AccountingAmounts.missing();}
     }
 
     private void applyCash(ActorScope scope,List<Line> lines) {

@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.*;
 class InventoryLockConcurrencyIT extends OrderCreationRaceData {
     @Autowired InventoryStore store;
     @Autowired InventoryService inventory;
+    @Autowired ReservationService reservations;
     @Autowired PlatformTransactionManager transactions;
     private final long[] periods=new long[2],skus=new long[2];
     private final Key[] keys=new Key[2];
@@ -35,7 +36,7 @@ class InventoryLockConcurrencyIT extends OrderCreationRaceData {
     }
 
     @AfterEach void cleanupBalances() {
-        for(String table:List.of("cost_adjustment","inventory_movement","inventory_cost","inventory_balance","accounting_period"))jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
+        for(String table:List.of("inventory_reservation_change","inventory_reservation","sales_order_line","sales_order","cost_adjustment","inventory_movement","inventory_cost","inventory_balance","accounting_period"))jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
     }
 
     @Test void repeatedExistingDimensionLocksAcrossCompaniesCommitOnceWithoutTailGapDeadlock() throws Exception {
@@ -61,6 +62,58 @@ class InventoryLockConcurrencyIT extends OrderCreationRaceData {
         assertThat(balance.onHand()).isEqualByComparingTo("2");assertThat(balance.cost()).isEqualByComparingTo("20");
         assertThat(count("inventory_balance",fresh)).isEqualTo(1);assertThat(count("inventory_cost",fresh)).isEqualTo(1);
         assertThat(count("inventory_movement",fresh)).isEqualTo(2);
+    }
+
+    @Test void bulkLockingMixedExistingAndMissingDimensionsAcrossCompaniesKeepsBothTransactionsAtomic() throws Exception {
+        var ready=new CyclicBarrier(2);
+        var fresh=new Key[]{new Key(warehouses[0],skus[1]),new Key(warehouses[1],skus[0])};
+        race(index->{
+            await(ready);inventory.lockKeys(actors[index],List.of(keys[index],fresh[index]));
+            inventory.receive(actors[index],posting(index,keys[index]),BigDecimal.ONE,new BigDecimal("10"));
+            inventory.receive(actors[index],posting(index,fresh[index]),BigDecimal.ONE,new BigDecimal("10"));
+        });
+        for(int index=0;index<2;index++) {
+            assertThat(inventory.balance(actors[index],keys[index]).onHand()).isEqualByComparingTo("5");
+            var added=inventory.balance(actors[index],fresh[index]);
+            assertThat(added.onHand()).isEqualByComparingTo("1");assertThat(added.cost()).isEqualByComparingTo("10");
+            assertThat(count("inventory_balance",fresh[index])).isEqualTo(1);assertThat(count("inventory_cost",fresh[index])).isEqualTo(1);
+            assertThat(count("inventory_movement",fresh[index])).isEqualTo(1);
+        }
+    }
+
+    @Test void projectingHundredReservationLinesDoesNotWaitForAnotherCompanyReservationLocks() throws Exception {
+        var lines=new ArrayList<List<Long>>();
+        for(int company=0;company<2;company++) {
+            long order=Ids.next();var ids=new ArrayList<Long>();var holds=new ArrayList<ReservationRequest>();
+            jdbc.update("INSERT INTO sales_order(id,tenant_id,company_id,order_no,customer_id,business_date,price_tax_inclusive,status,goods_amount,total_amount,untaxed_amount,revision,approved_at) VALUES(?,?,?,?,?,?,1,'approved',1,1,1,1,UTC_TIMESTAMP(3))",order,tenant,companies[company],"PROJ"+order,partner,DAY);
+            for(int number=1;number<=100;number++) {
+                long line=Ids.next();ids.add(line);
+                jdbc.update("INSERT INTO sales_order_line(id,tenant_id,company_id,order_id,line_no,sku_id,warehouse_id,unit_id,unit_rate,qty,base_qty,unit_price,price_tax_inclusive,amount,line_discount,line_net,order_discount_alloc,receivable_net,tax_rate,untaxed_amount,tax_amount) VALUES(?,?,?,?,?,?,?,?,1,0.01,0.01,1,1,0.01,0,0.01,0,0.01,0,0.01,0)",line,tenant,companies[company],order,number,skus[company],warehouses[company],unit);
+                holds.add(new ReservationRequest(line,keys[company],new BigDecimal("0.01"),java.time.Instant.now().plusSeconds(3600)));
+            }
+            reservations.reserve(actors[company],holds);lines.add(ids);
+        }
+        var held=new CountDownLatch(1);var projected=new CountDownLatch(1);
+        try(var pool=Executors.newFixedThreadPool(2)) {
+            var owner=pool.submit(()->new TransactionTemplate(transactions).executeWithoutResult(status->{
+                jdbc.queryForList("SELECT id FROM inventory_reservation FORCE INDEX(idx_inventory_reservation_line) WHERE tenant_id=? AND company_id=? FOR UPDATE",tenant,companies[0]);
+                held.countDown();await(projected,"本公司投影不应等待另一家公司持有的预留锁");
+            }));
+            var reader=pool.submit(()->{
+                await(held,"未取得另一家公司的预留锁");
+                new TransactionTemplate(transactions).executeWithoutResult(status->{
+                    for(long id:lines.get(1)) {store.lockOrderLine(actors[1],id);}
+                    reservations.refreshLineStates(actors[1],lines.get(1));projected.countDown();
+                });
+            });
+            owner.get(15,TimeUnit.SECONDS);reader.get(15,TimeUnit.SECONDS);
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sales_order_line WHERE tenant_id=? AND company_id=? AND reservation_state='reserved'",Long.class,tenant,companies[1])).isEqualTo(100);
+    }
+
+    private static void await(CountDownLatch latch,String message) {
+        try {if(!latch.await(5,TimeUnit.SECONDS)) {throw new IllegalStateException(message);}}
+        catch(InterruptedException error) {Thread.currentThread().interrupt();throw new IllegalStateException("预留投影并发验收被中断",error);}
     }
 
     private void race(java.util.function.IntConsumer action) throws Exception {

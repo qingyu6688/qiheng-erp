@@ -29,7 +29,7 @@ public class LedgerClosingProjection {
     public void project(CompanyAccess scope,long eventId) {
         var rows=jdbc.queryForList("""
             SELECT e.* FROM outbox_event e JOIN journal j ON j.tenant_id=e.tenant_id AND j.id=e.aggregate_id
-            WHERE e.id=? AND e.tenant_id=? AND j.company_id=? AND e.event_type='journal.posted' FOR UPDATE
+            WHERE e.id=? AND e.tenant_id=? AND j.company_id=? AND e.event_type='journal.posted' FOR UPDATE OF e
             """,eventId,scope.tenantId(),scope.companyId());
         if(rows.isEmpty()) {return;}
         if(!jdbc.queryForList("SELECT id FROM inbox_event WHERE consumer='ledger_projection' AND event_id=? FOR UPDATE",Long.class,eventId).isEmpty()) {return;}

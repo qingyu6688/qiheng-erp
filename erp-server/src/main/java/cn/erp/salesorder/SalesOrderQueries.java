@@ -3,6 +3,7 @@ package cn.erp.salesorder;
 import cn.erp.identity.CompanyAccess;
 import cn.erp.inventory.ReservationService;
 import cn.erp.shared.ApiException;
+import cn.erp.shared.ScopedReferences;
 import java.math.BigDecimal;
 import java.time.*;
 import java.util.*;
@@ -30,7 +31,7 @@ public class SalesOrderQueries {
     }
 
     public List<Map<String,Object>> lines(CompanyAccess scope,long id,boolean lock) {
-        return jdbc.queryForList("SELECT * FROM sales_order_line WHERE tenant_id=? AND company_id=? AND order_id=? AND is_deleted=0 ORDER BY id"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
+        return jdbc.queryForList("SELECT * FROM sales_order_line FORCE INDEX(idx_sales_order_line_order) WHERE tenant_id=? AND company_id=? AND order_id=? AND is_deleted=0 ORDER BY id"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
     }
 
     public Map<String,Object> get(CompanyAccess scope,long id) {
@@ -38,7 +39,17 @@ public class SalesOrderQueries {
         var result=camel(raw);
         result.put("documentNo",raw.get("order_no"));
         result.put("customer",reference("business_partner",scope,number(raw,"customer_id")));
-        result.put("lines",lines(scope,id,false).stream().map(line->lineView(scope,line)).toList());
+        var details=lines(scope,id,false);
+        var skus=ScopedReferences.load(jdbc,scope,"sku",details.stream().map(line->number(line,"sku_id")).toList());
+        var units=ScopedReferences.load(jdbc,scope,"unit",details.stream().map(line->number(line,"unit_id")).toList());
+        var warehouses=ScopedReferences.load(jdbc,scope,"warehouse",details.stream().filter(line->line.get("warehouse_id")!=null).map(line->number(line,"warehouse_id")).toList());
+        var reserved=new HashMap<Long,List<Map<String,Object>>>();
+        for(var row:jdbc.queryForList("""
+            SELECT r.order_line_id,r.status,r.remaining_qty FROM inventory_reservation r
+            JOIN sales_order_line l ON l.tenant_id=r.tenant_id AND l.company_id=r.company_id AND l.id=r.order_line_id
+            WHERE r.tenant_id=? AND r.company_id=? AND l.order_id=? ORDER BY r.id DESC
+            """,scope.tenantId(),scope.companyId(),id)) {reserved.computeIfAbsent(number(row,"order_line_id"),unused->new ArrayList<>()).add(row);}
+        result.put("lines",details.stream().map(line->lineView(line,skus,units,warehouses,reserved.getOrDefault(number(line,"id"),List.of()))).toList());
         result.put("fees",jdbc.queryForList("SELECT * FROM sales_order_fee WHERE tenant_id=? AND company_id=? AND order_id=? ORDER BY id",scope.tenantId(),scope.companyId(),id).stream().map(fee->{
             var row=camel(fee);row.put("recognized",fee.get("recognized_shipment_id")!=null);return row;
         }).toList());
@@ -48,13 +59,13 @@ public class SalesOrderQueries {
         return result;
     }
 
-    private Map<String,Object> lineView(CompanyAccess scope,Map<String,Object> line) {
+    private Map<String,Object> lineView(Map<String,Object> line,Map<Long,Map<String,Object>> skus,
+            Map<Long,Map<String,Object>> units,Map<Long,Map<String,Object>> warehouses,List<Map<String,Object>> reservations) {
         var result=camel(line);
-        result.put("sku",reference("sku",scope,number(line,"sku_id")));
-        result.put("unit",reference("unit",scope,number(line,"unit_id")));
-        result.put("warehouse",line.get("warehouse_id")==null?null:reference("warehouse",scope,number(line,"warehouse_id")));
+        result.put("sku",ScopedReferences.get(skus,number(line,"sku_id")));
+        result.put("unit",ScopedReferences.get(units,number(line,"unit_id")));
+        result.put("warehouse",line.get("warehouse_id")==null?null:ScopedReferences.get(warehouses,number(line,"warehouse_id")));
         result.put("lineDiscountAmount",decimal(line,"line_discount").toPlainString());
-        var reservations=jdbc.queryForList("SELECT status,remaining_qty FROM inventory_reservation WHERE tenant_id=? AND company_id=? AND order_line_id=? ORDER BY id DESC",scope.tenantId(),scope.companyId(),number(line,"id"));
         var reservation=ReservationService.projectLine(reservations);
         result.put("reservationState",reservation.state());
         result.put("reservedQty",reservation.reservedQty().toPlainString());
@@ -87,7 +98,8 @@ public class SalesOrderQueries {
         }
         args.add(limit+1);
         var rows=jdbc.queryForList("SELECT * FROM sales_order"+filter+" ORDER BY id DESC LIMIT ?",args.toArray());
-        var items=rows.stream().limit(limit).map(row->{var item=camel(row);item.put("documentNo",row.get("order_no"));item.put("customer",reference("business_partner",scope,number(row,"customer_id")));item.put("allowedActions",actions(scope,row));return item;}).toList();
+        var customers=ScopedReferences.load(jdbc,scope,"business_partner",rows.stream().limit(limit).map(row->number(row,"customer_id")).toList());
+        var items=rows.stream().limit(limit).map(row->{var item=camel(row);item.put("documentNo",row.get("order_no"));item.put("customer",ScopedReferences.get(customers,number(row,"customer_id")));item.put("allowedActions",actions(scope,row));return item;}).toList();
         return page(items,rows.size()>limit?items.getLast().get("id").toString():null);
     }
 

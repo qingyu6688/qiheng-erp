@@ -236,11 +236,13 @@ public class SalesOrderService {
 
     private void active(CompanyAccess scope,Map<String,Object> order,List<Map<String,Object>> rows,boolean warehouseRequired) {
         partners.requirePartner(scope,number(order,"customer_id"),"customer");
+        catalog.requireActiveSkus(scope,rows.stream().map(row->new CatalogAvailability.SkuUnit(number(row,"sku_id"),number(row,"unit_id"))).toList());
+        var checked=new HashSet<Long>();
         for(var row:rows) {
-            catalog.requireActiveSku(scope,number(row,"sku_id"),number(row,"unit_id"));
             if(row.get("warehouse_id")==null) {if(warehouseRequired) {throw invalid("审批前请为每行指定发货仓库");}continue;}
             long warehouse=number(row,"warehouse_id");
             if(!scope.allowsWarehouse(warehouse)) {throw missing();}
+            if(!checked.add(warehouse)) {continue;}
             if(jdbc.queryForObject("SELECT COUNT(*) FROM warehouse WHERE tenant_id=? AND company_id=? AND id=? AND status='active'",Long.class,scope.tenantId(),scope.companyId(),warehouse)==0) {throw new ApiException(422,"MASTER_DATA_DISABLED","发货仓库不存在或已停用");}
         }
     }

@@ -41,8 +41,15 @@ public class PricingService {
         var partnerDefaults=jdbc.queryForMap("SELECT price_tax_inclusive FROM partner_role WHERE tenant_id=? AND partner_id=? AND role=?",
                 scope.tenantId(),partner,role);
         boolean inclusive=input.priceTaxInclusive()!=null?input.priceTaxInclusive():flag(partnerDefaults.get("price_tax_inclusive"));
+        var keys=new ArrayList<CatalogAvailability.SkuUnit>();var checkedWarehouses=new java.util.HashSet<String>();
+        for(var line:input.lines()) {
+            if(line==null) {throw invalid("商品行不能为空");}
+            keys.add(new CatalogAvailability.SkuUnit(identifier(line.skuId(),"商品"),identifier(line.unitId(),"单位")));
+            if(checkedWarehouses.add(line.warehouseId())) {warehouse(scope,line.warehouseId());}
+        }
+        var defaults=catalog.requireActiveSkus(scope,keys);
         List<PricingModels.Line> lines=new ArrayList<>();
-        for(var line:input.lines()) {lines.add(resolveLine(scope,line,sales));}
+        for(var line:input.lines()) {lines.add(resolveLine(scope,line,sales,defaults.get(new CatalogAvailability.SkuUnit(Long.parseLong(line.skuId()),Long.parseLong(line.unitId())))));}
         List<PricingModels.Fee> fees=new ArrayList<>();
         if(input.fees()!=null) {
             if(input.fees().size()>50) {throw invalid("费用最多50行");}
@@ -55,16 +62,7 @@ public class PricingService {
         return engine.calculate(new PricingModels.Calculation(inclusive,input.orderDiscountAmount(),List.copyOf(lines),List.copyOf(fees)));
     }
 
-    private PricingModels.Line resolveLine(CompanyAccess scope,PricingModels.PreviewLine line,boolean sales) {
-        if(line==null) {throw invalid("商品行不能为空");}
-        long sku=identifier(line.skuId(),"商品"),unit=identifier(line.unitId(),"单位");
-        catalog.requireActiveSku(scope,sku,unit);
-        warehouse(scope,line.warehouseId());
-        Map<String,Object> row=jdbc.queryForMap("""
-                SELECT s.default_tax_rate,s.sale_price,s.purchase_price,c.rate_to_base FROM sku s
-                JOIN unit_conversion c ON c.tenant_id=s.tenant_id AND c.sku_id=s.id AND c.unit_id=?
-                WHERE s.tenant_id=? AND s.id=?
-                """,unit,scope.tenantId(),sku);
+    private PricingModels.Line resolveLine(CompanyAccess scope,PricingModels.PreviewLine line,boolean sales,Map<String,Object> row) {
         String rate=((BigDecimal)row.get("rate_to_base")).toPlainString();
         String price=line.unitPrice();
         if(price==null && line.amountInput()==null) {

@@ -32,6 +32,9 @@ public class ReservationService {
             throw new ApiException(400, "VALIDATION_FAILED", "预留订单行不能重复");
         }
         Map<Long,Map<String,Object>> lines = new HashMap<>();
+        var lineArgs=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId()));
+        lineArgs.addAll(requests.stream().map(ReservationRequest::orderLineId).sorted().toList());
+        for(var row:jdbc.queryForList("SELECT id,order_id,warehouse_id,sku_id,base_qty,closed_base_qty,shipped_base_qty FROM sales_order_line FORCE INDEX(uk_sales_order_line_scope) WHERE tenant_id=? AND company_id=? AND id IN ("+String.join(",",Collections.nCopies(requests.size(),"?"))+") ORDER BY id FOR UPDATE",lineArgs.toArray())) {lines.put(((Number)row.get("id")).longValue(),row);}
         requests.stream().sorted(Comparator.comparingLong(ReservationRequest::orderLineId)).forEach(request -> {
             InventoryNumbers.quantity(request.quantity());
             if(request.key()==null || request.orderLineId()<=0) {
@@ -40,7 +43,8 @@ public class ReservationService {
             if (request.expiresAt() == null || !request.expiresAt().isAfter(Instant.now())) {
                 throw new ApiException(400, "VALIDATION_FAILED", "预留到期时间须晚于当前时间");
             }
-            var line = store.lockOrderLine(scope, request.orderLineId());
+            var line = lines.get(request.orderLineId());
+            if(line==null || line.get("warehouse_id")==null || !scope.allowsWarehouse(((Number)line.get("warehouse_id")).longValue())) {throw missing();}
             if (((Number)line.get("warehouse_id")).longValue()!=request.key().warehouseId() ||
                     ((Number)line.get("sku_id")).longValue() != request.key().skuId()) {
                 throw new ApiException(400, "VALIDATION_FAILED", "预留仓库或商品与订单行不符");
@@ -50,29 +54,35 @@ public class ReservationService {
             if (request.quantity().compareTo(remaining) > 0) { throw insufficient(); }
             lines.put(request.orderLineId(), line);
         });
-        requests.stream().map(ReservationRequest::key).distinct().sorted().forEach(key -> store.ensureAndLockBalance(scope,key));
+        var balances=store.lockMany(scope,requests.stream().map(ReservationRequest::key).toList(),false);
+        var balanceUpdates=new ArrayList<Object[]>();var inserts=new ArrayList<Object[]>();var changes=new ArrayList<Object[]>();var lineUpdates=new ArrayList<Object[]>();
         List<Long> result = new ArrayList<>();
         for (var request : requests) {
             Long active = jdbc.queryForObject("SELECT COUNT(*) FROM inventory_reservation WHERE tenant_id=? AND company_id=? AND order_line_id=? AND status='active'",
                     Long.class,scope.tenantId(),scope.companyId(),request.orderLineId());
             if (active != null && active > 0) { throw new ApiException(409,"STATE_CONFLICT","该订单行已有有效预留"); }
-            int changed = jdbc.update("""
+            var balance=balances.get(request.key());
+            var reserved=decimal(balance,"reserved_qty").add(request.quantity());
+            if(decimal(balance,"on_hand_qty").subtract(decimal(balance,"blocked_qty")).compareTo(reserved)<0) {throw insufficient();}
+            balance.put("reserved_qty",reserved);
+            balanceUpdates.add(new Object[]{request.quantity(),scope.tenantId(),scope.companyId(),request.key().warehouseId(),request.key().skuId(),request.quantity()});
+            long id=Ids.next();
+            inserts.add(new Object[]{id,scope.tenantId(),scope.companyId(),request.orderLineId(),request.key().warehouseId(),request.key().skuId(),request.quantity(),request.quantity(),Timestamp.from(request.expiresAt()),scope.userId()});
+            changes.add(new Object[]{Ids.next(),scope.tenantId(),scope.companyId(),id,request.quantity(),((Number)lines.get(request.orderLineId()).get("order_id")).longValue(),request.orderLineId(),scope.userId()});
+            lineUpdates.add(new Object[]{scope.tenantId(),scope.companyId(),request.orderLineId()});
+            result.add(id);
+        }
+        for(int changed:jdbc.batchUpdate("""
                     UPDATE inventory_balance SET reserved_qty=reserved_qty+?,version=version+1
                     WHERE tenant_id=? AND company_id=? AND warehouse_id=? AND sku_id=? AND location_key='' AND lot_key=''
                       AND on_hand_qty-reserved_qty-blocked_qty>=?
-                    """,request.quantity(),scope.tenantId(),scope.companyId(),request.key().warehouseId(),request.key().skuId(),request.quantity());
-            if (changed != 1) { throw insufficient(); }
-            long id=Ids.next();
-            jdbc.update("""
+                    """,balanceUpdates)) {if(changed!=1) {throw insufficient();}}
+        jdbc.batchUpdate("""
                     INSERT INTO inventory_reservation(id,tenant_id,company_id,order_line_id,warehouse_id,sku_id,
                         reserved_qty,remaining_qty,expire_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)
-                    """,id,scope.tenantId(),scope.companyId(),request.orderLineId(),request.key().warehouseId(),
-                    request.key().skuId(),request.quantity(),request.quantity(),Timestamp.from(request.expiresAt()),scope.userId());
-            store.reservationChange(scope,id,"reserve",request.quantity(),
-                    new Source("sales_order",((Number)lines.get(request.orderLineId()).get("order_id")).longValue(),request.orderLineId()));
-            refreshLineState(scope,request.orderLineId());
-            result.add(id);
-        }
+                    """,inserts);
+        jdbc.batchUpdate("INSERT INTO inventory_reservation_change(id,tenant_id,company_id,reservation_id,change_type,qty_delta,source_type,source_id,source_line_id,created_by) VALUES(?,?,?,?,'reserve',?,'sales_order',?,?,?)",changes);
+        jdbc.batchUpdate("UPDATE sales_order_line SET reservation_state='reserved',version=version+1 WHERE tenant_id=? AND company_id=? AND id=?",lineUpdates);
         return List.copyOf(result);
     }
 
@@ -132,6 +142,15 @@ public class ReservationService {
     public void refreshLineState(CompanyAccess scope,long lineId) {
         var rows=jdbc.queryForList("SELECT status,remaining_qty FROM inventory_reservation WHERE tenant_id=? AND company_id=? AND order_line_id=? ORDER BY id DESC FOR UPDATE",scope.tenantId(),scope.companyId(),lineId);
         jdbc.update("UPDATE sales_order_line SET reservation_state=?,version=version+1 WHERE tenant_id=? AND company_id=? AND id=?",projectLine(rows).cachedState(),scope.tenantId(),scope.companyId(),lineId);
+    }
+
+    public void refreshLineStates(CompanyAccess scope,List<Long> lineIds) {
+        if(lineIds.isEmpty()) {return;}
+        var ids=lineIds.stream().distinct().sorted().toList();var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId()));args.addAll(ids);
+        var grouped=new HashMap<Long,List<Map<String,Object>>>();
+        // 排序不能让优化器改走全表主键扫描，否则会锁住其他公司的预留并形成锁环。
+        for(var row:jdbc.queryForList("SELECT order_line_id,status,remaining_qty FROM inventory_reservation FORCE INDEX(idx_inventory_reservation_line) WHERE tenant_id=? AND company_id=? AND order_line_id IN ("+String.join(",",Collections.nCopies(ids.size(),"?"))+") ORDER BY order_line_id,id DESC FOR UPDATE",args.toArray())) {grouped.computeIfAbsent(((Number)row.get("order_line_id")).longValue(),unused->new ArrayList<>()).add(row);}
+        jdbc.batchUpdate("UPDATE sales_order_line SET reservation_state=?,version=version+1 WHERE tenant_id=? AND company_id=? AND id=?",ids.stream().map(id->new Object[]{projectLine(grouped.getOrDefault(id,List.of())).cachedState(),scope.tenantId(),scope.companyId(),id}).toList());
     }
 
     public record LineProjection(String state,String cachedState,BigDecimal reservedQty) {}

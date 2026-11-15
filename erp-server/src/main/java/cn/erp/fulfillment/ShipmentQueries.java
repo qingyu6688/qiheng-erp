@@ -21,9 +21,40 @@ public class ShipmentQueries {
         return rows.getFirst();
     }
 
-    public List<Map<String,Object>> lines(CompanyAccess scope,long id,boolean lock) {
-        return jdbc.queryForList("SELECT * FROM shipment_line WHERE tenant_id=? AND company_id=? AND shipment_id=? ORDER BY order_line_id,id"+(lock?" FOR UPDATE":""),
-                scope.tenantId(),scope.companyId(),id);
+    record LineReference(long id,long orderLineId) {}
+
+    List<LineReference> lineReferences(CompanyAccess scope,long shipment) {
+        return jdbc.query("""
+                SELECT id,order_line_id FROM shipment_line
+                WHERE tenant_id=? AND company_id=? AND shipment_id=?
+                ORDER BY order_line_id,id
+                """,(row,index)->new LineReference(row.getLong("id"),row.getLong("order_line_id")),
+                scope.tenantId(),scope.companyId(),shipment);
+    }
+
+    List<Map<String,Object>> lockLines(CompanyAccess scope,long shipment,List<LineReference> references) {
+        if(references.isEmpty()) {return List.of();}
+        var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),shipment));
+        references.forEach(reference->args.add(reference.id()));
+        String ids=String.join(",",Collections.nCopies(references.size(),"?"));
+        // 单头锁保护明细集合，按已有明细的唯一键加锁，避免锁住其他发货单的索引区间。
+        return jdbc.queryForList("""
+                SELECT * FROM shipment_line FORCE INDEX (uk_shipment_line_scope)
+                WHERE tenant_id=? AND company_id=? AND shipment_id=? AND id IN (%s)
+                ORDER BY order_line_id,id FOR UPDATE
+                """.formatted(ids),args.toArray());
+    }
+
+    private List<Map<String,Object>> detailLines(CompanyAccess scope,long shipment) {
+        return jdbc.queryForList("""
+                SELECT l.*,s.name AS sku_name,u.name AS unit_name,h.order_no FROM shipment_line l
+                JOIN sku s ON s.tenant_id=l.tenant_id AND s.id=l.sku_id
+                JOIN unit u ON u.tenant_id=l.tenant_id AND u.id=l.unit_id
+                JOIN sales_order_line ol ON ol.tenant_id=l.tenant_id AND ol.company_id=l.company_id AND ol.id=l.order_line_id
+                JOIN sales_order h ON h.tenant_id=ol.tenant_id AND h.company_id=ol.company_id AND h.id=ol.order_id
+                WHERE l.tenant_id=? AND l.company_id=? AND l.shipment_id=?
+                ORDER BY l.order_line_id,l.id
+                """,scope.tenantId(),scope.companyId(),shipment);
     }
 
     public Map<String,Object> get(CompanyAccess scope,long id) {
@@ -35,7 +66,7 @@ public class ShipmentQueries {
         result.put("customerName",jdbc.queryForObject("SELECT name FROM business_partner WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),header.get("customer_id")));
         result.put("warehouseName",jdbc.queryForObject("SELECT name FROM warehouse WHERE tenant_id=? AND company_id=? AND id=?",String.class,scope.tenantId(),scope.companyId(),header.get("warehouse_id")));
         if(scope.hasPermission("cost:view")) {put(result,header,"cost_amount","signed_cost_amount");}
-        result.put("lines",lines(scope,id,false).stream().map(row->lineView(scope,row)).toList());
+        result.put("lines",detailLines(scope,id).stream().map(row->lineView(scope,row)).toList());
         result.put("recognizedFees",jdbc.queryForList("SELECT id AS fee_id,total_amount AS amount,untaxed_amount,tax_amount FROM sales_order_fee WHERE tenant_id=? AND company_id=? AND recognized_shipment_id=? ORDER BY id",
                 scope.tenantId(),scope.companyId(),id).stream().map(row->{var fee=new LinkedHashMap<String,Object>();put(fee,row,"fee_id","amount","untaxed_amount","tax_amount");return fee;}).toList());
         result.put("autoAllocations",jdbc.queryForList("""
@@ -58,9 +89,9 @@ public class ShipmentQueries {
         line.put("signedQty",decimal(row,"signed_base_qty").toPlainString());
         line.put("diffQty",decimal(row,"diff_base_qty").toPlainString());
         line.put("returnableQty",decimal(row,"signed_base_qty").subtract(decimal(row,"returned_base_qty")).subtract(decimal(row,"pending_return_base_qty")).toPlainString());
-        line.put("skuName",jdbc.queryForObject("SELECT name FROM sku WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),row.get("sku_id")));
-        line.put("unitName",jdbc.queryForObject("SELECT name FROM unit WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),row.get("unit_id")));
-        line.put("orderNo",jdbc.queryForObject("SELECT h.order_no FROM sales_order_line l JOIN sales_order h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.order_id WHERE l.tenant_id=? AND l.company_id=? AND l.id=?",String.class,scope.tenantId(),scope.companyId(),row.get("order_line_id")));
+        line.put("skuName",row.containsKey("sku_name")?row.get("sku_name"):jdbc.queryForObject("SELECT name FROM sku WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),row.get("sku_id")));
+        line.put("unitName",row.containsKey("unit_name")?row.get("unit_name"):jdbc.queryForObject("SELECT name FROM unit WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),row.get("unit_id")));
+        line.put("orderNo",row.containsKey("order_no")?row.get("order_no"):jdbc.queryForObject("SELECT h.order_no FROM sales_order_line l JOIN sales_order h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.order_id WHERE l.tenant_id=? AND l.company_id=? AND l.id=?",String.class,scope.tenantId(),scope.companyId(),row.get("order_line_id")));
         if(scope.hasPermission("cost:view")) {put(line,row,"unit_cost","cost_amount","signed_cost_amount","diff_cost_amount");}
         return line;
     }

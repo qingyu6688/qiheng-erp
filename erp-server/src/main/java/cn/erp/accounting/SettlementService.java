@@ -36,6 +36,53 @@ public class SettlementService {
         return ((Number)row.get("id")).longValue();
     }
 
+    /** 发货签收的应收批量生成，来源金额、账龄和方向逐项核对。 */
+    public Map<Long,Long> openReceivables(ActorScope scope,List<OpenItem> inputs) {
+        if(inputs.isEmpty()) {return Map.of();}
+        if(inputs.size()>550 || inputs.stream().anyMatch(input->!"receivable".equals(input.itemType()) || !"D".equals(input.direction())) || inputs.stream().map(OpenItem::sourceId).distinct().count()!=inputs.size()) {throw AccountingAmounts.invalid("批量应收未清项无效");}
+        var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId()));args.addAll(inputs.stream().map(OpenItem::sourceId).toList());
+        String filter="tenant_id=? AND company_id=? AND "+"id IN ("+String.join(",",Collections.nCopies(inputs.size(),"?"))+")";
+        var sources=new HashMap<Long,Map<String,Object>>();
+        for(var row:jdbc.queryForList("SELECT * FROM receivable WHERE "+filter,args.toArray())) {sources.put(((Number)row.get("id")).longValue(),row);}
+        var inserts=new ArrayList<Object[]>();
+        for(var input:inputs) {
+            var row=sources.get(input.sourceId());if(row==null) {throw AccountingAmounts.missing();}
+            if(!"charge".equals(row.get("kind")) || ((Number)row.get("customer_id")).longValue()!=input.partnerId() || ((BigDecimal)row.get("amount")).compareTo(input.amount())!=0 || !((java.sql.Date)row.get("business_date")).toLocalDate().equals(input.agingDate())) {throw AccountingAmounts.invalid("应收未清项与来源不一致");}
+            inserts.add(new Object[]{Ids.next(),scope.tenantId(),scope.companyId(),input.partnerId(),input.sourceId(),input.amount(),input.amount(),input.agingDate()});
+        }
+        jdbc.batchUpdate("INSERT INTO partner_open_item(id,tenant_id,company_id,partner_id,item_type,source_id,direction,amount,open_amount,aging_date) VALUES(?,?,?,?,'receivable',?,'D',?,?,?) ON DUPLICATE KEY UPDATE id=id",inserts);
+        var result=new HashMap<Long,Long>();
+        for(var row:jdbc.queryForList("SELECT * FROM partner_open_item FORCE INDEX(uk_partner_open_item_source) WHERE tenant_id=? AND company_id=? AND item_type='receivable' AND source_id IN ("+String.join(",",Collections.nCopies(inputs.size(),"?"))+") ORDER BY source_id FOR UPDATE",args.toArray())) {
+            long source=((Number)row.get("source_id")).longValue();var input=inputs.stream().filter(item->item.sourceId()==source).findFirst().orElseThrow();
+            if(((Number)row.get("partner_id")).longValue()!=input.partnerId() || !"D".equals(row.get("direction")) || ((BigDecimal)row.get("amount")).compareTo(input.amount())!=0 || !((java.sql.Date)row.get("aging_date")).toLocalDate().equals(input.agingDate())) {throw new ApiException(409,"IDEMPOTENCY_KEY_REUSED","同一来源的未清项内容不一致");}
+            result.put(source,((Number)row.get("id")).longValue());
+        }
+        return result;
+    }
+
+    /** 统一锁定本批未清项，在内存分摊已确认关联预收，最后按原条件扣减。 */
+    public void autoAllocateOrders(ActorScope scope,Map<Long,List<Long>> debitsByOrder) {
+        var creditsByOrder=new LinkedHashMap<Long,List<Long>>();var ids=new TreeSet<Long>();
+        for(var entry:debitsByOrder.entrySet()) {
+            var credits=jdbc.queryForList("SELECT p.id FROM partner_open_item p JOIN receipt r ON r.tenant_id=p.tenant_id AND r.company_id=p.company_id AND p.item_type='receipt' AND r.id=p.source_id WHERE p.tenant_id=? AND p.company_id=? AND r.related_order_id=? AND r.receipt_type='customer' AND r.status='confirmed' AND p.open_amount>0 ORDER BY r.business_date,r.id",Long.class,scope.tenantId(),scope.companyId(),entry.getKey());
+            creditsByOrder.put(entry.getKey(),credits);ids.addAll(entry.getValue());ids.addAll(credits);
+        }
+        if(ids.isEmpty()) {return;}
+        var items=lockItems(scope,ids.stream().mapToLong(Long::longValue).toArray());var reductions=new TreeMap<Long,BigDecimal>();var allocations=new ArrayList<Object[]>();
+        for(var entry:debitsByOrder.entrySet()) {for(long debitId:entry.getValue()) {for(long creditId:creditsByOrder.get(entry.getKey())) {
+            var debit=items.get(debitId);var credit=items.get(creditId);
+            if(!"receivable".equals(debit.get("item_type")) || !"D".equals(debit.get("direction")) || !"receipt".equals(credit.get("item_type")) || !"C".equals(credit.get("direction")) || !debit.get("partner_id").equals(credit.get("partner_id")) || !debit.get("currency").equals(credit.get("currency"))) {throw new ApiException(422,"SETTLEMENT_NOT_ALLOWED","核销双方须同公司、同往来、同币种、同往来侧且一借一贷");}
+            BigDecimal amount=((BigDecimal)debit.get("open_amount")).min((BigDecimal)credit.get("open_amount"));
+            if(amount.signum()<=0) {continue;}
+            debit.put("open_amount",((BigDecimal)debit.get("open_amount")).subtract(amount));credit.put("open_amount",((BigDecimal)credit.get("open_amount")).subtract(amount));
+            reductions.merge(debitId,amount,BigDecimal::add);reductions.merge(creditId,amount,BigDecimal::add);
+            allocations.add(new Object[]{Ids.next(),scope.tenantId(),scope.companyId(),debit.get("partner_id"),debit.get("currency"),debitId,creditId,amount,entry.getKey(),scope.userId()});
+        }}}
+        if(reductions.isEmpty()) {return;}
+        for(int changed:jdbc.batchUpdate("UPDATE partner_open_item SET open_amount=open_amount-?,version=version+1 WHERE tenant_id=? AND company_id=? AND id=? AND open_amount>=?",reductions.entrySet().stream().map(entry->new Object[]{entry.getValue(),scope.tenantId(),scope.companyId(),entry.getKey(),entry.getValue()}).toList())) {if(changed!=1) {throw new ApiException(422,"SETTLEMENT_AMOUNT_EXCEEDED","核销金额超过剩余额");}}
+        jdbc.batchUpdate("INSERT INTO settlement_allocation(id,tenant_id,company_id,partner_id,currency,debit_item_id,credit_item_id,amount,status,allocation_type,trigger_type,trigger_id,created_by) VALUES(?,?,?,?,?,?,?,?,'active','auto_order','sales_order',?,?)",allocations);
+    }
+
     public long allocate(ActorScope scope,long debitItemId,long creditItemId,BigDecimal amount,
                          String type,String triggerType,Long triggerId) {
         if(type==null || !Set.of("manual","auto_order","reversal").contains(type)) {throw AccountingAmounts.invalid("核销方式无效");}
@@ -113,10 +160,10 @@ public class SettlementService {
 
     Map<Long,Map<String,Object>> lockItems(ActorScope scope,long... ids) {
         var result=new LinkedHashMap<Long,Map<String,Object>>();
+        // 未清项可跨不同来源类型，保留完整主键逐点锁，不能为了批量化锁入其他往来或公司。
         Arrays.stream(ids).sorted().distinct().forEach(id->{
             var rows=jdbc.queryForList("SELECT * FROM partner_open_item WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",scope.tenantId(),scope.companyId(),id);
-            if(rows.isEmpty()) {throw AccountingAmounts.missing();}
-            result.put(id,rows.getFirst());
+            if(rows.isEmpty()) {throw AccountingAmounts.missing();}result.put(id,rows.getFirst());
         });
         return result;
     }

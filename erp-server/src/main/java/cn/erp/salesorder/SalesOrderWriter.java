@@ -48,6 +48,7 @@ class SalesOrderWriter {
         Map<Long,Map<String,Object>> oldById=new HashMap<>();old.forEach(r->oldById.put(number(r,"id"),r));
         Set<Long> kept=new HashSet<>();
         int last=newOrder?0:jdbc.queryForObject("SELECT COALESCE(MAX(line_no),0) FROM sales_order_line WHERE order_id=?",Integer.class,orderId);
+        var inserts=new ArrayList<Object[]>();
         for(int i=0;i<preview.lines().size();i++) {
             var source=input.lines().get(i);var line=preview.lines().get(i);
             Long id=null;
@@ -59,13 +60,9 @@ class SalesOrderWriter {
             if(id!=null && (!oldById.containsKey(id)||!kept.add(id))) {throw invalid("订单行不属于当前订单或重复");}
             if(id==null) {
                 id=Ids.next();kept.add(id);
-                jdbc.update("""
-                    INSERT INTO sales_order_line(id,tenant_id,company_id,order_id,line_no,sku_id,warehouse_id,unit_id,unit_rate,
-                      qty,base_qty,unit_price,price_tax_inclusive,amount,line_discount,line_net,order_discount_alloc,receivable_net,tax_rate,
-                      untaxed_amount,tax_amount,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                    """,id,scope.tenantId(),scope.companyId(),orderId,++last,identifier(line.skuId()),nullableId(line.warehouseId()),identifier(line.unitId()),line.unitRate(),
+                inserts.add(new Object[]{id,scope.tenantId(),scope.companyId(),orderId,++last,identifier(line.skuId()),nullableId(line.warehouseId()),identifier(line.unitId()),line.unitRate(),
                     line.qty(),line.baseQty(),line.unitPrice(),line.priceTaxInclusive(),line.amount(),line.lineDiscountAmount(),line.lineNet(),line.orderDiscountAlloc(),
-                    line.receivableNet(),line.taxRate(),line.untaxedAmount(),line.taxAmount(),scope.userId(),scope.userId());
+                    line.receivableNet(),line.taxRate(),line.untaxedAmount(),line.taxAmount(),scope.userId(),scope.userId()});
             } else {
                 var before=oldById.get(id);
                 var minimum=decimal(before,"shipped_base_qty").add(decimal(before,"pending_ship_base_qty")).add(decimal(before,"closed_base_qty"));
@@ -80,6 +77,7 @@ class SalesOrderWriter {
                     scope.userId(),scope.tenantId(),scope.companyId(),orderId,id);
             }
         }
+        if(!inserts.isEmpty()) {jdbc.batchUpdate("INSERT INTO sales_order_line(id,tenant_id,company_id,order_id,line_no,sku_id,warehouse_id,unit_id,unit_rate,qty,base_qty,unit_price,price_tax_inclusive,amount,line_discount,line_net,order_discount_alloc,receivable_net,tax_rate,untaxed_amount,tax_amount,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",inserts);}
         for(var row:old) {if(!kept.contains(number(row,"id"))) {
             if(decimal(row,"shipped_base_qty").signum()>0 || decimal(row,"pending_ship_base_qty").signum()>0) {throw new ApiException(422,"CHANGE_NOT_ALLOWED","已发或待发的订单行不能删除");}
             jdbc.update("UPDATE sales_order_line SET is_deleted=1,version=version+1 WHERE id=?",number(row,"id"));

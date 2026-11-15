@@ -27,8 +27,8 @@ public class InventoryService {
     /** 调用者按仓库、SKU 排序传入整笔单据涉及的键，锁持续到外层事务提交。 */
     public void lockKeys(CompanyAccess scope,List<Key> keys) {
         if(keys==null || keys.size()>2000 || keys.stream().anyMatch(Objects::isNull)) {throw invalid("库存锁定范围无效");}
-        keys.stream().distinct().sorted().forEach(key->store.ensureAndLockBalance(scope,key));
-        keys.stream().distinct().sorted().forEach(key->store.lockCost(scope,key));
+        store.lockMany(scope,keys,false);
+        store.lockMany(scope,keys,true);
     }
 
     public CostResult receive(CompanyAccess scope,Posting posting,BigDecimal quantity,BigDecimal cost) {

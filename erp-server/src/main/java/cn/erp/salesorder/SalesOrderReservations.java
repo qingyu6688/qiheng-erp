@@ -74,11 +74,16 @@ class SalesOrderReservations {
 
     void reserveAll(CompanyAccess scope,List<Map<String,Object>> lines,Instant expiry,long orderId) {
         inventory.lockKeys(scope,lines.stream().map(SalesOrderReservations::key).toList());
+        var fresh=new ArrayList<ReservationRequest>();
         for(var line:lines) {
             var reservation=active(scope,number(line,"id"));
             BigDecimal needed=remaining(line).subtract(reservation==null?BigDecimal.ZERO:decimal(reservation,"remaining_qty"));
-            if(needed.signum()>0) {increase(scope,line,reservation,needed,expiry,new Source("sales_order",orderId,Ids.next()));}
+            if(needed.signum()>0) {
+                if(reservation==null) {fresh.add(new ReservationRequest(number(line,"id"),key(line),needed,expiry));}
+                else {increase(scope,line,reservation,needed,expiry,new Source("sales_order",orderId,Ids.next()));}
+            }
         }
+        if(!fresh.isEmpty()) {reservations.reserve(scope,fresh);}
     }
 
     private void increase(CompanyAccess scope,Map<String,Object> line,Map<String,Object> reservation,BigDecimal delta,Instant expiry,Source source) {

@@ -35,13 +35,14 @@ public class ShipmentService {
     private final AuditService audit;
     private final SalesOrderQueries orders;
     private final ReservationService reservations;
+    private final SalesStockPosting stockPosting;
 
     public ShipmentService(JdbcTemplate jdbc,ShipmentQueries queries,InventoryService inventory,
             OrderLineOccupancy occupancy,CatalogAvailability catalog,ReferenceAvailability reference,
             LedgerService ledger,SettlementService settlement,DocumentNumbers numbers,
-            BusinessCommands commands,AuditService audit,SalesOrderQueries orders,ReservationService reservations) {
+            BusinessCommands commands,AuditService audit,SalesOrderQueries orders,ReservationService reservations,SalesStockPosting stockPosting) {
         this.jdbc=jdbc;this.queries=queries;this.inventory=inventory;this.occupancy=occupancy;this.catalog=catalog;
-        this.reference=reference;this.ledger=ledger;this.settlement=settlement;this.numbers=numbers;this.commands=commands;this.audit=audit;this.orders=orders;this.reservations=reservations;
+        this.reference=reference;this.ledger=ledger;this.settlement=settlement;this.numbers=numbers;this.commands=commands;this.audit=audit;this.orders=orders;this.reservations=reservations;this.stockPosting=stockPosting;
     }
 
     public Map<String,Object> create(CompanyAccess scope,String key,ShipmentModels.Input input) {
@@ -83,12 +84,15 @@ public class ShipmentService {
             var before=queries.header(scope,id,true);version(version,before);
             if(!"draft".equals(before.get("status"))) {throw state();}
             var lines=lockLines(scope,id);
+            var sources=sources(scope,lines.stream().map(line->id(line,"order_line_id")).toList(),true);
+            catalog.requireActiveSkus(scope,lines.stream().map(line->new CatalogAvailability.SkuUnit(id(line,"sku_id"),id(line,"unit_id"))).toList());
+            var occupied=new LinkedHashMap<Long,BigDecimal>();
             for(var line:lines) {
-                var source=source(scope,id(line,"order_line_id"),true);
+                var source=sources.get(id(line,"order_line_id"));
                 validateSource(scope,before,source);
-                catalog.requireActiveSku(scope,id(line,"sku_id"),id(line,"unit_id"));
-                occupancy.occupy(scope,id(line,"order_line_id"),decimal(line,"base_qty"));
+                occupied.put(id(line,"order_line_id"),decimal(line,"base_qty"));
             }
+            occupancy.occupyAll(scope,occupied);
             jdbc.update("UPDATE shipment SET status='submitted',submitted_at=UTC_TIMESTAMP(3),version=version+1,updated_by=? WHERE id=?",scope.userId(),id);
             changed(scope,id,"submit",before);return safe(scope,id);
         });
@@ -114,25 +118,31 @@ public class ShipmentService {
             var before=queries.header(scope,id,true);version(expectedVersion,before);
             if(!"submitted".equals(before.get("status"))) {throw state();}
             var lines=lockLines(scope,id);
-            inventory.lockKeys(scope,lines.stream().map(line->new Key(id(before,"warehouse_id"),id(line,"sku_id"))).toList());
+            var activeReservations=new HashMap<Long,Long>();
+            for(var row:jdbc.queryForList("SELECT r.order_line_id,r.id FROM inventory_reservation r JOIN shipment_line sl ON sl.tenant_id=r.tenant_id AND sl.company_id=r.company_id AND sl.order_line_id=r.order_line_id WHERE r.tenant_id=? AND r.company_id=? AND sl.shipment_id=? AND r.status='active' ORDER BY r.id",scope.tenantId(),scope.companyId(),id)) {activeReservations.putIfAbsent(id(row,"order_line_id"),id(row,"id"));}
+            var issues=new ArrayList<SalesStockPosting.Issue>();
+            var sources=sources(scope,lines.stream().map(line->id(line,"order_line_id")).toList(),true);
+            for(var line:lines) {
+                var source=sources.get(id(line,"order_line_id"));validateSource(scope,before,source,true);
+                var posting=new Posting(new Key(id(before,"warehouse_id"),id(line,"sku_id")),new Source("shipment_line",id,id(line,"id")),date(before,"business_date"),period,"sales_out");
+                issues.add(new SalesStockPosting.Issue(posting,decimal(line,"base_qty"),activeReservations.get(id(line,"order_line_id"))));
+            }
+            var costs=stockPosting.issue(scope,issues);int costIndex=0;
+            var completed=new LinkedHashMap<Long,BigDecimal>();
+            var costUpdates=new ArrayList<Object[]>();
             var entries=new ArrayList<LedgerService.Line>();BigDecimal total=ZERO;
             for(var line:lines) {
-                var source=source(scope,id(line,"order_line_id"),true);validateSource(scope,before,source,true);
-                Long reservation=jdbc.queryForList("""
-                        SELECT id FROM inventory_reservation WHERE tenant_id=? AND company_id=? AND order_line_id=? AND status='active' ORDER BY id
-                        """,Long.class,scope.tenantId(),scope.companyId(),line.get("order_line_id")).stream().findFirst().orElse(null);
-                var posting=new Posting(new Key(id(before,"warehouse_id"),id(line,"sku_id")),new Source("shipment_line",id,id(line,"id")),
-                        date(before,"business_date"),period,"sales_out");
-                var cost=inventory.issue(scope,posting,decimal(line,"base_qty"),reservation);
-                occupancy.complete(scope,id(line,"order_line_id"),decimal(line,"base_qty"));
-                jdbc.update("UPDATE shipment_line SET unit_cost=?,cost_amount=?,version=version+1,updated_by=? WHERE id=?",
-                        cost.unitCost(),cost.movementCost(),scope.userId(),line.get("id"));
+                var cost=costs.get(costIndex++);
+                completed.put(id(line,"order_line_id"),decimal(line,"base_qty"));
+                costUpdates.add(new Object[]{cost.unitCost(),cost.movementCost(),scope.userId(),line.get("id")});
                 total=total.add(cost.movementCost());
                 add(entries,"GOODS_SHIPPED","D",cost.movementCost(),null,id(before,"warehouse_id"),id(line,"sku_id"),id(line,"id"));
                 add(entries,"INVENTORY","C",cost.movementCost(),null,id(before,"warehouse_id"),id(line,"sku_id"),id(line,"id"));
                 add(entries,"INVENTORY","D",cost.adjustment(),null,id(before,"warehouse_id"),id(line,"sku_id"),id(line,"id"));
                 add(entries,"COST_VARIANCE","C",cost.adjustment(),null,null,null,id(line,"id"));
             }
+            jdbc.batchUpdate("UPDATE shipment_line SET unit_cost=?,cost_amount=?,version=version+1,updated_by=? WHERE id=?",costUpdates);
+            occupancy.completeAll(scope,completed);
             postJournal(scope,"shipment_post",id,0,period,date(before,"business_date"),entries);
             jdbc.update("UPDATE shipment SET status='posted',cost_amount=?,period_id=?,posted_by=?,posted_at=UTC_TIMESTAMP(3),version=version+1,updated_by=? WHERE id=?",
                     total,period,scope.userId(),scope.userId(),id);
@@ -174,10 +184,13 @@ public class ShipmentService {
         BigDecimal total=ZERO,tax=ZERO,cost=ZERO;boolean hasDifference=false;
         var entries=new ArrayList<LedgerService.Line>();
         var signedOrders=new TreeSet<Long>();
+        var receivables=new ArrayList<ReceivableInput>();
+        var sources=sources(scope,lines.stream().map(line->id(line,"order_line_id")).toList(),true);
+        var shipmentUpdates=new ArrayList<Object[]>();var orderUpdates=new ArrayList<Object[]>();
         for(var line:lines) {
             BigDecimal qty=signed.get(id(line,"id")),sent=decimal(line,"base_qty");
             if(qty.compareTo(sent)>0) {throw new ApiException(422,"SIGN_QTY_EXCEEDED","签收数量不能超过发货数量");}
-            var source=source(scope,id(line,"order_line_id"),true);
+            var source=sources.get(id(line,"order_line_id"));
             BigDecimal cumulative=decimal(source,"signed_base_qty").add(qty);
             BigDecimal amount=decimal(source,"receivable_net").multiply(cumulative).divide(decimal(source,"base_qty"),2,RoundingMode.HALF_UP).subtract(decimal(source,"recognized_amount"));
             BigDecimal taxAmount=decimal(source,"tax_amount").multiply(cumulative).divide(decimal(source,"base_qty"),2,RoundingMode.HALF_UP).subtract(decimal(source,"recognized_tax"));
@@ -185,18 +198,10 @@ public class ShipmentService {
             BigDecimal signedCost=qty.compareTo(sent)==0?decimal(line,"cost_amount"):decimal(line,"unit_cost").multiply(qty).setScale(2,RoundingMode.HALF_UP).min(decimal(line,"cost_amount"));
             BigDecimal diff=sent.subtract(qty),diffCost=decimal(line,"cost_amount").subtract(signedCost);
             hasDifference|=diff.signum()>0;
-            jdbc.update("""
-                    UPDATE shipment_line SET signed_base_qty=?,diff_base_qty=?,diff_disposition=?,receivable_amount=?,tax_amount=?,untaxed_amount=?,
-                    signed_cost_amount=?,diff_cost_amount=?,version=version+1,updated_by=? WHERE id=?
-                    """,qty,diff,diff.signum()==0?"none":"pending",amount,taxAmount,amount.subtract(taxAmount),signedCost,diffCost,scope.userId(),line.get("id"));
-            jdbc.update("""
-                    UPDATE sales_order_line SET signed_base_qty=signed_base_qty+?,shipped_base_qty=shipped_base_qty-?,
-                    recognized_amount=recognized_amount+?,recognized_tax=recognized_tax+?,
-                    version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?
-                    """,qty,diff,amount,taxAmount,scope.userId(),scope.tenantId(),scope.companyId(),line.get("order_line_id"));
-            reservations.refreshLineState(scope,id(line,"order_line_id"));
+            shipmentUpdates.add(new Object[]{qty,diff,diff.signum()==0?"none":"pending",amount,taxAmount,amount.subtract(taxAmount),signedCost,diffCost,scope.userId(),line.get("id")});
+            orderUpdates.add(new Object[]{qty,diff,amount,taxAmount,scope.userId(),scope.tenantId(),scope.companyId(),line.get("order_line_id")});
             if(qty.signum()>0) {signedOrders.add(id(source,"order_id"));}
-            createReceivable(scope,id,id(line,"id"),"shipment_line",id(header,"customer_id"),id(source,"order_id"),amount,taxAmount,input.signDate(),period);
+            if(amount.signum()>0) {receivables.add(new ReceivableInput(id(line,"id"),"shipment_line",id(source,"order_id"),amount,taxAmount));}
             add(entries,"AR","D",amount,id(header,"customer_id"),null,null,id(line,"id"));
             add(entries,"SALES_REVENUE","C",amount.subtract(taxAmount),null,null,null,id(line,"id"));
             add(entries,"OUTPUT_VAT","C",taxAmount,null,null,null,id(line,"id"));
@@ -204,11 +209,13 @@ public class ShipmentService {
             add(entries,"GOODS_SHIPPED","C",signedCost,null,id(header,"warehouse_id"),id(line,"sku_id"),id(line,"id"));
             total=total.add(amount);tax=tax.add(taxAmount);cost=cost.add(signedCost);
         }
+        jdbc.batchUpdate("UPDATE shipment_line SET signed_base_qty=?,diff_base_qty=?,diff_disposition=?,receivable_amount=?,tax_amount=?,untaxed_amount=?,signed_cost_amount=?,diff_cost_amount=?,version=version+1,updated_by=? WHERE id=?",shipmentUpdates);
+        jdbc.batchUpdate("UPDATE sales_order_line SET signed_base_qty=signed_base_qty+?,shipped_base_qty=shipped_base_qty-?,recognized_amount=recognized_amount+?,recognized_tax=recognized_tax+?,version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?",orderUpdates);
         for(long order:signedOrders) {
             for(var fee:jdbc.queryForList("SELECT * FROM sales_order_fee WHERE tenant_id=? AND company_id=? AND order_id=? AND bearer='buyer' AND recognized_shipment_id IS NULL ORDER BY id FOR UPDATE",
                     scope.tenantId(),scope.companyId(),order)) {
                 BigDecimal amount=decimal(fee,"total_amount"),feeTax=decimal(fee,"tax_amount");
-                createReceivable(scope,id,id(fee,"id"),"sales_order_fee",id(header,"customer_id"),order,amount,feeTax,input.signDate(),period);
+                if(amount.signum()>0) {receivables.add(new ReceivableInput(id(fee,"id"),"sales_order_fee",order,amount,feeTax));}
                 jdbc.update("UPDATE sales_order_fee SET recognized_shipment_id=?,version=version+1,updated_by=? WHERE id=?",id,scope.userId(),fee.get("id"));
                 total=total.add(amount);tax=tax.add(feeTax);
                 add(entries,"AR","D",amount,id(header,"customer_id"),null,null,id(fee,"id"));
@@ -216,6 +223,8 @@ public class ShipmentService {
                 add(entries,"OUTPUT_VAT","C",feeTax,null,null,null,id(fee,"id"));
             }
         }
+        reservations.refreshLineStates(scope,lines.stream().map(line->id(line,"order_line_id")).toList());
+        createReceivables(scope,id,id(header,"customer_id"),receivables,input.signDate(),period);
         postJournal(scope,"shipment_sign",id,0,period,input.signDate(),entries);
         jdbc.update("""
                 UPDATE shipment SET status=?,sign_date=?,sign_period_id=?,signed_by=?,signed_at=UTC_TIMESTAMP(3),
@@ -258,29 +267,37 @@ public class ShipmentService {
         });
     }
 
-    private void createReceivable(CompanyAccess scope,long shipment,long line,String type,long customer,long order,
-            BigDecimal amount,BigDecimal tax,LocalDate date,long period) {
-        if(amount.signum()==0) {return;}
-        long id=Ids.next();
-        jdbc.update("""
+    private record ReceivableInput(long line,String type,long order,BigDecimal amount,BigDecimal tax) {}
+
+    private void createReceivables(CompanyAccess scope,long shipment,long customer,List<ReceivableInput> inputs,LocalDate date,long period) {
+        if(inputs.isEmpty()) {return;}
+        var inserts=new ArrayList<Object[]>();var open=new ArrayList<SettlementService.OpenItem>();var ordersBySource=new LinkedHashMap<Long,Long>();
+        for(var input:inputs) {
+            long id=Ids.next();
+            inserts.add(new Object[]{id,scope.tenantId(),scope.companyId(),customer,input.type(),shipment,input.line(),input.amount(),input.amount().subtract(input.tax()),input.tax(),date,period,scope.userId()});
+            open.add(new SettlementService.OpenItem("receivable",id,customer,"D",input.amount(),date));ordersBySource.put(id,input.order());
+        }
+        jdbc.batchUpdate("""
                 INSERT INTO receivable(id,tenant_id,company_id,customer_id,kind,source_type,source_id,source_line_id,
                 amount,untaxed_amount,tax_amount,business_date,period_id,created_by) VALUES(?,?,?,?,'charge',?,?,?,?,?,?,?,?,?)
-                """,id,scope.tenantId(),scope.companyId(),customer,type,shipment,line,amount,amount.subtract(tax),tax,date,period,scope.userId());
-        long item=settlement.open(scope,new SettlementService.OpenItem("receivable",id,customer,"D",amount,date));
-        settlement.autoAllocateOrder(scope,order,item);
+                """,inserts);
+        var items=settlement.openReceivables(scope,open);var debits=new LinkedHashMap<Long,List<Long>>();
+        ordersBySource.forEach((source,order)->debits.computeIfAbsent(order,unused->new ArrayList<>()).add(items.get(source)));
+        settlement.autoAllocateOrders(scope,debits);
     }
 
     private void saveLines(CompanyAccess scope,long shipment,ShipmentModels.Input input) {
         if(input.lines().stream().anyMatch(line->line==null || line.orderLineId()==null || line.unitId()==null)) {throw invalid("请填写有效的订单行和单位");}
-        lockOrders(scope,input.lines().stream().sorted(Comparator.comparing(ShipmentModels.InputLine::orderLineId))
-                .map(line->Map.<String,Object>of("order_line_id",line.orderLineId())).toList());
+        lockOrders(scope,input.lines().stream().map(ShipmentModels.InputLine::orderLineId).toList());
         var seen=new HashSet<Long>();int number=0;
+        var sources=sources(scope,input.lines().stream().map(ShipmentModels.InputLine::orderLineId).toList(),true);
+        catalog.requireActiveSkus(scope,input.lines().stream().map(line->new CatalogAvailability.SkuUnit(id(sources.get(line.orderLineId()),"sku_id"),line.unitId())).toList());
+        var inserts=new ArrayList<Object[]>();
         for(var line:input.lines()) {
             if(!seen.add(line.orderLineId())) {throw invalid("同一订单行不能在一张发货单里重复");}
-            var source=source(scope,line.orderLineId(),true);
+            var source=sources.get(line.orderLineId());
             var header=Map.<String,Object>of("customer_id",input.customerId(),"warehouse_id",input.warehouseId());
             validateSource(scope,header,source);
-            catalog.requireActiveSku(scope,id(source,"sku_id"),line.unitId());
             BigDecimal rate;
             if(line.unitId()==id(source,"unit_id")) {rate=decimal(source,"unit_rate");}
             else {
@@ -291,11 +308,12 @@ public class ShipmentService {
             try {base=qty.multiply(rate).setScale(6,RoundingMode.UNNECESSARY);}
             catch(ArithmeticException error) {throw invalid("换算后的基础数量超过6位小数");}
             quantity(base.toPlainString(),false);
-            jdbc.update("""
+            inserts.add(new Object[]{Ids.next(),scope.tenantId(),scope.companyId(),shipment,++number,line.orderLineId(),source.get("sku_id"),line.unitId(),rate,qty,base,scope.userId(),scope.userId()});
+        }
+        jdbc.batchUpdate("""
                     INSERT INTO shipment_line(id,tenant_id,company_id,shipment_id,line_no,order_line_id,sku_id,unit_id,unit_rate,qty,base_qty,created_by,updated_by)
                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
-                    """,Ids.next(),scope.tenantId(),scope.companyId(),shipment,++number,line.orderLineId(),source.get("sku_id"),line.unitId(),rate,qty,base,scope.userId(),scope.userId());
-        }
+                    """,inserts);
     }
 
     private void validateInput(CompanyAccess scope,ShipmentModels.Input input) {
@@ -330,23 +348,32 @@ public class ShipmentService {
         if(!Set.of("approved","closed").contains(source.get("order_status"))) {throw state();}
     }
 
-    private void lockOrders(CompanyAccess scope,List<Map<String,Object>> lines) {
+    private void lockOrders(CompanyAccess scope,List<Long> lineIds) {
         var ids=new TreeSet<Long>();
-        for(var line:lines) {ids.add(id(source(scope,id(line,"order_line_id"),false),"order_id"));}
+        for(var row:sources(scope,lineIds,false).values()) {ids.add(id(row,"order_id"));}
         for(long order:ids) {jdbc.queryForObject("SELECT id FROM sales_order WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),order);}
-        for(var line:lines) {source(scope,id(line,"order_line_id"),true);}
+        sources(scope,lineIds,true);
     }
 
     private List<Map<String,Object>> lockLines(CompanyAccess scope,long shipment) {
         // 先锁订单再锁发货行，退货和差异返库沿用同一来源锁序。
-        lockOrders(scope,queries.lines(scope,shipment,false));
-        return queries.lines(scope,shipment,true);
+        var references=queries.lineReferences(scope,shipment);
+        lockOrders(scope,references.stream().map(ShipmentQueries.LineReference::orderLineId).toList());
+        return queries.lockLines(scope,shipment,references);
     }
 
     private void refresh(CompanyAccess scope,List<Map<String,Object>> lines) {
         var ids=new TreeSet<Long>();
-        for(var line:lines) {ids.add(id(source(scope,id(line,"order_line_id"),false),"order_id"));}
+        for(var row:sources(scope,lines.stream().map(line->id(line,"order_line_id")).toList(),false).values()) {ids.add(id(row,"order_id"));}
         for(long order:ids) {orders.refreshProgress(scope,order);}
+    }
+
+    private Map<Long,Map<String,Object>> sources(CompanyAccess scope,List<Long> ids,boolean lock) {
+        var unique=new TreeSet<>(ids);if(unique.isEmpty()) {return Map.of();}
+        var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId()));args.addAll(unique);
+        var result=new HashMap<Long,Map<String,Object>>();
+        for(var row:jdbc.queryForList("SELECT l.*,h.customer_id,h.status AS order_status FROM sales_order_line l FORCE INDEX(uk_sales_order_line_scope) JOIN sales_order h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.order_id WHERE l.tenant_id=? AND l.company_id=? AND l.id IN ("+String.join(",",Collections.nCopies(unique.size(),"?"))+") AND l.is_deleted=0 AND h.is_deleted=0 ORDER BY l.id"+(lock?" FOR UPDATE OF l":""),args.toArray())) {result.put(id(row,"id"),row);}
+        if(result.size()!=unique.size()) {throw missing();}return result;
     }
 
     private long period(CompanyAccess scope,LocalDate day) {

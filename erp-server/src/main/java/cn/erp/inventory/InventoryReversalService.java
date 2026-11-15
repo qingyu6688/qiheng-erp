@@ -29,8 +29,9 @@ public class InventoryReversalService {
             default -> null;
         };
         if(types==null)return;
-        var movements=jdbc.queryForList("SELECT * FROM inventory_movement WHERE tenant_id=? AND company_id=? AND source_id=? AND source_type IN("+types+") AND posting_action='post' ORDER BY warehouse_id,sku_id,id FOR UPDATE",scope.tenantId(),scope.companyId(),source);
-        var adjustments=jdbc.queryForList("SELECT * FROM cost_adjustment WHERE tenant_id=? AND company_id=? AND source_id=? AND source_type IN("+types+") ORDER BY warehouse_id,sku_id,id FOR UPDATE",scope.tenantId(),scope.companyId(),source);
+        // 冲销命令已锁原业务单据，库存流水和成本事实只取当前读。
+        var movements=jdbc.queryForList("SELECT * FROM inventory_movement WHERE tenant_id=? AND company_id=? AND source_id=? AND source_type IN("+types+") AND posting_action='post' ORDER BY warehouse_id,sku_id,id FOR SHARE",scope.tenantId(),scope.companyId(),source);
+        var adjustments=jdbc.queryForList("SELECT * FROM cost_adjustment WHERE tenant_id=? AND company_id=? AND source_id=? AND source_type IN("+types+") ORDER BY warehouse_id,sku_id,id FOR SHARE",scope.tenantId(),scope.companyId(),source);
         var changes=new TreeMap<Key,BigDecimal[]>();
         for(var row:movements) {
             var amounts=changes.computeIfAbsent(key(row),ignored->zeros());

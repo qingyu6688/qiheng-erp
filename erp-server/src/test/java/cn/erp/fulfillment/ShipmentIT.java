@@ -16,11 +16,16 @@ import cn.erp.shared.Ids;
 import java.math.BigDecimal;
 import java.time.*;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import static cn.erp.inventory.InventoryModels.*;
 import static org.assertj.core.api.Assertions.*;
 
@@ -39,6 +44,7 @@ class ShipmentIT {
     @Autowired SalesOrderService orders;
     @Autowired cn.erp.salesorder.SalesOrderQueries orderQueries;
     @Autowired ReconciliationChecks checks;
+    @Autowired PlatformTransactionManager transactions;
     private long tenant,company,warehouse,customer,unit,category,product,period,account,order;
     private final List<Long> skus=new ArrayList<>();
     private CompanyAccess scope;
@@ -162,15 +168,15 @@ class ShipmentIT {
         var sources=so4();
         long shipment=create(List.of(new ShipmentModels.InputLine(sources.get(0),unit,"2"),new ShipmentModels.InputLine(sources.get(1),unit,"3")),"delivery");
         service.submit(scope,shipment,key(),version(shipment));service.post(scope,shipment,key(),version(shipment));
-        var rows=queries.lines(scope,shipment,false);
+        var rows=queries.lineReferences(scope,shipment);
         service.sign(scope,shipment,key(),new ShipmentModels.Signed(version(shipment),DAY,List.of(
-                new ShipmentModels.SignedLine(id(rows.get(0)),"1"),new ShipmentModels.SignedLine(id(rows.get(1)),"2")),List.of()));
+                new ShipmentModels.SignedLine(rows.get(0).id(),"1"),new ShipmentModels.SignedLine(rows.get(1).id(),"2")),List.of()));
         BigDecimal recognized=value("SELECT receivable_amount FROM shipment WHERE id=?",shipment);
         var partial=service.resolve(scope,shipment,key(),new ShipmentModels.Resolution(version(shipment),DAY,List.of(
-                new ShipmentModels.ResolveLine(id(rows.get(0)),"returned","外箱破损，退回待检"))));
+                new ShipmentModels.ResolveLine(rows.get(0).id(),"returned","外箱破损，退回待检"))));
         assertThat(partial.get("status")).isEqualTo("signed_with_diff");
         var complete=service.resolve(scope,shipment,key(),new ShipmentModels.Resolution(version(shipment),DAY,List.of(
-                new ShipmentModels.ResolveLine(id(rows.get(1)),"lost","承运方确认运输丢失"))));
+                new ShipmentModels.ResolveLine(rows.get(1).id(),"lost","承运方确认运输丢失"))));
         assertThat(complete.get("status")).isEqualTo("signed");
         assertThat(value("SELECT receivable_amount FROM shipment WHERE id=?",shipment)).isEqualByComparingTo(recognized);
         assertThat(value("SELECT SUM(amount) FROM journal_line WHERE tenant_id=? AND account_code='INVENTORY_ADJUSTMENT'",tenant)).isEqualByComparingTo("10");
@@ -275,10 +281,81 @@ class ShipmentIT {
         for(int number=1;number<=251;number++) {input.add(new ShipmentModels.InputLine(line(number,0,"1","1","0","0","1","0"),unit,"1"));}
         long shipment=create(input,"delivery");
         service.submit(scope,shipment,key(),version(shipment));service.post(scope,shipment,key(),version(shipment));
-        var signed=queries.lines(scope,shipment,false).stream().map(row->new ShipmentModels.SignedLine(id(row),"1")).toList();
+        var signed=queries.lineReferences(scope,shipment).stream().map(row->new ShipmentModels.SignedLine(row.id(),"1")).toList();
         service.sign(scope,shipment,key(),new ShipmentModels.Signed(version(shipment),DAY,signed,List.of()));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM journal WHERE tenant_id=? AND source_type='shipment_sign' AND source_id=?",Long.class,tenant,shipment)).isEqualTo(2);
         assertThat(queries.get(scope,shipment).get("receivableAmount")).isEqualTo("251.00");
+        assertZeroDifferences();
+    }
+
+    @Test
+    void HundredLinesSharingOneSkuConsumeReservationsAndTwoPrepaymentsExactlyOnce() {
+        approvedOrder("SO-BATCH100","12","0","0","12","12","0");
+        var input=new ArrayList<ShipmentModels.InputLine>();var holds=new ArrayList<ReservationRequest>();
+        for(int number=1;number<=100;number++) {
+            long source=line(number,0,"0.12","1","0","0","0.12","0");
+            input.add(new ShipmentModels.InputLine(source,unit,"0.12"));
+            holds.add(new ReservationRequest(source,new Key(warehouse,skus.getFirst()),d("0.12"),Instant.now().plusSeconds(3600)));
+        }
+        reservations.reserve(scope,holds);prepayment("7");prepayment("5");
+        long shipment=create(input,"pickup");service.submit(scope,shipment,key(),version(shipment));
+        long expected=version(shipment);String postingKey=key();
+        service.post(scope,shipment,postingKey,expected);service.post(scope,shipment,postingKey,expected);
+        var balance=inventory.balance(scope,new Key(warehouse,skus.getFirst()));
+        assertThat(balance.onHand()).isZero();assertThat(balance.reserved()).isZero();assertThat(balance.cost()).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM inventory_movement WHERE source_type='shipment_line' AND source_id=?",Long.class,shipment)).isEqualTo(100);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM inventory_reservation WHERE tenant_id=? AND status='consumed'",Long.class,tenant)).isEqualTo(100);
+        assertThat(value("SELECT SUM(amount) FROM receivable WHERE tenant_id=?",tenant)).isEqualByComparingTo("12");
+        assertThat(value("SELECT SUM(open_amount) FROM partner_open_item WHERE tenant_id=?",tenant)).isZero();
+        assertThat(orderQueries.get(scope,order)).containsEntry("fulfillmentStatus","full").containsEntry("settlementStatus","full");
+        assertZeroDifferences();
+    }
+
+    @Test
+    void SubmissionCanLockItsLinesWhileAnotherOrderInsertsTheSameSkuAndUnit() throws Exception {
+        approvedOrder("SO-LOCK-EXISTING","1","0","0","1","1","0");
+        long existingSource=line(1,0,"1","1","0","0","1","0");
+        long existingShipment=create(List.of(new ShipmentModels.InputLine(existingSource,unit,"1")),"delivery");
+        order=Ids.next();
+        approvedOrder("SO-LOCK-NEW","1","0","0","1","1","0");
+        long newSource=line(1,0,"1","1","0","0","1","0");
+        var inserted=new CountDownLatch(1);
+        var submitted=new CountDownLatch(1);
+        try(var pool=Executors.newFixedThreadPool(2)) {
+            var writer=pool.submit(()->new TransactionTemplate(transactions).execute(status->{
+                long newShipment=create(List.of(new ShipmentModels.InputLine(newSource,unit,"1")),"delivery");
+                inserted.countDown();
+                await(submitted,"提交已有发货单时正在等待其他发货单的明细锁");
+                return newShipment;
+            }));
+            var submitter=pool.submit(()->{
+                await(inserted,"未能建立另一张发货单的并发写入事务");
+                service.submit(scope,existingShipment,key(),version(existingShipment));
+                submitted.countDown();
+            });
+            submitter.get(20,TimeUnit.SECONDS);
+            long newShipment=writer.get(20,TimeUnit.SECONDS);
+            assertThat(queries.get(scope,existingShipment)).containsEntry("status","submitted");
+            assertThat(queries.get(scope,newShipment)).containsEntry("status","draft");
+        }
+    }
+
+    @Test
+    void BatchStockShortageRollsBackEveryLineAndSameCommandCanRetryAfterRealReplenishment() {
+        approvedOrder("SO-BATCH-ROLLBACK","17","0","0","17","17","0");
+        long first=line(1,0,"4","1","0","0","4","0"),second=line(2,1,"13","1","0","0","13","0");
+        long shipment=create(List.of(new ShipmentModels.InputLine(first,unit,"4"),new ShipmentModels.InputLine(second,unit,"13")),"pickup");
+        service.submit(scope,shipment,key(),version(shipment));String postingKey=key();long expected=version(shipment);
+        assertCode(()->service.post(scope,shipment,postingKey,expected),"INVENTORY_INSUFFICIENT");
+        assertThat(inventory.balance(scope,new Key(warehouse,skus.getFirst())).onHand()).isEqualByComparingTo("12");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM inventory_movement WHERE source_type='shipment_line' AND source_id=?",Long.class,shipment)).isZero();
+        assertThat(version(shipment)).isEqualTo(expected);
+        long source=Ids.next();
+        inventory.receive(scope,new Posting(new Key(warehouse,skus.get(1)),new Source("opening_entry",source,source),DAY,period,"opening_in"),d("1"),d("10"));
+        ledger.post(scope,new LedgerService.Posting("opening_entry",source,0,period,DAY,List.of(entry("INVENTORY","D","10",null,null,warehouse,skus.get(1)),entry("OPENING_EQUITY","C","10",null,null,null,null))));
+        assertThat(service.post(scope,shipment,postingKey,expected)).containsEntry("status","signed");
+        assertThat(inventory.balance(scope,new Key(warehouse,skus.getFirst())).onHand()).isEqualByComparingTo("8");
+        assertThat(inventory.balance(scope,new Key(warehouse,skus.get(1))).onHand()).isZero();
         assertZeroDifferences();
     }
 
@@ -378,9 +455,17 @@ class ShipmentIT {
         return service.sign(scope,shipment,key(),new ShipmentModels.Signed(version(shipment),DAY,List.of(new ShipmentModels.SignedLine(lineId(shipment),qty)),List.of()));
     }
 
-    private long lineId(long shipment) {return id(queries.lines(scope,shipment,false).getFirst());}
+    private static void await(CountDownLatch latch,String message) {
+        try {
+            if(!latch.await(10,TimeUnit.SECONDS)) {throw new IllegalStateException(message);}
+        } catch(InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("发货明细并发验证被中断",error);
+        }
+    }
+
+    private long lineId(long shipment) {return queries.lineReferences(scope,shipment).getFirst().id();}
     private long version(long shipment) {return ((Number)queries.header(scope,shipment,false).get("version")).longValue();}
-    private long id(Map<String,Object> row) {return ((Number)row.get("id")).longValue();}
     private String key() {return UUID.randomUUID().toString();}
     private BigDecimal value(String sql,Object... args) {return jdbc.queryForObject(sql,BigDecimal.class,args);}
     private static BigDecimal d(String value) {return new BigDecimal(value);}

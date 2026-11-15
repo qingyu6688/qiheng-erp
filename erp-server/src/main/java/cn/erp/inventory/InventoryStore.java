@@ -8,6 +8,7 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Map;
+import java.util.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import static cn.erp.inventory.InventoryModels.*;
@@ -17,6 +18,32 @@ class InventoryStore {
     final JdbcTemplate jdbc;
 
     InventoryStore(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+
+    /** 按唯一维度索引统一锁序；缺失项先创建，避免对空范围反复加间隙锁。 */
+    Map<Key,Map<String,Object>> lockMany(CompanyAccess scope,List<Key> keys,boolean cost) {
+        var ordered=keys.stream().distinct().sorted().toList();
+        if(ordered.isEmpty()) {return Map.of();}
+        for(var key:ordered) {if(!scope.allowsWarehouse(key.warehouseId())) {throw missing();}}
+        var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId()));
+        for(var key:ordered) {args.add(key.warehouseId());args.add(key.skuId());}
+        String dimensions="(warehouse_id,sku_id) IN ("+String.join(",",Collections.nCopies(ordered.size(),"(?,?)"))+")";
+        String table=cost?"inventory_cost":"inventory_balance";
+        String filter="tenant_id=? AND company_id=? AND "+dimensions+(cost?"":" AND location_key='' AND lot_key=''");
+        var visibleArgs=new ArrayList<Object>();visibleArgs.add(scope.tenantId());visibleArgs.add(scope.companyId());
+        for(var key:ordered) {visibleArgs.add(key.warehouseId());visibleArgs.add(key.skuId());}
+        Long visible=jdbc.queryForObject("SELECT COUNT(*) FROM warehouse w JOIN sku s ON s.tenant_id=w.tenant_id WHERE w.tenant_id=? AND w.company_id=? AND (w.id,s.id) IN ("+String.join(",",Collections.nCopies(ordered.size(),"(?,?)"))+")",Long.class,visibleArgs.toArray());
+        if(visible==null || visible!=ordered.size()) {throw missing();}
+        var existing=new HashSet<Key>();
+        for(var row:jdbc.queryForList("SELECT warehouse_id,sku_id FROM "+table+" WHERE "+filter,args.toArray())) {existing.add(key(row));}
+        var inserts=new ArrayList<Object[]>();
+        for(var key:ordered) {if(!existing.contains(key)) {inserts.add(new Object[]{Ids.next(),scope.tenantId(),scope.companyId(),key.warehouseId(),key.skuId()});}}
+        if(!inserts.isEmpty()) {jdbc.batchUpdate("INSERT INTO "+table+"(id,tenant_id,company_id,warehouse_id,sku_id) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE id=id",inserts);}
+        var result=new LinkedHashMap<Key,Map<String,Object>>();
+        for(var row:jdbc.queryForList("SELECT * FROM "+table+" FORCE INDEX ("+(cost?"uk_inventory_cost":"uk_inventory_balance")+") WHERE "+filter+" ORDER BY warehouse_id,sku_id FOR UPDATE",args.toArray())) {result.put(key(row),row);}
+        return result;
+    }
+
+    private static Key key(Map<String,Object> row) {return new Key(((Number)row.get("warehouse_id")).longValue(),((Number)row.get("sku_id")).longValue());}
 
     void visible(CompanyAccess scope, Key key) {
         if (scope.companyId() <= 0 || key == null || key.warehouseId() <= 0 || key.skuId() <= 0 ||
