@@ -1,0 +1,57 @@
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import axios from 'axios'
+import { request, renewSessionScope } from '../src/api/http'
+
+const { clientRequest } = vi.hoisted(() => ({ clientRequest: vi.fn() }))
+vi.mock('axios', async importOriginal => {
+  const actual = await importOriginal<typeof import('axios')>()
+  return { ...actual, default: { ...actual.default, create: () => ({ request: clientRequest }) } }
+})
+const expired = vi.fn()
+beforeEach(() => {
+  renewSessionScope()
+  clientRequest.mockReset()
+  expired.mockReset()
+  window.addEventListener('erp:session-expired', expired)
+})
+afterEach(() => window.removeEventListener('erp:session-expired', expired))
+
+it('退出时丢弃旧的租户级401，保留新登录页面', async () => {
+  let reject: (error: unknown) => void = () => undefined
+  clientRequest.mockReturnValueOnce(new Promise((_resolve, failed) => { reject = failed }))
+  const pending = request({ method: 'GET', url: '/users' })
+  renewSessionScope()
+  reject({ isAxiosError: true, response: { status: 401, data: { errorCode: 'UNAUTHENTICATED' } } })
+  await expect(pending).rejects.toSatisfy(axios.isCancel)
+  expect(expired).not.toHaveBeenCalled()
+})
+
+it('重新登录后旧用户资料响应无法覆盖当前会话', async () => {
+  let resolve: (value: unknown) => void = () => undefined
+  clientRequest.mockReturnValueOnce(new Promise(success => { resolve = success }))
+  const pending = request({ method: 'GET', url: '/auth/me' })
+  renewSessionScope()
+  resolve({ data: { data: { username: 'old-admin' } } })
+  await expect(pending).rejects.toSatisfy(axios.isCancel)
+})
+
+it('切换会话代次后新请求可正常执行', async () => {
+  renewSessionScope()
+  clientRequest.mockResolvedValueOnce({ data: { data: { username: 'new-user' } } })
+  await expect(request({ method: 'GET', url: '/auth/me' })).resolves.toEqual({ username: 'new-user' })
+})
+
+it('已退出时旧保存流程后续发起的业务查询直接取消', async () => {
+  renewSessionScope(false)
+  await expect(request({ method: 'GET', url: '/users' })).rejects.toSatisfy(axios.isCancel)
+  await expect(request({ method: 'GET', url: '/auth/me' })).rejects.toSatisfy(axios.isCancel)
+  expect(clientRequest).not.toHaveBeenCalled()
+  expect(expired).not.toHaveBeenCalled()
+})
+
+it('退出失败恢复会话后业务请求仍可执行', async () => {
+  renewSessionScope(false)
+  renewSessionScope()
+  clientRequest.mockResolvedValueOnce({ data: { data: { items: [] } } })
+  await expect(request({ method: 'GET', url: '/users' })).resolves.toEqual({ items: [] })
+})

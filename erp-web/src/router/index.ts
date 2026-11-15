@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useSessionStore } from '../stores/session'
 import LoginPage from '../pages/LoginPage.vue'
 import StatusPage from '../pages/StatusPage.vue'
+import { defaultWorkspace, resourceSpecs } from '../pages/resources'
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -19,7 +20,18 @@ export const router = createRouter({
       path: '/',
       component: () => import('../components/AppShell.vue'),
       children: [
-        { path: '', redirect: '/warehouses' },
+        { path: '', name: 'home', component: () => import('../pages/WarehousePage.vue') },
+        ...Object.values(resourceSpecs).map((spec) => ({
+          path: spec.path,
+          name: spec.path,
+          component: () => import('../pages/ResourcePage.vue'),
+          props: { resource: spec.path },
+          meta: {
+            permission: spec.permission + ':view',
+            company: Boolean(spec.company),
+            title: spec.title,
+          },
+        })),
         {
           path: 'warehouses',
           name: 'warehouses',
@@ -47,8 +59,13 @@ router.beforeEach(async (to) => {
   }
   if (!session.user) return to.name === 'login' ? true : { name: 'login' }
   if (session.user.mustChangePassword && to.name !== 'password') return { name: 'password' }
-  if (to.name === 'login') return { name: 'warehouses' }
+  if (to.name === 'login' || to.name === 'home') return defaultWorkspace(session.can, Boolean(session.company))
   if (to.name === 'warehouses' && (!session.company || !session.can('warehouse:view')))
+    return { name: 'forbidden' }
+  if (
+    typeof to.meta.permission === 'string' &&
+    (!session.can(to.meta.permission) || (to.meta.company && !session.company))
+  )
     return { name: 'forbidden' }
   return true
 })

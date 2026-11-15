@@ -13,6 +13,11 @@ import {
   ElTable,
   ElTableColumn,
   ElTag,
+  ElSwitch,
+  ElInputNumber,
+  ElCheckbox,
+  ElCheckboxGroup,
+  ElPopconfirm,
 } from 'element-plus'
 import App from './App.vue'
 import { router } from './router'
@@ -36,6 +41,11 @@ for (const component of [
   ElTable,
   ElTableColumn,
   ElTag,
+  ElSwitch,
+  ElInputNumber,
+  ElCheckbox,
+  ElCheckboxGroup,
+  ElPopconfirm,
 ]) {
   app.use(component)
 }

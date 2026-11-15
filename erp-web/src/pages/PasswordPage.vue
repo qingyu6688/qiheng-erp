@@ -16,7 +16,7 @@ const session = useSessionStore()
 async function finish(): Promise<void> {
   try {
     if (session.user?.mustChangePassword) await session.refresh()
-    await router.replace('/warehouses')
+    await router.replace('/')
   } catch (cause: unknown) {
     error.value = messageOf(cause)
   }

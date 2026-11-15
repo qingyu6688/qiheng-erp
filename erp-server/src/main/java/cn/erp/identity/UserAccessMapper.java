@@ -3,11 +3,14 @@ package cn.erp.identity;
 import java.util.List;
 
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 @Mapper
 interface UserAccessMapper {
+    // 管理事务会用 JDBC 修改角色关系，权限读取必须即时反映同事务的变更。
+    @Options(useCache=false, flushCache=Options.FlushCachePolicy.TRUE)
     @Select("""
             SELECT DISTINCT p.code FROM sys_user_role ur
             JOIN sys_role r ON r.tenant_id = ur.tenant_id AND r.id = ur.role_id AND r.status = 'active'

@@ -120,6 +120,8 @@ p {
 }
 .sidebar nav {
   padding: 16px 12px;
+  max-height: calc(100dvh - 72px);
+  overflow-y: auto;
 }
 .nav-group + .nav-group {
   margin-top: 24px;
@@ -392,3 +394,16 @@ p {
     padding: 24px;
   }
 }
+.form-fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.admin-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
+.admin-form .el-select { width: 100%; }
+.relation-section { border-bottom: 1px solid #e3e6eb; padding: 18px 0 22px; margin-bottom: 18px; }
+.relation-section h2 { font-size: 15px; margin: 0 0 16px; font-weight: 600; }
+.relation-section > .el-select { min-width: 260px; margin-right: 12px; }
+.relation-row { display: flex; gap: 10px; align-items: center; margin: 10px 0; }
+.relation-row > .el-select, .relation-row > .el-input { min-width: 100px; flex: 1; }
+.relation-actions { display: flex; gap: 8px; margin-top: 16px; }
+.permission-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); margin: 18px 0; }
+.permission-grid .el-checkbox { height: auto; align-items: start; margin-bottom: 12px; }
+.permission-grid small { display: block; font-size: 11px; color: #6b7380; }
+@media (max-width: 700px) { .admin-form, .permission-grid { grid-template-columns: 1fr; } .relation-row { flex-wrap: wrap; } }

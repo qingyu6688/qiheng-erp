@@ -28,6 +28,9 @@ if ($Action -in 'web','e2e','e2e-web') {
     Push-Location (Join-Path $projectRoot 'erp-web')
     try {
         if ($Action -eq 'e2e') {
+            $env:ERP_E2E_PASSWORD = [Guid]::NewGuid().ToString('N')
+            $env:ERP_E2E_TENANT_CODE = 'E2E-' + [Guid]::NewGuid().ToString('N').Substring(0,12)
+            $env:ERP_DEV_ADMIN_PASSWORD = $env:ERP_E2E_PASSWORD
             npm run test:e2e
         } elseif ($Action -eq 'e2e-web') {
             $env:ERP_API_ORIGIN = 'http://127.0.0.1:18080'
@@ -48,6 +51,11 @@ $env:Path = "$env:JAVA_HOME\bin;$env:Path"
 Push-Location (Join-Path $projectRoot 'erp-server')
 try {
     if ($Action -eq 'e2e-api') {
+        if (!$env:ERP_E2E_PASSWORD -or $env:ERP_E2E_TENANT_CODE -notmatch '^E2E-[a-f0-9]{12}$') {
+            throw '请使用 project.ps1 e2e 启动测试，以准备独立的测试企业。'
+        }
+        $env:ERP_DEV_ADMIN_PASSWORD = $env:ERP_E2E_PASSWORD
+        $env:ERP_DEV_TENANT_CODE = $env:ERP_E2E_TENANT_CODE
         $env:APP_ENV = 'e2e'
         $env:SPRING_PROFILES_ACTIVE = 'dev'
         $env:SERVER_PORT = '18080'

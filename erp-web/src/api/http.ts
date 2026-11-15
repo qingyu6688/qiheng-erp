@@ -23,6 +23,13 @@ const client = axios.create({
 
 let companyId: string | null = null
 let companyRequests = new AbortController()
+let sessionRevision = 0
+let sessionActive = true
+
+export function renewSessionScope(active = true): void {
+  sessionRevision++
+  sessionActive = active
+}
 
 export function setCompanyScope(next: string | null): void {
   if (companyId === next) return
@@ -45,6 +52,10 @@ export function isCancelled(error: unknown): boolean {
 
 export async function request<T>(config: AxiosRequestConfig, companyScoped = false): Promise<T> {
   const scope = companyRequests
+  const revision = sessionRevision
+  if (!sessionActive && !['/auth/login', '/auth/logout'].includes(config.url ?? '')) {
+    throw new axios.CanceledError('会话已退出')
+  }
   if (companyScoped && !companyId) throw new ApiError(403, 'COMPANY_NOT_ALLOWED', '请选择公司。')
   const { headers, ...rest } = config
   try {
@@ -53,9 +64,11 @@ export async function request<T>(config: AxiosRequestConfig, companyScoped = fal
       headers: { ...headers, ...(companyScoped ? { 'X-Company-Id': companyId } : {}) },
       signal: companyScoped ? scope.signal : config.signal,
     })
+    if (revision !== sessionRevision) throw new axios.CanceledError('会话已变更')
     if (companyScoped && scope.signal.aborted) throw new axios.CanceledError('公司已切换')
     return response.data.data
   } catch (cause: unknown) {
+    if (revision !== sessionRevision) throw new axios.CanceledError('会话已变更')
     if (!axios.isAxiosError<ApiErrorBody>(cause) || axios.isCancel(cause)) throw cause
     const body = cause.response?.data
     const status = cause.response?.status ?? 0

@@ -5,13 +5,32 @@ import { OfficeBuilding, House, Lock, SwitchButton } from '@element-plus/icons-v
 import { useSessionStore } from '../stores/session'
 import { messageOf } from '../api/http'
 import BrandMark from './BrandMark.vue'
+import { resourceGroups, resourceSpecs } from '../pages/resources'
 
 const route = useRoute()
 const router = useRouter()
 const session = useSessionStore()
 const loggingOut = ref(false)
 const error = ref('')
-const title = computed(() => (route.name === 'password' ? '账户设置' : '基础资料'))
+const title = computed(() =>
+  String(route.meta.title ?? (route.name === 'password' ? '账户设置' : '仓库管理')),
+)
+const groups = computed(() =>
+  session.user?.mustChangePassword
+    ? []
+    : resourceGroups
+        .map((group) => ({
+          title: group.title,
+          resources: group.paths
+            .map((path) => resourceSpecs[path]!)
+            .filter((spec) => session.can(spec.permission + ':view')),
+        }))
+        .filter(
+          (group) =>
+            group.resources.length > 0 ||
+            (group.title === '基础资料' && session.can('warehouse:view')),
+        ),
+)
 
 async function logout(): Promise<void> {
   loggingOut.value = true
@@ -31,12 +50,23 @@ async function logout(): Promise<void> {
     <aside class="sidebar">
       <BrandMark />
       <nav aria-label="主导航">
-        <div
-          v-if="session.can('warehouse:view') && !session.user?.mustChangePassword"
-          class="nav-group"
-        >
-          <div class="nav-caption">基础资料</div>
-          <router-link class="nav-link" to="/warehouses"><House />仓库管理</router-link>
+        <div class="nav-group">
+          <template v-for="group in groups" :key="group.title">
+            <div class="nav-caption">{{ group.title }}</div>
+            <router-link
+              v-if="group.title === '基础资料' && session.can('warehouse:view')"
+              class="nav-link"
+              to="/warehouses"
+              ><House />仓库管理</router-link
+            >
+            <router-link
+              v-for="spec in group.resources"
+              :key="spec.path"
+              class="nav-link"
+              :to="'/' + spec.path"
+              >{{ spec.title }}</router-link
+            >
+          </template>
         </div>
         <div class="nav-group">
           <div class="nav-caption">账户</div>

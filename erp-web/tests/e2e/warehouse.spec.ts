@@ -6,7 +6,7 @@ test('管理员登录、维护仓库并切换公司', async ({ page }) => {
   if (!password) throw new Error('请在项目根目录使用 project.ps1 e2e 运行浏览器测试')
   const code = 'WEB-' + crypto.randomUUID().slice(0, 12)
   await page.goto('/')
-  await page.getByLabel('企业编码').fill('DEMO')
+  await page.getByLabel('企业编码').fill(env.ERP_E2E_TENANT_CODE ?? 'DEMO')
   await page.getByLabel('用户名').fill('admin')
   await page.locator('#password').fill(password)
   await page.getByRole('button', { name: '登录', exact: true }).click()

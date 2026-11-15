@@ -22,7 +22,7 @@ async function submit(): Promise<void> {
       tenantCode: input.tenantCode.trim(),
       username: input.username.trim(),
     })
-    await router.replace(session.user?.mustChangePassword ? '/account/password' : '/warehouses')
+    await router.replace(session.user?.mustChangePassword ? '/account/password' : '/')
   } catch (cause: unknown) {
     error.value = messageOf(cause)
   } finally {

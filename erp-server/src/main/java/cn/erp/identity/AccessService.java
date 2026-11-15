@@ -46,6 +46,19 @@ public class AccessService {
                 company.allWarehouses(), warehouses, profile.permissions());
     }
 
+    /** 租户级资料沿用登录主体，权限仍在服务端逐次核对。 */
+    public CompanyAccess requireTenant(HttpServletRequest request, String permission) {
+        SessionAccount actor = SessionAccount.read(request);
+        UserView profile = current(request, actor);
+        if (profile.mustChangePassword()) {
+            throw new ApiException(403, "PASSWORD_CHANGE_REQUIRED", "请先修改密码");
+        }
+        if (!profile.permissions().contains(permission)) {
+            throw new ApiException(403, "FORBIDDEN", "没有执行此操作的权限");
+        }
+        return new CompanyAccess(actor.tenantId(), actor.userId(), 0, true, Set.of(), profile.permissions());
+    }
+
     UserView current(HttpServletRequest request, SessionAccount actor) {
         if (request.getAttribute(PROFILE) instanceof UserView profile) {
             return profile;

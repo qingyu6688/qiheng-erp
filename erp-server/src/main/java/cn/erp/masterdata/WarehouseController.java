@@ -22,10 +22,12 @@ import org.springframework.web.bind.annotation.RestController;
 class WarehouseController {
     private final AccessService access;
     private final WarehouseService service;
+    private final cn.erp.shared.CommandResults commandResults;
 
-    WarehouseController(AccessService access, WarehouseService service) {
+    WarehouseController(AccessService access, WarehouseService service, cn.erp.shared.CommandResults commandResults) {
         this.access = access;
         this.service = service;
+        this.commandResults = commandResults;
     }
 
     @GetMapping("/warehouses")
@@ -66,8 +68,37 @@ class WarehouseController {
     }
 
     @GetMapping("/command-results")
-    ApiResponse<WarehouseModels.Result> result(HttpServletRequest request,
+    ApiResponse<?> result(HttpServletRequest request,
             @RequestParam String operation, @RequestParam String key) {
+        if (!operation.startsWith("warehouse.")) {
+            String permission = switch (operation) {
+                case "partner.create" -> "partner:create";
+                case "partner.enable", "partner.disable" -> "partner:update";
+                case "partner_contact.create" -> "partner_contact:create";
+                case "cash_account.create" -> "cash_account:create";
+                case "cash_account.enable", "cash_account.disable" -> "cash_account:update";
+                case "income_expense_item.create" -> "income_expense_item:create";
+                case "period.open" -> "period:open";
+                case "unit.create" -> "unit:create";
+                case "product_category.create" -> "product_category:create";
+                case "product.create" -> "product:create";
+                case "sku.create" -> "sku:create";
+                case "sku.enable", "sku.disable" -> "sku:update";
+                case "unit.enable", "unit.disable" -> "unit:update";
+                case "product_category.enable", "product_category.disable" -> "product_category:update";
+                case "product.enable", "product.disable" -> "product:update";
+                case "company.create" -> "company:create";
+                case "company.enable", "company.disable" -> "company:update";
+                case "user.create" -> "user:create";
+                case "user.enable", "user.disable", "user.unlock" -> "user:update";
+                case "user.reset_password" -> "user:reset_password";
+                case "role.create" -> "role:create";
+                default -> throw new ApiException(404, "NOT_FOUND", "未找到该操作结果");
+            };
+            var scope = operation.startsWith("cash_account.") || operation.startsWith("period.")
+                    ? access.requireCompany(request, permission) : access.requireTenant(request, permission);
+            return ApiResponse.success(commandResults.get(scope, operation, key));
+        }
         String permission = switch (operation) {
             case "warehouse.create" -> "warehouse:create";
             case "warehouse.disable", "warehouse.enable" -> "warehouse:update";
