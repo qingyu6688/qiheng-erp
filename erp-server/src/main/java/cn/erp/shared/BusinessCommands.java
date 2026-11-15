@@ -14,10 +14,12 @@ import tools.jackson.databind.ObjectMapper;
 public class BusinessCommands {
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
+    private final CommandResultAccess resultAccess;
 
-    public BusinessCommands(JdbcTemplate jdbc, ObjectMapper json) {
+    public BusinessCommands(JdbcTemplate jdbc, ObjectMapper json, CommandResultAccess resultAccess) {
         this.jdbc = jdbc;
         this.json = json;
+        this.resultAccess = resultAccess;
     }
 
     @Transactional
@@ -52,7 +54,9 @@ public class BusinessCommands {
             if (entry.get("response_body") == null) {
                 throw new ApiException(409, "REQUEST_IN_PROGRESS", "请求正在处理，请稍后重试");
             }
-            return json.readValue(entry.get("response_body").toString(), resultType);
+            T result=json.readValue(entry.get("response_body").toString(), resultType);
+            resultAccess.verify(scope,operation,result);
+            return result;
         }
         T result = command.get();
         jdbc.update("UPDATE idempotency_record SET status='succeeded',http_status=?,response_body=? WHERE id=?",

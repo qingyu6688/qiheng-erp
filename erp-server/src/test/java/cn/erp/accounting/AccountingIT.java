@@ -184,6 +184,17 @@ class AccountingIT {
         assertThatThrownBy(()->ledger.post(scope,posting(Ids.next(),"1.00"))).isInstanceOf(ApiException.class);
     }
 
+    @Test
+    void refundConsumesCreditsInSelectedAgingOrderRatherThanIdOrder() {
+        long original=receipt("100.00"),newer=receivable("credit","10.00"),older=receivable("credit","10.00");
+        long refund=refund(original,"5.00");
+        refunds.reserve(scope,refund,List.of(older,newer));
+        assertThat(open(older)).isEqualByComparingTo("5.00");
+        assertThat(open(newer)).isEqualByComparingTo("10.00");
+        refunds.release(scope,refund);
+        assertThat(open(older)).isEqualByComparingTo("10.00");
+    }
+
     private boolean attemptAllocation(CountDownLatch latch,long debit,long credit) throws Exception {
         latch.await(5,TimeUnit.SECONDS);
         try {settlement.allocate(scope,debit,credit,new BigDecimal("10.00"),"manual",null,null);return true;}

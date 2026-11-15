@@ -18,6 +18,8 @@ import {
   ElCheckbox,
   ElCheckboxGroup,
   ElPopconfirm,
+  ElRadio,
+  ElRadioGroup,
 } from 'element-plus'
 import App from './App.vue'
 import { router } from './router'
@@ -46,6 +48,8 @@ for (const component of [
   ElCheckbox,
   ElCheckboxGroup,
   ElPopconfirm,
+  ElRadio,
+  ElRadioGroup,
 ]) {
   app.use(component)
 }

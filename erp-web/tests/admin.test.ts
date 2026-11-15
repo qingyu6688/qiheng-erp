@@ -9,6 +9,12 @@ vi.mock('../src/api/http', () => ({ request: vi.fn() }))
 beforeEach(() => vi.mocked(request).mockReset())
 
 describe('基础资料表单', () => {
+  it('只有销售或核销权限的用户登录后进入对应工作台', () => {
+    expect(defaultWorkspace(permission => permission === 'sales_order:view', true)).toBe('/sales-orders')
+    expect(defaultWorkspace(permission => permission === 'settlement:view', true)).toBe('/settlements')
+    expect(defaultWorkspace(permission => permission === 'inventory:view', true)).toBe('/inventory-balances')
+    expect(defaultWorkspace(permission => permission === 'sales_order:view', false)).toBe('/account/password')
+  })
   it('初始密码保留用户输入的前后空格', () => {
     expect(editorPayload([{key: 'password', label: '初始密码', kind: 'password'}], {password: '  Pass word  '}))
       .toEqual({password: '  Pass word  '})

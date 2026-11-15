@@ -9,8 +9,9 @@ import tools.jackson.databind.ObjectMapper;
 public class CommandResults {
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
+    private final CommandResultAccess resultAccess;
 
-    public CommandResults(JdbcTemplate jdbc,ObjectMapper json) {this.jdbc=jdbc;this.json=json;}
+    public CommandResults(JdbcTemplate jdbc,ObjectMapper json,CommandResultAccess resultAccess) {this.jdbc=jdbc;this.json=json;this.resultAccess=resultAccess;}
 
     public Map<String,Object> get(ActorScope scope,String operation,String key) {
         if(key==null || !key.matches("[A-Za-z0-9_-]{1,64}")) {throw new ApiException(400,"VALIDATION_FAILED","幂等键格式有误");}
@@ -22,6 +23,7 @@ public class CommandResults {
         var result=new java.util.LinkedHashMap<String,Object>();
         result.put("status",row.get("status"));
         Object response=row.get("response_body")==null?null:json.readValue(row.get("response_body").toString(),Object.class);
+        resultAccess.verify(scope,operation,response);
         if(operation.startsWith("company.") && response instanceof Map<?,?> company) {
             Long visible=jdbc.queryForObject("SELECT COUNT(*) FROM sys_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=?",
                     Long.class,scope.tenantId(),scope.userId(),company.get("id"));

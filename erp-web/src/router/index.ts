@@ -3,6 +3,7 @@ import { useSessionStore } from '../stores/session'
 import LoginPage from '../pages/LoginPage.vue'
 import StatusPage from '../pages/StatusPage.vue'
 import { defaultWorkspace, resourceSpecs } from '../pages/resources'
+import { salesSpecs } from '../types/sales'
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -21,6 +22,12 @@ export const router = createRouter({
       component: () => import('../components/AppShell.vue'),
       children: [
         { path: '', name: 'home', component: () => import('../pages/WarehousePage.vue') },
+        ...salesSpecs.flatMap(spec => [
+          { path: spec.path, name: spec.path, component: () => import('../pages/SalesListPage.vue'), props: { kind: spec.path }, meta: { permission: spec.permission + ':view', company: true, title: spec.title } },
+          { path: spec.path + '/:id', name: spec.path + '-detail', component: () => import('../pages/SalesDetailPage.vue'), props: { kind: spec.path }, meta: { permission: spec.permission + ':view', company: true, title: spec.title } },
+        ]),
+        { path: 'settlements', name: 'settlements', component: () => import('../pages/SettlementPage.vue'), meta: { permission: 'settlement:view', company: true, title: '核销工作台' } },
+        { path: 'inventory-balances', name: 'inventory-balances', component: () => import('../pages/InventoryPage.vue'), meta: { permission: 'inventory:view', company: true, title: '实时库存' } },
         ...Object.values(resourceSpecs).map((spec) => ({
           path: spec.path,
           name: spec.path,

@@ -95,9 +95,21 @@ class WarehouseController {
                 case "user.enable", "user.disable", "user.unlock" -> "user:update";
                 case "user.reset_password" -> "user:reset_password";
                 case "role.create" -> "role:create";
+                case "receipt.withdraw" -> "receipt:return";
+                case "sales_order.create" -> "sales_order:create";
+                case "sales_order.submit", "sales_order.approve", "sales_order.reject", "sales_order.withdraw",
+                     "sales_order.revoke_approval", "sales_order.close_lines", "sales_order.cancel", "sales_order.reserve",
+                     "sales_order.change", "sales_order.change_approve", "sales_order.change_reject" -> operation.replace('.', ':');
+                case "shipment.create", "shipment.submit", "shipment.void", "shipment.post", "shipment.sign", "shipment.resolve_diff",
+                     "receipt.create", "receipt.submit", "receipt.return", "receipt.confirm",
+                     "sales_return.create", "sales_return.submit", "sales_return.void", "sales_return.post",
+                     "refund_request.create", "refund_request.submit", "refund_request.approve", "refund_request.reject",
+                     "refund_request.cancel", "refund_request.register_paid", "settlement.allocate", "settlement.revoke",
+                     "invoice_registration.create", "invoice_registration.void" -> operation.replace('.', ':');
                 default -> throw new ApiException(404, "NOT_FOUND", "未找到该操作结果");
             };
             var scope = operation.startsWith("cash_account.") || operation.startsWith("period.") || operation.equals("reconciliation.run")
+                    || operation.matches("(?:sales_order|shipment|receipt|sales_return|refund_request|settlement|invoice_registration)\\..+")
                     ? access.requireCompany(request, permission) : access.requireTenant(request, permission);
             return ApiResponse.success(commandResults.get(scope, operation, key));
         }

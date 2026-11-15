@@ -57,18 +57,18 @@ try {
         $env:ERP_DEV_ADMIN_PASSWORD = $env:ERP_E2E_PASSWORD
         $env:ERP_DEV_TENANT_CODE = $env:ERP_E2E_TENANT_CODE
         $env:APP_ENV = 'e2e'
-        $env:SPRING_PROFILES_ACTIVE = 'dev'
+        $env:SPRING_PROFILES_ACTIVE = 'dev,e2e'
         $env:SERVER_PORT = '18080'
         $env:ERP_NODE_ID = '1'
         $env:DB_NAME = $env:TEST_DB_NAME
         $env:DB_USER = $env:TEST_DB_USER
         $env:DB_PASSWORD = $env:TEST_DB_PASSWORD
-        mvn spring-boot:run
+        mvn spring-boot:test-run '-Dspring-boot.run.main-class=cn.erp.ErpApplication'
     } elseif ($Action -eq 'server') {
         $env:SPRING_PROFILES_ACTIVE = 'dev'
         mvn spring-boot:run
     } else {
-        mvn verify
+        mvn clean verify
     }
     $status = $LASTEXITCODE
 } finally { Pop-Location }

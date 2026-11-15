@@ -1,4 +1,5 @@
 import type { FormField, ResourceSpec, SelectOption } from '../types/admin'
+import { salesSpecs } from '../types/sales'
 
 const choices = (pairs: string[][]): SelectOption[] =>
   pairs.map(([value, label]) => ({ value: value!, label: label! }))
@@ -288,6 +289,12 @@ export const resourceGroups = [
 
 export function defaultWorkspace(can: (permission: string) => boolean, hasCompany: boolean): string {
   if (hasCompany && can('warehouse:view')) return '/warehouses'
+  if (hasCompany) {
+    const sales = salesSpecs.find(spec => can(spec.permission + ':view'))
+    if (sales) return '/' + sales.path
+    if (can('settlement:view')) return '/settlements'
+    if (can('inventory:view')) return '/inventory-balances'
+  }
   const first = Object.values(resourceSpecs).find(spec => can(spec.permission + ':view') && (!spec.company || hasCompany))
   return first ? '/' + first.path : '/account/password'
 }

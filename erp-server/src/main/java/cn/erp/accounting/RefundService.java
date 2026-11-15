@@ -37,7 +37,8 @@ public class RefundService {
         var ids=new ArrayList<>(creditItemIds);ids.add(debit);
         var items=settlement.lockItems(scope,ids.stream().mapToLong(Long::longValue).toArray());
         BigDecimal remaining=amount;
-        for(long credit:creditItemIds.stream().sorted().toList()) {
+        // lockItems 已按 ID 排序加锁，实际占用仍按调用方给出的账龄顺序分配。
+        for(long credit:creditItemIds) {
             var item=items.get(credit);
             if(!"C".equals(item.get("direction")) || !item.get("partner_id").equals(refund.get("customer_id"))) {throw new ApiException(422,"SETTLEMENT_NOT_ALLOWED","退款额度须属于同一客户的贷方未清项");}
             BigDecimal used=remaining.min((BigDecimal)item.get("open_amount"));
