@@ -15,53 +15,53 @@
 <body>
 <div class="index">
   <h1>后台页面设计稿</h1>
-  <p class="muted">配合《UI 设计规范》和《优化文档》第 4、5 节使用。每个页面底部的“设计说明”写明对应的 Vue 文件、依赖的接口和需要改动的地方。</p>
-  <div class="alert alert-info" style="margin-top:12px"><div>本目录是静态 HTML，直接双击打开即可；也可以在 <code>docs/ui</code> 目录执行 <code>python -m http.server 8765</code> 后访问 <code>http://127.0.0.1:8765/</code>。公共样式在 <code>assets/erp-ui.css</code>，左侧导航和顶栏由 <code>assets/shell.js</code> 生成，导航分组即 O-12 建议的新结构。</div></div>
+  <p class="muted">这些设计稿已在 0.8.0 实现，现作为页面结构的参考保留，配合《UI 设计规范》使用。页面里出现的 O-10、O-12 等编号是《优化文档》1.x 中的条目，已全部完成并从现行优化文档删除，完成情况见《更新日志》0.8.0。</p>
+  <div class="alert alert-info" style="margin-top:12px"><div>本目录是静态 HTML，直接双击打开即可；也可以在 <code>docs/ui</code> 目录执行 <code>python -m http.server 8765</code> 后访问 <code>http://127.0.0.1:8765/</code>。公共样式在 <code>assets/erp-ui.css</code>，左侧导航和顶栏由 <code>assets/shell.js</code> 生成，导航分组与现在系统中的菜单一致。</div></div>
 
   <h2>通用与入口</h2>
   <div class="panel"><div class="table-wrap"><table class="table">
-    <thead><tr><th>设计稿</th><th>对应文件</th><th>主要改动</th><th>优化项</th></tr></thead>
+    <thead><tr><th>设计稿</th><th>对应文件</th><th>主要改动</th><th>实现版本</th></tr></thead>
     <tbody>
-      <tr><td><a href="01-workbench.html">01 工作台</a></td><td><code>新增 pages/WorkbenchPage.vue</code></td><td>取代登录后默认进入的仓库管理；计数卡片与待办</td><td>O-13</td></tr>
-      <tr><td><a href="02-login.html">02 登录</a></td><td><code>pages/LoginPage.vue</code></td><td>补齐错误、锁定、加载三种状态</td><td>—</td></tr>
-      <tr><td><a href="03-password.html">03 修改密码</a></td><td><code>pages/PasswordPage.vue</code></td><td>强制修改提示条；入口移到账户菜单</td><td>O-12</td></tr>
-      <tr><td><a href="04-status.html">04 状态页</a></td><td><code>pages/StatusPage.vue</code></td><td>401/403/404/503 统一文案和下一步</td><td>—</td></tr>
+      <tr><td><a href="01-workbench.html">01 工作台</a></td><td><code>新增 pages/WorkbenchPage.vue</code></td><td>取代登录后默认进入的仓库管理；计数卡片与待办</td><td>0.8.0</td></tr>
+      <tr><td><a href="02-login.html">02 登录</a></td><td><code>pages/LoginPage.vue</code></td><td>补齐错误、锁定、加载三种状态</td><td>0.8.0</td></tr>
+      <tr><td><a href="03-password.html">03 修改密码</a></td><td><code>pages/PasswordPage.vue</code></td><td>强制修改提示条；入口移到账户菜单</td><td>0.8.0</td></tr>
+      <tr><td><a href="04-status.html">04 状态页</a></td><td><code>pages/StatusPage.vue</code></td><td>401/403/404/503 统一文案和下一步</td><td>0.8.0</td></tr>
     </tbody></table></div></div>
 
   <h2>单据</h2>
   <div class="panel"><div class="table-wrap"><table class="table">
-    <thead><tr><th>设计稿</th><th>对应文件</th><th>主要改动</th><th>优化项</th></tr></thead>
+    <thead><tr><th>设计稿</th><th>对应文件</th><th>主要改动</th><th>实现版本</th></tr></thead>
     <tbody>
-      <tr><td><a href="10-document-list.html">10 单据列表</a></td><td><code>SalesListPage / ProcurementListPage / StockOperationPage</code></td><td>状态页签带数量、补筛选条件、筛选写入地址栏、分页留白</td><td>O-14、O-15</td></tr>
-      <tr><td><a href="11-order-editor.html">11 订单编辑</a></td><td><code>sales/OrderEditor / procurement/ProcurementEditor</code></td><td>由对话框改为独立页面；试算防抖；可用量提示</td><td>O-16</td></tr>
-      <tr><td><a href="12-document-detail.html">12 单据详情</a></td><td><code>SalesDetailPage / ProcurementDetailPage / DocumentFilesPanel</code></td><td>四个状态维度分开展示；按钮只看 allowedActions；本地时间</td><td>O-10</td></tr>
-      <tr><td><a href="13-shipment-sign.html">13 发货与签收</a></td><td><code>SalesDetailPage / sales/CommandDialog</code></td><td>签收对话框按行填差异；应收预览</td><td>O-17</td></tr>
-      <tr><td><a href="14-command-dialogs.html">14 命令对话框</a></td><td><code>CommandDialog / StockCommandDialog / DependencyList</code></td><td>审批、关闭、冲销、结果确认中、版本冲突、同人限制</td><td>—</td></tr>
+      <tr><td><a href="10-document-list.html">10 单据列表</a></td><td><code>SalesListPage / ProcurementListPage / StockOperationPage</code></td><td>状态页签带数量、补筛选条件、筛选写入地址栏、分页留白</td><td>0.8.0</td></tr>
+      <tr><td><a href="11-order-editor.html">11 订单编辑</a></td><td><code>sales/OrderEditor / procurement/ProcurementEditor</code></td><td>由对话框改为独立页面；试算防抖；可用量提示</td><td>0.8.0</td></tr>
+      <tr><td><a href="12-document-detail.html">12 单据详情</a></td><td><code>SalesDetailPage / ProcurementDetailPage / DocumentFilesPanel</code></td><td>四个状态维度分开展示；按钮只看 allowedActions；本地时间</td><td>0.8.0</td></tr>
+      <tr><td><a href="13-shipment-sign.html">13 发货与签收</a></td><td><code>SalesDetailPage / sales/CommandDialog</code></td><td>签收对话框按行填差异；应收预览</td><td>0.8.0</td></tr>
+      <tr><td><a href="14-command-dialogs.html">14 命令对话框</a></td><td><code>CommandDialog / StockCommandDialog / DependencyList</code></td><td>审批、关闭、冲销、结果确认中、版本冲突、同人限制</td><td>0.8.0</td></tr>
     </tbody></table></div></div>
 
   <h2>资金、库存与期间</h2>
   <div class="panel"><div class="table-wrap"><table class="table">
-    <thead><tr><th>设计稿</th><th>对应文件</th><th>主要改动</th><th>优化项</th></tr></thead>
+    <thead><tr><th>设计稿</th><th>对应文件</th><th>主要改动</th><th>实现版本</th></tr></thead>
     <tbody>
-      <tr><td><a href="20-money-documents.html">20 收付款与退款</a></td><td><code>SalesListPage / ProcurementListPage</code></td><td>默认“待确认”；抽屉编辑；登记人不能确认</td><td>O-14</td></tr>
-      <tr><td><a href="21-settlement.html">21 核销工作台</a></td><td><code>pages/SettlementPage.vue</code></td><td>借贷两列、底部汇总、撤销填原因</td><td>—</td></tr>
-      <tr><td><a href="30-inventory.html">30 实时库存</a></td><td><code>pages/InventoryPage.vue</code></td><td>顶部汇总条；成本列按权限隐藏</td><td>—</td></tr>
-      <tr><td><a href="31-stock-operation.html">31 调拨、盘点、调整</a></td><td><code>StockOperationPage / StockDocumentEditor</code></td><td>盘点差异表；调拨三段；本地时间</td><td>O-10、O-12</td></tr>
-      <tr><td><a href="32-period-close.html">32 会计期间与关账</a></td><td><code>ResourcePage + PeriodActions</code> → 新增专用页</td><td>期间列表 + 关账检查结果；重开对话框</td><td>O-18</td></tr>
+      <tr><td><a href="20-money-documents.html">20 收付款与退款</a></td><td><code>SalesListPage / ProcurementListPage</code></td><td>默认“待确认”；抽屉编辑；登记人不能确认</td><td>0.8.0</td></tr>
+      <tr><td><a href="21-settlement.html">21 核销工作台</a></td><td><code>pages/SettlementPage.vue</code></td><td>借贷两列、底部汇总、撤销填原因</td><td>0.8.0</td></tr>
+      <tr><td><a href="30-inventory.html">30 实时库存</a></td><td><code>pages/InventoryPage.vue</code></td><td>顶部汇总条；成本列按权限隐藏</td><td>0.8.0</td></tr>
+      <tr><td><a href="31-stock-operation.html">31 调拨、盘点、调整</a></td><td><code>StockOperationPage / StockDocumentEditor</code></td><td>盘点差异表；调拨三段；本地时间</td><td>0.8.0</td></tr>
+      <tr><td><a href="32-period-close.html">32 会计期间与关账</a></td><td><code>ResourcePage + PeriodActions</code> → 新增专用页</td><td>期间列表 + 关账检查结果；重开对话框</td><td>0.8.0</td></tr>
     </tbody></table></div></div>
 
   <h2>报表、数据与系统</h2>
   <div class="panel"><div class="table-wrap"><table class="table">
-    <thead><tr><th>设计稿</th><th>对应文件</th><th>主要改动</th><th>优化项</th></tr></thead>
+    <thead><tr><th>设计稿</th><th>对应文件</th><th>主要改动</th><th>实现版本</th></tr></thead>
     <tbody>
-      <tr><td><a href="40-report.html">40 业务报表</a></td><td><code>pages/ReportPage.vue</code></td><td>十个菜单收拢为一个入口 + 右上角切换</td><td>O-12</td></tr>
-      <tr><td><a href="41-file-jobs.html">41 导入与导出</a></td><td><code>pages/FileJobsPage.vue</code></td><td>状态标签、进度条、本地时间、下载错误行</td><td>O-10、O-19</td></tr>
-      <tr><td><a href="42-audit.html">42 操作审计</a></td><td><code>pages/AuditPage.vue</code></td><td>本地时间到秒；前后对比面板</td><td>O-10</td></tr>
-      <tr><td><a href="43-print.html">43 打印发货单</a></td><td><code>pages/PrintPage.vue</code></td><td>打印时间改本地时间；不打印成本和优惠</td><td>O-10</td></tr>
-      <tr><td><a href="50-resource.html">50 基础资料</a></td><td><code>ResourcePage / RecordEditor / RecordRelations / WarehousePage</code></td><td>左列表右编辑；子资料用页签</td><td>O-20</td></tr>
-      <tr><td><a href="51-users-roles.html">51 用户与角色</a></td><td><code>ResourcePage / RecordRelations</code></td><td>合并入口；权限矩阵；按公司设置数据范围</td><td>O-20</td></tr>
-      <tr><td><a href="52-company-policy.html">52 公司与参数</a></td><td><code>ResourcePage / RecordRelations</code></td><td>资料与参数分块保存；参数旁写影响和范围</td><td>O-20</td></tr>
-      <tr><td><a href="53-sku.html">53 商品与 SKU</a></td><td><code>ResourcePage / RecordRelations</code></td><td>商品和 SKU 合并为一个页面；换算率只读说明</td><td>O-20</td></tr>
+      <tr><td><a href="40-report.html">40 业务报表</a></td><td><code>pages/ReportPage.vue</code></td><td>十个菜单收拢为一个入口 + 右上角切换</td><td>0.8.0</td></tr>
+      <tr><td><a href="41-file-jobs.html">41 导入与导出</a></td><td><code>pages/FileJobsPage.vue</code></td><td>状态标签、进度条、本地时间、下载错误行</td><td>0.8.0</td></tr>
+      <tr><td><a href="42-audit.html">42 操作审计</a></td><td><code>pages/AuditPage.vue</code></td><td>本地时间到秒；前后对比面板</td><td>0.8.0</td></tr>
+      <tr><td><a href="43-print.html">43 打印发货单</a></td><td><code>pages/PrintPage.vue</code></td><td>打印时间改本地时间；不打印成本和优惠</td><td>0.8.0</td></tr>
+      <tr><td><a href="50-resource.html">50 基础资料</a></td><td><code>ResourcePage / RecordEditor / RecordRelations / WarehousePage</code></td><td>左列表右编辑；子资料用页签</td><td>0.8.0</td></tr>
+      <tr><td><a href="51-users-roles.html">51 用户与角色</a></td><td><code>ResourcePage / RecordRelations</code></td><td>合并入口；权限矩阵；按公司设置数据范围</td><td>0.8.0</td></tr>
+      <tr><td><a href="52-company-policy.html">52 公司与参数</a></td><td><code>ResourcePage / RecordRelations</code></td><td>资料与参数分块保存；参数旁写影响和范围</td><td>0.8.0</td></tr>
+      <tr><td><a href="53-sku.html">53 商品与 SKU</a></td><td><code>ResourcePage / RecordRelations</code></td><td>商品和 SKU 合并为一个页面；换算率只读说明</td><td>0.8.0</td></tr>
     </tbody></table></div></div>
 </div>
 </body>

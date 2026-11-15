@@ -3,7 +3,7 @@
 - 规范版本：1.0.0。
 - 编写日期：2026-11-15，Asia/Shanghai。
 - 设计稿：[ERP 管理端 UI 设计](https://claude.ai/artifact/Da7eTdp66d2QhMBQSA33jE)，共 9 张画板，链接目前仅本人可见，需要给别人看时在页面的分享菜单里开启。
-- 页面级设计稿：`docs/ui/`（22 页，入口 `docs/ui/index.html`），按《优化文档》第 4、5 节落地。
+- 页面级设计稿：`docs/ui/`（22 页，入口 `docs/ui/index.html`），已在 0.8.0 实现，现作为页面结构的参考保留。
 - 依据：全局规范第 14 节，《接口设计》第 2.5、2.9、2.12 节，《业务规则》第 11 节。
 - 文档维护：maorongkang@gmail.com。
 
