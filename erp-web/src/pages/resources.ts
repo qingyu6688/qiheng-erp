@@ -2,6 +2,8 @@ import type { FormField, ResourceSpec, SelectOption } from '../types/admin'
 import { salesSpecs } from '../types/sales'
 import { procurementSpecs } from '../types/procurement'
 import { stockSpecs } from '../types/stock-operations'
+import { reportSpecs, reportPermission } from '../types/reporting'
+import { importSpecs } from '../types/file-jobs'
 
 const choices = (pairs: string[][]): SelectOption[] =>
   pairs.map(([value, label]) => ({ value: value!, label: label! }))
@@ -300,6 +302,10 @@ export function defaultWorkspace(can: (permission: string) => boolean, hasCompan
     if (stock) return '/' + stock.path
     if (can('settlement:view')) return '/settlements'
     if (can('inventory:view')) return '/inventory-balances'
+    const report = reportSpecs.find(spec => can(reportPermission(spec.type)))
+    if (report) return '/reports/' + report.type
+    if (importSpecs.some(spec => can('import:' + spec.type)) || reportSpecs.some(spec => can(reportPermission(spec.type, 'export')))) return '/file-jobs'
+    if (can('admin:outbox')) return '/audit-logs'
   }
   const first = Object.values(resourceSpecs).find(spec => can(spec.permission + ':view') && (!spec.company || hasCompany))
   return first ? '/' + first.path : '/account/password'

@@ -17,6 +17,11 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 public class ApiErrors {
     private static final Logger LOG = LoggerFactory.getLogger(ApiErrors.class);
 
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiResponse<Void>> uploadTooLarge() {
+        return api(new ApiException(413, "FILE_TOO_LARGE", "单个附件不能超过20MB"));
+    }
+
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiResponse<Void>> api(ApiException error) {
         return ResponseEntity.status(error.getStatus()).body(ApiResponse.error(error.getStatus(),

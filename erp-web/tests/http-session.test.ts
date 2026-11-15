@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import axios from 'axios'
-import { request, renewSessionScope } from '../src/api/http'
+import { request, renewSessionScope, setCompanyScope } from '../src/api/http'
 
 const { clientRequest } = vi.hoisted(() => ({ clientRequest: vi.fn() }))
 vi.mock('axios', async importOriginal => {
@@ -54,4 +54,20 @@ it('退出失败恢复会话后业务请求仍可执行', async () => {
   renewSessionScope()
   clientRequest.mockResolvedValueOnce({ data: { data: { items: [] } } })
   await expect(request({ method: 'GET', url: '/users' })).resolves.toEqual({ items: [] })
+})
+
+it('二进制下载仍携带公司范围并返回原始文件', async () => {
+  setCompanyScope('9007199254740993')
+  const blob = new Blob(['\uFEFF金额\r\n12345678901234567890.12'], { type: 'text/csv' })
+  clientRequest.mockResolvedValueOnce({ data: blob })
+  await expect(request<Blob>({ method: 'GET', url: '/export-jobs/1/download', responseType: 'blob' }, true)).resolves.toBe(blob)
+  expect(clientRequest).toHaveBeenCalledWith(expect.objectContaining({ headers: { 'X-Company-Id': '9007199254740993' } }))
+})
+
+it('页面取消信号与公司切换信号合并，下载离开页面后中止', async () => {
+  setCompanyScope('1'); const page = new AbortController()
+  clientRequest.mockResolvedValueOnce({ data: { data: {} } })
+  await request({ method: 'GET', url: '/import-jobs', signal: page.signal }, true)
+  const signal = clientRequest.mock.calls[0][0].signal as AbortSignal
+  page.abort(); expect(signal.aborted).toBe(true)
 })

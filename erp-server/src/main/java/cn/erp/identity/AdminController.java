@@ -15,9 +15,10 @@ class AdminController {
     private final AccessService access;
     private final OrganizationService organization;
     private final IdentityAdminService admin;
+    private final AuditQueryService auditQuery;
 
-    AdminController(AccessService access,OrganizationService organization,IdentityAdminService admin) {
-        this.access=access;this.organization=organization;this.admin=admin;
+    AdminController(AccessService access,OrganizationService organization,IdentityAdminService admin,AuditQueryService auditQuery) {
+        this.access=access;this.organization=organization;this.admin=admin;this.auditQuery=auditQuery;
     }
 
     @GetMapping("/companies")
@@ -139,7 +140,12 @@ class AdminController {
 
     @GetMapping("/audit-logs")
     ApiResponse<Page<Map<String,Object>>> audits(HttpServletRequest req,@RequestParam(required=false) String cursor,
-                                                @RequestParam(defaultValue="100") int limit) {
-        return ApiResponse.success(organization.auditLogs(access.requireTenant(req,"audit:view"),cursor,limit));
+            @RequestParam(defaultValue="100") int limit,@RequestParam(required=false) String action,
+            @RequestParam(required=false) String entityType,@RequestParam(required=false) Long entityId,
+            @RequestParam(required=false) Long operatorId,@RequestParam(required=false) Long companyId,
+            @RequestParam(required=false) java.time.LocalDate dateFrom,@RequestParam(required=false) java.time.LocalDate dateTo,
+            @RequestParam(required=false) String requestId) {
+        return ApiResponse.success(auditQuery.list(access.requireTenant(req,"audit:view"),
+                new AuditQueryService.Filter(action,entityType,entityId,operatorId,companyId,dateFrom,dateTo,requestId),cursor,limit));
     }
 }

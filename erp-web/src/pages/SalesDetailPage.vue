@@ -9,6 +9,7 @@ import OrderEditor from '../components/sales/OrderEditor.vue'
 import DocumentEditor from '../components/sales/DocumentEditor.vue'
 import CommandDialog from '../components/sales/CommandDialog.vue'
 import { useSessionStore } from '../stores/session'
+import DocumentFilesPanel from '../components/DocumentFilesPanel.vue'
 const props=defineProps<{kind:SalesKind}>()
 const route=useRoute(),router=useRouter(),session=useSessionStore()
 const spec=computed(()=>salesSpecs.find(s=>s.path===props.kind)!)
@@ -93,6 +94,7 @@ onMounted(load)
   <section v-if="value.fees?.length" class="panel sales-detail-header"><h2>费用</h2><p v-for="(fee,index) in value.fees" :key="index">{{ fee.feeType==='freight'?'运费':'其他费用' }} · {{ fee.bearer==='buyer'?'买方承担':'我方承担' }} · ¥{{ fee.amount }}</p></section>
   <section v-if="kind==='sales-orders'&&history.length" class="panel sales-detail-header"><h2>库存预留记录</h2><el-table :data="history"><el-table-column prop="remainingQty" label="剩余预留"/><el-table-column label="状态"><template #default="{row}">{{ statusLabels[row.status]??row.status }}</template></el-table-column><el-table-column prop="expireAt" label="到期时间"/></el-table></section>
  </template>
+ <DocumentFilesPanel v-if="value" :owner-type="spec.permission" :owner-id="value.id" />
  <OrderEditor v-if="(editing||changing)&&value&&kind==='sales-orders'" :original="value" :change="changing" @close="editing=false;changing=false" @saved="saved"/>
  <DocumentEditor v-if="editing&&value&&kind!=='sales-orders'" :kind="kind" :original="value" @close="editing=false" @saved="saved"/>
  <CommandDialog v-if="action&&value" :kind="kind" :document="value" :action="action" @close="action=''" @saved="commandSaved"/>

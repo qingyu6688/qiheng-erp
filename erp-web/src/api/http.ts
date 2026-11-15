@@ -62,15 +62,22 @@ export async function request<T>(config: AxiosRequestConfig, companyScoped = fal
     const response = await client.request<ApiResponse<T>>({
       ...rest,
       headers: { ...headers, ...(companyScoped ? { 'X-Company-Id': companyId } : {}) },
-      signal: companyScoped ? scope.signal : config.signal,
+      signal: companyScoped && config.signal
+        ? AbortSignal.any([scope.signal, config.signal as AbortSignal])
+        : companyScoped ? scope.signal : config.signal,
     })
     if (revision !== sessionRevision) throw new axios.CanceledError('会话已变更')
     if (companyScoped && scope.signal.aborted) throw new axios.CanceledError('公司已切换')
+    if (config.responseType === 'blob') return response.data as unknown as T
     return response.data.data
   } catch (cause: unknown) {
     if (revision !== sessionRevision) throw new axios.CanceledError('会话已变更')
     if (!axios.isAxiosError<ApiErrorBody>(cause) || axios.isCancel(cause)) throw cause
-    const body = cause.response?.data
+    let body = cause.response?.data
+    if (body instanceof Blob) {
+      try { body = JSON.parse(await body.text()) as ApiErrorBody }
+      catch { body = undefined }
+    }
     const status = cause.response?.status ?? 0
     if (
       status === 401 &&

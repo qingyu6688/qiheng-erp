@@ -37,7 +37,7 @@ public class AccessService {
         }
         CompanyView company = profile.companies().stream().filter(c -> c.id().equals(companyId))
                 .findFirst().orElseThrow(() -> new ApiException(403, "COMPANY_NOT_ALLOWED", "无权访问该公司"));
-        if (!profile.permissions().contains(permission)) {
+        if (permission != null && !profile.permissions().contains(permission)) {
             throw new ApiException(403, "FORBIDDEN", "没有执行此操作的权限");
         }
         Set<Long> warehouses = new LinkedHashSet<>();

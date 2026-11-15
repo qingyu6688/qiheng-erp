@@ -273,7 +273,8 @@ p {
   height: 32px;
   margin-bottom: 8px;
 }
-.pagination {
+.pagination,
+.table-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;

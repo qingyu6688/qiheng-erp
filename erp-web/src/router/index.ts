@@ -6,6 +6,9 @@ import { defaultWorkspace, resourceSpecs } from '../pages/resources'
 import { salesSpecs } from '../types/sales'
 import { procurementSpecs } from '../types/procurement'
 import { stockSpecs } from '../types/stock-operations'
+import { reportSpecs, reportPermission } from '../types/reporting'
+import { documentPermission } from '../types/documents'
+import { importSpecs } from '../types/file-jobs'
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -38,7 +41,11 @@ export const router = createRouter({
         ]),
         { path: 'settlements', name: 'settlements', component: () => import('../pages/SettlementPage.vue'), meta: { permission: 'settlement:view', company: true, title: '核销工作台' } },
         { path: 'inventory-balances', name: 'inventory-balances', component: () => import('../pages/InventoryPage.vue'), meta: { permission: 'inventory:view', company: true, title: '实时库存' } },
-        ...Object.values(resourceSpecs).map((spec) => ({
+        ...reportSpecs.map(spec => ({ path: 'reports/' + spec.type, name: 'report-' + spec.type, component: () => import('../pages/ReportPage.vue'), props: { type: spec.type }, meta: { permission: reportPermission(spec.type), company: true, title: spec.title } })),
+        { path: 'file-jobs', name: 'file-jobs', component: () => import('../pages/FileJobsPage.vue'), meta: { company: true, title: '导入与导出', anyPermissions: [...importSpecs.map(spec => 'import:' + spec.type), ...reportSpecs.map(spec => reportPermission(spec.type, 'export'))] } },
+        { path: 'audit-logs', name: 'audit-logs', component: () => import('../pages/AuditPage.vue'), meta: { title: '操作审计', anyPermissions: ['audit:view', 'admin:outbox'] } },
+        { path: 'print/:type/:id', name: 'document-print', component: () => import('../pages/PrintPage.vue'), meta: { title: '打印预览', company: true, documentPrint: true } },
+        ...Object.values(resourceSpecs).filter(spec => spec.path !== 'audit-logs').map((spec) => ({
           path: spec.path,
           name: spec.path,
           component: () => import('../pages/ResourcePage.vue'),
@@ -79,6 +86,9 @@ router.beforeEach(async (to) => {
   if (to.name === 'login' || to.name === 'home') return defaultWorkspace(session.can, Boolean(session.company))
   if (to.name === 'warehouses' && (!session.company || !session.can('warehouse:view')))
     return { name: 'forbidden' }
+  if (to.meta.company && !session.company) return { name: 'forbidden' }
+  if (Array.isArray(to.meta.anyPermissions) && !to.meta.anyPermissions.some(permission => typeof permission === 'string' && session.can(permission))) return { name: 'forbidden' }
+  if (to.meta.documentPrint && !session.can(documentPermission(String(to.params.type)) + ':print')) return { name: 'forbidden' }
   if (
     typeof to.meta.permission === 'string' &&
     (!session.can(to.meta.permission) || (to.meta.company && !session.company))

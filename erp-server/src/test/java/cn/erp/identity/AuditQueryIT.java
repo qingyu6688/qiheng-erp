@@ -1,0 +1,61 @@
+package cn.erp.identity;
+
+import cn.erp.ErpApplication;
+import cn.erp.shared.ApiException;
+import cn.erp.shared.Ids;
+import java.time.LocalDate;
+import java.util.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
+import static org.assertj.core.api.Assertions.*;
+
+@SpringBootTest(classes=ErpApplication.class)
+@ActiveProfiles("test")
+@Transactional
+class AuditQueryIT {
+    @Autowired AuditQueryService service;
+    @Autowired JdbcTemplate jdbc;
+    @Autowired ObjectMapper json;
+    long tenant,user,company,visible;
+    CompanyAccess actor;
+    @BeforeEach void prepare() {
+        tenant=Ids.next();user=Ids.next();company=Ids.next();visible=Ids.next();
+        jdbc.update("INSERT INTO tenant(id,code,name) VALUES(?,?,'审计测试')",tenant,"T"+tenant);
+        jdbc.update("INSERT INTO company(id,tenant_id,code,name) VALUES(?,?,'C','审计公司')",company,tenant);
+        jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,?,'auditor','审计人员','unused-test-hash')",user,tenant);
+        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,company);
+        jdbc.update("INSERT INTO audit_log(id,tenant_id,company_id,operator_id,action,object_type,object_id,request_id,before_data,after_data) VALUES(?,?,?,?,'shipment.sign','shipment',123,'request-1',?,?)",
+                visible,tenant,company,user,"{\"status\":\"posted\"}","{\"status\":\"signed\",\"costAmount\":\"12.34\",\"passwordHash\":\"私密密码\",\"nested\":[{\"mobile\":\"私密电话\",\"bankAccountNo\":\"私密账号\",\"qty\":\"9007199254740993\"}]}");
+        actor=new CompanyAccess(tenant,user,0,true,Set.of(),Set.of("audit:view"));
+    }
+    AuditQueryService.Filter filter(String action,Long companyId) {return new AuditQueryService.Filter(action,null,null,null,companyId,null,null,null);}
+    @Test void filtersAndPaginationKeepTenantAndFullCompanyScope() {
+        jdbc.update("INSERT INTO audit_log(id,tenant_id,company_id,action,object_type) VALUES(?,?,?,'shipment.sign','shipment')",Ids.next(),tenant,Ids.next());
+        jdbc.update("INSERT INTO audit_log(id,tenant_id,action,object_type) VALUES(?,?,'shipment.sign','shipment')",Ids.next(),Ids.next());
+        var result=service.list(actor,filter("shipment.sign",company),null,1);
+        assertThat(result.items()).hasSize(1);assertThat(result.items().getFirst().get("id")).isEqualTo(Long.toString(visible));assertThat(result.nextCursor()).isNull();
+        assertThat(service.list(actor,filter("payment.confirm",null),null,20).items()).isEmpty();
+        long warehouse=Ids.next();jdbc.update("INSERT INTO warehouse(id,tenant_id,company_id,code,name) VALUES(?,?,?,'W','审计仓')",warehouse,tenant,company);
+        jdbc.update("UPDATE sys_user_data_scope SET scope_type='warehouse',warehouse_id=? WHERE tenant_id=? AND user_id=?",warehouse,tenant,user);
+        assertThat(service.list(actor,filter(null,null),null,20).items()).isEmpty();
+    }
+    @Test void recursivelyRedactsFieldPermissionsAndNeverReturnsSecrets() {
+        String value=json.writeValueAsString(service.list(actor,filter(null,null),null,20));
+        assertThat(value).contains("9007199254740993","signed").doesNotContain("costAmount","私密密码","私密电话","私密账号");
+        var fields=new CompanyAccess(tenant,user,0,true,Set.of(),Set.of("audit:view","cost:view","partner_contact:view","cash_account_no:view"));
+        assertThat(json.writeValueAsString(service.list(fields,filter(null,null),null,20))).contains("12.34","私密电话","私密账号").doesNotContain("私密密码");
+    }
+    @Test void validatesFiltersAndResolvesShanghaiDateRange() {
+        var today=LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+        var date=new AuditQueryService.Filter(null,"shipment",123L,user,company,today,today,"request-1");
+        assertThat(service.list(actor,date,null,20).items()).hasSize(1);
+        assertThatThrownBy(()->service.list(actor,filter(null,null),"错误",20)).isInstanceOf(ApiException.class);
+        assertThatThrownBy(()->service.list(actor,new AuditQueryService.Filter(null,null,null,null,null,today,today.plusYears(2),null),null,20)).isInstanceOf(ApiException.class);
+    }
+}

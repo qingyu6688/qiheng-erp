@@ -3,6 +3,10 @@ spring:
     name: erp-server
   profiles:
     default: prod
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 21MB
   datasource:
     url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:erp_dev}?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8
     username: ${DB_USER}

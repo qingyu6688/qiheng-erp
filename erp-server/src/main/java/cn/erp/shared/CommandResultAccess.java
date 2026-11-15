@@ -13,7 +13,7 @@ public class CommandResultAccess {
 
     public void verify(ActorScope actor,String operation,Object response) {
         if(!(actor instanceof WarehouseScope scope) || !(response instanceof Map<?,?> row)) {return;}
-        if(java.util.Set.of("period.close","period.reopen").contains(operation)&&!scope.allWarehouses()) {throw new ApiException(403,"FORBIDDEN","期间操作结果需要整家公司数据范围");}
+        if(java.util.Set.of("period.close","period.reopen","outbox.replay").contains(operation)&&!scope.allWarehouses()) {throw new ApiException(403,"FORBIDDEN","操作结果需要整家公司数据范围");}
         if(operation.startsWith("reversal.")) {
             String type=String.valueOf(row.get("sourceType"));
             if(!(actor instanceof PermissionScope permissions)||!permissions.hasPermission(type+":view")) {throw new ApiException(403,"FORBIDDEN","没有查看冲销来源单据的权限");}

@@ -27,6 +27,7 @@ const select = defineComponent({
 const option = defineComponent({ props: ['value', 'label'], template: '<option :value="value">{{label}}</option>' })
 const button = defineComponent({ template: '<button><slot/></button>' })
 const stubs = {
+  DocumentFilesPanel: true,
   ElDialog: dialog, ElInput: input, ElSelect: select, ElOption: option, ElButton: button,
   ElForm: { template: '<form><slot/></form>' }, ElFormItem: { template: '<div><slot/></div>' },
   ElSwitch: true, ElCheckbox: input, ElTable: { template: '<div/>' }, ElTableColumn: true,

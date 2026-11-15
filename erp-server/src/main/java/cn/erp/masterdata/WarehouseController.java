@@ -120,6 +120,7 @@ class WarehouseController {
                 default -> throw new ApiException(404, "NOT_FOUND", "未找到该操作结果");
             };
             var scope = operation.startsWith("cash_account.") || operation.startsWith("period.") || operation.equals("reconciliation.run")
+                    || operation.equals("outbox.replay")
                     || operation.matches("(?:sales_order|shipment|receipt|sales_return|refund_request|settlement|invoice_registration)\\..+")
                     || operation.matches("(?:purchase_requisition|purchase_order|goods_receipt|purchase_return|payment|account_transfer|stock_adjustment|opening_entry|stock_transfer|stock_count|reversal)\\..+")
                     ? access.requireCompany(request, permission) : access.requireTenant(request, permission);

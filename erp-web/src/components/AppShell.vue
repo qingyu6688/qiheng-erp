@@ -9,6 +9,8 @@ import { resourceGroups, resourceSpecs } from '../pages/resources'
 import { salesSpecs } from '../types/sales'
 import { procurementSpecs } from '../types/procurement'
 import { stockSpecs } from '../types/stock-operations'
+import { reportSpecs, reportPermission } from '../types/reporting'
+import { importSpecs } from '../types/file-jobs'
 
 const route = useRoute()
 const router = useRouter()
@@ -69,6 +71,12 @@ async function logout(): Promise<void> {
           <router-link v-if="session.can('stock_adjustment:view')" class="nav-link" to="/stock-adjustments">库存调整</router-link>
         </div>
         <div class="nav-group">
+          <template v-if="!session.user?.mustChangePassword">
+            <div v-if="reportSpecs.some(spec => session.can(reportPermission(spec.type)))" class="nav-caption">业务报表</div>
+            <template v-for="spec in reportSpecs" :key="spec.type"><router-link v-if="session.can(reportPermission(spec.type))" class="nav-link" :to="'/reports/' + spec.type">{{ spec.title }}</router-link></template>
+            <router-link v-if="importSpecs.some(spec => session.can('import:' + spec.type)) || reportSpecs.some(spec => session.can(reportPermission(spec.type, 'export')))" class="nav-link" to="/file-jobs">导入与导出</router-link>
+            <router-link v-if="!session.can('audit:view') && session.can('admin:outbox')" class="nav-link" to="/audit-logs">异常事件处理</router-link>
+          </template>
           <template v-for="group in groups" :key="group.title">
             <div class="nav-caption">{{ group.title }}</div>
             <router-link

@@ -8,6 +8,8 @@ import type { StockDocument, StockKind } from '../types/stock-operations'
 import { useSessionStore } from '../stores/session'
 import StockDocumentEditor from '../components/stock-operations/StockDocumentEditor.vue'
 import StockCommandDialog from '../components/stock-operations/StockCommandDialog.vue'
+import DocumentFilesPanel from '../components/DocumentFilesPanel.vue'
+import { documentType } from '../types/documents'
 
 const props = defineProps<{ kind: StockKind }>(), route = useRoute(), router = useRouter(), session = useSessionStore()
 const spec = computed(() => stockSpecs.find(item => item.path === props.kind)!), detailId = computed(() => typeof route.params.id === 'string' ? route.params.id : '')
@@ -43,6 +45,7 @@ watch(() => [props.kind, detailId.value, session.companyId], () => { editing.val
   <template v-else-if="value"><section class="panel sales-detail-header"><dl><dt>状态</dt><dd><el-tag type="info">{{ stockStatusLabels[value.status] ?? value.status }}</el-tag></dd><dt>业务日期</dt><dd>{{ value.businessDate }}</dd><dt>仓库 / 路线</dt><dd>{{ value.warehouseName ?? (value.fromWarehouseName ? value.fromWarehouseName + ' → ' + value.toWarehouseName : '—') }}</dd><dt>版本</dt><dd>{{ value.version }}</dd></dl><p v-if="value.sourceNo">{{ sourceLabel(value.sourceType) }}：{{ value.sourceNo }}</p><p v-if="value.snapshotAt">盘点快照 {{ value.snapshotAt }}。实盘数对应此时点，过账按快照差额调整，不覆盖期间收发货。</p><p v-if="value.reason">原因：{{ value.reason }}</p><p v-if="value.remark">备注：{{ value.remark }}</p></section>
     <section v-if="value.lines?.length" class="panel table-panel"><el-table :data="value.lines" row-key="id"><el-table-column prop="skuName" label="商品" min-width="150" /><template v-if="kind === 'stock-transfers'"><el-table-column label="调拨数量" min-width="150"><template #default="{ row }">{{ row.qty }} {{ row.unitName }}</template></el-table-column><el-table-column prop="baseQty" label="基础数量" min-width="130" /><el-table-column prop="receivedBaseQty" label="已调入" min-width="130" /><el-table-column prop="remainingQty" label="在途数量" min-width="130" /><el-table-column prop="diffBaseQty" label="差异数量" min-width="130" /></template><template v-else><el-table-column prop="baseUnitName" label="基础单位" /><el-table-column prop="bookQty" label="快照账面数" min-width="130" /><el-table-column prop="countedQty" label="时点实盘数" min-width="130" /><el-table-column prop="diffQty" label="盘点差额" min-width="130" /></template><el-table-column v-if="session.can('cost:view')" prop="costAmount" label="成本金额" min-width="130" /></el-table></section>
   </template>
+  <DocumentFilesPanel v-if="detailId && value" :owner-type="documentType(spec.permission)" :owner-id="value.id" />
   <StockDocumentEditor v-if="editing" :key="kind + (value?.id ?? '')" :kind="kind" :original="detailId ? value : undefined" @close="closeEditor" @saved="saved" />
   <StockCommandDialog v-if="action && value" :key="action + value.id" :kind="kind" :document="value" :action="action" @close="action = ''; load()" @saved="commandSaved" />
 </template>

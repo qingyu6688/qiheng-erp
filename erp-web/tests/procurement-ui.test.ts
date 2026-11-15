@@ -19,6 +19,7 @@ vi.mock('vue-router',()=>({useRoute:()=>({params:{id:'10'}}),useRouter:()=>route
 const input=defineComponent({props:['modelValue'],emits:['update:modelValue'],template:'<input :value="modelValue" @input="$emit(\'update:modelValue\',$event.target.value)"/>'})
 const select=defineComponent({props:['modelValue'],emits:['update:modelValue','change'],template:'<select :value="modelValue" @change="$emit(\'update:modelValue\',$event.target.value);$emit(\'change\',$event.target.value)"><slot/></select>'})
 const stubs={
+ DocumentFilesPanel:true,
  ElDialog:{template:'<section><slot/><footer><slot name="footer"/></footer></section>'},ElInput:input,ElSelect:select,
  ElOption:{props:['value','label'],template:'<option :value="value">{{label}}</option>'},
  ElButton:{template:'<button><slot/></button>'},ElForm:{template:'<form><slot/></form>'},ElFormItem:{template:'<div><slot/></div>'},

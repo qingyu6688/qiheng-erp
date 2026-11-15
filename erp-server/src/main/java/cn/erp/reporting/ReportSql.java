@@ -1,0 +1,93 @@
+package cn.erp.reporting;
+
+final class ReportSql {
+    private ReportSql() {}
+    static String query(ReportType type,boolean detail) {
+        return switch(type) {
+            case INVENTORY_SUMMARY -> inventorySummary();
+            case INVENTORY_FLOW -> inventoryFlow(detail);
+            case UNSIGNED_SHIPMENTS -> unsigned();
+            case SALES_SUMMARY,GROSS_MARGIN -> commercial(true);
+            case PURCHASE_SUMMARY -> commercial(false);
+            case RECEIVABLE_AGING -> aging(true);
+            case PAYABLE_AGING -> aging(false);
+            case PARTNER_STATEMENT -> statement();
+            case CASH_JOURNAL -> cash();
+        };
+    }
+    private static String inventorySummary() {
+        return """
+            WITH b AS (SELECT warehouse_id,sku_id,SUM(on_hand_qty) on_hand_qty,SUM(reserved_qty) reserved_qty,SUM(blocked_qty) blocked_qty
+              FROM inventory_balance WHERE tenant_id=:t AND company_id=:c GROUP BY warehouse_id,sku_id),
+            k AS (SELECT warehouse_id,sku_id FROM b UNION SELECT warehouse_id,sku_id FROM inventory_cost WHERE tenant_id=:t AND company_id=:c)
+            SELECT k.warehouse_id,k.sku_id,COALESCE(b.on_hand_qty,0) on_hand_qty,COALESCE(b.reserved_qty,0) reserved_qty,
+              COALESCE(b.blocked_qty,0) blocked_qty,COALESCE(b.on_hand_qty-b.reserved_qty-b.blocked_qty,0) available_qty,COALESCE(c.total_cost,0) cost_amount
+            FROM k LEFT JOIN b USING(warehouse_id,sku_id) LEFT JOIN inventory_cost c ON c.tenant_id=:t AND c.company_id=:c AND c.warehouse_id=k.warehouse_id AND c.sku_id=k.sku_id
+            """;
+    }
+    private static String inventoryFlow(boolean detail) {
+        String events="""
+            WITH e AS (SELECT id,warehouse_id,sku_id,business_date,on_hand_delta qty,blocked_delta blocked_qty,cost_delta cost_amount,source_type,source_id,source_line_id,posting_action
+              FROM inventory_movement WHERE tenant_id=:t AND company_id=:c
+              UNION ALL SELECT id,warehouse_id,sku_id,business_date,0,0,amount,source_type,source_id,source_line_id,'adjustment'
+              FROM cost_adjustment WHERE tenant_id=:t AND company_id=:c)
+            """;
+        if(detail) { return events+"SELECT * FROM e WHERE business_date BETWEEN :f AND :d"; }
+        return events+"""
+            SELECT warehouse_id,sku_id,SUM(IF(business_date<:f,qty,0)) opening_qty,
+              SUM(IF(business_date BETWEEN :f AND :d AND qty>0,qty,0)) in_qty,
+              SUM(IF(business_date BETWEEN :f AND :d AND qty<0,-qty,0)) out_qty,SUM(qty) closing_qty,
+              SUM(IF(business_date<:f,cost_amount,0)) opening_cost,
+              SUM(IF(business_date BETWEEN :f AND :d AND cost_amount>0,cost_amount,0)) in_cost,
+              SUM(IF(business_date BETWEEN :f AND :d AND cost_amount<0,-cost_amount,0)) out_cost,SUM(cost_amount) closing_cost
+            FROM e WHERE business_date<=:d GROUP BY warehouse_id,sku_id
+            """;
+    }
+    private static String unsigned() {
+        return """
+            SELECT l.id,h.warehouse_id,l.sku_id,h.customer_id partner_id,h.id source_id,'shipment' source_type,h.shipment_no source_no,
+              h.business_date,l.base_qty-l.signed_base_qty-IF(l.diff_disposition IN ('returned','lost'),l.diff_base_qty,0) unsigned_qty,
+              l.cost_amount-COALESCE(l.signed_cost_amount,0)-IF(l.diff_disposition IN ('returned','lost'),COALESCE(l.diff_cost_amount,0),0) cost_amount,l.diff_disposition
+            FROM shipment_line l JOIN shipment h ON h.id=l.shipment_id AND h.tenant_id=l.tenant_id AND h.company_id=l.company_id
+            WHERE l.tenant_id=:t AND l.company_id=:c AND h.status IN ('posted','signed','signed_with_diff')
+              AND h.business_date BETWEEN :f AND :d AND l.base_qty-l.signed_base_qty-IF(l.diff_disposition IN ('returned','lost'),l.diff_base_qty,0)>0
+            """;
+    }
+    private static String commercial(boolean sales) {
+        String head=sales?"shipment":"goods_receipt",line=head+"_line",key=sales?"shipment_id":"receipt_id";
+        String ret=sales?"sales_return":"purchase_return",partner=sales?"customer_id":"supplier_id";
+        String date=sales?"sign_date":"business_date",no=sales?"shipment_no":"receipt_no";
+        String amount=sales?"receivable_amount":"payable_amount",credit=sales?"credit_amount":"debit_amount";
+        String qty=sales?"signed_base_qty":"base_qty",cost=sales?"signed_cost_amount":"cost_amount";
+        String fact=sales?"receivable":"payable",fee=sales?"sales_order_fee":"purchase_order_fee";
+        // 原始事实始终保留；冲销仅追加一次反向行，避免按单据状态删除后再次扣减。
+        String base="SELECT l.id,h.warehouse_id,l.sku_id,h."+partner+" partner_id,h."+date+" business_date,'"+head+"' source_type,h.id source_id,h."+no+" source_no,l.id source_line_id,l."+qty+" qty,l."+amount+" amount,l.untaxed_amount,l.tax_amount,l."+cost+" cost_amount FROM "+line+" l JOIN "+head+" h ON h.id=l."+key+" AND h.tenant_id=l.tenant_id AND h.company_id=l.company_id WHERE l.tenant_id=:t AND l.company_id=:c AND h."+date+" IS NOT NULL AND l."+cost+" IS NOT NULL AND h.status IN ('posted','signed','signed_with_diff','reversed')";
+        base+=" UNION ALL SELECT l.id,h.warehouse_id,l.sku_id,h."+partner+",h.business_date,'"+ret+"',h.id,h.return_no,l.id,-l.base_qty,-l."+credit+",-l.untaxed_amount,-l.tax_amount,-l.cost_amount FROM "+ret+"_line l JOIN "+ret+" h ON h.id=l.return_id AND h.tenant_id=l.tenant_id AND h.company_id=l.company_id WHERE l.tenant_id=:t AND l.company_id=:c AND h.status IN ('posted','reversed')";
+        base+=" UNION ALL SELECT r.id,h.warehouse_id,NULL,r."+partner+",r.business_date,'"+head+"',h.id,h."+no+",r.source_line_id,0,r.amount,r.untaxed_amount,r.tax_amount,0 FROM "+fact+" r JOIN "+head+" h ON h.id=r.source_id AND h.tenant_id=r.tenant_id AND h.company_id=r.company_id WHERE r.tenant_id=:t AND r.company_id=:c AND r.source_type='"+fee+"' AND r.posting_action='post'";
+        return "WITH b AS ("+base+"), f AS (SELECT * FROM b UNION ALL SELECT r.id,b.warehouse_id,b.sku_id,b.partner_id,r.business_date,'document_reversal',r.id,r.reversal_no,b.source_line_id,-b.qty,-b.amount,-b.untaxed_amount,-b.tax_amount,-b.cost_amount FROM b JOIN document_reversal r ON r.tenant_id=:t AND r.company_id=:c AND r.source_type=b.source_type AND r.source_id=b.source_id AND r.status='posted') SELECT *,untaxed_amount-cost_amount gross_margin FROM f WHERE business_date BETWEEN :f AND :d";
+    }
+    private static String aging(boolean ar) {
+        String fact=ar?"receivable":"payable",party=ar?"customer_id":"supplier_id",direction=ar?"D":"C";
+        return "SELECT i.id,i.partner_id,r.source_type,r.source_id,r.source_line_id,i.aging_date,i.direction,IF(i.direction='"+direction+"',i.open_amount,-i.open_amount) open_amount,DATEDIFF(:today,i.aging_date) age_days FROM partner_open_item i JOIN "+fact+" r ON r.tenant_id=i.tenant_id AND r.company_id=i.company_id AND r.id=i.source_id WHERE i.tenant_id=:t AND i.company_id=:c AND i.item_type='"+fact+"' AND i.open_amount>0 AND i.aging_date<=:today";
+    }
+    private static String statement() {
+        return """
+            SELECT l.id,l.partner_id,j.business_date,j.source_type,j.source_id,l.source_line_id,l.account_code,l.direction,
+              IF(l.direction='D',l.amount,0) debit_amount,IF(l.direction='C',l.amount,0) credit_amount,
+              IF(j.business_date<:f,IF(l.direction='D',l.amount,-l.amount),0) opening_amount,
+              IF(j.business_date>=:f,IF(l.direction='D',l.amount,-l.amount),0) period_amount
+            FROM journal_line l JOIN journal j ON j.id=l.journal_id AND j.tenant_id=l.tenant_id AND j.company_id=l.company_id
+            WHERE l.tenant_id=:t AND l.company_id=:c AND l.account_code IN ('AR','AP') AND l.partner_id IS NOT NULL AND j.business_date<=:d
+            """;
+    }
+    private static String cash() {
+        return """
+            SELECT l.id,l.cash_account_id,l.partner_id,j.business_date,j.source_type,j.source_id,l.source_line_id,l.direction,
+              IF(l.direction='D',l.amount,0) receipt_amount,IF(l.direction='C',l.amount,0) payment_amount,
+              IF(j.business_date<:f,IF(l.direction='D',l.amount,-l.amount),0) opening_amount,
+              IF(j.business_date>=:f,IF(l.direction='D',l.amount,-l.amount),0) period_amount
+            FROM journal_line l JOIN journal j ON j.id=l.journal_id AND j.tenant_id=l.tenant_id AND j.company_id=l.company_id
+            WHERE l.tenant_id=:t AND l.company_id=:c AND l.account_code='FUNDS' AND j.business_date<=:d
+            """;
+    }
+}
