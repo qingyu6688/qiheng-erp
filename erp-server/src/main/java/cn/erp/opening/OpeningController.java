@@ -13,8 +13,8 @@ class OpeningController {
     private final AccessService access;
     private final OpeningService service;
     OpeningController(AccessService access,OpeningService service){this.access=access;this.service=service;}
-    @GetMapping("/{kind:stock-adjustments|opening-entries}") ApiResponse<?> list(HttpServletRequest request,@PathVariable String kind,@RequestParam(required=false) String status,@RequestParam(required=false) Long cursor,@RequestParam(defaultValue="20") int limit){
-        boolean stock=kind.equals("stock-adjustments");return ApiResponse.success(service.list(access.requireCompany(request,permission(stock,"view")),stock,status,cursor,limit));
+    @GetMapping("/{kind:stock-adjustments|opening-entries}") ApiResponse<?> list(HttpServletRequest request,@PathVariable String kind,@RequestParam(required=false) String status,@RequestParam(required=false) String adjustType,@RequestParam(required=false) Long cursor,@RequestParam(defaultValue="20") int limit){
+        boolean stock=kind.equals("stock-adjustments");return ApiResponse.success(service.list(access.requireCompany(request,permission(stock,"view")),stock,status,adjustType,cursor,limit));
     }
     @GetMapping("/{kind:stock-adjustments|opening-entries}/{id}") ApiResponse<?> get(HttpServletRequest request,@PathVariable String kind,@PathVariable long id){
         boolean stock=kind.equals("stock-adjustments");return ApiResponse.success(service.get(access.requireCompany(request,permission(stock,"view")),stock,id));

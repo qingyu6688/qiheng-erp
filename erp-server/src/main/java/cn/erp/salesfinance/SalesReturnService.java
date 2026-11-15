@@ -166,7 +166,9 @@ public class SalesReturnService {
         return execute(scope,"sales_return."+action,key,List.of(id,input),200,()->{
             var snapshot=header(scope,id,false);
             LocalDate businessDate=input.businessDate()==null?((java.sql.Date)snapshot.get("business_date")).toLocalDate():input.businessDate();
-            Long period=action.equals("post")?support.period(scope,businessDate):null;
+            Long period=null;
+            if(action.equals("submit")) {period=support.period(scope,((java.sql.Date)snapshot.get("business_date")).toLocalDate());}
+            else if(action.equals("post")) {period=support.period(scope,businessDate);}
             var before=header(scope,id,true);version(before,input.version());
             var lines=jdbc.queryForList("SELECT * FROM sales_return_line WHERE tenant_id=? AND company_id=? AND return_id=? ORDER BY shipment_line_id",scope.tenantId(),scope.companyId(),id);
             lockSources(scope,lines);

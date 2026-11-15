@@ -39,6 +39,7 @@ public class SalesFinanceQueries {
                 LEFT JOIN sales_return_line rl ON rl.tenant_id=r.tenant_id AND rl.company_id=r.company_id AND r.source_type='sales_return_line' AND rl.id=r.source_line_id
                 LEFT JOIN sku s ON s.tenant_id=r.tenant_id AND s.id=COALESCE(sl.sku_id,rl.sku_id)
                 WHERE r.tenant_id=? AND r.company_id=? AND r.id<? AND (? IS NULL OR r.customer_id=?)
+                    AND r.posting_action='post' AND r.source_type<>'document_reversal' AND NOT EXISTS(SELECT 1 FROM receivable reversed WHERE reversed.tenant_id=r.tenant_id AND reversed.company_id=r.company_id AND reversed.reverses_receivable_id=r.id)
                     AND (?=0 OR i.open_amount>0) ORDER BY r.id DESC LIMIT ?
                 """,scope.tenantId(),scope.companyId(),before,customer,customer,openOnly,limit+1),limit);
     }
@@ -108,7 +109,7 @@ public class SalesFinanceQueries {
     }
 
     private void actions(CompanyAccess scope,Map<String,Object> item) {
-        item.put("allowedActions",scope.hasPermission("settlement:revoke")&&"active".equals(item.get("status"))&&!"refund".equals(item.get("allocationType"))?List.of("revoke"):List.of());
+        item.put("allowedActions",scope.hasPermission("settlement:revoke")&&"active".equals(item.get("status"))&&!Set.of("refund","reversal").contains(item.get("allocationType"))?List.of("revoke"):List.of());
     }
 
     @Transactional

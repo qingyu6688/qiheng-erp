@@ -98,9 +98,9 @@ public class ReconciliationChecks {
 
     private List<Difference> periodChecks(ActorScope scope,long period,Map<String,Object> params) {
         var diffs=new ArrayList<Difference>();
-        var documents=List.of("shipment","goods_receipt","sales_return","purchase_return","stock_transfer","stock_adjustment");
+        var documents=List.of("shipment","goods_receipt","sales_return","purchase_return","stock_transfer","stock_adjustment","stock_count","document_reversal");
         for(String table:documents) {
-            String status=table.equals("stock_transfer")?"IN ('submitted','shipped','received_with_diff')":table.equals("stock_adjustment")?"IN ('pending','approved')":"IN ('submitted')";
+            String status=table.equals("stock_transfer")?"IN ('submitted','shipped','received_with_diff')":table.equals("stock_adjustment")?"IN ('pending','approved')":table.equals("stock_count")?"IN ('counting','submitted','approved')":table.equals("document_reversal")?"IN ('pending','approved')":"IN ('submitted')";
             String query="SELECT COUNT(*) FROM "+table+" d JOIN accounting_period p ON p.tenant_id=d.tenant_id AND p.company_id=d.company_id AND p.id=:p WHERE d.tenant_id=:t AND d.company_id=:c AND d.business_date BETWEEN p.start_date AND p.end_date AND d.status "+status;
             long count=jdbc.queryForObject(query,params,Long.class);
             if(count>0) {diffs.add(new Difference("period_close",table,BigDecimal.ZERO,BigDecimal.valueOf(count)));}

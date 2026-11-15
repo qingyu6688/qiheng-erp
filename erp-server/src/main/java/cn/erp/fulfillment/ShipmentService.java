@@ -77,6 +77,8 @@ public class ShipmentService {
     public Map<String,Object> submit(CompanyAccess scope,long id,String key,long version) {
         queries.header(scope,id,false);
         return command(scope,"submit",key,List.of(id,version),200,()->{
+            var snapshot=queries.header(scope,id,false);
+            period(scope,date(snapshot,"business_date"));
             var before=queries.header(scope,id,true);version(version,before);
             if(!"draft".equals(before.get("status"))) {throw state();}
             var lines=lockLines(scope,id);

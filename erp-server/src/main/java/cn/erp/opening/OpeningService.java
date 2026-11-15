@@ -21,12 +21,12 @@ import static cn.erp.salesfinance.FinanceSupport.*;
 @Service
 @Transactional
 public class OpeningService {
-    public record Stock(@Pattern(regexp="opening",message="本阶段仅支持库存期初") String adjustType,
+    public record Stock(@Pattern(regexp="opening|gain|loss|block|unblock|scrap",message="库存调整类型无效") String adjustType,
         @NotNull(message="请选择仓库") Long warehouseId,@NotNull(message="请选择业务日期") LocalDate businessDate,
-        @NotBlank(message="请填写期初原因") @Size(max=200,message="原因最多200字") String reason,
-        @NotEmpty(message="请填写库存明细") @Size(max=200,message="每张期初最多200行") List<@NotNull(message="商品行不能为空") @Valid StockLine> lines,Long version) {}
+        @NotBlank(message="请填写调整原因") @Size(max=200,message="原因最多200字") String reason,
+        @NotEmpty(message="请填写库存明细") @Size(max=200,message="每张调整单最多200行") List<@NotNull(message="商品行不能为空") @Valid StockLine> lines,Long version) {}
     public record StockLine(@NotNull(message="请选择商品") Long skuId,@NotNull(message="请选择单位") Long unitId,
-        @NotBlank(message="请填写数量") String qty,@NotBlank(message="请填写总成本") String inputTotalCost) {}
+        @NotBlank(message="请填写数量") String qty,String inputTotalCost) {}
     public record Entry(@NotBlank(message="请选择期初类型") @Pattern(regexp="receivable|payable|cash",message="期初类型无效") String entryType,
         Long partnerId,Long cashAccountId,@NotBlank(message="请选择借贷方向") @Pattern(regexp="D|C",message="借贷方向无效") String direction,
         @NotBlank(message="请填写期初金额") String amount,@NotNull(message="请选择业务日期") LocalDate businessDate,
@@ -53,13 +53,14 @@ public class OpeningService {
     public Map<String,Object> createStock(CompanyAccess scope,String key,Stock input) {
         return execute(scope,"stock_adjustment.create",key,input,201,()->{
             validateStock(scope,input);long id=Ids.next();
-            jdbc.update("INSERT INTO stock_adjustment(id,tenant_id,company_id,adjust_no,warehouse_id,adjust_type,reason,business_date,created_by,updated_by) VALUES(?,?,?,?,?,'opening',?,?,?,?)",
-                id,scope.tenantId(),scope.companyId(),numbers.next(scope,"SA",YearMonth.from(input.businessDate())),input.warehouseId(),input.reason(),input.businessDate(),scope.userId(),scope.userId());
+            jdbc.update("INSERT INTO stock_adjustment(id,tenant_id,company_id,adjust_no,warehouse_id,adjust_type,reason,business_date,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                id,scope.tenantId(),scope.companyId(),numbers.next(scope,"SA",YearMonth.from(input.businessDate())),input.warehouseId(),adjustType(input),input.reason(),input.businessDate(),scope.userId(),scope.userId());
             writeLines(scope,id,input.lines());return changed(scope,true,id,"create",null);
         });
     }
     public Map<String,Object> updateStock(CompanyAccess scope,long id,Stock input) {
         var before=find(scope,true,id,true);version(before,input.version());state(before,"draft");validateStock(scope,input);
+        if(!before.get("adjust_type").equals(adjustType(input)))throw invalid("调整类型建单后不能修改");
         jdbc.update("UPDATE stock_adjustment SET warehouse_id=?,business_date=?,reason=?,version=version+1,updated_by=? WHERE id=?",
             input.warehouseId(),input.businessDate(),input.reason(),scope.userId(),id);
         jdbc.update("DELETE FROM stock_adjustment_line WHERE tenant_id=? AND company_id=? AND adjustment_id=?",scope.tenantId(),scope.companyId(),id);
@@ -85,7 +86,7 @@ public class OpeningService {
     public Map<String,Object> command(CompanyAccess scope,boolean stock,long id,String action,String key,Version input) {
         return execute(scope,resource(stock)+"."+action,key,List.of(id,input),200,()->{
             var snapshot=find(scope,stock,id,false);
-            Long period=action.equals("post")?support.period(scope,((java.sql.Date)snapshot.get("business_date")).toLocalDate()):null;
+            Long period=Set.of("submit","approve","post").contains(action)?support.period(scope,((java.sql.Date)snapshot.get("business_date")).toLocalDate()):null;
             var before=find(scope,stock,id,true);version(before,input.version());
             String table=table(stock);
             switch(action) {
@@ -120,12 +121,25 @@ public class OpeningService {
         var entries=new ArrayList<LedgerService.Line>();
         for(var line:lines) {
             long sku=id(line,"sku_id"),lineId=id(line,"id");catalog.requireActiveSku(scope,sku,id(line,"unit_id"));
-            var cost=decimal(line,"input_total_cost");var qty=decimal(line,"base_qty");
-            var result=inventory.receive(scope,new cn.erp.inventory.InventoryModels.Posting(new cn.erp.inventory.InventoryModels.Key(warehouse,sku),
-                new cn.erp.inventory.InventoryModels.Source("stock_adjustment",id,lineId),day,period,"opening_in"),qty,cost);
-            jdbc.update("UPDATE stock_adjustment_line SET unit_cost=?,cost_amount=?,version=version+1,updated_by=? WHERE id=?",result.unitCost(),cost,scope.userId(),lineId);
-            if(cost.signum()>0) {entries.add(new LedgerService.Line("INVENTORY","D",cost,null,null,warehouse,sku,lineId,"库存期初"));
-                entries.add(new LedgerService.Line("OPENING_EQUITY","C",cost,null,null,null,null,lineId,"库存期初"));}
+            var qty=decimal(line,"base_qty");String type=head.get("adjust_type").toString();
+            String movement=switch(type){case "opening"->"opening_in";case "gain"->"adjust_in";case "loss"->"adjust_out";default->type;};
+            var posting=new cn.erp.inventory.InventoryModels.Posting(new cn.erp.inventory.InventoryModels.Key(warehouse,sku),
+                new cn.erp.inventory.InventoryModels.Source("stock_adjustment",id,lineId),day,period,movement);
+            BigDecimal unitCost,cost;
+            if(Set.of("block","unblock").contains(type)) {
+                inventory.freeze(scope,posting,qty,type.equals("block"));unitCost=BigDecimal.ZERO.setScale(8);cost=BigDecimal.ZERO.setScale(2);
+            } else if(Set.of("opening","gain").contains(type)) {
+                cost=decimal(line,"input_total_cost");var result=inventory.receive(scope,posting,qty,cost);unitCost=result.unitCost();
+                addStockEntry(entries,"INVENTORY","D",cost,warehouse,sku,lineId);
+                addStockEntry(entries,type.equals("opening")?"OPENING_EQUITY":"INVENTORY_ADJUSTMENT","C",cost,type.equals("opening")?null:warehouse,type.equals("opening")?null:sku,lineId);
+            } else {
+                var result=inventory.issue(scope,posting,qty,null);unitCost=result.unitCost();cost=result.movementCost().subtract(result.adjustment());
+                addStockEntry(entries,"INVENTORY_ADJUSTMENT","D",result.movementCost(),warehouse,sku,lineId);
+                addStockEntry(entries,"INVENTORY","C",result.movementCost(),warehouse,sku,lineId);
+                addStockEntry(entries,"INVENTORY","D",result.adjustment(),warehouse,sku,lineId);
+                addStockEntry(entries,"COST_VARIANCE","C",result.adjustment(),null,null,lineId);
+            }
+            jdbc.update("UPDATE stock_adjustment_line SET unit_cost=?,cost_amount=?,version=version+1,updated_by=? WHERE id=?",unitCost,cost,scope.userId(),lineId);
         }
         if(!entries.isEmpty())ledger.post(scope,new LedgerService.Posting("stock_adjustment",id,0,period,day,entries));
     }
@@ -166,10 +180,14 @@ public class OpeningService {
         result.put("allowedActions",actions(scope,stock,raw));return result;
     }
     public Map<String,Object> list(CompanyAccess scope,boolean stock,String status,Long cursor,int limit) {
-        long before=cursor(cursor,limit);if(status!=null&&!Set.of("draft","pending","approved","posted","voided").contains(status))throw invalid("期初状态无效");
-        String sql="SELECT id FROM "+table(stock)+" WHERE tenant_id=? AND company_id=? AND id<?"+(stock?" AND adjust_type='opening'":"");
+        return list(scope,stock,status,null,cursor,limit);
+    }
+    public Map<String,Object> list(CompanyAccess scope,boolean stock,String status,String adjustType,Long cursor,int limit) {
+        long before=cursor(cursor,limit);if(status!=null&&!Set.of("draft","pending","approved","posted","voided","reversed").contains(status))throw invalid("单据状态无效");
+        String sql="SELECT id FROM "+table(stock)+" WHERE tenant_id=? AND company_id=? AND id<?";
         var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),before));
         if(status!=null){sql+=" AND status=?";args.add(status);}
+        if(adjustType!=null){if(!stock||!Set.of("opening","gain","loss","block","unblock","scrap").contains(adjustType))throw invalid("库存调整类型无效");sql+=" AND adjust_type=?";args.add(adjustType);}
         if(stock&&!scope.allWarehouses()) {
             if(scope.warehouseIds().isEmpty())return page(List.of(),limit);
             sql+=" AND warehouse_id IN ("+String.join(",",Collections.nCopies(scope.warehouseIds().size(),"?"))+")";args.addAll(scope.warehouseIds());
@@ -186,9 +204,12 @@ public class OpeningService {
         if(Set.of("draft","pending","approved").contains(state))add(scope,actions,resource,"void");return actions;
     }
     private void validateStock(CompanyAccess scope,Stock input) {
-        date(input.businessDate());if(input.adjustType()!=null&&!input.adjustType().equals("opening"))throw invalid("本阶段仅支持库存期初");
+        date(input.businessDate());String type=adjustType(input);
+        if(!Set.of("opening","gain","loss","block","unblock","scrap").contains(type))throw invalid("库存调整类型无效");
         warehouse(scope,input.warehouseId());if(input.lines().stream().map(StockLine::skuId).distinct().count()!=input.lines().size())throw invalid("同一商品不能重复录入");
-        for(var line:input.lines()){catalog.requireActiveSku(scope,line.skuId(),line.unitId());quantity(line.qty());cost(line.inputTotalCost());}
+        for(var line:input.lines()){catalog.requireActiveSku(scope,line.skuId(),line.unitId());quantity(line.qty());
+            if(Set.of("opening","gain").contains(type))cost(line.inputTotalCost());
+            else if(line.inputTotalCost()!=null)throw invalid("出库、冻结、解冻和报废成本由系统计算，请勿填写总成本");}
     }
     private void validateEntry(CompanyAccess scope,Entry input) {
         date(input.businessDate());amount(input.amount());
@@ -202,17 +223,17 @@ public class OpeningService {
             BigDecimal base=new BigDecimal(pricing.convertQuantity(line.qty(),rate.toPlainString()));
             if(base.signum()<=0||base.precision()>24)throw invalid("换算后的数量超出允许范围");
             jdbc.update("INSERT INTO stock_adjustment_line(id,tenant_id,company_id,adjustment_id,line_no,sku_id,unit_id,unit_rate,qty,base_qty,input_total_cost,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                Ids.next(),scope.tenantId(),scope.companyId(),id,++no,line.skuId(),line.unitId(),rate,quantity(line.qty()),base,cost(line.inputTotalCost()),scope.userId(),scope.userId());
+                Ids.next(),scope.tenantId(),scope.companyId(),id,++no,line.skuId(),line.unitId(),rate,quantity(line.qty()),base,line.inputTotalCost()==null?null:cost(line.inputTotalCost()),scope.userId(),scope.userId());
         }
     }
     private Map<String,Object> find(CompanyAccess scope,boolean stock,long id,boolean lock) {
-        var rows=jdbc.queryForList("SELECT * FROM "+table(stock)+" WHERE tenant_id=? AND company_id=? AND id=?"+(stock?" AND adjust_type='opening'":"")+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
+        var rows=jdbc.queryForList("SELECT * FROM "+table(stock)+" WHERE tenant_id=? AND company_id=? AND id=?"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
         if(rows.isEmpty()||stock&&!scope.allowsWarehouse(id(rows.getFirst(),"warehouse_id")))throw missing();return rows.getFirst();
     }
     private void warehouse(CompanyAccess scope,long id) {
         if(!scope.allowsWarehouse(id)||jdbc.queryForObject("SELECT COUNT(*) FROM warehouse WHERE tenant_id=? AND company_id=? AND id=? AND status='active'",Long.class,scope.tenantId(),scope.companyId(),id)!=1)throw missing();
     }
-    private void differentReviewer(CompanyAccess scope,Map<String,Object> row) {if(id(row,"created_by")==scope.userId())throw new ApiException(422,"SAME_OPERATOR_NOT_ALLOWED","期初单据必须由另一位操作人审核");}
+    private void differentReviewer(CompanyAccess scope,Map<String,Object> row) {if(id(row,"created_by")==scope.userId())throw new ApiException(422,"SAME_OPERATOR_NOT_ALLOWED","单据必须由另一位操作人审核");}
     private void updateState(CompanyAccess scope,String table,long id,String state) {jdbc.update("UPDATE "+table+" SET status=?,version=version+1,updated_by=? WHERE id=?",state,scope.userId(),id);}
     private Map<String,Object> changed(CompanyAccess scope,boolean stock,long id,String action,Object before) {
         var permissions=new HashSet<>(scope.permissions());permissions.remove("cost:view");
@@ -226,4 +247,9 @@ public class OpeningService {
     private void add(CompanyAccess scope,List<String> actions,String resource,String action){add(scope,actions,resource,action,true);}
     private void add(CompanyAccess scope,List<String> actions,String resource,String action,boolean condition){if(condition&&scope.hasPermission(resource+":"+action))actions.add(action);}
     private BigDecimal cost(String value) {if(value==null||!value.matches("[0-9]{1,22}(?:\\.[0-9]{1,2})?"))throw invalid("总成本须为最多两位小数的非负金额");return new BigDecimal(value).setScale(2);}
+    private static String adjustType(Stock input){return input.adjustType()==null?"opening":input.adjustType();}
+    private void addStockEntry(List<LedgerService.Line> entries,String code,String direction,BigDecimal amount,Long warehouse,Long sku,long line){
+        if(amount.signum()==0)return;
+        entries.add(new LedgerService.Line(code,amount.signum()>0?direction:direction.equals("D")?"C":"D",amount.abs(),null,null,warehouse,sku,line,"库存调整"));
+    }
 }

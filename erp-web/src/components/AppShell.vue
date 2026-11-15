@@ -8,6 +8,7 @@ import BrandMark from './BrandMark.vue'
 import { resourceGroups, resourceSpecs } from '../pages/resources'
 import { salesSpecs } from '../types/sales'
 import { procurementSpecs } from '../types/procurement'
+import { stockSpecs } from '../types/stock-operations'
 
 const route = useRoute()
 const router = useRouter()
@@ -58,9 +59,14 @@ async function logout(): Promise<void> {
           <router-link v-if="session.can('settlement:view')" class="nav-link" to="/settlements">核销工作台</router-link>
           <router-link v-if="session.can('inventory:view')" class="nav-link" to="/inventory-balances">实时库存</router-link>
         </div>
-        <div v-if="!session.user?.mustChangePassword&&procurementSpecs.some(spec=>session.can(spec.permission+':view'))" class="nav-group">
+        <div v-if="!session.user?.mustChangePassword&&procurementSpecs.some(spec=>spec.path !== 'stock-adjustments' && session.can(spec.permission+':view'))" class="nav-group">
           <div class="nav-caption">采购、付款与期初</div>
-          <template v-for="spec in procurementSpecs" :key="spec.path"><router-link v-if="session.can(spec.permission+':view')" class="nav-link" :to="'/'+spec.path">{{spec.title}}</router-link></template>
+          <template v-for="spec in procurementSpecs.filter(item=>item.path !== 'stock-adjustments')" :key="spec.path"><router-link v-if="session.can(spec.permission+':view')" class="nav-link" :to="'/'+spec.path">{{spec.title}}</router-link></template>
+        </div>
+        <div v-if="!session.user?.mustChangePassword && (stockSpecs.some(spec=>session.can(spec.permission+':view')) || session.can('stock_adjustment:view'))" class="nav-group">
+          <div class="nav-caption">库存作业与冲销</div>
+          <template v-for="spec in stockSpecs" :key="spec.path"><router-link v-if="session.can(spec.permission+':view')" class="nav-link" :to="'/'+spec.path">{{spec.title}}</router-link></template>
+          <router-link v-if="session.can('stock_adjustment:view')" class="nav-link" to="/stock-adjustments">库存调整</router-link>
         </div>
         <div class="nav-group">
           <template v-for="group in groups" :key="group.title">

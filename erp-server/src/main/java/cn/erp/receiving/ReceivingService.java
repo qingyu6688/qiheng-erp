@@ -91,7 +91,7 @@ public class ReceivingService {
         queries.header(scope,returning,id,false);
         return execute(scope,returning,action,key,List.of(id,expectedVersion==null?-1:expectedVersion),200,()->{
             var snapshot=queries.header(scope,returning,id,false);
-            Long period=action.equals("post")?period(scope,date(snapshot,"business_date")):null;
+            Long period=Set.of("submit","post").contains(action)?period(scope,date(snapshot,"business_date")):null;
             var before=queries.header(scope,returning,id,true);version(expectedVersion,before);
             state(before,action.equals("submit")?"draft":"submitted");
             var lines=lockSources(scope,returning,id);

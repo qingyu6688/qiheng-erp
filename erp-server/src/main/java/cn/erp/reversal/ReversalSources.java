@@ -1,0 +1,78 @@
+package cn.erp.reversal;
+
+import cn.erp.identity.CompanyAccess;
+import cn.erp.shared.ApiException;
+import java.util.*;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Component;
+import static cn.erp.salesfinance.FinanceSupport.*;
+
+@Component
+class ReversalSources {
+    static final Set<String> TYPES=Set.of("shipment","sales_return","goods_receipt","purchase_return","receipt","payment","account_transfer","stock_adjustment");
+    private final JdbcTemplate jdbc;
+    ReversalSources(JdbcTemplate jdbc){this.jdbc=jdbc;}
+    Map<String,Object> head(CompanyAccess scope,String type,long source,boolean lock) {
+        if(!TYPES.contains(type))throw invalid("该类型不支持冲销");
+        if(!scope.hasPermission(type+":view"))throw new ApiException(403,"FORBIDDEN","没有查看来源单据的权限");
+        var rows=jdbc.queryForList("SELECT * FROM "+type+" WHERE tenant_id=? AND company_id=? AND id=?"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),source);
+        if(rows.isEmpty())throw missing();
+        var result=rows.getFirst();
+        if(result.get("warehouse_id")!=null&&!scope.allowsWarehouse(id(result,"warehouse_id")))throw missing();
+        return result;
+    }
+    void posted(Map<String,Object> head,String type) {
+        if(type.equals("shipment"))state(head,"posted","signed","signed_with_diff");
+        else if(Set.of("receipt","payment","account_transfer").contains(type))state(head,"confirmed");
+        else state(head,"posted");
+    }
+    String number(String type,Map<String,Object> head) {
+        return head.get(switch(type){case "shipment"->"shipment_no";case "sales_return","purchase_return"->"return_no";case "goods_receipt","receipt"->"receipt_no";case "payment"->"payment_no";case "account_transfer"->"transfer_no";default->"adjust_no";}).toString();
+    }
+    List<String> warehouses(Map<String,Object> head) {return head.get("warehouse_id")==null?List.of():List.of(head.get("warehouse_id").toString());}
+
+    List<Map<String,Object>> facts(CompanyAccess scope,String type,long source,String fact,boolean lock) {
+        String allowed=switch(type) {
+            case "shipment" -> fact.equals("receivable")?"'shipment_line','sales_order_fee'":null;
+            case "sales_return" -> fact.equals("receivable")?"'sales_return_line'":null;
+            case "goods_receipt" -> fact.equals("payable")?"'goods_receipt_line','purchase_order_fee'":null;
+            case "purchase_return" -> fact.equals("payable")?"'purchase_return_line'":null;
+            default -> null;
+        };
+        if(allowed==null)return List.of();
+        return jdbc.queryForList("SELECT * FROM "+fact+" WHERE tenant_id=? AND company_id=? AND source_id=? AND source_type IN("+allowed+") AND posting_action='post' ORDER BY id"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),source);
+    }
+    List<Map<String,Object>> items(CompanyAccess scope,String type,long source,boolean lock) {
+        var ids=new TreeSet<Long>();
+        for(String fact:List.of("receivable","payable"))for(var row:facts(scope,type,source,fact,lock)) {
+            ids.addAll(jdbc.queryForList("SELECT id FROM partner_open_item WHERE tenant_id=? AND company_id=? AND item_type=? AND source_id=? FOR SHARE",Long.class,scope.tenantId(),scope.companyId(),fact,row.get("id")));
+        }
+        if(Set.of("receipt","payment").contains(type))ids.addAll(jdbc.queryForList("SELECT id FROM partner_open_item WHERE tenant_id=? AND company_id=? AND item_type=? AND source_id=? FOR SHARE",Long.class,scope.tenantId(),scope.companyId(),type,source));
+        var result=new ArrayList<Map<String,Object>>();
+        for(long id:ids)result.add(jdbc.queryForMap("SELECT * FROM partner_open_item WHERE tenant_id=? AND company_id=? AND id=?"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id));
+        return result;
+    }
+    void dependencies(CompanyAccess scope,String type,long source) {
+        var found=new ArrayList<Map<String,Object>>();
+        if(type.equals("shipment"))children(scope,found,"sales_return","return_no","sales_return_line","return_id","shipment_line","shipment_id","shipment_line_id",source);
+        if(type.equals("goods_receipt"))children(scope,found,"purchase_return","return_no","purchase_return_line","return_id","goods_receipt_line","receipt_id","receipt_line_id",source);
+        if(type.equals("receipt"))for(var row:jdbc.queryForList("SELECT id,refund_no document_no FROM refund_request WHERE tenant_id=? AND company_id=? AND original_receipt_id=? AND status<>'cancelled' ORDER BY id FOR SHARE",scope.tenantId(),scope.companyId(),source))found.add(dependency("refund_request",row,"退款引用了本收款单"));
+        for(String fact:List.of("receivable","payable"))for(var row:facts(scope,type,source,fact,true)) {
+            if(decimal(row,"invoiced_amount").signum()>0) {
+                var invoices=jdbc.queryForList("SELECT h.id,h.invoice_no document_no FROM invoice_registration h JOIN invoice_registration_line l ON l.tenant_id=h.tenant_id AND l.company_id=h.company_id AND l.invoice_id=h.id WHERE h.tenant_id=? AND h.company_id=? AND l."+(fact.equals("receivable")?"receivable_id":"payable_id")+"=? AND h.status='registered' ORDER BY h.id FOR SHARE",scope.tenantId(),scope.companyId(),row.get("id"));
+                for(var invoice:invoices)found.add(dependency("invoice_registration",invoice,"来源往来已登记开票，请先作废开票登记"));
+            }
+        }
+        for(var item:items(scope,type,source,true)) {
+            for(var row:jdbc.queryForList("SELECT id FROM settlement_allocation WHERE tenant_id=? AND company_id=? AND (debit_item_id=? OR credit_item_id=?) AND status IN ('active','reserved') ORDER BY id FOR UPDATE",scope.tenantId(),scope.companyId(),item.get("id"),item.get("id")))found.add(dependency("settlement_allocation",row,"本单的未清项已被核销或退款占用"));
+        }
+        if(!found.isEmpty())throw new ApiException(422,"DEPENDENCY_EXISTS","存在下游单据，请先处理",found);
+    }
+    private void children(CompanyAccess scope,List<Map<String,Object>> result,String child,String number,String lines,String headId,String original,String originalHead,String sourceKey,long source) {
+        String sql="SELECT DISTINCT h.id,h."+number+" document_no FROM "+child+" h JOIN "+lines+" l ON l.tenant_id=h.tenant_id AND l.company_id=h.company_id AND l."+headId+"=h.id JOIN "+original+" o ON o.tenant_id=l.tenant_id AND o.company_id=l.company_id AND o.id=l."+sourceKey+" WHERE h.tenant_id=? AND h.company_id=? AND o."+originalHead+"=? AND h.status NOT IN ('voided','reversed') ORDER BY h.id FOR SHARE";
+        for(var row:jdbc.queryForList(sql,scope.tenantId(),scope.companyId(),source))result.add(dependency(child,row,"退货引用了本单，请先处理退货单"));
+    }
+    private Map<String,Object> dependency(String type,Map<String,Object> row,String relation) {
+        var result=new LinkedHashMap<String,Object>();result.put("documentType",type);result.put("documentId",row.get("id").toString());result.put("documentNo",row.get("document_no"));result.put("relation",relation);return result;
+    }
+}

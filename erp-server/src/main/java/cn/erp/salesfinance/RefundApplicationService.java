@@ -113,6 +113,8 @@ public class RefundApplicationService {
     @Transactional
     public Map<String,Object> command(CompanyAccess scope,long id,String action,String key,FinanceModels.Version input) {
         return execute(scope,"refund_request."+action,key,List.of(id,input),200,()->{
+            var snapshot=support.find(scope,"refund_request",id,false);
+            if(Set.of("submit","approve").contains(action)) {support.period(scope,((java.sql.Date)snapshot.get("business_date")).toLocalDate());}
             var before=support.find(scope,"refund_request",id,true);version(before,input.version());
             var affected=affectedOrders(scope,before);lockOrders(scope,affected);
             switch(action) {

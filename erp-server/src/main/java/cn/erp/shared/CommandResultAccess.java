@@ -12,7 +12,21 @@ public class CommandResultAccess {
     public CommandResultAccess(JdbcTemplate jdbc) {this.jdbc=jdbc;}
 
     public void verify(ActorScope actor,String operation,Object response) {
-        if(!(actor instanceof WarehouseScope scope) || scope.allWarehouses() || !(response instanceof Map<?,?> row)) {return;}
+        if(!(actor instanceof WarehouseScope scope) || !(response instanceof Map<?,?> row)) {return;}
+        if(java.util.Set.of("period.close","period.reopen").contains(operation)&&!scope.allWarehouses()) {throw new ApiException(403,"FORBIDDEN","期间操作结果需要整家公司数据范围");}
+        if(operation.startsWith("reversal.")) {
+            String type=String.valueOf(row.get("sourceType"));
+            if(!(actor instanceof PermissionScope permissions)||!permissions.hasPermission(type+":view")) {throw new ApiException(403,"FORBIDDEN","没有查看冲销来源单据的权限");}
+            if(!scope.allWarehouses()) {
+                if(java.util.Set.of("shipment","sales_return","goods_receipt","purchase_return","stock_adjustment").contains(type)) {
+                    var values=jdbc.queryForList("SELECT warehouse_id FROM "+type+" WHERE tenant_id=? AND company_id=? AND id=?",Long.class,scope.tenantId(),scope.companyId(),row.get("sourceId"));
+                    if(values.isEmpty()) {throw missing();}warehouse(scope,values.getFirst());
+                }
+                if(row.get("warehouseIds") instanceof List<?> values) {for(Object value:values) {warehouse(scope,value);}}
+            }
+            return;
+        }
+        if(scope.allWarehouses()) {return;}
         Object id=row.get("id");
         if(id==null) {return;}
         if(operation.startsWith("sales_order.")||operation.startsWith("purchase_order.")) {
@@ -22,7 +36,12 @@ public class CommandResultAccess {
             if(row.get("lines") instanceof List<?> lines) {
                 for(Object line:lines) {if(line instanceof Map<?,?> fields) {warehouse(scope,fields.get("warehouseId"));}}
             }
-        } else if(operation.startsWith("shipment.") || operation.startsWith("sales_return.") || operation.startsWith("goods_receipt.") || operation.startsWith("purchase_return.") || operation.startsWith("stock_adjustment.")) {
+        } else if(operation.startsWith("stock_transfer.")) {
+            var values=jdbc.queryForList("SELECT from_warehouse_id,to_warehouse_id FROM stock_transfer WHERE tenant_id=? AND company_id=? AND id=?",scope.tenantId(),scope.companyId(),id);
+            if(values.isEmpty()) {throw missing();}
+            warehouse(scope,values.getFirst().get("from_warehouse_id"));warehouse(scope,values.getFirst().get("to_warehouse_id"));
+            warehouse(scope,row.get("fromWarehouseId"));warehouse(scope,row.get("toWarehouseId"));
+        } else if(operation.startsWith("shipment.") || operation.startsWith("sales_return.") || operation.startsWith("goods_receipt.") || operation.startsWith("purchase_return.") || operation.startsWith("stock_adjustment.") || operation.startsWith("stock_count.")) {
             String table=operation.substring(0,operation.indexOf('.'));
             var warehouses=jdbc.queryForList("SELECT warehouse_id FROM "+table+" WHERE tenant_id=? AND company_id=? AND id=?",Long.class,scope.tenantId(),scope.companyId(),id);
             if(warehouses.isEmpty()) {throw missing();}

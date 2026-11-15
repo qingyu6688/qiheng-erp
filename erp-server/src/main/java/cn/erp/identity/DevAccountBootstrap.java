@@ -72,36 +72,42 @@ class DevAccountBootstrap implements ApplicationRunner {
         // 仅升级 M1 初始化的角色，管理员后续的授权调整应持久保留。
         Long version=jdbc.queryForObject("SELECT version FROM sys_role WHERE tenant_id=? AND id=? FOR UPDATE",Long.class,tenant,role);
         if(version==null) return;
+        if(version==5) {
+            var additions=jdbc.queryForList("SELECT p.id FROM sys_permission p WHERE p.id BETWEEN 720 AND 809 AND NOT EXISTS(SELECT 1 FROM sys_role_permission rp WHERE rp.tenant_id=? AND rp.role_id=? AND rp.permission_id=p.id)",Long.class,tenant,role);
+            for(Long permission:additions) {jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) VALUES(?,?,?,?)",Ids.next(),tenant,role,permission);}
+            jdbc.update("UPDATE sys_role SET version=6 WHERE tenant_id=? AND id=?",tenant,role);
+            return;
+        }
         if(version==4) {
             var additions=jdbc.queryForList("""
-                    SELECT p.id FROM sys_permission p WHERE p.id BETWEEN 600 AND 713 AND NOT EXISTS
+                    SELECT p.id FROM sys_permission p WHERE p.id BETWEEN 600 AND 809 AND NOT EXISTS
                     (SELECT 1 FROM sys_role_permission rp WHERE rp.tenant_id=? AND rp.role_id=? AND rp.permission_id=p.id)
                     """,Long.class,tenant,role);
             for(Long permission:additions) {jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) VALUES(?,?,?,?)",Ids.next(),tenant,role,permission);}
-            jdbc.update("UPDATE sys_role SET version=5 WHERE tenant_id=? AND id=?",tenant,role);
+            jdbc.update("UPDATE sys_role SET version=6 WHERE tenant_id=? AND id=?",tenant,role);
             return;
         }
         if(version==3) {
             var additions=jdbc.queryForList("""
-                    SELECT p.id FROM sys_permission p WHERE p.id BETWEEN 500 AND 713 AND NOT EXISTS
+                    SELECT p.id FROM sys_permission p WHERE p.id BETWEEN 500 AND 809 AND NOT EXISTS
                     (SELECT 1 FROM sys_role_permission rp WHERE rp.tenant_id=? AND rp.role_id=? AND rp.permission_id=p.id)
                     """,Long.class,tenant,role);
             for(Long permission:additions) {
                 jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) VALUES(?,?,?,?)",Ids.next(),tenant,role,permission);
             }
-            jdbc.update("UPDATE sys_role SET version=5 WHERE tenant_id=? AND id=?",tenant,role);
+            jdbc.update("UPDATE sys_role SET version=6 WHERE tenant_id=? AND id=?",tenant,role);
             return;
         }
         if(version==2 || version==1) {
             var additions=jdbc.queryForList("""
-                    SELECT p.id FROM sys_permission p WHERE (p.id BETWEEN 400 AND 413 OR p.id BETWEEN 500 AND 713) AND NOT EXISTS
+                    SELECT p.id FROM sys_permission p WHERE (p.id BETWEEN 400 AND 413 OR p.id BETWEEN 500 AND 809) AND NOT EXISTS
                     (SELECT 1 FROM sys_role_permission rp WHERE rp.tenant_id=? AND rp.role_id=? AND rp.permission_id=p.id)
                     """,Long.class,tenant,role);
             for(Long permission:additions) {
                 jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) VALUES(?,?,?,?)",Ids.next(),tenant,role,permission);
             }
             if(!additions.isEmpty()) {
-                jdbc.update("UPDATE sys_role SET version=5 WHERE tenant_id=? AND id=?",tenant,role);
+                jdbc.update("UPDATE sys_role SET version=6 WHERE tenant_id=? AND id=?",tenant,role);
                 return;
             }
         }
@@ -129,7 +135,7 @@ class DevAccountBootstrap implements ApplicationRunner {
             jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) VALUES(?,?,?,?)",
                     Ids.next(),tenant,role,permission);
         }
-        jdbc.update("UPDATE sys_role SET version=5 WHERE tenant_id=? AND id=?",tenant,role);
+        jdbc.update("UPDATE sys_role SET version=6 WHERE tenant_id=? AND id=?",tenant,role);
     }
 
     private void addCompany(long tenant, long user, String code, String name) {

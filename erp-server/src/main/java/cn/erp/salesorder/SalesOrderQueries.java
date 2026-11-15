@@ -125,7 +125,8 @@ public class SalesOrderQueries {
         var open=jdbc.queryForMap("""
             SELECT COALESCE(SUM(p.amount),0) amount,COALESCE(SUM(p.open_amount),0) remaining FROM partner_open_item p
             JOIN receivable r ON r.tenant_id=p.tenant_id AND r.company_id=p.company_id AND p.item_type='receivable' AND r.id=p.source_id
-            WHERE r.tenant_id=? AND r.company_id=? AND r.kind='charge' AND (
+            WHERE r.tenant_id=? AND r.company_id=? AND r.kind='charge' AND r.posting_action='post'
+              AND NOT EXISTS(SELECT 1 FROM receivable reversed WHERE reversed.tenant_id=r.tenant_id AND reversed.company_id=r.company_id AND reversed.reverses_receivable_id=r.id) AND (
               (r.source_type IN ('shipment_line','shipment') AND EXISTS(SELECT 1 FROM shipment_line sl JOIN sales_order_line ol ON ol.id=sl.order_line_id
                 WHERE sl.id=r.source_line_id AND ol.order_id=?))
               OR (r.source_type='sales_order_fee' AND EXISTS(SELECT 1 FROM sales_order_fee f WHERE f.id=r.source_line_id AND f.order_id=?)))

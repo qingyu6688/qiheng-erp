@@ -100,10 +100,12 @@ public class ReceiptService {
     @Transactional
     public Map<String,Object> command(CompanyAccess scope,long id,String action,String key,FinanceModels.Version input) {
         return execute(scope,"receipt."+action,key,List.of(id,input),200,()->{
-            // 期间锁先于业务头锁，确认到账与关账使用相同的顺序。
+            // 提交和确认均先取期间共享锁，避免关账完成后新增待确认单据。
             Map<String,Object> snapshot=support.find(scope,"receipt",id,false);
             LocalDate businessDate=input.businessDate()==null?((java.sql.Date)snapshot.get("business_date")).toLocalDate():input.businessDate();
-            Long period=action.equals("confirm")?support.period(scope,businessDate):null;
+            Long period=null;
+            if(action.equals("submit")) {period=support.period(scope,((java.sql.Date)snapshot.get("business_date")).toLocalDate());}
+            else if(action.equals("confirm")) {period=support.period(scope,businessDate);}
             var before=support.find(scope,"receipt",id,true);version(before,input.version());
             if(action.equals("submit")) {
                 state(before,"draft");validateCurrent(scope,before);

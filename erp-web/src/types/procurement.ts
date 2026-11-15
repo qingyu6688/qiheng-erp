@@ -17,9 +17,10 @@ export const procurementSpecs:ProcurementSpec[]=[
  {path:'purchase-returns',title:'采购退货',singular:'采购退货单',permission:'purchase_return',states:['draft','submitted','posted','voided','reversed']},
  {path:'payments',title:'付款登记',singular:'付款单',permission:'payment',states:['draft','pending_confirm','confirmed','reversed']},
  {path:'account-transfers',title:'账户转账',singular:'转账单',permission:'account_transfer',states:['draft','pending_confirm','confirmed','reversed']},
- {path:'stock-adjustments',title:'库存期初',singular:'库存期初',permission:'stock_adjustment',states:['draft','pending','approved','posted','voided']},
+ {path:'stock-adjustments',title:'库存调整',singular:'库存调整单',permission:'stock_adjustment',states:['draft','pending','approved','posted','voided','reversed']},
  {path:'opening-entries',title:'往来与资金期初',singular:'期初余额',permission:'opening_entry',states:['draft','approved','posted','voided']},
 ]
+export const adjustmentLabels:Record<string,string>={opening:'期初',gain:'其他入库',loss:'其他出库',block:'冻结',unblock:'解冻',scrap:'报废'}
 export function procurementAction(kind:ProcurementKind,action:string):string {
  if(action==='confirm')return kind==='payments'?'确认付款':'确认转账'
  if(action==='close')return '关闭请购'

@@ -72,7 +72,9 @@ public class PaymentService {
         return execute(scope,action,key,List.of(id,input),200,()->{
             var snapshot=support.find(scope,"payment",id,false);
             LocalDate day=input.businessDate()==null?((java.sql.Date)snapshot.get("business_date")).toLocalDate():input.businessDate();
-            Long period=action.equals("confirm")?finance.period(scope,day):null;
+            Long period=null;
+            if(action.equals("submit")) {period=finance.period(scope,((java.sql.Date)snapshot.get("business_date")).toLocalDate());}
+            else if(action.equals("confirm")) {period=finance.period(scope,day);}
             var before=support.find(scope,"payment",id,true);version(before,input.version());
             switch(action) {
                 case "submit" -> {state(before,"draft");validateCurrent(scope,before);changeState(scope,id,"pending_confirm");}

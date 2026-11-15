@@ -42,9 +42,12 @@ public class InvoiceService {
         BigDecimal allocated=BigDecimal.ZERO,sourceTax=BigDecimal.ZERO;
         for(var line:sorted) {
             BigDecimal part=number(line.amount(),true);
-            var rows=jdbc.queryForList("SELECT customer_id,kind,amount,tax_amount FROM receivable WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",scope.tenantId(),scope.companyId(),line.receivableId());
+            var rows=jdbc.queryForList("SELECT customer_id,kind,amount,tax_amount,posting_action,source_type FROM receivable WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",scope.tenantId(),scope.companyId(),line.receivableId());
             if(rows.isEmpty()) {throw missing();}
             var ar=rows.getFirst();
+            if(!"post".equals(ar.get("posting_action"))||"document_reversal".equals(ar.get("source_type"))||!jdbc.queryForList("SELECT id FROM receivable WHERE tenant_id=? AND company_id=? AND reverses_receivable_id=? FOR SHARE",Long.class,scope.tenantId(),scope.companyId(),line.receivableId()).isEmpty()) {
+                throw new ApiException(409,"STATE_CONFLICT","已冲销的应收及冲销抵销往来不能登记开票");
+            }
             if(((Number)ar.get("customer_id")).longValue()!=input.partnerId() || !"charge".equals(ar.get("kind"))) {throw invalid("只能关联当前客户的正向应收");}
             var used=jdbc.queryForList("""
                     SELECT l.amount FROM invoice_registration_line l JOIN invoice_registration h

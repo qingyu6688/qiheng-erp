@@ -8,6 +8,7 @@ import type { DataRow } from '../types/admin'
 import { resourceSpecs } from './resources'
 import RecordEditor from '../components/RecordEditor.vue'
 import RecordRelations from '../components/RecordRelations.vue'
+import PeriodActions from '../components/PeriodActions.vue'
 
 const props = defineProps<{ resource: string }>()
 const spec = computed(() => resourceSpecs[props.resource]!)
@@ -207,12 +208,12 @@ onMounted(load)
         >
       </el-table-column>
       <el-table-column
-        v-if="resource !== 'audit-logs' && resource !== 'accounting-periods'"
+        v-if="resource !== 'audit-logs'"
         label="操作"
         min-width="180"
       >
         <template #default="{ row }"
-          ><div class="row-actions">
+          ><PeriodActions v-if="resource === 'accounting-periods'" :period="row" @changed="load"/><div v-else class="row-actions">
             <button v-if="canEdit(row)" class="text-link" @click="edit(row)">编辑</button>
             <button
               v-if="

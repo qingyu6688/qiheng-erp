@@ -4,7 +4,7 @@ import { allRecords,record } from '../../api/admin'
 import { candidates,commandResult,pricePreview } from '../../api/sales'
 import { procurementCommand,saveProcurement } from '../../api/procurement'
 import { ApiError,isCancelled,messageOf,newIdempotencyKey } from '../../api/http'
-import { procurementSpecs } from '../../types/procurement'
+import { procurementSpecs,adjustmentLabels } from '../../types/procurement'
 import type { ProcurementDocument,ProcurementKind } from '../../types/procurement'
 import type { DataRow } from '../../types/admin'
 import type { SalesSkuUnit } from '../../types/sales'
@@ -21,7 +21,7 @@ const form=reactive({
  paymentType:props.original?.paymentType??'supplier',cashAccountId:props.original?.cashAccountId??'',relatedOrderId:props.original?.relatedOrderId??'',
  expenseItemId:props.original?.expenseItemId??'',amount:props.original?.amount??'',bankSerialNo:props.original?.bankSerialNo??'',
  fromAccountId:props.original?.fromAccountId??'',toAccountId:props.original?.toAccountId??'',feeAmount:props.original?.feeAmount??'0',
- entryType:props.original?.entryType??'cash',direction:props.original?.direction??'D',
+ entryType:props.original?.entryType??'cash',direction:props.original?.direction??'D',adjustType:props.original?.adjustType??'opening',
 })
 interface InputLine {id?:string;skuId:string;warehouseId:string;unitId:string;qty:string;unitPrice:string;lineDiscountAmount:string;taxRate:string;sourceId:string;inputTotalCost:string;needDate:string}
 const lines=ref<InputLine[]>((props.original?.lines??[]).map(l=>({
@@ -36,6 +36,7 @@ const loading=ref(true),busy=ref(false),uncertain=ref(false),conflict=ref(false)
 const key=newIdempotencyKey()
 const order=computed(()=>props.kind==='purchase-orders'),requisition=computed(()=>props.kind==='purchase-requisitions'),stock=computed(()=>props.kind==='stock-adjustments')
 const products=computed(()=>order.value||requisition.value||stock.value),sourceLines=computed(()=>['goods-receipts','purchase-returns'].includes(props.kind))
+const inputCost=computed(()=>stock.value&&['opening','gain'].includes(form.adjustType))
 const hasLines=computed(()=>products.value||sourceLines.value),warehouseHead=computed(()=>stock.value||sourceLines.value)
 const hasPartner=computed(()=>order.value||sourceLines.value||props.kind==='payments'&&form.paymentType==='supplier'||props.kind==='opening-entries'&&form.entryType!=='cash')
 let timer:ReturnType<typeof setTimeout>|undefined,sequence=0,sourceSequence=0
@@ -70,7 +71,7 @@ function body():Record<string,unknown>{
   lines:lines.value.map(l=>({id:l.id,requisitionLineId:l.sourceId||null,skuId:l.skuId,warehouseId:l.warehouseId||null,unitId:l.unitId,qty:l.qty,unitPrice:l.unitPrice||undefined,lineDiscountAmount:l.lineDiscountAmount,taxRate:session.can('document:change_tax_rate')?l.taxRate:undefined})),
   fees:fees.value.map(f=>({id:f.id,feeType:f.feeType,bearer:f.bearer,amount:f.amount,taxRate:session.can('document:change_tax_rate')?f.taxRate:undefined}))}
  if(requisition.value)return {...common,lines:lines.value.map(l=>({id:l.id,skuId:l.skuId,unitId:l.unitId,qty:l.qty,needDate:l.needDate||null}))}
- if(stock.value)return {...common,adjustType:'opening',warehouseId:form.warehouseId,reason:form.reason,lines:lines.value.map(l=>({skuId:l.skuId,unitId:l.unitId,qty:l.qty,inputTotalCost:l.inputTotalCost}))}
+ if(stock.value)return {...common,adjustType:form.adjustType,warehouseId:form.warehouseId,reason:form.reason,lines:lines.value.map(l=>({skuId:l.skuId,unitId:l.unitId,qty:l.qty,inputTotalCost:inputCost.value?l.inputTotalCost:undefined}))}
  if(sourceLines.value)return {...common,supplierId:form.supplierId,warehouseId:form.warehouseId,reason:form.reason,lines:lines.value.map(l=>({[props.kind==='goods-receipts'?'orderLineId':'receiptLineId']:l.sourceId,unitId:l.unitId,qty:l.qty}))}
  if(props.kind==='payments')return {...common,paymentType:form.paymentType,partnerId:form.paymentType==='supplier'?form.supplierId:null,expenseItemId:form.paymentType==='other_expense'?form.expenseItemId:null,cashAccountId:form.cashAccountId,amount:form.amount,relatedOrderId:form.paymentType==='supplier'?(form.relatedOrderId||null):null,bankSerialNo:form.bankSerialNo||null}
  if(props.kind==='account-transfers')return {...common,fromAccountId:form.fromAccountId,toAccountId:form.toAccountId,amount:form.amount,feeAmount:form.feeAmount}
@@ -117,6 +118,7 @@ async function verify():Promise<void>{
  <el-dialog :model-value="true" :title="(change?'变更':original?'编辑':'新建')+spec.singular" class="sales-editor-dialog" top="5vh" width="min(1100px,96vw)" :close-on-click-modal="false" :show-close="!busy" @close="emit('close')">
   <fieldset class="form-fieldset" :disabled="busy||loading||uncertain||conflict">
    <el-form label-position="top" class="sales-header-form">
+    <el-form-item v-if="stock" label="调整类型"><el-select v-model="form.adjustType" aria-label="调整类型" :disabled="Boolean(original)"><el-option v-for="(label,type) in adjustmentLabels" :key="type" :value="type" :label="label"/></el-select></el-form-item>
     <el-form-item v-if="kind==='payments'" label="付款类型"><el-select v-model="form.paymentType" aria-label="付款类型"><el-option value="supplier" label="供应商付款"/><el-option value="other_expense" label="其他支出"/></el-select></el-form-item>
     <el-form-item v-if="kind==='opening-entries'" label="期初类型"><el-select v-model="form.entryType" aria-label="期初类型"><el-option value="cash" label="资金期初"/><el-option value="receivable" label="客户往来期初"/><el-option value="payable" label="供应商往来期初"/></el-select></el-form-item>
     <el-form-item v-if="hasPartner" :label="kind==='opening-entries'?'往来单位':'供应商'" for="purchase-partner"><el-select id="purchase-partner" v-model="form.supplierId" filterable :disabled="change"><el-option v-for="p in partners.filter(p=>p.status==='active')" :key="p.id" :value="p.id" :label="String(p.name)"/></el-select></el-form-item>
@@ -135,7 +137,7 @@ async function verify():Promise<void>{
     <el-form-item v-if="stock||kind==='purchase-returns'||change" label="原因" for="purchase-reason"><el-input id="purchase-reason" v-model="form.reason" maxlength="200"/></el-form-item>
     <el-form-item label="备注" for="purchase-remark"><el-input id="purchase-remark" v-model="form.remark" maxlength="200"/></el-form-item>
    </el-form>
-   <div v-if="hasLines" class="sales-lines-scroll"><table class="sales-input-table"><thead><tr><th v-if="sourceLines||order&&session.can('purchase_requisition:view')">来源{{order?'（可选）':''}}</th><th v-if="products">商品</th><th v-if="order">收货仓库</th><th v-if="products">单位</th><th>数量</th><template v-if="order"><th>单价</th><th>行优惠</th><th v-if="session.can('document:change_tax_rate')">税率</th></template><th v-if="stock">总成本</th><th v-if="requisition">需求日期</th><th></th></tr></thead><tbody>
+   <div v-if="hasLines" class="sales-lines-scroll"><table class="sales-input-table"><thead><tr><th v-if="sourceLines||order&&session.can('purchase_requisition:view')">来源{{order?'（可选）':''}}</th><th v-if="products">商品</th><th v-if="order">收货仓库</th><th v-if="products">单位</th><th>数量</th><template v-if="order"><th>单价</th><th>行优惠</th><th v-if="session.can('document:change_tax_rate')">税率</th></template><th v-if="inputCost">总成本</th><th v-if="requisition">需求日期</th><th></th></tr></thead><tbody>
     <tr v-for="(line,index) in lines" :key="index">
      <td v-if="sourceLines||order&&session.can('purchase_requisition:view')"><el-select v-model="line.sourceId" :aria-label="'采购来源'+(index+1)" clearable filterable @change="chooseSource(line)"><el-option v-for="s in sources" :key="String(s.id)" :value="String(s.id)" :label="sourceLabel(s)"/></el-select></td>
      <td v-if="products"><el-select v-model="line.skuId" :aria-label="'采购商品'+(index+1)" filterable @change="chooseSku(line)"><el-option v-for="s in skus.filter(s=>s.status==='active')" :key="s.id" :value="s.id" :label="String(s.code)+' '+String(s.name)"/></el-select></td>
@@ -143,7 +145,7 @@ async function verify():Promise<void>{
      <td v-if="products"><el-select v-model="line.unitId" :aria-label="'采购单位'+(index+1)" @change="line.unitPrice=''"><el-option v-for="u in units[line.skuId]??[]" :key="u.unitId" :value="u.unitId" :label="u.unitName"/></el-select></td>
      <td><el-input v-model="line.qty" :aria-label="'采购数量'+(index+1)"/></td>
      <template v-if="order"><td><el-input v-model="line.unitPrice" :aria-label="'采购单价'+(index+1)" placeholder="参考价"/></td><td><el-input v-model="line.lineDiscountAmount" :aria-label="'采购行优惠'+(index+1)"/></td><td v-if="session.can('document:change_tax_rate')"><el-input v-model="line.taxRate" :aria-label="'采购税率'+(index+1)"/></td></template>
-     <td v-if="stock"><el-input v-model="line.inputTotalCost" :aria-label="'期初总成本'+(index+1)"/></td>
+     <td v-if="inputCost"><el-input v-model="line.inputTotalCost" :aria-label="(form.adjustType==='opening'?'期初总成本':'调整总成本')+(index+1)"/></td>
      <td v-if="requisition"><el-input v-model="line.needDate" type="date" :aria-label="'需求日期'+(index+1)"/></td>
      <td><el-button text @click="lines.splice(index,1)">移除</el-button></td>
     </tr>

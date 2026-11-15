@@ -79,6 +79,11 @@ class WarehouseController {
                 case "cash_account.enable", "cash_account.disable" -> "cash_account:update";
                 case "income_expense_item.create" -> "income_expense_item:create";
                 case "period.open" -> "period:open";
+                case "period.close", "period.reopen" -> operation.replace('.', ':');
+                case "stock_transfer.create", "stock_transfer.submit", "stock_transfer.ship", "stock_transfer.receive", "stock_transfer.resolve_diff", "stock_transfer.void",
+                     "stock_count.create", "stock_count.start", "stock_count.submit", "stock_count.approve", "stock_count.reject", "stock_count.post", "stock_count.void",
+                     "reversal.create", "reversal.approve", "reversal.post" -> operation.replace('.', ':');
+                case "reversal.reject" -> "reversal:approve";
                 case "reconciliation.run" -> "reconciliation:run";
                 case "outbox.replay" -> "admin:outbox";
                 case "unit.create" -> "unit:create";
@@ -116,7 +121,7 @@ class WarehouseController {
             };
             var scope = operation.startsWith("cash_account.") || operation.startsWith("period.") || operation.equals("reconciliation.run")
                     || operation.matches("(?:sales_order|shipment|receipt|sales_return|refund_request|settlement|invoice_registration)\\..+")
-                    || operation.matches("(?:purchase_requisition|purchase_order|goods_receipt|purchase_return|payment|account_transfer|stock_adjustment|opening_entry)\\..+")
+                    || operation.matches("(?:purchase_requisition|purchase_order|goods_receipt|purchase_return|payment|account_transfer|stock_adjustment|opening_entry|stock_transfer|stock_count|reversal)\\..+")
                     ? access.requireCompany(request, permission) : access.requireTenant(request, permission);
             return ApiResponse.success(commandResults.get(scope, operation, key));
         }

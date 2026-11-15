@@ -35,6 +35,7 @@ class ReconciliationIT {
         // 约束夹具原先故意留下彼此不一致的余额，用真实期初流水与分录补成可核对闭环。
         jdbc.update("UPDATE inventory_movement SET movement_type='opening_in',on_hand_delta=10,blocked_delta=1,cost_delta=100 WHERE id=72301");
         jdbc.update("UPDATE partner_open_item SET open_amount=90 WHERE id IN (72701,72702)");
+        jdbc.update("UPDATE document_reversal SET status='rejected' WHERE tenant_id=70101 AND company_id=70201 AND status='pending'");
         jdbc.update("INSERT INTO cash_account_balance(id,tenant_id,company_id,cash_account_id,balance) VALUES(70512,70101,70201,70502,0),(70514,70101,70201,70504,0)");
         jdbc.update("UPDATE journal SET source_type='opening',total_debit=110,total_credit=110 WHERE id=73001");
         jdbc.update("""

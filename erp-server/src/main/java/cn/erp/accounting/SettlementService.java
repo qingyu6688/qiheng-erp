@@ -80,7 +80,7 @@ public class SettlementService {
         var row=jdbc.queryForMap("SELECT * FROM settlement_allocation WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",scope.tenantId(),scope.companyId(),id);
         if(next.equals(row.get("status"))) {return;}
         if(!expected.equals(row.get("status"))) {throw AccountingAmounts.conflict("该核销记录不能执行此操作");}
-        if(next.equals("revoked") && "refund".equals(row.get("allocation_type"))) {throw AccountingAmounts.conflict("已完成退款的核销不能单独撤销，请通过退款冲销处理");}
+        if(next.equals("revoked") && Set.of("refund","reversal").contains(row.get("allocation_type"))) {throw AccountingAmounts.conflict("退款及冲销的核销不能单独撤销");}
         long debit=((Number)row.get("debit_item_id")).longValue(),credit=((Number)row.get("credit_item_id")).longValue();
         BigDecimal amount=(BigDecimal)row.get("amount");
         for(long item:new TreeSet<>(List.of(debit,credit))) {
