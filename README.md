@@ -4,11 +4,79 @@
 
 ## 中文
 
-柒衡 ERP 管理采购、销售、库存和资金往来，支持期初导入、应收应付核销、报表导出和操作审计。
+柒衡 ERP 是面向商贸和库存管理团队的进销存与轻量业财系统。采购、销售、仓库和财务人员在同一套单据流程里协作，从期初开账开始，跟踪订单履约、库存成本、应收应付和账户余额。
 
-- [部署说明](docs/部署说明.md)
-- [用户使用手册](docs/用户使用手册.md)
-- [开发计划](docs/开发计划.md)
+### 业务功能
+
+| 模块 | 支持的操作 |
+| --- | --- |
+| 基础资料 | 维护公司、仓库、客户、供应商、商品 SKU、计量单位、价格和结算账户。 |
+| 销售 | 建单、审批、发货、签收、退货、退款和开票登记。签收确认应收后，可登记收款并核销。 |
+| 采购 | 从请购转采购订单，经审批后收货入库并确认应付。支持采购退货、供应商退款、付款和核销。 |
+| 库存 | 查询在库、可用、预留和冻结数量。支持调拨、盘点、库存调整及移动加权成本核算。 |
+| 往来与资金 | 导入或录入期初数据，管理应收应付、收付款、资金账户和内部转账。支持单据冲销、八类对账及期间关账、重开。 |
+| 报表与文件 | 提供库存收发存、销售采购汇总、账龄、资金日记账、毛利等十类报表。支持后台 CSV 导入导出、错误行下载、单据打印预览和私有附件。 |
+| 权限与审计 | 按企业、公司和仓库划分数据范围，按角色与操作授权。关键审核支持经办与复核分离，并记录操作审计。管理员可以按企业配置短信、邮箱验证码和微信扫码登录。 |
+
+库存期初 CSV 导入生成草稿，须经审核并过账后才计入库存和成本。各业务状态、金额口径和异常处理见[业务规则](docs/业务规则.md)及[用户使用手册](docs/用户使用手册.md)。
+
+### 技术栈与目录
+
+前端使用 Vue 3、TypeScript、Vite 和 Element Plus。后端使用 Java 21、Spring Boot 和 Maven，提供 REST API。MySQL 8.0.46 保存业务数据，Flyway 负责数据库迁移，Redis 保存会话。后台 Worker 处理导入、导出等异步任务，生产附件和文件任务使用私有 S3 兼容对象仓。
+
+| 路径 | 内容 |
+| --- | --- |
+| [`erp-web/`](erp-web/) | 管理端页面、API 调用、浏览器和组件测试 |
+| [`erp-server/`](erp-server/) | 应用 API、业务服务、Worker、数据库迁移与集成测试 |
+| [`deploy/`](deploy/) | Nginx、Compose、API 与 Worker 服务及生产环境配置模板 |
+| [`scripts/`](scripts/) | 本机初始化、构建、打包、备份和恢复脚本 |
+| [`docs/`](docs/) | 部署、运维、接口、数据库、业务规则和验收记录 |
+
+### 在本机启动
+
+以下步骤对应 Windows 开发环境。准备 Git、PowerShell 7、JDK 21、Maven、Node.js 24、npm 和 Redis for Windows。启动 MySQL 8.0.46 的本机 3306 端口，并将 `mysql` 命令加入 PATH。
+
+```powershell
+git clone https://github.com/qingyu6688/qiheng-erp.git
+cd qiheng-erp
+```
+
+在项目根目录执行以下命令，并替换本机的 JDK 和 Redis 目录。首次初始化时，在当前终端准备具有建库与授权权限的 `DB_USERNAME` 和 `DB_PASSWORD`。脚本会建立独立的开发库、测试库并生成本机 `.env`。已有项目数据库时，参考 [`.env.example`](.env.example)填写连接信息。
+
+```powershell
+pwsh -NoProfile -File ./scripts/prepare-local.ps1 -JavaHome 'C:\tools\jdk-21' -RedisDirectory 'C:\tools\redis'
+npm --prefix erp-web ci
+```
+
+在项目根目录开两个终端。第一个启动 API，第二个启动前端。
+
+```powershell
+pwsh -NoProfile -File ./scripts/project.ps1 server
+```
+
+```powershell
+pwsh -NoProfile -File ./scripts/project.ps1 web
+```
+
+打开[本机工作台](http://127.0.0.1:5173)。默认开发企业为 `DEMO`，用户名为 `admin`，初始口令取自私有 `.env` 的 `ERP_DEV_ADMIN_PASSWORD`。默认 API 端口为 8080，本机准备脚本使用 Redis 6380。更多配置见[部署说明](docs/部署说明.md)。
+
+### 测试与发布进度
+
+在项目根目录执行后端验证、前端检查和构建。
+
+```powershell
+pwsh -NoProfile -File ./scripts/project.ps1 verify
+npm --prefix erp-web run lint
+npm --prefix erp-web test
+npm --prefix erp-web run build
+```
+
+准备 Playwright 浏览器后，使用 `pwsh -NoProfile -File ./scripts/project.ps1 e2e` 在独立测试库和随机测试企业中运行浏览器回归。[测试报告](docs/测试报告.md)
+
+`1.0.0-rc.1` 已完成本机空库迁移、旧库升级、期初和购销试运行，以及备份恢复演练。正式环境验收和试运行按上线清单执行，后续组织模型、审批流、消息中心和财务扩展列入开发计划。[本机验收报告](docs/1.0.0候选版本本机上线演练报告.md) · [上线准备清单](docs/上线准备清单.md) · [开发计划](docs/开发计划.md)
+
+- 开发参考见[接口设计](docs/接口设计.md)和[数据库设计](docs/数据库设计.md)。
+- 部署和运营见[运维手册](docs/运维手册.md)和[多方式登录配置](docs/多方式登录配置.md)。
 
 ### 许可
 
@@ -16,11 +84,79 @@
 
 ## English
 
-Qiheng ERP manages purchasing, sales, inventory, and payments. It supports opening-balance imports, receivable and payable settlement, report exports, and audit logs.
+Qiheng ERP is an inventory and business finance system for trading and warehouse teams. Purchasing, sales, warehouse, and finance staff work with the same transactions to track order fulfillment, inventory costs, receivables, payables, and account balances.
 
-- [Deployment guide (Chinese)](docs/部署说明.md)
-- [User guide (Chinese)](docs/用户使用手册.md)
-- [Development plan (Chinese)](docs/开发计划.md)
+### Business modules
+
+| Module | Supported operations |
+| --- | --- |
+| Master data | Manage companies, warehouses, customers, suppliers, SKUs, units of measure, prices, and settlement accounts. |
+| Sales | Create and approve orders, ship goods, record delivery confirmation, process returns and refunds, and register invoices. Delivery confirmation establishes the receivable, which can then be settled against a payment. |
+| Purchasing | Convert requisitions into purchase orders, approve orders, and post receipts to inventory and accounts payable. Process returns, vendor refunds, supplier payments, and settlement. |
+| Inventory | View on-hand, available, reserved, and blocked quantities. Record transfers, stock counts, and adjustments. The system calculates costs using a moving weighted average. |
+| Finance | Enter or import opening balances, manage receivables and payables, and record receipts, payments, and transfers between accounts. Reverse transactions, run eight reconciliation checks, and close or reopen accounting periods. |
+| Reports and files | Use ten report types, including inventory movements, sales and purchase summaries, aging, cash journals, and gross margin. Run background CSV imports and exports, download rejected rows, preview printed documents, and manage private attachments. |
+| Access and audit | Scope data by tenant, company, and warehouse, and grant permissions by role and action. Key transactions can require a separate reviewer and record an audit trail. Administrators can configure SMS codes, email codes, and WeChat sign-in per tenant. |
+
+An opening-stock CSV import creates drafts for review and posting before the balances and costs are recorded. See the [business rules (Chinese)](docs/业务规则.md) and [user guide (Chinese)](docs/用户使用手册.md) for the full workflows.
+
+### Stack and repository layout
+
+The web app uses Vue 3, TypeScript, Vite, and Element Plus. The REST API uses Java 21, Spring Boot, and Maven. MySQL 8.0.46 stores business data, Flyway manages schema migrations, and Redis stores sessions. A worker runs background jobs such as imports and exports. Production file jobs and attachments use private S3-compatible storage.
+
+| Path | Contents |
+| --- | --- |
+| [`erp-web/`](erp-web/) | Management UI, API client, and browser and component tests |
+| [`erp-server/`](erp-server/) | API, business services, worker, database migrations, and integration tests |
+| [`deploy/`](deploy/) | Nginx, Compose, API and worker services, and production configuration templates |
+| [`scripts/`](scripts/) | Local setup, build, packaging, backup, and restore scripts |
+| [`docs/`](docs/) | Deployment, operations, API, database, business rules, and acceptance records |
+
+### Run locally
+
+These steps use Windows. Install Git, PowerShell 7, JDK 21, Maven, Node.js 24, npm, and Redis for Windows. Run MySQL 8.0.46 locally on port 3306 and put the `mysql` command on PATH.
+
+```powershell
+git clone https://github.com/qingyu6688/qiheng-erp.git
+cd qiheng-erp
+```
+
+Run the following commands from the repository root with your own JDK and Redis paths. For first-time setup, provide `DB_USERNAME` and `DB_PASSWORD` in the current shell for an account that can create databases and grant privileges. The setup script creates separate development and test databases and generates a local `.env` file. For existing project databases, use [`.env.example`](.env.example) as a configuration reference.
+
+```powershell
+pwsh -NoProfile -File ./scripts/prepare-local.ps1 -JavaHome 'C:\tools\jdk-21' -RedisDirectory 'C:\tools\redis'
+npm --prefix erp-web ci
+```
+
+Open two terminals at the repository root. Start the API in the first terminal and the web app in the second.
+
+```powershell
+pwsh -NoProfile -File ./scripts/project.ps1 server
+```
+
+```powershell
+pwsh -NoProfile -File ./scripts/project.ps1 web
+```
+
+Open the [local workbench](http://127.0.0.1:5173). The default development tenant and username are `DEMO` and `admin`. Use the `ERP_DEV_ADMIN_PASSWORD` value in your private `.env` file. The default API port is 8080, and the setup script uses Redis port 6380. See the [deployment guide (Chinese)](docs/部署说明.md) for configuration details.
+
+### Testing and release status
+
+Run these checks from the repository root.
+
+```powershell
+pwsh -NoProfile -File ./scripts/project.ps1 verify
+npm --prefix erp-web run lint
+npm --prefix erp-web test
+npm --prefix erp-web run build
+```
+
+Once a Playwright browser is available, run `pwsh -NoProfile -File ./scripts/project.ps1 e2e` to test with a separate database and a generated test tenant. [Test report (Chinese)](docs/测试报告.md)
+
+`1.0.0-rc.1` passed local trials for fresh installation, database upgrades, opening balances, purchasing and sales, and backup and restore. Production acceptance and the business trial follow the launch checklist. The development plan covers organizational structure, approval workflows, notifications, and deeper financial functionality. [Local acceptance report (Chinese)](docs/1.0.0候选版本本机上线演练报告.md) · [Launch checklist (Chinese)](docs/上线准备清单.md) · [Development plan (Chinese)](docs/开发计划.md)
+
+- For development, see the [API design](docs/接口设计.md) and [database design](docs/数据库设计.md) in Chinese.
+- For deployment and operations, see the [operations manual](docs/运维手册.md) and [sign-in configuration guide](docs/多方式登录配置.md) in Chinese.
 
 ### License
 

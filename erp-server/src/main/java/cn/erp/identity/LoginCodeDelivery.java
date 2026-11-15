@@ -110,7 +110,7 @@ class LoginCodeDelivery {
             var message = new MimeMessage(session);
             message.setFrom(new InternetAddress(config.get("from"), true));
             message.setRecipient(Message.RecipientType.TO, new InternetAddress(destination, true));
-            message.setSubject("进销存管理验证码", StandardCharsets.UTF_8.name());
+            message.setSubject("柒衡 ERP 登录验证码", StandardCharsets.UTF_8.name());
             message.setText("您的验证码为 " + code + "。请勿向他人透露验证码。", StandardCharsets.UTF_8.name());
             message.saveChanges();
             transport.connect(host, port, config.get("username"), provider.secret());
