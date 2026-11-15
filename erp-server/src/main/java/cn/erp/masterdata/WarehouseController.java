@@ -96,6 +96,12 @@ class WarehouseController {
                 case "user.reset_password" -> "user:reset_password";
                 case "role.create" -> "role:create";
                 case "receipt.withdraw" -> "receipt:return";
+                case "purchase_requisition.create", "purchase_requisition.submit", "purchase_requisition.withdraw", "purchase_requisition.approve", "purchase_requisition.reject", "purchase_requisition.close", "purchase_requisition.cancel",
+                     "purchase_order.create", "purchase_order.submit", "purchase_order.withdraw", "purchase_order.approve", "purchase_order.reject", "purchase_order.revoke_approval", "purchase_order.close_lines", "purchase_order.cancel", "purchase_order.change", "purchase_order.change_approve", "purchase_order.change_reject",
+                     "goods_receipt.create", "goods_receipt.submit", "goods_receipt.void", "goods_receipt.post", "purchase_return.create", "purchase_return.submit", "purchase_return.void", "purchase_return.post",
+                     "payment.create", "payment.submit", "payment.return", "payment.confirm", "account_transfer.create", "account_transfer.submit", "account_transfer.return", "account_transfer.confirm",
+                     "stock_adjustment.create", "stock_adjustment.submit", "stock_adjustment.approve", "stock_adjustment.reject", "stock_adjustment.post", "stock_adjustment.void",
+                     "opening_entry.create", "opening_entry.approve", "opening_entry.post", "opening_entry.void" -> operation.replace('.', ':');
                 case "sales_order.create" -> "sales_order:create";
                 case "sales_order.submit", "sales_order.approve", "sales_order.reject", "sales_order.withdraw",
                      "sales_order.revoke_approval", "sales_order.close_lines", "sales_order.cancel", "sales_order.reserve",
@@ -110,6 +116,7 @@ class WarehouseController {
             };
             var scope = operation.startsWith("cash_account.") || operation.startsWith("period.") || operation.equals("reconciliation.run")
                     || operation.matches("(?:sales_order|shipment|receipt|sales_return|refund_request|settlement|invoice_registration)\\..+")
+                    || operation.matches("(?:purchase_requisition|purchase_order|goods_receipt|purchase_return|payment|account_transfer|stock_adjustment|opening_entry)\\..+")
                     ? access.requireCompany(request, permission) : access.requireTenant(request, permission);
             return ApiResponse.success(commandResults.get(scope, operation, key));
         }

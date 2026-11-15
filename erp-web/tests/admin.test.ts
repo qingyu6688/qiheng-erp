@@ -13,6 +13,8 @@ describe('基础资料表单', () => {
     expect(defaultWorkspace(permission => permission === 'sales_order:view', true)).toBe('/sales-orders')
     expect(defaultWorkspace(permission => permission === 'settlement:view', true)).toBe('/settlements')
     expect(defaultWorkspace(permission => permission === 'inventory:view', true)).toBe('/inventory-balances')
+    expect(defaultWorkspace(permission => permission === 'purchase_order:view', true)).toBe('/purchase-orders')
+    expect(defaultWorkspace(permission => permission === 'opening_entry:view', true)).toBe('/opening-entries')
     expect(defaultWorkspace(permission => permission === 'sales_order:view', false)).toBe('/account/password')
   })
   it('初始密码保留用户输入的前后空格', () => {

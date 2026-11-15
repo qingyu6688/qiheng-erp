@@ -1,0 +1,15 @@
+INSERT INTO sys_permission(id,code,name,perm_type,sort_no) VALUES
+(700,'stock_adjustment:view','查看库存期初','action',700),
+(701,'stock_adjustment:create','新增库存期初','action',701),
+(702,'stock_adjustment:update','修改库存期初','action',702),
+(703,'stock_adjustment:submit','提交库存期初','action',703),
+(704,'stock_adjustment:approve','审核库存期初','action',704),
+(705,'stock_adjustment:reject','驳回库存期初','action',705),
+(706,'stock_adjustment:post','过账库存期初','action',706),
+(707,'stock_adjustment:void','作废库存期初','action',707),
+(708,'opening_entry:view','查看往来及资金期初','action',708),
+(709,'opening_entry:create','新增往来及资金期初','action',709),
+(710,'opening_entry:update','修改往来及资金期初','action',710),
+(711,'opening_entry:approve','审核往来及资金期初','action',711),
+(712,'opening_entry:post','过账往来及资金期初','action',712),
+(713,'opening_entry:void','作废往来及资金期初','action',713);

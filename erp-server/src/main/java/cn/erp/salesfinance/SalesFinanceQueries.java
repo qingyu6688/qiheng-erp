@@ -3,6 +3,7 @@ package cn.erp.salesfinance;
 import cn.erp.accounting.SettlementService;
 import cn.erp.identity.CompanyAccess;
 import cn.erp.salesorder.SalesOrderQueries;
+import cn.erp.purchasing.PurchaseOrderQueries;
 import cn.erp.shared.*;
 import java.util.*;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -19,8 +20,9 @@ public class SalesFinanceQueries {
     private final BusinessCommands commands;
     private final AuditService audit;
     private final SalesOrderQueries orders;
-    public SalesFinanceQueries(JdbcTemplate jdbc,FinanceSupport support,SettlementService settlement,BusinessCommands commands,AuditService audit,SalesOrderQueries orders) {
-        this.jdbc=jdbc;this.support=support;this.settlement=settlement;this.commands=commands;this.audit=audit;this.orders=orders;
+    private final PurchaseOrderQueries purchaseOrders;
+    public SalesFinanceQueries(JdbcTemplate jdbc,FinanceSupport support,SettlementService settlement,BusinessCommands commands,AuditService audit,SalesOrderQueries orders,PurchaseOrderQueries purchaseOrders) {
+        this.jdbc=jdbc;this.support=support;this.settlement=settlement;this.commands=commands;this.audit=audit;this.orders=orders;this.purchaseOrders=purchaseOrders;
     }
 
     public Map<String,Object> receivables(CompanyAccess scope,Long customer,boolean openOnly,Long cursor,int limit) {
@@ -41,12 +43,35 @@ public class SalesFinanceQueries {
                 """,scope.tenantId(),scope.companyId(),before,customer,customer,openOnly,limit+1),limit);
     }
 
+    public Map<String,Object> payables(CompanyAccess scope,Long supplier,boolean openOnly,Long cursor,int limit) {
+        long before=cursor(cursor,limit);
+        return page(jdbc.queryForList("""
+                SELECT a.id,a.supplier_id,p.name supplier_name,a.kind,a.source_type,a.source_id,a.source_line_id,
+                    a.amount,a.untaxed_amount,a.tax_amount,a.invoiced_amount,a.business_date,COALESCE(i.open_amount,0) open_amount,
+                    CASE a.source_type WHEN 'purchase_return_line' THEN pr.return_no
+                        WHEN 'opening_entry' THEN oe.entry_no ELSE gr.receipt_no END source_no
+                FROM payable a JOIN business_partner p ON p.tenant_id=a.tenant_id AND p.id=a.supplier_id
+                LEFT JOIN partner_open_item i ON i.tenant_id=a.tenant_id AND i.company_id=a.company_id
+                    AND i.item_type='payable' AND i.source_id=a.id
+                LEFT JOIN goods_receipt gr ON gr.tenant_id=a.tenant_id AND gr.company_id=a.company_id
+                    AND a.source_type IN('goods_receipt_line','purchase_order_fee') AND gr.id=a.source_id
+                LEFT JOIN purchase_return pr ON pr.tenant_id=a.tenant_id AND pr.company_id=a.company_id
+                    AND a.source_type='purchase_return_line' AND pr.id=a.source_id
+                LEFT JOIN opening_entry oe ON oe.tenant_id=a.tenant_id AND oe.company_id=a.company_id
+                    AND a.source_type='opening_entry' AND oe.id=a.source_id
+                WHERE a.tenant_id=? AND a.company_id=? AND a.id<? AND (? IS NULL OR a.supplier_id=?)
+                    AND (?=0 OR i.open_amount>0) ORDER BY a.id DESC LIMIT ?
+                """,scope.tenantId(),scope.companyId(),before,supplier,supplier,openOnly,limit+1),limit);
+    }
+
     public Map<String,Object> openItems(CompanyAccess scope,Long partner,String side,boolean openOnly,Long cursor,int limit) {
         long before=cursor(cursor,limit);
         if(!Set.of("ar","ap").contains(side)) {throw invalid("往来侧须为ar或ap");}
         return page(jdbc.queryForList("""
                 SELECT i.*,p.name partner_name,DATEDIFF(DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')),i.aging_date) aging_days,
                   CASE i.item_type WHEN 'receipt' THEN r.receipt_no WHEN 'refund_request' THEN f.refund_no
+                    WHEN 'payment' THEN pm.payment_no
+                    WHEN 'payable' THEN CASE ap.source_type WHEN 'purchase_return_line' THEN pr.return_no ELSE gr.receipt_no END
                     WHEN 'receivable' THEN CASE ar.source_type WHEN 'sales_return_line' THEN sr.return_no ELSE sh.shipment_no END ELSE NULL END source_no,
                   CASE WHEN i.item_type IN('payable','payment') OR r.receipt_type='supplier_refund' THEN 'ap' ELSE 'ar' END side
                 FROM partner_open_item i JOIN business_partner p ON p.tenant_id=i.tenant_id AND p.id=i.partner_id
@@ -55,6 +80,10 @@ public class SalesFinanceQueries {
                 LEFT JOIN receivable ar ON ar.tenant_id=i.tenant_id AND ar.company_id=i.company_id AND i.item_type='receivable' AND ar.id=i.source_id
                 LEFT JOIN sales_return sr ON sr.tenant_id=ar.tenant_id AND sr.company_id=ar.company_id AND ar.source_type='sales_return_line' AND sr.id=ar.source_id
                 LEFT JOIN shipment sh ON sh.tenant_id=ar.tenant_id AND sh.company_id=ar.company_id AND ar.source_type IN('shipment_line','sales_order_fee') AND sh.id=ar.source_id
+                LEFT JOIN payment pm ON pm.tenant_id=i.tenant_id AND pm.company_id=i.company_id AND i.item_type='payment' AND pm.id=i.source_id
+                LEFT JOIN payable ap ON ap.tenant_id=i.tenant_id AND ap.company_id=i.company_id AND i.item_type='payable' AND ap.id=i.source_id
+                LEFT JOIN goods_receipt gr ON gr.tenant_id=ap.tenant_id AND gr.company_id=ap.company_id AND ap.source_type IN('goods_receipt_line','purchase_order_fee') AND gr.id=ap.source_id
+                LEFT JOIN purchase_return pr ON pr.tenant_id=ap.tenant_id AND pr.company_id=ap.company_id AND ap.source_type='purchase_return_line' AND pr.id=ap.source_id
                 WHERE i.tenant_id=? AND i.company_id=? AND i.id<? AND (? IS NULL OR i.partner_id=?)
                     AND (?=0 OR i.open_amount>0) AND (f.id IS NULL OR f.status NOT IN('draft','cancelled'))
                     AND (CASE WHEN i.item_type IN('payable','payment') OR r.receipt_type='supplier_refund' THEN 'ap' ELSE 'ar' END)=?
@@ -88,7 +117,8 @@ public class SalesFinanceQueries {
             if(input.allocations()==null||input.allocations().isEmpty()||input.allocations().size()>200) {throw invalid("核销须有1到200组明细");}
             var ids=new TreeSet<Long>();
             input.allocations().forEach(pair->{ids.add(pair.debitItemId());ids.add(pair.creditItemId());amount(pair.amount());});
-            var orderIds=orderIds(scope,ids);lockOrders(scope,orderIds);lockItems(scope,ids);
+            var orderIds=orderIds(scope,ids);lockOrders(scope,orderIds);
+            var purchaseIds=purchaseIds(scope,ids);lockPurchaseOrders(scope,purchaseIds);lockItems(scope,ids);
             for(long id:ids) {
                 var item=item(scope,id);
                 if(id(item,"partner_id")!=input.partnerId()) {throw new ApiException(422,"SETTLEMENT_NOT_ALLOWED","核销双方须属于所选往来单位");}
@@ -101,6 +131,7 @@ public class SalesFinanceQueries {
                 result.add(allocation(scope,id));
             }
             for(long order:orderIds) {orders.refreshProgress(scope,order);}
+            for(long order:purchaseIds) {purchaseOrders.refreshProgress(scope,order);}
             return Map.of("items",result);
         });
     }
@@ -110,10 +141,12 @@ public class SalesFinanceQueries {
         return execute(scope,"settlement.revoke",key,List.of(id,input),()->{
             var snapshot=support.find(scope,"settlement_allocation",id,false);
             var ids=new TreeSet<>(List.of(id(snapshot,"debit_item_id"),id(snapshot,"credit_item_id")));
-            var orderIds=orderIds(scope,ids);lockOrders(scope,orderIds);lockItems(scope,ids);
+            var orderIds=orderIds(scope,ids);lockOrders(scope,orderIds);
+            var purchaseIds=purchaseIds(scope,ids);lockPurchaseOrders(scope,purchaseIds);lockItems(scope,ids);
             var before=support.find(scope,"settlement_allocation",id,true);version(before,input.version());state(before,"active");
             settlement.revoke(scope,id,input.reason());
             for(long order:orderIds) {orders.refreshProgress(scope,order);}
+            for(long order:purchaseIds) {purchaseOrders.refreshProgress(scope,order);}
             audit.record(scope,"settlement.revoke","settlement_allocation",id,null,Map.of("reason",input.reason()));
             return allocation(scope,id);
         });
@@ -143,6 +176,26 @@ public class SalesFinanceQueries {
     }
     private void lockOrders(CompanyAccess scope,Set<Long> ids) {
         for(long id:ids) {jdbc.queryForObject("SELECT id FROM sales_order WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),id);}
+    }
+    private Set<Long> purchaseIds(CompanyAccess scope,Collection<Long> items) {
+        var result=new TreeSet<Long>();
+        for(long item:items) {
+            result.addAll(jdbc.queryForList("""
+                SELECT DISTINCT ol.order_id FROM partner_open_item i
+                JOIN payable a ON a.tenant_id=i.tenant_id AND a.company_id=i.company_id AND i.item_type='payable' AND a.id=i.source_id
+                JOIN goods_receipt_line l ON l.tenant_id=a.tenant_id AND l.company_id=a.company_id AND a.source_type='goods_receipt_line' AND l.id=a.source_line_id
+                JOIN purchase_order_line ol ON ol.tenant_id=l.tenant_id AND ol.company_id=l.company_id AND ol.id=l.order_line_id
+                WHERE i.tenant_id=? AND i.company_id=? AND i.id=?
+                UNION SELECT f.order_id FROM partner_open_item i
+                JOIN payable a ON a.tenant_id=i.tenant_id AND a.company_id=i.company_id AND i.item_type='payable' AND a.id=i.source_id
+                JOIN purchase_order_fee f ON f.tenant_id=a.tenant_id AND f.company_id=a.company_id AND a.source_type='purchase_order_fee' AND f.id=a.source_line_id
+                WHERE i.tenant_id=? AND i.company_id=? AND i.id=?
+                """,Long.class,scope.tenantId(),scope.companyId(),item,scope.tenantId(),scope.companyId(),item));
+        }
+        return result;
+    }
+    private void lockPurchaseOrders(CompanyAccess scope,Set<Long> ids) {
+        for(long id:ids) {jdbc.queryForObject("SELECT id FROM purchase_order WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),id);}
     }
     @SuppressWarnings({"unchecked","rawtypes"})
     private Map<String,Object> execute(CompanyAccess scope,String operation,String key,Object payload,java.util.function.Supplier<Map<String,Object>> work) {

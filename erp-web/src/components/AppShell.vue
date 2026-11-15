@@ -7,6 +7,7 @@ import { messageOf } from '../api/http'
 import BrandMark from './BrandMark.vue'
 import { resourceGroups, resourceSpecs } from '../pages/resources'
 import { salesSpecs } from '../types/sales'
+import { procurementSpecs } from '../types/procurement'
 
 const route = useRoute()
 const router = useRouter()
@@ -56,6 +57,10 @@ async function logout(): Promise<void> {
           <template v-for="spec in salesSpecs" :key="spec.path"><router-link v-if="session.can(spec.permission+':view')" class="nav-link" :to="'/'+spec.path">{{ spec.title }}</router-link></template>
           <router-link v-if="session.can('settlement:view')" class="nav-link" to="/settlements">核销工作台</router-link>
           <router-link v-if="session.can('inventory:view')" class="nav-link" to="/inventory-balances">实时库存</router-link>
+        </div>
+        <div v-if="!session.user?.mustChangePassword&&procurementSpecs.some(spec=>session.can(spec.permission+':view'))" class="nav-group">
+          <div class="nav-caption">采购、付款与期初</div>
+          <template v-for="spec in procurementSpecs" :key="spec.path"><router-link v-if="session.can(spec.permission+':view')" class="nav-link" :to="'/'+spec.path">{{spec.title}}</router-link></template>
         </div>
         <div class="nav-group">
           <template v-for="group in groups" :key="group.title">

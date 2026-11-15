@@ -47,6 +47,9 @@ class SalesFinanceController {
     @GetMapping("/receivables") ApiResponse<?> receivables(HttpServletRequest req,@RequestParam(required=false) Long customerId,@RequestParam(defaultValue="false") boolean openOnly,@RequestParam(required=false) Long cursor,@RequestParam(defaultValue="20") int limit) {
         return ApiResponse.success(queries.receivables(access.requireCompany(req,"invoice_registration:view"),customerId,openOnly,cursor,limit));
     }
+    @GetMapping("/payables") ApiResponse<?> payables(HttpServletRequest req,@RequestParam(required=false) Long supplierId,@RequestParam(defaultValue="false") boolean openOnly,@RequestParam(required=false) Long cursor,@RequestParam(defaultValue="20") int limit) {
+        return ApiResponse.success(queries.payables(access.requireCompany(req,"settlement:view"),supplierId,openOnly,cursor,limit));
+    }
     @GetMapping("/open-items") ApiResponse<?> openItems(HttpServletRequest req,@RequestParam(required=false) Long partnerId,@RequestParam(defaultValue="ar") String side,@RequestParam(defaultValue="true") boolean openOnly,@RequestParam(required=false) Long cursor,@RequestParam(defaultValue="20") int limit) {return ApiResponse.success(queries.openItems(access.requireCompany(req,"settlement:view"),partnerId,side,openOnly,cursor,limit));}
     @GetMapping("/settlement-allocations") ApiResponse<?> allocations(HttpServletRequest req,@RequestParam(required=false) Long partnerId,@RequestParam(required=false) Long cursor,@RequestParam(defaultValue="20") int limit) {return ApiResponse.success(queries.allocations(access.requireCompany(req,"settlement:view"),partnerId,cursor,limit));}
     @GetMapping("/settlement-allocations/{id}") ApiResponse<?> allocation(HttpServletRequest req,@PathVariable long id) {return ApiResponse.success(queries.allocation(access.requireCompany(req,"settlement:view"),id));}

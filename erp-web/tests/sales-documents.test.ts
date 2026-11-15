@@ -81,6 +81,22 @@ it('收款无订单和收入目录权限时不请求无权目录', async () => {
   wrapper.unmount()
 })
 
+it('核销切换供应商侧后只查询AP未清项，并重新加载原客户侧', async () => {
+  const wrapper = mount(SettlementPage, { global: { stubs: { ...stubs, ElTable: true, ElTableColumn: true, ElRadio: true, ElRadioGroup: true } } })
+  await flushPromises()
+  await wrapper.get('#settlement-customer').setValue('20')
+  await flushPromises()
+  await wrapper.get('select[aria-label="往来侧"]').setValue('ap')
+  await flushPromises()
+  expect(api.candidates).toHaveBeenCalledWith('open-items', { partnerId: '20', side: 'ap', openOnly: true })
+  expect(wrapper.text()).toContain('待付应付')
+  await wrapper.get('select[aria-label="往来侧"]').setValue('ar')
+  await flushPromises()
+  expect(api.candidates).toHaveBeenLastCalledWith('settlement-allocations', { partnerId: '20' })
+  expect(api.candidates).toHaveBeenCalledWith('open-items', { partnerId: '20', side: 'ar', openOnly: true })
+  wrapper.unmount()
+})
+
 it('新建收款超时后查原操作结果，未找到时沿用原键重试', async () => {
   vi.mocked(api.saveDocument).mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', '网络超时')).mockResolvedValueOnce(receipt)
   vi.mocked(api.commandResult).mockRejectedValueOnce(new ApiError(404, 'NOT_FOUND', '暂无结果'))

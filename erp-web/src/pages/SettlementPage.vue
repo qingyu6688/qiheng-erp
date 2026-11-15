@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { onMounted,ref } from 'vue'
+import { computed,onMounted,ref } from 'vue'
 import { allRecords } from '../api/admin'
 import { candidates,financeWrite,commandResult } from '../api/sales'
 import { ApiError,isCancelled,messageOf,newIdempotencyKey } from '../api/http'
 import type { DataRow } from '../types/admin'
 import { useSessionStore } from '../stores/session'
 const session=useSessionStore()
+const side=ref('ar')
+const debitTitle=computed(()=>side.value==='ar'?'待收应收':'可用预付及退货额度')
+const creditTitle=computed(()=>side.value==='ar'?'可用预收 / 退货信用额':'待付应付')
 const partners=ref<DataRow[]>([]),partner=ref(''),debits=ref<Record<string,unknown>[]>([]),credits=ref<Record<string,unknown>[]>([]),allocations=ref<Record<string,unknown>[]>([])
 const debit=ref(''),credit=ref(''),amount=ref(''),busy=ref(false),error=ref(''),notice=ref(''),uncertain=ref(false)
 const revoke=ref<Record<string,unknown>>(),reason=ref(''),revokeBusy=ref(false),revokeUncertain=ref(false),revokeError=ref('')
@@ -16,7 +19,7 @@ async function load():Promise<void>{
  if(!partner.value)return
  busy.value=true;error.value=''
  try{
-  const [items,history]=await Promise.all([candidates('open-items',{partnerId:partner.value,side:'ar',openOnly:true}),candidates('settlement-allocations',{partnerId:partner.value})])
+  const [items,history]=await Promise.all([candidates('open-items',{partnerId:partner.value,side:side.value,openOnly:true}),candidates('settlement-allocations',{partnerId:partner.value})])
   debits.value=items.items.filter(i=>i.direction==='D');credits.value=items.items.filter(i=>i.direction==='C');allocations.value=history.items
  }catch(cause:unknown){if(!isCancelled(cause))error.value=messageOf(cause)}finally{busy.value=false}
 }
@@ -46,10 +49,10 @@ onMounted(async()=>{try{partners.value=await allRecords('partners')}catch(cause:
 <template>
  <div class="page-heading"><h1>核销工作台</h1></div>
  <section class="panel sales-detail-header">
-  <el-form label-position="top"><el-form-item label="客户" for="settlement-customer"><el-select id="settlement-customer" v-model="partner" :disabled="busy||uncertain" filterable @change="changePartner"><el-option v-for="p in partners" :key="p.id" :value="p.id" :label="String(p.name)"/></el-select></el-form-item></el-form>
+  <el-form label-position="top" class="sales-header-form"><el-form-item label="往来侧"><el-select v-model="side" aria-label="往来侧" :disabled="busy||uncertain" @change="changePartner"><el-option value="ar" label="客户应收"/><el-option value="ap" label="供应商应付"/></el-select></el-form-item><el-form-item :label="side==='ar'?'客户':'供应商'" for="settlement-customer"><el-select id="settlement-customer" v-model="partner" :disabled="busy||uncertain" filterable @change="changePartner"><el-option v-for="p in partners" :key="p.id" :value="p.id" :label="String(p.name)"/></el-select></el-form-item></el-form>
   <div class="settlement-columns">
-   <section><h2>待收应收</h2><el-radio-group v-model="debit" :disabled="busy||uncertain"><el-radio v-for="row in debits" :key="String(row.id)" :value="String(row.id)">{{ selected(row) }}</el-radio></el-radio-group><p v-if="partner&&!debits.length">暂无待收应收</p></section>
-   <section><h2>可用预收 / 退货信用额</h2><el-radio-group v-model="credit" :disabled="busy||uncertain"><el-radio v-for="row in credits" :key="String(row.id)" :value="String(row.id)">{{ selected(row) }}</el-radio></el-radio-group><p v-if="partner&&!credits.length">暂无可核销额度</p></section>
+   <section><h2>{{debitTitle}}</h2><el-radio-group v-model="debit" :disabled="busy||uncertain"><el-radio v-for="row in debits" :key="String(row.id)" :value="String(row.id)">{{ selected(row) }}</el-radio></el-radio-group><p v-if="partner&&!debits.length">{{side==='ar'?'暂无待收应收':'暂无可核销额度'}}</p></section>
+   <section><h2>{{creditTitle}}</h2><el-radio-group v-model="credit" :disabled="busy||uncertain"><el-radio v-for="row in credits" :key="String(row.id)" :value="String(row.id)">{{ selected(row) }}</el-radio></el-radio-group><p v-if="partner&&!credits.length">{{side==='ar'?'暂无可核销额度':'暂无待付应付'}}</p></section>
   </div>
   <el-form v-if="session.can('settlement:allocate')" label-position="top"><el-form-item label="本次核销金额" for="settlement-amount"><el-input id="settlement-amount" v-model="amount" :disabled="uncertain"/></el-form-item><el-button v-if="uncertain" type="primary" @click="verify">查询原核销结果</el-button><el-button v-else type="primary" :disabled="!debit||!credit||!amount" :loading="busy" @click="allocate">确认核销</el-button></el-form>
   <el-alert v-if="error" type="error" :title="error" :closable="false"/><el-alert v-if="notice" type="success" :title="notice" :closable="false"/>

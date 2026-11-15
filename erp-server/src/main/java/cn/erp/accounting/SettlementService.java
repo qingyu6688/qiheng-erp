@@ -121,6 +121,27 @@ public class SettlementService {
         return result;
     }
 
+    /** 收货应付生成后，只使用关联当前采购订单的已确认预付。 */
+    public BigDecimal autoAllocatePurchaseOrder(ActorScope scope,long orderId,long creditItemId) {
+        var rows=jdbc.queryForList("""
+                SELECT i.id FROM partner_open_item i JOIN payment p ON p.tenant_id=i.tenant_id AND p.company_id=i.company_id
+                  AND i.item_type='payment' AND p.id=i.source_id
+                WHERE i.tenant_id=? AND i.company_id=? AND p.related_order_id=? AND p.payment_type='supplier'
+                  AND p.status='confirmed' AND i.open_amount>0 ORDER BY p.business_date,p.id
+                """,Long.class,scope.tenantId(),scope.companyId(),orderId);
+        var ids=new ArrayList<>(rows);ids.add(creditItemId);
+        lockItems(scope,ids.stream().mapToLong(Long::longValue).toArray());
+        BigDecimal used=BigDecimal.ZERO.setScale(2);
+        for(long debit:rows) {
+            BigDecimal credit=jdbc.queryForObject("SELECT open_amount FROM partner_open_item WHERE id=?",BigDecimal.class,creditItemId);
+            if(credit.signum()==0) {break;}
+            BigDecimal available=jdbc.queryForObject("SELECT open_amount FROM partner_open_item WHERE id=?",BigDecimal.class,debit);
+            BigDecimal amount=credit.min(available);
+            if(amount.signum()>0) {allocate(scope,debit,creditItemId,amount,"auto_order","purchase_order",orderId);used=used.add(amount);}
+        }
+        return used;
+    }
+
     private String side(ActorScope scope,Map<String,Object> item) {
         String type=item.get("item_type").toString();
         if(type.equals("refund_request")) {

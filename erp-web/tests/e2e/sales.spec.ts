@@ -35,10 +35,11 @@ async function command(page: Page, action: string): Promise<void> {
   await expect(dialog).toBeHidden()
 }
 
-async function documentSaved(page: Page, kind: string): Promise<string> {
+async function documentSaved(page: Page, kind: string, expectedNo: string | RegExp = /-[0-9]{6}-[0-9]{6}$/): Promise<string> {
   await page.getByRole('dialog').getByRole('button', { name: '保存单据', exact: true }).click()
   await expect(page).toHaveURL(new RegExp('/' + kind + '/[0-9]+$'))
-  await expect(page.getByRole('heading', { level: 1 })).not.toBeEmpty()
+  await expect(page.locator('.sales-detail-header .el-tag').first()).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(expectedNo)
   return new URL(page.url()).pathname
 }
 
@@ -67,6 +68,7 @@ test('销售订单、发货签收、收款核销、开票和退货退款形成�
     await page.screenshot({ path: testInfo.outputPath('sales-order-form.png'), fullPage: true })
     await page.getByRole('button', { name: '保存订单', exact: true }).click()
     await expect(page).toHaveURL(/\/sales-orders\/[0-9]+$/)
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^SO-.*-[0-9]{6}-[0-9]{6}$/)
     const orderPath = new URL(page.url()).pathname
     const orderNo = await page.getByRole('heading', { level: 1 }).innerText()
     await command(page, '提交')
@@ -125,12 +127,13 @@ test('销售订单、发货签收、收款核销、开票和退货退款形成�
     await page.goto('/invoice-registrations')
     await page.getByRole('button', { name: '新建开票登记', exact: true }).click()
     await selectId(page, 'doc-customer', customer)
-    await page.locator('#doc-invoice').fill('E2E-INVOICE-' + Date.now())
+    const invoiceNo = 'E2E-INVOICE-' + Date.now()
+    await page.locator('#doc-invoice').fill(invoiceNo)
     await page.locator('#doc-amount').fill('400')
     await page.locator('#doc-tax').fill('46.02')
     await selectName(page, '来源行1', new RegExp(shipmentNo))
     await page.getByRole('textbox', { name: '开票金额1', exact: true }).fill('400')
-    await documentSaved(page, 'invoice-registrations')
+    await documentSaved(page, 'invoice-registrations', invoiceNo)
     await status(page, '已登记')
 
     await page.goto('/sales-returns')
@@ -167,9 +170,9 @@ test('销售订单、发货签收、收款核销、开票和退货退款形成�
     await status(page, '已退款')
 
     await page.goto('/cash-accounts')
-    await expect(page.getByRole('row').filter({ hasText: account })).toContainText('300.00')
+    await expect(page.getByRole('row').filter({ has: page.getByRole('cell', { name: account, exact: true }) })).toContainText('300.00')
     await page.goto('/inventory-balances')
-    await expect(page.getByRole('row').filter({ hasText: '验收商品' })).toContainText('17.000000')
+    await expect(page.getByRole('row').filter({ has: page.getByRole('cell', { name: '验收商品', exact: true }) })).toContainText('17.000000')
     await page.goto('/settlements')
     await selectId(page, 'settlement-customer', customer)
     await expect(page.getByText('暂无待收应收', { exact: true })).toBeVisible()

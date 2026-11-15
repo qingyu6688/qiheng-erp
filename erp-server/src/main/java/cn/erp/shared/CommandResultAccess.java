@@ -15,14 +15,15 @@ public class CommandResultAccess {
         if(!(actor instanceof WarehouseScope scope) || scope.allWarehouses() || !(response instanceof Map<?,?> row)) {return;}
         Object id=row.get("id");
         if(id==null) {return;}
-        if(operation.startsWith("sales_order.")) {
-            var warehouses=jdbc.queryForList("SELECT warehouse_id FROM sales_order_line WHERE tenant_id=? AND company_id=? AND order_id=? AND is_deleted=0",Long.class,scope.tenantId(),scope.companyId(),id);
+        if(operation.startsWith("sales_order.")||operation.startsWith("purchase_order.")) {
+            String lineTable=operation.startsWith("sales_order.")?"sales_order_line":"purchase_order_line";
+            var warehouses=jdbc.queryForList("SELECT warehouse_id FROM "+lineTable+" WHERE tenant_id=? AND company_id=? AND order_id=? AND is_deleted=0",Long.class,scope.tenantId(),scope.companyId(),id);
             if(warehouses.isEmpty() || warehouses.stream().anyMatch(w->w==null||!scope.allowsWarehouse(w))) {throw missing();}
             if(row.get("lines") instanceof List<?> lines) {
                 for(Object line:lines) {if(line instanceof Map<?,?> fields) {warehouse(scope,fields.get("warehouseId"));}}
             }
-        } else if(operation.startsWith("shipment.") || operation.startsWith("sales_return.")) {
-            String table=operation.startsWith("shipment.")?"shipment":"sales_return";
+        } else if(operation.startsWith("shipment.") || operation.startsWith("sales_return.") || operation.startsWith("goods_receipt.") || operation.startsWith("purchase_return.") || operation.startsWith("stock_adjustment.")) {
+            String table=operation.substring(0,operation.indexOf('.'));
             var warehouses=jdbc.queryForList("SELECT warehouse_id FROM "+table+" WHERE tenant_id=? AND company_id=? AND id=?",Long.class,scope.tenantId(),scope.companyId(),id);
             if(warehouses.isEmpty()) {throw missing();}
             warehouse(scope,warehouses.getFirst());

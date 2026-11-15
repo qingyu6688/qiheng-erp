@@ -98,15 +98,15 @@ public class ReconciliationChecks {
 
     private List<Difference> periodChecks(ActorScope scope,long period,Map<String,Object> params) {
         var diffs=new ArrayList<Difference>();
-        var documents=List.of("shipment","goods_receipt","sales_return","purchase_return","stock_transfer");
+        var documents=List.of("shipment","goods_receipt","sales_return","purchase_return","stock_transfer","stock_adjustment");
         for(String table:documents) {
-            String status=table.equals("stock_transfer")?"IN ('submitted','shipped','received_with_diff')":"IN ('submitted')";
+            String status=table.equals("stock_transfer")?"IN ('submitted','shipped','received_with_diff')":table.equals("stock_adjustment")?"IN ('pending','approved')":"IN ('submitted')";
             String query="SELECT COUNT(*) FROM "+table+" d JOIN accounting_period p ON p.tenant_id=d.tenant_id AND p.company_id=d.company_id AND p.id=:p WHERE d.tenant_id=:t AND d.company_id=:c AND d.business_date BETWEEN p.start_date AND p.end_date AND d.status "+status;
             long count=jdbc.queryForObject(query,params,Long.class);
             if(count>0) {diffs.add(new Difference("period_close",table,BigDecimal.ZERO,BigDecimal.valueOf(count)));}
         }
-        for(String table:List.of("receipt","payment","refund_request")) {
-            String state=table.equals("refund_request")?"IN ('pending_review','pending_payment')":"IN ('pending_confirm')";
+        for(String table:List.of("receipt","payment","refund_request","account_transfer","opening_entry")) {
+            String state=table.equals("refund_request")?"IN ('pending_review','pending_payment')":table.equals("opening_entry")?"IN ('approved')":"IN ('pending_confirm')";
             long count=jdbc.queryForObject("SELECT COUNT(*) FROM "+table+" d JOIN accounting_period p ON p.id=:p AND p.tenant_id=d.tenant_id AND p.company_id=d.company_id WHERE d.tenant_id=:t AND d.company_id=:c AND d.business_date BETWEEN p.start_date AND p.end_date AND d.status "+state,params,Long.class);
             if(count>0) {diffs.add(new Difference("period_close",table,BigDecimal.ZERO,BigDecimal.valueOf(count)));}
         }
