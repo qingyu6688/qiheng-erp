@@ -8,7 +8,11 @@ import BrandMark from '../components/BrandMark.vue'
 
 const router = useRouter()
 const session = useSessionStore()
-const input = reactive({ tenantCode: '', username: '', password: '' })
+const input = reactive({
+  tenantCode: import.meta.env.DEV ? import.meta.env.VITE_DEV_TENANT || 'DEMO' : '',
+  username: import.meta.env.DEV ? import.meta.env.VITE_DEV_USER || 'admin' : '',
+  password: import.meta.env.DEV ? import.meta.env.VITE_DEV_PASSWORD || '' : '',
+})
 const busy = ref(false)
 const error = ref('')
 

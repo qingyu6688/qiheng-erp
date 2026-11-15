@@ -1,3 +1,6 @@
+erp:
+  worker:
+    enabled: false
 spring:
   datasource:
     url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${TEST_DB_NAME:erp_test}?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8

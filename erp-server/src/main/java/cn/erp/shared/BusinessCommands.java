@@ -29,7 +29,9 @@ public class BusinessCommands {
         if (!key.matches("[A-Za-z0-9_-]{1,64}")) {
             throw new ApiException(400, "VALIDATION_FAILED", "幂等键格式有误");
         }
-        String hash = digest(json.writeValueAsString(payload));
+        String serialized=json.writeValueAsString(payload);
+        String legacyHash=digest(serialized);
+        String hash = digest(json.writeValueAsString(canonical(json.readValue(serialized,Object.class))));
         long claim = Ids.next();
         jdbc.update("""
                 INSERT INTO idempotency_record(id,tenant_id,company_id,operation,idempotency_key,
@@ -44,7 +46,7 @@ public class BusinessCommands {
             throw new ApiException(403, "FORBIDDEN", "只有原操作人可以查看请求结果");
         }
         if (((Number) entry.get("id")).longValue() != claim) {
-            if (!hash.equals(entry.get("request_hash"))) {
+            if (!hash.equals(entry.get("request_hash")) && !legacyHash.equals(entry.get("request_hash"))) {
                 throw new ApiException(409, "IDEMPOTENCY_KEY_REUSED", "同一请求标识对应了不同内容");
             }
             if (entry.get("response_body") == null) {
@@ -64,5 +66,15 @@ public class BusinessCommands {
         } catch (NoSuchAlgorithmException error) {
             throw new IllegalStateException("运行环境缺少摘要算法", error);
         }
+    }
+
+    private static Object canonical(Object value) {
+        if(value instanceof java.util.Map<?,?> map) {
+            var sorted=new java.util.TreeMap<String,Object>();
+            map.forEach((key,item)->sorted.put(key.toString(),canonical(item)));
+            return sorted;
+        }
+        if(value instanceof java.util.List<?> list) {return list.stream().map(BusinessCommands::canonical).toList();}
+        return value;
     }
 }

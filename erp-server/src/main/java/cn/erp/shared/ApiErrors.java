@@ -43,9 +43,22 @@ public class ApiErrors {
         return api(result);
     }
 
+    @ExceptionHandler(org.springframework.jdbc.UncategorizedSQLException.class)
+    public ResponseEntity<ApiResponse<Void>> mysqlCheck(org.springframework.jdbc.UncategorizedSQLException error) {
+        if(error.getSQLException().getErrorCode()==3819) {
+            return api(ConstraintErrors.from(error.getSQLException().getMessage()));
+        }
+        return unexpected(error);
+    }
+
     @ExceptionHandler(DataAccessResourceFailureException.class)
     public ResponseEntity<ApiResponse<Void>> unavailable() {
         return api(new ApiException(503, "SERVICE_UNAVAILABLE", "数据服务暂不可用，请稍后重试", Map.of("retryable", true)));
+    }
+
+    @ExceptionHandler(org.springframework.dao.TransientDataAccessException.class)
+    public ResponseEntity<ApiResponse<Void>> contention() {
+        return api(new ApiException(503,"SERVICE_UNAVAILABLE","当前操作发生并发竞争，请使用原请求标识稍后重试",Map.of("retryable",true)));
     }
 
     @ExceptionHandler(Exception.class)

@@ -30,4 +30,13 @@ class SharedTest {
         assertThat(ConstraintErrors.from("Check constraint 'ck_shipment_line_sign' is violated").getErrorCode()).isEqualTo("SIGN_QTY_EXCEEDED");
         assertThat(ConstraintErrors.from("unknown").getStatus()).isEqualTo(500);
     }
+
+    @Test
+    void mysqlCheckViolationsUseTheSameFriendlyErrorMapping() {
+        var sql=new java.sql.SQLException("Check constraint 'ck_inventory_balance_available' is violated.","HY000",3819);
+        var error=new org.springframework.jdbc.UncategorizedSQLException("保存库存","UPDATE inventory_balance",sql);
+        var response=new ApiErrors().mysqlCheck(error);
+        assertThat(response.getStatusCode().value()).isEqualTo(422);
+        assertThat(response.getBody().errorCode()).isEqualTo("INVENTORY_INSUFFICIENT");
+    }
 }

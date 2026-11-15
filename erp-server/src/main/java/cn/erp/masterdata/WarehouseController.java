@@ -79,6 +79,8 @@ class WarehouseController {
                 case "cash_account.enable", "cash_account.disable" -> "cash_account:update";
                 case "income_expense_item.create" -> "income_expense_item:create";
                 case "period.open" -> "period:open";
+                case "reconciliation.run" -> "reconciliation:run";
+                case "outbox.replay" -> "admin:outbox";
                 case "unit.create" -> "unit:create";
                 case "product_category.create" -> "product_category:create";
                 case "product.create" -> "product:create";
@@ -95,7 +97,7 @@ class WarehouseController {
                 case "role.create" -> "role:create";
                 default -> throw new ApiException(404, "NOT_FOUND", "未找到该操作结果");
             };
-            var scope = operation.startsWith("cash_account.") || operation.startsWith("period.")
+            var scope = operation.startsWith("cash_account.") || operation.startsWith("period.") || operation.equals("reconciliation.run")
                     ? access.requireCompany(request, permission) : access.requireTenant(request, permission);
             return ApiResponse.success(commandResults.get(scope, operation, key));
         }

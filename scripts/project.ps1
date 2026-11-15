@@ -15,7 +15,7 @@ if ($frontend) {
 }
 foreach ($line in [IO.File]::ReadAllLines($settingsFile)) {
     if ($line -match '^([A-Z][A-Z0-9_]*)=(.*)$') {
-        if ($frontend -and $matches[1] -ne 'SERVER_PORT' -and
+        if ($frontend -and $matches[1] -ne 'SERVER_PORT' -and !($Action -eq 'web' -and $matches[1] -in 'ERP_DEV_ADMIN_PASSWORD','ERP_DEV_TENANT_CODE') -and
             !($Action -eq 'e2e' -and $matches[1] -eq 'ERP_DEV_ADMIN_PASSWORD')) { continue }
         [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
     }
