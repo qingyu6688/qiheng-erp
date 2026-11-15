@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>基础资料</title>
+<link rel="stylesheet" href="assets/erp-ui.css">
+</head>
+<body data-nav="partners" data-crumb="基础资料 / 往来单位">
+<main id="page">
+  <div class="page-head">
+    <h1>往来单位</h1>
+    <div class="actions"><a class="btn" href="41-file-jobs.html">批量导入</a><button class="btn btn-primary" type="button">新建往来单位</button></div>
+  </div>
+
+  <div class="split">
+    <section class="panel main">
+      <form class="filters">
+        <div class="field grow"><label for="k">编码或名称</label><input id="k" class="input" placeholder="输入编码、名称或简称"></div>
+        <div class="field"><label for="r">角色</label><select id="r" class="select"><option>全部</option><option>客户</option><option>供应商</option></select></div>
+        <div class="field"><label for="s">状态</label><select id="s" class="select"><option>启用</option><option>停用</option><option>全部</option></select></div>
+        <button class="btn btn-primary" type="submit">查询</button>
+      </form>
+      <div class="table-wrap"><table class="table" style="min-width:680px">
+        <thead><tr><th>编码</th><th>名称</th><th>角色</th><th>税号</th><th>状态</th></tr></thead>
+        <tbody>
+          <tr class="selected"><td class="tnum">CUS1</td><td>华东商贸有限公司</td><td><span class="tag tag-neutral">客户</span></td><td class="tnum muted">91310115MA1K4X2Q7B</td><td><span class="tag tag-success">启用</span></td></tr>
+          <tr><td class="tnum">CUS2</td><td>杭州云帆电子商务有限公司</td><td><span class="tag tag-neutral">客户</span></td><td class="tnum muted">—</td><td><span class="tag tag-success">启用</span></td></tr>
+          <tr><td class="tnum">SUP1</td><td>宁波甬达五金厂</td><td><span class="tag tag-neutral">供应商</span> <span class="tag tag-neutral">客户</span></td><td class="tnum muted">91330212MA2H7P3L1C</td><td><span class="tag tag-success">启用</span></td></tr>
+          <tr><td class="tnum">CUS9</td><td>合肥新瑞家居有限公司</td><td><span class="tag tag-neutral">客户</span></td><td class="tnum muted">—</td><td><span class="tag tag-neutral">停用</span></td></tr>
+        </tbody></table></div>
+      <div class="pager"><span>共 42 条</span><div class="actions"><button class="btn btn-sm" type="button" disabled>上一页</button><button class="btn btn-sm" type="button">下一页</button></div></div>
+    </section>
+
+    <form class="panel side" style="flex:1 1 420px" aria-labelledby="edit-title">
+      <div class="panel-head"><h2 id="edit-title">华东商贸有限公司</h2><span class="small muted">版本 3</span></div>
+      <div class="tabs" role="tablist" aria-label="资料分区"><button class="tab" role="tab" aria-selected="true" type="button">基本信息</button><button class="tab" role="tab" aria-selected="false" type="button">联系人<span class="count">2</span></button><button class="tab" role="tab" aria-selected="false" type="button">往来余额</button></div>
+      <div class="panel-body">
+        <div class="form-grid">
+          <div class="field"><label for="c">编码</label><input id="c" class="input readonly" readonly value="CUS1"><span class="hint">创建后不能修改</span></div>
+          <div class="field"><label for="n">名称 <span class="req">*</span></label><input id="n" class="input" value="华东商贸有限公司"></div>
+          <div class="field"><label for="sn">简称</label><input id="sn" class="input" value="华东商贸"></div>
+          <div class="field"><label for="tx">统一社会信用代码</label><input id="tx" class="input tnum" value="91310115MA1K4X2Q7B"></div>
+        </div>
+        <fieldset class="field"><legend>角色</legend><div class="radio-row"><label class="check"><input type="checkbox" checked>客户</label><label class="check"><input type="checkbox">供应商</label></div></fieldset>
+        <fieldset class="field"><legend>作为客户时的默认价格口径</legend><div class="radio-row"><label><input type="radio" name="pt" checked>含税价</label><label><input type="radio" name="pt">未税价</label><label><input type="radio" name="pt">不设置</label></div></fieldset>
+      </div>
+      <div class="panel-foot"><button class="btn btn-danger" type="button">停用</button><div class="actions"><button class="btn" type="button">取消</button><button class="btn btn-primary" type="submit">保存</button></div></div>
+    </form>
+  </div>
+
+  <aside class="spec-note">
+    <strong>设计说明：基础资料通用模板</strong>
+    <ul>
+      <li>对应 <code>pages/ResourcePage.vue</code>、<code>components/RecordEditor.vue</code>、<code>components/RecordRelations.vue</code>，以及 <code>pages/WarehousePage.vue</code>。往来单位、商品分类、计量单位、仓库、结算账户、收支项目都用这个模板。</li>
+      <li>左边列表、右边编辑面板，选中一行即在右侧编辑，不弹对话框；窄屏时编辑面板排到列表下方。</li>
+      <li>子资料（联系人、单位换算、条码、往来余额）用面板内页签，不再在一页里纵向堆叠。</li>
+      <li>停用而不是删除；停用的资料在新单据里不能选择，历史单据照常显示。</li>
+      <li>联系人电话需要 <code>partner_contact:view</code>，结算账户的银行账号默认只显示后 4 位。</li>
+    </ul>
+  </aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

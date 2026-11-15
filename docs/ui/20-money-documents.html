@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>收付款与退款</title>
+<link rel="stylesheet" href="assets/erp-ui.css">
+</head>
+<body data-nav="receipts" data-crumb="资金与往来 / 收款登记">
+<main id="page">
+  <div class="page-head">
+    <div class="title"><h1>收款登记</h1><span class="muted">登记后由另一位同事确认到账，确认后才计入账户余额、可以核销</span></div>
+    <button class="btn btn-primary" type="button">登记收款</button>
+  </div>
+
+  <section class="panel">
+    <div class="tabs" role="tablist" aria-label="按状态筛选">
+      <button class="tab" role="tab" aria-selected="true" type="button">待确认<span class="count">2</span></button>
+      <button class="tab" role="tab" aria-selected="false" type="button">已确认</button>
+      <button class="tab" role="tab" aria-selected="false" type="button">草稿</button>
+      <button class="tab" role="tab" aria-selected="false" type="button">全部</button>
+    </div>
+    <div class="table-wrap">
+      <table class="table tnum" style="min-width:980px">
+        <thead><tr><th>单号</th><th>类型</th><th>付款方</th><th>收款账户</th><th>业务日期</th><th>关联订单</th><th class="num">金额</th><th>登记</th><th><span class="sr-only">操作</span></th></tr></thead>
+        <tbody>
+          <tr><td><a href="#">RC-C01-202611-000014</a></td><td>客户收款</td><td>南京百川贸易有限公司</td><td>招商银行基本户</td><td class="muted">2026-11-19</td><td><a href="12-document-detail.html">SO-…000120</a></td><td class="num">8,000.00</td><td class="muted">陈洁 · 11:12</td><td><button class="btn btn-sm" type="button">确认到账</button></td></tr>
+          <tr><td><a href="#">RC-C01-202611-000013</a></td><td>供应商退款</td><td>宁波甬达五金厂</td><td>招商银行基本户</td><td class="muted">2026-11-19</td><td class="weak">—</td><td class="num">4,400.00</td><td class="muted">周敏 · 09:40</td><td><button class="btn btn-sm" type="button" disabled title="登记人不能确认自己登记的收款">确认到账</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="cols-2">
+    <div class="drawer-demo" style="min-height:0">
+      <form class="drawer" aria-labelledby="rc-title">
+        <div class="dialog-head"><h2 id="rc-title">登记收款</h2></div>
+        <div class="dialog-body">
+          <fieldset class="field"><legend>收款类型</legend><div class="segmented" role="group" aria-label="收款类型"><button type="button" aria-pressed="true">客户收款</button><button type="button" aria-pressed="false">供应商退款</button><button type="button" aria-pressed="false">其他收入</button></div></fieldset>
+          <div class="field"><label for="p">客户 <span class="req">*</span></label><input id="p" class="input" value="CUS1 华东商贸有限公司"></div>
+          <div class="field"><label for="a">收款账户 <span class="req">*</span></label><select id="a" class="select"><option>招商银行基本户（****6411）</option><option>现金</option></select></div>
+          <div class="form-grid">
+            <div class="field"><label for="m">金额 <span class="req">*</span></label><input id="m" class="input num" value="800.00"></div>
+            <div class="field"><label for="bd">业务日期 <span class="req">*</span></label><input id="bd" class="input tnum" value="2026-11-19"></div>
+          </div>
+          <div class="field"><label for="ro">关联销售订单</label><input id="ro" class="input" placeholder="选填；关联后签收时自动冲抵"></div>
+          <div class="field"><label for="sn">银行流水号</label><input id="sn" class="input" value="202611190008812"><span class="hint">同一账户内不能重复。</span></div>
+        </div>
+        <div class="dialog-foot"><button class="btn" type="button">保存草稿</button><button class="btn btn-primary" type="submit">提交待确认</button></div>
+      </form>
+    </div>
+
+    <div class="drawer-demo" style="min-height:0">
+      <form class="drawer" aria-labelledby="rf-title">
+        <div class="dialog-head"><div class="title-row"><h2 id="rf-title">退款申请 RF-C01-202611-000002</h2><span class="tag tag-warning">待审核</span></div></div>
+        <div class="dialog-body">
+          <dl class="kv tnum"><div><dt>客户</dt><dd>华东商贸有限公司</dd></div><div><dt>退款金额</dt><dd style="font-weight:600">45.83</dd></div><div><dt>退回路径</dt><dd>RC-C01-202611-000010</dd></div><div><dt>付出账户</dt><dd>招商银行基本户</dd></div></dl>
+          <h3>占用的额度</h3>
+          <table class="table tnum"><thead><tr><th>来源</th><th class="num">占用</th></tr></thead><tbody><tr><td>退货信用额 SR-C01-202611-000003</td><td class="num">45.83</td></tr></tbody></table>
+          <div class="alert alert-info"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg><span>提交时已占用额度；驳回或取消会释放。审核通过后，由财务在银行完成退款，再回到这里登记。</span></div>
+          <div class="field"><label for="rr">审核意见</label><input id="rr" class="input" placeholder="驳回时必填"></div>
+        </div>
+        <div class="dialog-foot"><button class="btn btn-danger" type="button">驳回</button><button class="btn btn-primary" type="button">审核通过</button></div>
+      </form>
+    </div>
+  </div>
+
+  <aside class="spec-note">
+    <strong>设计说明：收款、付款、退款、转账、期初共用</strong>
+    <ul>
+      <li>对应 <code>pages/SalesListPage.vue</code>（收款、退款）、<code>pages/ProcurementListPage.vue</code>（付款、转账、期初）及各自的编辑组件。</li>
+      <li>列表默认打开“待确认”页签，因为这是财务每天要处理的。登记人看到自己登记的单据时，“确认到账”按钮禁用并说明原因（公司参数要求经办与确认分离）。</li>
+      <li>编辑改用右侧抽屉，不离开列表；字段按类型切换：客户收款显示“关联订单”，其他收入显示“收支项目”。</li>
+      <li>银行账号只显示后 4 位（字段级权限，接口设计 2.9）。</li>
+      <li>付款页与收款页结构相同；余额不足时提示“账户余额不足，当前余额 x”（R4-10）。</li>
+    </ul>
+  </aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

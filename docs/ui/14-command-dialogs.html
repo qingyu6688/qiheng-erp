@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>命令对话框</title>
+<link rel="stylesheet" href="assets/erp-ui.css">
+</head>
+<body data-nav="document-reversals" data-crumb="财务期间 / 单据冲销 · 通用命令对话框">
+<main id="page">
+  <div class="page-head"><div class="title"><h1>命令对话框</h1><span class="muted">审批、驳回、关闭、冲销等操作统一使用以下几种对话框</span></div></div>
+
+  <div class="cols-2">
+    <div class="overlay"><form class="dialog" role="dialog" aria-labelledby="d1">
+      <div class="dialog-head"><h2 id="d1">审批销售订单</h2></div>
+      <div class="dialog-body">
+        <dl class="kv tnum"><div><dt>单号</dt><dd>SO-C01-202611-000122</dd></div><div><dt>客户</dt><dd>杭州云帆电子商务有限公司</dd></div><div><dt>合计</dt><dd>6,780.00</dd></div></dl>
+        <div class="field"><label for="c1">审批意见</label><textarea id="c1" class="input" placeholder="选填；驳回时必填"></textarea></div>
+        <p class="hint">审批通过后立即按仓库预留库存；任何一行库存不足，整张订单审批失败。</p>
+      </div>
+      <div class="dialog-foot"><button class="btn" type="button">取消</button><button class="btn btn-danger" type="button">驳回</button><button class="btn btn-primary" type="submit">审批通过</button></div>
+    </form></div>
+
+    <div class="overlay"><form class="dialog" role="dialog" aria-labelledby="d2">
+      <div class="dialog-head"><h2 id="d2">关闭剩余数量</h2></div>
+      <div class="dialog-body">
+        <table class="table tnum"><thead><tr><th>商品</th><th class="num">可关闭</th><th class="num" style="width:120px">本次关闭</th></tr></thead>
+          <tbody><tr><td>陶瓷餐具四件套 白</td><td class="num">5</td><td><input class="input sm num" aria-label="餐具关闭数量" value="2"></td></tr><tr><td>电热水壶 1.7L</td><td class="num">2</td><td><input class="input sm num" aria-label="水壶关闭数量" value="0"></td></tr></tbody></table>
+        <div class="field"><label for="c2">原因 <span class="req">*</span></label><input id="c2" class="input" value="客户不再需要"></div>
+        <div class="alert alert-warning"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><span>关闭后不能恢复，同时释放预留 2 件。需要继续供货时请另开订单。</span></div>
+      </div>
+      <div class="dialog-foot"><button class="btn" type="button">取消</button><button class="btn btn-danger" type="submit">确认关闭</button></div>
+    </form></div>
+
+    <div class="overlay"><form class="dialog" role="dialog" aria-labelledby="d3">
+      <div class="dialog-head"><h2 id="d3">申请冲销</h2></div>
+      <div class="dialog-body">
+        <dl class="kv tnum"><div><dt>被冲销单据</dt><dd>发货单 SH-C01-202611-000045</dd></div><div><dt>原业务日期</dt><dd>2026-11-16</dd></div></dl>
+        <div class="alert alert-danger"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg><div><strong>存在下游单据，请先处理</strong>
+          <ul style="margin:4px 0 0;padding-left:18px"><li>退货单 <a href="#">SR-C01-202611-000003</a> 引用了本发货单</li><li>本发货单的应收已被核销 167.50 <a href="21-settlement.html">去撤销核销</a></li></ul></div></div>
+        <div class="field"><label for="c3">冲销日期 <span class="req">*</span></label><input id="c3" class="input tnum" value="2026-11-21"></div>
+        <div class="field"><label for="c4">原因 <span class="req">*</span></label><input id="c4" class="input" value="仓库选错"></div>
+        <p class="hint">冲销生成方向相反的库存、应收和凭证，原单保留；冲销单需要另一位同事审核后过账。冲销发货单不恢复原预留。</p>
+      </div>
+      <div class="dialog-foot"><button class="btn" type="button">取消</button><button class="btn btn-danger" type="submit" disabled>提交冲销申请</button></div>
+    </form></div>
+
+    <div class="overlay"><div class="dialog" role="dialog" aria-labelledby="d4">
+      <div class="dialog-head"><h2 id="d4">过账发货单</h2></div>
+      <div class="dialog-body">
+        <div class="alert alert-info"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg><div><strong>结果确认中</strong><div>网络超时，正在查询这次过账是否已经完成，请不要重复提交。</div></div></div>
+        <p class="hint">按原幂等键每 2 秒查询一次结果，最多 30 秒；查到成功即刷新单据，查不到再允许用同一个键重试。</p>
+      </div>
+      <div class="dialog-foot"><button class="btn" type="button" disabled>重试</button><button class="btn" type="button">关闭并稍后查看</button></div>
+    </div></div>
+
+    <div class="overlay"><div class="dialog" role="dialog" aria-labelledby="d5">
+      <div class="dialog-head"><h2 id="d5">单据已被他人修改</h2></div>
+      <div class="dialog-body">
+        <p>这张订单刚被 <strong>周敏</strong> 修改过（现在是版本 4），你的修改没有保存。</p>
+        <p class="hint">刷新后可以看到最新内容；你的输入会暂存在本页，可以复制后重新填写。</p>
+      </div>
+      <div class="dialog-foot"><button class="btn" type="button">复制我的修改</button><button class="btn btn-primary" type="button">刷新查看</button></div>
+    </div></div>
+
+    <div class="overlay"><div class="dialog" role="dialog" aria-labelledby="d6">
+      <div class="dialog-head"><h2 id="d6">审批冲销单</h2></div>
+      <div class="dialog-body">
+        <dl class="kv tnum"><div><dt>冲销单</dt><dd>RV-C01-202611-000002</dd></div><div><dt>申请人</dt><dd>王强</dd></div><div><dt>原因</dt><dd>仓库选错</dd></div></dl>
+        <div class="alert alert-danger"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg><span>审核人不能是申请人。当前账号是申请人，“审批通过”按钮不显示。</span></div>
+      </div>
+      <div class="dialog-foot"><button class="btn" type="button">关闭</button></div>
+    </div></div>
+  </div>
+
+  <aside class="spec-note">
+    <strong>设计说明</strong>
+    <ul>
+      <li>对应 <code>components/sales/CommandDialog.vue</code>、<code>components/stock-operations/StockCommandDialog.vue</code>、<code>components/stock-operations/DependencyList.vue</code>。</li>
+      <li>幂等键在打开对话框时生成，重试和超时查询都用同一个键；关闭对话框后再打开才生成新键。</li>
+      <li>依赖存在时，提交按钮禁用，依赖列表每项都给出跳转链接。</li>
+      <li>按钮文案写动作本身（“确认关闭”“提交冲销申请”），不用“确定”。</li>
+    </ul>
+  </aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

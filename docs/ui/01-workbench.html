@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工作台</title>
+<link rel="stylesheet" href="assets/erp-ui.css">
+</head>
+<body data-nav="workbench" data-crumb="工作台">
+<main id="page">
+  <div class="page-head">
+    <div class="title">
+      <h1>工作台</h1>
+      <span class="muted">2026-11-19 星期四 · 2026 年 11 月期间开放中</span>
+    </div>
+    <div class="actions">
+      <a class="btn" href="11-order-editor.html">新建销售订单</a>
+      <a class="btn" href="20-money-documents.html">登记收款</a>
+    </div>
+  </div>
+
+  <div class="stats">
+    <a class="stat" href="10-document-list.html"><span class="label">待我审批</span><span class="value">4 <small>张单据</small></span></a>
+    <a class="stat" href="13-shipment-sign.html"><span class="label">签收超期（超过 7 天）</span><span class="value warn">3 <small>张发货单</small></span></a>
+    <a class="stat" href="20-money-documents.html"><span class="label">待确认收款</span><span class="value">2 <small>笔 · 12,400.00</small></span></a>
+    <a class="stat" href="30-inventory.html"><span class="label">待审需求超过可用</span><span class="value warn">2 <small>个 SKU</small></span></a>
+  </div>
+
+  <div class="split">
+    <div class="main">
+      <section class="panel">
+        <div class="panel-head"><h2>待办</h2><span class="small muted">只显示你有权限处理的单据</span></div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>事项</th><th>单据</th><th>对象</th><th class="num">金额</th><th>等待</th><th><span class="sr-only">操作</span></th></tr></thead>
+            <tbody>
+              <tr><td><span class="tag tag-warning">待审核</span></td><td><a href="12-document-detail.html">SO-C01-202611-000122</a></td><td>杭州云帆电子商务有限公司</td><td class="num">6,780.00</td><td class="muted">2 小时</td><td><a class="btn btn-sm" href="14-command-dialogs.html">审批</a></td></tr>
+              <tr><td><span class="tag tag-warning">变更待审核</span></td><td><a href="12-document-detail.html">CH-C01-202611-000007</a></td><td>苏州恒达五金批发部</td><td class="num">5,650.00</td><td class="muted">1 天</td><td><a class="btn btn-sm" href="14-command-dialogs.html">审批</a></td></tr>
+              <tr><td><span class="tag tag-warning">签收超期</span></td><td><a href="13-shipment-sign.html">SH-C01-202611-000031</a></td><td>上海禾丰食品有限公司</td><td class="num">—</td><td class="muted">9 天</td><td><a class="btn btn-sm" href="13-shipment-sign.html">登记签收</a></td></tr>
+              <tr><td><span class="tag tag-warning">待确认收款</span></td><td><a href="20-money-documents.html">RC-C01-202611-000014</a></td><td>南京百川贸易有限公司</td><td class="num">8,000.00</td><td class="muted">3 小时</td><td><a class="btn btn-sm" href="20-money-documents.html">确认到账</a></td></tr>
+              <tr><td><span class="tag tag-warning">待审核退款</span></td><td><a href="20-money-documents.html">RF-C01-202611-000002</a></td><td>华东商贸有限公司</td><td class="num">45.83</td><td class="muted">30 分钟</td><td><a class="btn btn-sm" href="20-money-documents.html">审核</a></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>库存提醒</h2><a href="30-inventory.html">查看实时库存</a></div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>商品</th><th>仓库</th><th class="num">可用</th><th class="num">待审核需求</th><th class="num">在途采购</th></tr></thead>
+            <tbody>
+              <tr><td><div class="cell-2"><span>保温杯 500ml 银色</span><span class="sub">SKU-A</span></div></td><td>主仓 W1</td><td class="num">3</td><td class="num" style="color:var(--warning);font-weight:600">12</td><td class="num">20</td></tr>
+              <tr><td><div class="cell-2"><span>玻璃收纳盒 6 件套</span><span class="sub">SKU-E</span></div></td><td>主仓 W1</td><td class="num">0</td><td class="num" style="color:var(--warning);font-weight:600">18</td><td class="num">0</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <div class="side">
+      <section class="panel">
+        <div class="panel-head"><h2>本月期间</h2><span class="tag tag-primary">开放</span></div>
+        <div class="panel-body">
+          <p>2026-11-01 至 2026-11-30</p>
+          <div class="alert alert-warning"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><span>关账预检查有 2 项未通过：2 张已提交未过账的单据，1 笔待确认收款。</span></div>
+          <a class="btn" href="32-period-close.html">查看关账检查</a>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>我最近的操作</h2></div>
+        <div class="panel-body">
+          <ol class="timeline">
+            <li><span class="dot green"></span><div><div>审批通过 SO-C01-202611-000123</div><div class="meta">今天 11:02</div></div></li>
+            <li><span class="dot blue"></span><div><div>提交 SO-C01-202611-000124</div><div class="meta">今天 10:41</div></div></li>
+            <li><span class="dot"></span><div><div>导出库存汇总（已完成）</div><div class="meta">昨天 16:20</div></div></li>
+          </ol>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <aside class="spec-note no-print">
+    <strong>设计说明</strong>
+    <ul>
+      <li>新增页面，取代现在登录后默认进入的“仓库管理”（<code>router/index.ts</code> 中的 <code>home</code> 路由和 <code>defaultWorkspace</code>）。</li>
+      <li>需要新增接口 <code>GET /api/v1/workbench/summary</code>，一次返回四个计数和待办前 10 条；后端按当前用户的权限和仓库范围过滤，没有权限的块不返回、页面不显示。</li>
+      <li>每个计数和待办都跳到对应列表，并带上筛选条件，例如签收超期跳到 <code>/shipments?signOverdue=true</code>。</li>
+      <li>时间按本地时间显示，今天、昨天用相对说法，更早的显示 <code>MM-DD HH:mm</code>。</li>
+    </ul>
+  </aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

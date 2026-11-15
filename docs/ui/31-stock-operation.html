@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>库存作业</title>
+<link rel="stylesheet" href="assets/erp-ui.css">
+</head>
+<body data-nav="stock-counts" data-crumb="库存 / 库存盘点 / SC-C01-202611-000004">
+<main id="page">
+  <section class="panel">
+    <div class="panel-body">
+      <div class="page-head">
+        <div class="title">
+          <div class="title-row"><h1 class="tnum">SC-C01-202611-000004</h1><span class="tag tag-primary">盘点中</span></div>
+          <span class="muted">主仓 W1 · 按快照计算差异 · 快照 11-19 08:30（本地时间）</span>
+        </div>
+        <div class="actions"><button class="btn" type="button">导出盘点表</button><button class="btn btn-danger" type="button">作废</button><button class="btn btn-primary" type="button">提交审核</button></div>
+      </div>
+      <div class="alert alert-info"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg><span>快照之后仓库仍可正常收发货。过账时只把“实盘 − 快照账面”的差额计入库存，快照之后的出入库不受影响。</span></div>
+      <div class="stats">
+        <div class="stat"><span class="label">已录入</span><span class="value">46 <small>/ 52 个 SKU</small></span></div>
+        <div class="stat"><span class="label">有差异</span><span class="value warn">3 <small>行</small></span></div>
+        <div class="stat"><span class="label">盘盈数量 / 盘亏数量</span><span class="value">2 <small>/ 3</small></span></div>
+        <div class="stat"><span class="label">差异金额（成本）</span><span class="value">−167.25</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="tabs" role="tablist" aria-label="盘点行筛选">
+      <button class="tab" role="tab" aria-selected="false" type="button">全部<span class="count">52</span></button>
+      <button class="tab" role="tab" aria-selected="true" type="button">有差异<span class="count">3</span></button>
+      <button class="tab" role="tab" aria-selected="false" type="button">未录入<span class="count">6</span></button>
+    </div>
+    <div class="table-wrap">
+      <table class="table tnum" style="min-width:900px">
+        <thead><tr><th>商品</th><th class="num">快照账面</th><th class="num" style="width:140px">实盘数量</th><th class="num">差异</th><th class="num">单位成本</th><th class="num">差异金额</th></tr></thead>
+        <tbody>
+          <tr><td><div class="cell-2"><span>保温杯 500ml 银色</span><span class="sub">SKU-A · 件</span></div></td><td class="num">23</td><td><input class="input sm num" aria-label="保温杯实盘数量" value="21"></td><td class="num" style="color:var(--danger);font-weight:600">−2</td><td class="num muted">58.00</td><td class="num">−116.00</td></tr>
+          <tr><td><div class="cell-2"><span>陶瓷餐具四件套 白</span><span class="sub">SKU-B · 件</span></div></td><td class="num">135</td><td><input class="input sm num" aria-label="餐具实盘数量" value="137"></td><td class="num" style="color:var(--success);font-weight:600">+2</td><td class="num muted">10.00</td><td class="num">20.00</td></tr>
+          <tr><td><div class="cell-2"><span>保温杯 750ml 黑色</span><span class="sub">SKU-F · 件</span></div></td><td class="num">88</td><td><input class="input sm num" aria-label="750ml 保温杯实盘数量" value="87"></td><td class="num" style="color:var(--danger);font-weight:600">−1</td><td class="num muted">71.25</td><td class="num">−71.25</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="pager"><span>实盘数量离开输入框即自动保存；有未录入行时不能提交审核。</span><span>差异金额合计 −167.25</span></div>
+  </section>
+
+  <aside class="spec-note">
+    <strong>设计说明：调拨、盘点、库存调整共用</strong>
+    <ul>
+      <li>对应 <code>pages/StockOperationPage.vue</code>、<code>components/stock-operations/StockDocumentEditor.vue</code>，库存调整对应 <code>ProcurementListPage</code>，导航上移到“库存”分组（O-12）。</li>
+      <li>快照时间等所有时间按本地时间显示；现在 <code>snapshotAt</code> 直接显示 UTC 原始字符串（O-10）。</li>
+      <li>差异用“+/−”和颜色同时表达，盘亏红色、盘盈绿色。差异金额按成本计算，需要 <code>cost:view</code> 权限。</li>
+      <li>调拨详情改为三段：调出、在途、调入；少收差异显示待处理行和“确认损失 / 退回调出仓”两个操作。</li>
+    </ul>
+  </aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

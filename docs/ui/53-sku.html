@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>商品与 SKU</title>
+<link rel="stylesheet" href="assets/erp-ui.css">
+</head>
+<body data-nav="products" data-crumb="基础资料 / 商品与 SKU / 保温杯 500ml">
+<main id="page">
+  <div class="page-head">
+    <div class="title"><div class="title-row"><h1>保温杯 500ml</h1><span class="tag tag-success">启用</span><span class="muted tnum">P-0012</span></div><span class="muted">分类：杯壶 / 保温杯 · 基础单位：件</span></div>
+    <div class="actions"><button class="btn" type="button">新增 SKU</button><button class="btn btn-primary" type="button">保存</button></div>
+  </div>
+
+  <section class="panel">
+    <div class="panel-head"><h2>SKU</h2><span class="small muted">参考价格只用于录单时带出，单据保存的是当时的价格</span></div>
+    <div class="table-wrap"><table class="table tnum" style="min-width:880px">
+      <thead><tr><th>编码</th><th>规格</th><th class="num">默认税率</th><th class="num">参考采购价</th><th class="num">参考销售价</th><th>状态</th><th><span class="sr-only">操作</span></th></tr></thead>
+      <tbody>
+        <tr class="selected"><td>SKU-A</td><td>500ml 银色</td><td class="num">13%</td><td class="num">58.00</td><td class="num">115.00</td><td><span class="tag tag-success">启用</span></td><td><button class="btn btn-text btn-sm" type="button">编辑</button></td></tr>
+        <tr><td>SKU-A2</td><td>500ml 玫瑰金</td><td class="num">13%</td><td class="num">60.00</td><td class="num">119.00</td><td><span class="tag tag-neutral">停用</span></td><td><button class="btn btn-text btn-sm" type="button">编辑</button></td></tr>
+      </tbody></table></div>
+  </section>
+
+  <div class="cols-2">
+    <section class="panel">
+      <div class="panel-head"><h2>SKU-A · 单位换算</h2><button class="btn btn-text btn-sm" type="button">添加单位</button></div>
+      <div class="table-wrap"><table class="table tnum">
+        <thead><tr><th>单位</th><th class="num">等于多少件</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td>件</td><td class="num">1</td><td><span class="tag tag-primary">基础单位</span></td></tr>
+          <tr><td>箱</td><td class="num">24</td><td class="muted">已被 12 张单据使用，换算率不能修改</td></tr>
+          <tr><td>盒</td><td><input class="input sm num" aria-label="盒的换算率" value="6"></td><td class="muted">未被使用，可以修改</td></tr>
+        </tbody></table></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>SKU-A · 条码</h2><button class="btn btn-text btn-sm" type="button">添加条码</button></div>
+      <div class="table-wrap"><table class="table tnum">
+        <thead><tr><th>条码</th><th>扫码带出的单位</th><th><span class="sr-only">操作</span></th></tr></thead>
+        <tbody>
+          <tr><td>6901234567890</td><td>件</td><td><button class="btn btn-text btn-sm" type="button" style="color:var(--danger)" aria-label="删除条码 6901234567890">删除</button></td></tr>
+          <tr><td>16901234567897</td><td>箱</td><td><button class="btn btn-text btn-sm" type="button" style="color:var(--danger)" aria-label="删除条码 16901234567897">删除</button></td></tr>
+        </tbody></table></div>
+      <div class="panel-foot"><span class="error-text">条码 6901234567891 已被 SKU-F 使用</span><span></span></div>
+    </section>
+  </div>
+
+  <aside class="spec-note">
+    <strong>设计说明</strong>
+    <ul>
+      <li>对应 <code>pages/ResourcePage.vue</code>（products、skus）和 <code>components/RecordRelations.vue</code>。现在商品和 SKU 是两个独立菜单，建议合并为“商品与 SKU”：以商品为主页面，SKU、单位换算、条码在同一页处理。</li>
+      <li>已被单据使用的换算率显示为只读并说明原因，对应接口 <code>PUT /skus/{id}/units</code> 的限制。</li>
+      <li>条码全租户唯一，冲突时在条码区底部直接给出占用它的 SKU。</li>
+    </ul>
+  </aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

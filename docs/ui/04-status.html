@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>状态页</title>
+<link rel="stylesheet" href="assets/erp-ui.css">
+<style>
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; padding: 32px 24px; max-width: 1280px; margin: 0 auto; }
+  .status-card { background: var(--white); border: 1px solid var(--line); border-radius: var(--radius-panel); padding: 40px 24px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; }
+  .code { font-size: 32px; line-height: 40px; font-weight: 600; color: var(--text-3); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<header class="topbar"><span class="crumb">状态页（401 / 403 / 404 / 503）</span></header>
+<div class="grid">
+  <section class="status-card"><span class="code">401</span><h1>登录已过期</h1><p class="muted">为了账户安全，超过 30 分钟未操作或登录超过 12 小时需要重新登录。未保存的内容不会保留。</p><a class="btn btn-primary" href="02-login.html">重新登录</a></section>
+  <section class="status-card"><span class="code">403</span><h1>没有访问权限</h1><p class="muted">你的角色没有“销售订单 · 查看”权限，或当前公司不在你的数据范围内。如需开通，请联系系统管理员。</p><div class="actions"><a class="btn" href="01-workbench.html">回到工作台</a></div></section>
+  <section class="status-card"><span class="code">404</span><h1>页面或单据不存在</h1><p class="muted">单据可能已被删除，或不属于当前公司。可以切换公司后再试。</p><div class="actions"><a class="btn" href="01-workbench.html">回到工作台</a></div></section>
+  <section class="status-card"><span class="code">503</span><h1>服务暂时不可用</h1><p class="muted">无法连接到服务器。已提交的单据不会丢失，请稍后刷新页面。</p><div class="actions"><button class="btn btn-primary" type="button">重新加载</button></div></section>
+</div>
+<div style="max-width:1280px;margin:0 auto;padding:0 24px 32px">
+  <aside class="spec-note">
+    <strong>设计说明</strong>
+    <ul>
+      <li>对应 <code>pages/StatusPage.vue</code>。现有页面已有四种状态，本稿统一文案：每页都说明原因和下一步可以做什么。</li>
+      <li>403 页面在知道缺少哪个权限时显示权限名称（路由 <code>meta.permission</code>），不知道时只显示通用说明。</li>
+      <li>状态页不显示左侧菜单，避免在无权限时出现可点但进不去的入口。</li>
+    </ul>
+  </aside>
+</div>
+</body>
+</html>

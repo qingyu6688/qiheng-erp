@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>订单编辑</title>
+<link rel="stylesheet" href="assets/erp-ui.css">
+</head>
+<body data-nav="sales-orders" data-crumb="销售 / 销售订单 / 新建">
+<main id="page">
+  <div class="page-head">
+    <div class="title">
+      <div class="title-row"><h1>新建销售订单</h1><span class="tag tag-neutral">草稿</span><span class="muted tnum">SO-C01-202611-000124</span></div>
+      <span class="small muted">上次保存 10:31 · 金额由服务器试算，修改后自动刷新</span>
+    </div>
+  </div>
+
+  <section class="panel">
+    <div class="panel-head"><h2>基本信息</h2></div>
+    <div class="panel-body">
+      <div class="form-grid">
+        <div class="field"><label for="c">客户 <span class="req">*</span></label><input id="c" class="input" value="CUS1 华东商贸有限公司"></div>
+        <div class="field"><label for="d">业务日期 <span class="req">*</span></label><input id="d" class="input tnum" value="2026-11-15"></div>
+        <div class="field"><label for="dd">约定交货日</label><input id="dd" class="input tnum" value="2026-11-20"></div>
+        <fieldset class="field"><legend>价格口径</legend><div class="radio-row"><label><input type="radio" name="tax" checked>含税价</label><label><input type="radio" name="tax">未税价</label></div></fieldset>
+        <div class="field wide"><label for="r">备注</label><input id="r" class="input" value="月底前送达"></div>
+      </div>
+      <p class="hint">价格口径默认取客户资料上的设置，审批后不能修改。</p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>商品明细</h2><div class="actions"><button class="btn btn-sm" type="button">扫码添加</button><button class="btn btn-sm" type="button" style="color:var(--primary);border-color:var(--primary)">添加商品</button></div></div>
+    <div style="padding:12px 24px 0"><div class="alert alert-warning"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><span>第 1 行库存可能不足：SKU-A 需要 4 件，当前可用 3 件，另有 12 件在其他待审核订单中。仍可以提交，审批时会重新检查并预留库存。</span></div></div>
+    <div class="table-wrap" style="padding-top:12px">
+      <table class="table tnum" style="min-width:1280px">
+        <thead><tr><th style="width:48px">行</th><th>商品</th><th>仓库</th><th class="num" style="width:110px">数量</th><th class="num" style="width:130px">单价（含税）</th><th class="num" style="width:120px">行优惠</th><th class="num">整单优惠分摊</th><th class="num">应收净额</th><th class="num">税额 13%</th><th>可用量</th><th><span class="sr-only">操作</span></th></tr></thead>
+        <tbody>
+          <tr><td class="muted">1</td><td><div class="cell-2"><span>保温杯 500ml 银色</span><span class="sub">SKU-A · 件</span></div></td><td><select class="select input sm" aria-label="第 1 行仓库"><option>主仓 W1</option></select></td><td><input class="input sm num" aria-label="第 1 行数量" value="4"></td><td><input class="input sm num" aria-label="第 1 行单价" value="115.00"></td><td><input class="input sm num" aria-label="第 1 行优惠" value="60.00"></td><td class="num muted">−33.34</td><td class="num" style="font-weight:600">366.66</td><td class="num muted">42.18</td><td class="nowrap" style="color:var(--warning)">可用 3 · 待审 12</td><td><button class="icon-btn" type="button" aria-label="删除第 1 行"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/></svg></button></td></tr>
+          <tr><td class="muted">2</td><td><div class="cell-2"><span>陶瓷餐具四件套 白</span><span class="sub">SKU-B · 件</span></div></td><td><select class="select input sm" aria-label="第 2 行仓库"><option>主仓 W1</option></select></td><td><input class="input sm num" aria-label="第 2 行数量" value="8"></td><td><input class="input sm num" aria-label="第 2 行单价" value="55.00"></td><td><input class="input sm num" aria-label="第 2 行优惠" value="40.00"></td><td class="num muted">−33.33</td><td class="num" style="font-weight:600">366.67</td><td class="num muted">42.18</td><td class="muted">可用 126</td><td><button class="icon-btn" type="button" aria-label="删除第 2 行"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/></svg></button></td></tr>
+          <tr><td class="muted">3</td><td><div class="cell-2"><span>电热水壶 1.7L</span><span class="sub">SKU-C · 件</span></div></td><td><select class="select input sm" aria-label="第 3 行仓库"><option>主仓 W1</option></select></td><td><input class="input sm num" aria-label="第 3 行数量" value="2"></td><td><input class="input sm num" aria-label="第 3 行单价" value="210.00"></td><td><input class="input sm num" aria-label="第 3 行优惠" value="20.00"></td><td class="num muted">−33.33</td><td class="num" style="font-weight:600">366.67</td><td class="num muted">42.18</td><td class="muted">可用 48 · 待审 6</td><td><button class="icon-btn" type="button" aria-label="删除第 3 行"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/></svg></button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="split">
+    <section class="panel main">
+      <div class="panel-head"><h2>费用</h2><button class="btn btn-text btn-sm" type="button">添加费用</button></div>
+      <div class="panel-body">
+        <div class="form-grid">
+          <div class="field"><label for="ft">类型</label><select id="ft" class="select"><option>运费</option><option>其他</option></select></div>
+          <div class="field"><label for="fb">承担方</label><select id="fb" class="select"><option>客户承担</option><option>我方承担</option></select></div>
+          <div class="field"><label for="fa">金额（含税）</label><input id="fa" class="input num" value="30.00"></div>
+          <div class="field"><span class="label">税额</span><input class="input num readonly" readonly value="3.45" aria-label="费用税额"></div>
+        </div>
+        <p class="hint">客户承担的运费计入订单合计，在第一次签收时确认应收；我方承担的只登记。</p>
+      </div>
+    </section>
+    <section class="panel side tnum" aria-label="订单合计">
+      <div class="panel-body" style="gap:10px">
+        <div style="display:flex;justify-content:space-between"><span class="muted">商品金额</span><span>1,320.00</span></div>
+        <div style="display:flex;justify-content:space-between"><span class="muted">行优惠</span><span>−120.00</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><label for="od" class="muted">整单优惠</label><input id="od" class="input sm num" style="width:120px" value="100.00"></div>
+        <div style="display:flex;justify-content:space-between"><span class="muted">费用</span><span>30.00</span></div>
+        <hr style="border:none;border-top:1px solid var(--line);margin:4px 0;width:100%">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><strong>合计（含税）</strong><span style="font-size:24px;line-height:32px;font-weight:600">1,130.00</span></div>
+        <div class="small muted" style="display:flex;justify-content:space-between"><span>未税 1,000.01</span><span>税额 129.99</span></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="actions" style="justify-content:flex-end">
+    <a class="btn btn-text" href="10-document-list.html">取消</a>
+    <button class="btn" type="button">保存草稿</button>
+    <a class="btn btn-primary" href="12-document-detail.html">提交审批</a>
+  </div>
+
+  <aside class="spec-note">
+    <strong>设计说明：销售订单、采购订单共用</strong>
+    <ul>
+      <li>对应 <code>components/sales/OrderEditor.vue</code>、<code>components/procurement/ProcurementEditor.vue</code>。现在是在对话框里编辑；订单行多时对话框需要来回滚动，建议改为独立页面 <code>/sales-orders/new</code>、<code>/sales-orders/:id/edit</code>，离开前提示未保存的修改。</li>
+      <li>数量、单价、优惠一律用字符串保存，金额列只显示 <code>POST /pricing/preview</code> 的返回值；输入后防抖 300 毫秒再试算，试算中保留旧值，并在合计区标注“计算中”。</li>
+      <li>“可用量”列来自实时库存，订单编辑时只做提示（R1-10）；橙色表示需求超过可用量。</li>
+      <li>采购订单去掉“可用量”列，增加“超收容差”提示（审批时写入可收上限，R4-03）。</li>
+      <li>提交成功但返回 <code>warnings</code> 时，跳到详情页并在顶部保留黄色提示，不当作失败。</li>
+    </ul>
+  </aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

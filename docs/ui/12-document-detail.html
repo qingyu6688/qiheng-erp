@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>单据详情</title>
+<link rel="stylesheet" href="assets/erp-ui.css">
+</head>
+<body data-nav="sales-orders" data-crumb="销售 / 销售订单 / SO-C01-202611-000123">
+<main id="page">
+  <section class="panel">
+    <div class="panel-body">
+      <div class="page-head">
+        <div class="title">
+          <div class="title-row"><h1 class="tnum">SO-C01-202611-000123</h1><span class="tag tag-primary">已批准</span><span class="small muted">版本 1</span></div>
+          <span class="muted">华东商贸有限公司（CUS1） · 含税价</span>
+        </div>
+        <div class="actions">
+          <a class="btn" href="43-print.html">打印</a>
+          <button class="btn" type="button">提交变更</button>
+          <a class="btn btn-danger" href="14-command-dialogs.html">关闭剩余数量</a>
+          <a class="btn btn-primary" href="13-shipment-sign.html">新建发货单</a>
+        </div>
+      </div>
+      <dl class="kv tnum">
+        <div><dt>业务日期</dt><dd>2026-11-15</dd></div>
+        <div><dt>约定交货日</dt><dd>2026-11-20</dd></div>
+        <div><dt>制单</dt><dd>李娜 · 11-15 10:30</dd></div>
+        <div><dt>审批</dt><dd>周敏 · 11-15 11:02</dd></div>
+        <div><dt>备注</dt><dd>月底前送达</dd></div>
+      </dl>
+      <div class="stats">
+        <div class="stat"><span class="label">订单合计（含税）</span><span class="value">1,130.00</span></div>
+        <div class="stat"><span class="label">履约 · 部分</span><span class="value">3 <small>/ 14 件已签收</small></span></div>
+        <div class="stat"><span class="label">结算 · 已确认应收全部核销</span><span class="value">167.50</span></div>
+        <div class="stat"><span class="label">关联预收 · 未分配</span><span class="value">132.50 <small>/ 300.00</small></span></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="split">
+    <div class="main">
+      <section class="panel">
+        <div class="panel-head"><h2>明细与进度</h2><span class="small muted">数量为基础单位</span></div>
+        <div class="table-wrap">
+          <table class="table tnum" style="min-width:960px">
+            <thead><tr><th>商品</th><th class="num">订购</th><th class="num">已发</th><th class="num">已签收</th><th class="num">可发</th><th>库存预留</th><th class="num">应收净额</th><th class="num">已确认应收</th></tr></thead>
+            <tbody>
+              <tr><td><div class="cell-2"><span>保温杯 500ml 银色</span><span class="sub">SKU-A · 主仓 W1</span></div></td><td class="num">4</td><td class="num">0</td><td class="num">0</td><td class="num" style="font-weight:600">4</td><td>已预留 4 <span class="muted">· 12-15 11:02 到期</span></td><td class="num">366.66</td><td class="num">0.00</td></tr>
+              <tr><td><div class="cell-2"><span>陶瓷餐具四件套 白</span><span class="sub">SKU-B · 主仓 W1</span></div></td><td class="num">8</td><td class="num">3</td><td class="num">3</td><td class="num" style="font-weight:600">5</td><td>已预留 5 <span class="muted">· 12-15 11:02 到期</span></td><td class="num">366.67</td><td class="num">137.50</td></tr>
+              <tr><td><div class="cell-2"><span>电热水壶 1.7L</span><span class="sub">SKU-C · 主仓 W1</span></div></td><td class="num">2</td><td class="num">0</td><td class="num">0</td><td class="num" style="font-weight:600">2</td><td>已预留 2 <span class="muted">· 12-15 11:02 到期</span></td><td class="num">366.67</td><td class="num">0.00</td></tr>
+              <tr><td><div class="cell-2"><span>运费 · 客户承担</span><span class="sub">随第一次签收确认</span></div></td><td class="num weak">—</td><td class="num weak">—</td><td class="num weak">—</td><td class="num weak">—</td><td class="weak">—</td><td class="num">30.00</td><td class="num">30.00</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>关联单据</h2></div>
+        <div class="table-wrap">
+          <table class="table tnum" style="min-width:720px">
+            <thead><tr><th>类型</th><th>单号</th><th>状态</th><th>日期</th><th class="num">金额</th></tr></thead>
+            <tbody>
+              <tr><td>发货单</td><td><a href="13-shipment-sign.html">SH-C01-202611-000045</a></td><td><span class="tag tag-success">已签收</span></td><td class="muted">签收 2026-11-17</td><td class="num">应收 167.50</td></tr>
+              <tr><td>收款单</td><td><a href="20-money-documents.html">RC-C01-202611-000010</a></td><td><span class="tag tag-success">已确认</span></td><td class="muted">2026-11-15</td><td class="num">300.00 · 已冲抵 167.50</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <div class="side">
+      <section class="panel">
+        <div class="panel-head"><h2>附件</h2><button class="btn btn-sm" type="button">上传</button></div>
+        <div class="panel-body" style="gap:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div class="cell-2"><a href="#">客户采购确认单.pdf</a><span class="sub">326 KB · 李娜 · 11-15 10:33</span></div><button class="btn btn-text btn-sm" type="button" style="color:var(--danger)" aria-label="删除附件 客户采购确认单.pdf">删除</button></div>
+          <p class="hint">支持 pdf、jpg、png、xlsx、csv，单个不超过 20MB，每张单据最多 20 个。</p>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>操作记录</h2></div>
+        <div class="panel-body">
+          <ol class="timeline">
+            <li><span class="dot green"></span><div><div>登记签收 3 件，确认应收 167.50，自动冲抵预收 167.50</div><div class="meta">王强 · 11-17 16:40</div></div></li>
+            <li><span class="dot blue"></span><div><div>发货单 SH-C01-202611-000045 出库 3 件</div><div class="meta">王强 · 11-16 09:12</div></div></li>
+            <li><span class="dot blue"></span><div><div>收款 300.00 确认到账</div><div class="meta">陈洁 · 11-15 14:20</div></div></li>
+            <li><span class="dot blue"></span><div><div>审批通过，预留库存 14 件</div><div class="meta">周敏 · 11-15 11:02</div></div></li>
+            <li><span class="dot"></span><div><div>提交审批</div><div class="meta">李娜 · 11-15 10:41</div></div></li>
+          </ol>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <aside class="spec-note">
+    <strong>设计说明：所有单据详情共用</strong>
+    <ul>
+      <li>对应 <code>pages/SalesDetailPage.vue</code>、<code>pages/ProcurementDetailPage.vue</code>、<code>pages/StockOperationPage.vue</code>（详情部分）、<code>components/DocumentFilesPanel.vue</code>。</li>
+      <li>顶部按钮完全由接口返回的 <code>allowedActions</code> 决定；主操作只有一个，放最右；危险操作用描边红色并二次确认（见 <code>14-command-dialogs.html</code>）。</li>
+      <li>四个状态维度分开展示：生命周期用标签，履约、结算、预收用数字（业务规则第 11 节）。</li>
+      <li>所有时间按本地时间显示为 <code>MM-DD HH:mm</code>，跨年时显示完整日期；现在“预留到期”等字段直接显示 UTC 原始字符串（《优化文档》O-10）。</li>
+      <li>右侧附件和操作记录在窄屏时排到明细下方。</li>
+    </ul>
+  </aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

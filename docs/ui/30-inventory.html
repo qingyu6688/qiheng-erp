@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>实时库存</title>
+<link rel="stylesheet" href="assets/erp-ui.css">
+</head>
+<body data-nav="inventory" data-crumb="库存 / 实时库存">
+<main id="page">
+  <div class="page-head">
+    <div class="title"><h1>实时库存</h1><span class="small muted">实时数据，不经过缓存 · 11-19 10:05 刷新</span></div>
+    <div class="actions"><button class="btn" type="button">刷新</button><button class="btn" type="button">导出</button></div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><span class="label">在库金额（成本）</span><span class="value">20,194.80</span></div>
+    <a class="stat" href="40-report.html"><span class="label">发出未签收（成本）</span><span class="value">1,245.00 <small>· 3 张</small></span></a>
+    <div class="stat"><span class="label">冻结待检</span><span class="value">3 <small>件</small></span></div>
+    <div class="stat"><span class="label">待审需求超过可用</span><span class="value warn">2 <small>个 SKU</small></span></div>
+  </div>
+
+  <section class="panel">
+    <form class="filters">
+      <div class="field"><label for="w">仓库</label><select id="w" class="select"><option>全部仓库</option><option>主仓 W1</option><option>二仓 W2</option></select></div>
+      <div class="field grow"><label for="k">商品</label><input id="k" class="input" placeholder="编码、名称或条码"></div>
+      <label class="check" style="height:40px"><input type="checkbox">只看待审需求超过可用</label>
+      <label class="check" style="height:40px"><input type="checkbox">隐藏零库存</label>
+      <button class="btn btn-primary" type="submit">查询</button>
+    </form>
+    <div class="table-wrap">
+      <table class="table tnum" style="min-width:1080px">
+        <thead><tr><th>商品</th><th>仓库</th><th class="num">在库</th><th class="num">预留</th><th class="num">冻结</th><th class="num" style="color:var(--text)">可用</th><th class="num">待审核需求</th><th class="num">单位成本</th><th class="num">库存金额</th><th><span class="sr-only">操作</span></th></tr></thead>
+        <tbody>
+          <tr><td><div class="cell-2"><span>保温杯 500ml 银色</span><span class="sub">SKU-A · 件</span></div></td><td>主仓 W1</td><td class="num">23</td><td class="num muted">20</td><td class="num muted">0</td><td class="num" style="font-weight:600">3</td><td class="num"><span style="color:var(--warning);font-weight:600">12</span> <span class="tag tag-warning">超出可用</span></td><td class="num muted">58.00</td><td class="num">1,334.00</td><td><a href="#">台账</a></td></tr>
+          <tr><td><div class="cell-2"><span>陶瓷餐具四件套 白</span><span class="sub">SKU-B · 件</span></div></td><td>主仓 W1</td><td class="num">135</td><td class="num muted">9</td><td class="num muted">1</td><td class="num" style="font-weight:600">125</td><td class="num muted">0</td><td class="num muted">10.00</td><td class="num">1,350.00</td><td><a href="#">台账</a></td></tr>
+          <tr><td><div class="cell-2"><span>电热水壶 1.7L</span><span class="sub">SKU-C · 件</span></div></td><td>主仓 W1</td><td class="num">56</td><td class="num muted">8</td><td class="num muted">0</td><td class="num" style="font-weight:600">48</td><td class="num muted">6</td><td class="num muted">120.00</td><td class="num">6,720.00</td><td><a href="#">台账</a></td></tr>
+          <tr><td><div class="cell-2"><span>玻璃收纳盒 6 件套</span><span class="sub">SKU-E · 件</span></div></td><td>主仓 W1</td><td class="num">0</td><td class="num muted">0</td><td class="num muted">0</td><td class="num" style="font-weight:600">0</td><td class="num"><span style="color:var(--warning);font-weight:600">18</span> <span class="tag tag-warning">超出可用</span></td><td class="num weak">—</td><td class="num">0.00</td><td><a href="#">台账</a></td></tr>
+          <tr><td><div class="cell-2"><span>保温杯 750ml 黑色</span><span class="sub">SKU-F · 件</span></div></td><td>主仓 W1</td><td class="num">88</td><td class="num muted">30</td><td class="num muted">2</td><td class="num" style="font-weight:600">56</td><td class="num muted">10</td><td class="num muted">71.25</td><td class="num">6,270.00</td><td><a href="#">台账</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="pager"><span>可用 = 在库 − 预留 − 冻结。待审核需求只用于提醒，不占用库存。</span><div class="actions"><button class="btn btn-sm" type="button" disabled>上一页</button><button class="btn btn-sm" type="button">下一页</button></div></div>
+  </section>
+
+  <aside class="spec-note">
+    <strong>设计说明</strong>
+    <ul>
+      <li>对应 <code>pages/InventoryPage.vue</code>。顶部汇总条为新增；“发出未签收”跳转到“未签收出库”报表。</li>
+      <li>“单位成本”“库存金额”需要 <code>cost:view</code> 权限，没有权限时两列和“在库金额”整块都不显示。</li>
+      <li>“台账”跳到库存台账，带上仓库和 SKU 筛选。</li>
+      <li>可用量列加粗；待审需求超过可用时用橙色数字加标签，不只靠颜色。</li>
+    </ul>
+  </aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

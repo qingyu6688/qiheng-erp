@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>公司与参数</title>
+<link rel="stylesheet" href="assets/erp-ui.css">
+</head>
+<body data-nav="companies" data-crumb="系统管理 / 公司与参数 / 华东商贸 C01">
+<main id="page">
+  <div class="page-head">
+    <div class="title"><div class="title-row"><h1>华东商贸有限公司</h1><span class="tag tag-success">启用</span><span class="muted tnum">C01</span></div><span class="muted">参数修改会记入操作审计，只影响修改之后的单据</span></div>
+    <button class="btn" type="button">新建公司</button>
+  </div>
+
+  <div class="cols-2">
+    <form class="panel">
+      <div class="panel-head"><h2>公司资料</h2><span class="small muted">打印抬头使用</span></div>
+      <div class="panel-body">
+        <div class="form-grid">
+          <div class="field"><label for="n">名称 <span class="req">*</span></label><input id="n" class="input" value="华东商贸有限公司"></div>
+          <div class="field"><label for="t">统一社会信用代码</label><input id="t" class="input tnum" value="91310115MA1K4X2Q7B"></div>
+          <div class="field wide"><label for="a">地址</label><input id="a" class="input" value="上海市浦东新区张江路 88 号"></div>
+          <div class="field"><label for="p">电话</label><input id="p" class="input tnum" value="021-5888 1234"></div>
+        </div>
+      </div>
+      <div class="panel-foot"><span></span><button class="btn btn-primary" type="submit">保存资料</button></div>
+    </form>
+
+    <form class="panel">
+      <div class="panel-head"><h2>业务参数</h2><span class="small muted">版本 5 · 周敏 11-19 10:15 修改</span></div>
+      <div class="panel-body">
+        <fieldset class="field"><legend>纳税人身份</legend><div class="radio-row"><label><input type="radio" name="tp" checked>一般纳税人</label><label><input type="radio" name="tp">小规模纳税人</label></div><span class="hint">决定采购入库成本取未税还是含税金额（R6-04）。</span></fieldset>
+        <div class="form-grid">
+          <div class="field"><label for="v">预留有效天数</label><input id="v" class="input num" value="30"><span class="hint">1—365 天（R1-05）</span></div>
+          <div class="field"><label for="g">交货日后宽限天数</label><input id="g" class="input num" value="7"><span class="hint">0—90 天</span></div>
+          <div class="field"><label for="o">采购超收容差 %</label><input id="o" class="input num" value="0.00"><span class="hint">0—10，审批时写入订单（R4-03）</span></div>
+        </div>
+        <fieldset class="field"><legend>经办与审核分离</legend>
+          <label class="check"><input type="checkbox" checked>订单审批人不能是制单人</label>
+          <label class="check"><input type="checkbox" checked>收付款确认人不能是登记人</label>
+          <span class="hint">退款、冲销、库存调整、盘点固定要求两人经手，不能关闭。</span>
+        </fieldset>
+      </div>
+      <div class="panel-foot"><span class="hint">修改只影响之后的单据</span><button class="btn btn-primary" type="submit">保存参数</button></div>
+    </form>
+  </div>
+
+  <aside class="spec-note">
+    <strong>设计说明</strong>
+    <ul>
+      <li>对应 <code>pages/ResourcePage.vue</code>（companies）和 <code>components/RecordRelations.vue</code> 中的公司参数部分。公司资料和业务参数分两块保存，各自带版本号。</li>
+      <li>每个参数旁边写清楚影响什么、范围多少，引用业务规则编号，方便管理员判断。</li>
+      <li>现有参数输入用 <code>el-input-number</code> 处理整数天数没有问题；超收容差有两位小数，继续用字符串输入（现状已如此）。</li>
+    </ul>
+  </aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>业务报表</title>
+<link rel="stylesheet" href="assets/erp-ui.css">
+</head>
+<body data-nav="reports" data-crumb="报表与数据 / 业务报表 / 销售报表">
+<main id="page">
+  <div class="page-head">
+    <div class="title"><h1>销售报表</h1><span class="small muted">按签收确认的销售，含退货和冲销抵销 · 统计截至 11-19 10:15</span></div>
+    <div class="actions">
+      <label for="rt" class="sr-only">切换报表</label>
+      <select id="rt" class="select" style="width:200px"><option>销售报表</option><option>采购报表</option><option>销售毛利</option><option>库存汇总</option><option>库存收发存</option><option>未签收出库</option><option>应收账龄</option><option>应付账龄</option><option>往来对账</option><option>资金流水</option></select>
+      <button class="btn" type="button">导出 CSV</button>
+    </div>
+  </div>
+
+  <section class="panel">
+    <form class="filters">
+      <div class="field grow"><label for="dr">签收日期</label><input id="dr" class="input tnum" value="2026-11-01 至 2026-11-19"></div>
+      <div class="field"><label for="wh">仓库</label><select id="wh" class="select"><option>全部仓库</option></select></div>
+      <div class="field grow"><label for="cu">客户</label><input id="cu" class="input" value="CUS1 华东商贸有限公司"></div>
+      <fieldset class="field"><legend>汇总方式</legend><div class="segmented" role="group" aria-label="汇总方式"><button type="button" aria-pressed="false">按客户</button><button type="button" aria-pressed="true">按日期和商品</button><button type="button" aria-pressed="false">逐单明细</button></div></fieldset>
+      <button class="btn btn-primary" type="submit">查询</button>
+    </form>
+    <div class="stats" style="border:none;border-bottom:1px solid var(--line);border-radius:0">
+      <div class="stat"><span class="label">销售额（含税）</span><span class="value">962.50</span></div>
+      <div class="stat"><span class="label">未税金额</span><span class="value">851.78</span></div>
+      <div class="stat"><span class="label">销售成本</span><span class="value">522.00</span></div>
+      <div class="stat"><span class="label">毛利 · 毛利率</span><span class="value">329.78 <small>· 38.7%</small></span></div>
+    </div>
+    <div class="table-wrap">
+      <table class="table tnum" style="min-width:1100px">
+        <thead><tr><th>签收日期</th><th>客户</th><th>商品</th><th class="num">数量</th><th class="num">含税金额</th><th class="num">未税</th><th class="num">税额</th><th class="num">成本</th><th class="num">单据数</th></tr></thead>
+        <tbody>
+          <tr><td>2026-11-17</td><td>华东商贸有限公司</td><td><div class="cell-2"><span>陶瓷餐具四件套 白</span><span class="sub">SKU-B · 主仓 W1</span></div></td><td class="num">3</td><td class="num">137.50</td><td class="num">121.68</td><td class="num">15.82</td><td class="num">30.00</td><td class="num"><a href="13-shipment-sign.html">1</a></td></tr>
+          <tr><td>2026-11-19</td><td>华东商贸有限公司</td><td><div class="cell-2"><span>保温杯 500ml 银色</span><span class="sub">SKU-A · 主仓 W1</span></div></td><td class="num">4</td><td class="num">366.66</td><td class="num">324.48</td><td class="num">42.18</td><td class="num">232.00</td><td class="num"><a href="13-shipment-sign.html">1</a></td></tr>
+          <tr><td>2026-11-19</td><td>华东商贸有限公司</td><td><div class="cell-2"><span>陶瓷餐具四件套 白</span><span class="sub">SKU-B · 主仓 W1</span></div></td><td class="num">2</td><td class="num">91.67</td><td class="num">81.13</td><td class="num">10.54</td><td class="num">20.00</td><td class="num"><a href="13-shipment-sign.html">1</a></td></tr>
+          <tr><td>2026-11-19</td><td>华东商贸有限公司</td><td><div class="cell-2"><span>电热水壶 1.7L</span><span class="sub">SKU-C · 主仓 W1</span></div></td><td class="num">2</td><td class="num">366.67</td><td class="num">324.49</td><td class="num">42.18</td><td class="num">240.00</td><td class="num"><a href="13-shipment-sign.html">1</a></td></tr>
+          <tr class="total"><td colspan="3">合计</td><td class="num">11</td><td class="num">962.50</td><td class="num">851.78</td><td class="num">110.72</td><td class="num">522.00</td><td class="num">4</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="pager"><span>单据数可点击，查看构成这一行的发货单、退货单和冲销单。</span><div class="actions"><button class="btn btn-sm" type="button" disabled>上一页</button><button class="btn btn-sm" type="button" disabled>下一页</button></div></div>
+  </section>
+
+  <aside class="spec-note">
+    <strong>设计说明：十类报表共用</strong>
+    <ul>
+      <li>对应 <code>pages/ReportPage.vue</code>。导航里十个报表收拢成一个“业务报表”入口，页面右上角用下拉框切换（O-12），切换时保留共用的日期和仓库条件。</li>
+      <li>报表顶部显示统计截止时间（本地时间）和汇总条；合计行固定在表格最后。</li>
+      <li>成本、毛利列需要 <code>cost:view</code>；没有权限时整列隐藏，汇总条也去掉对应块。</li>
+      <li>“导出 CSV”沿用后台导出任务，提交后提示“已提交，可在导入与导出中下载”。</li>
+    </ul>
+  </aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

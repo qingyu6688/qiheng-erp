@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>用户与角色</title>
+<link rel="stylesheet" href="assets/erp-ui.css">
+<style>
+  .matrix th, .matrix td { text-align: center; }
+  .matrix th:first-child, .matrix td:first-child { text-align: left; }
+</style>
+</head>
+<body data-nav="users" data-crumb="系统管理 / 用户与角色">
+<main id="page">
+  <div class="page-head">
+    <h1>用户与角色</h1>
+    <div class="actions"><button class="btn" type="button">新建角色</button><button class="btn btn-primary" type="button">新建用户</button></div>
+  </div>
+
+  <section class="panel">
+    <div class="tabs" role="tablist" aria-label="分区"><button class="tab" role="tab" aria-selected="true" type="button">用户<span class="count">18</span></button><button class="tab" role="tab" aria-selected="false" type="button">角色<span class="count">6</span></button></div>
+    <div class="table-wrap"><table class="table" style="min-width:880px">
+      <thead><tr><th>账号</th><th>姓名</th><th>角色</th><th>数据范围</th><th>状态</th><th>最近登录</th><th><span class="sr-only">操作</span></th></tr></thead>
+      <tbody class="tnum">
+        <tr class="selected"><td>wangqiang</td><td>王强</td><td>仓库管理员</td><td>华东商贸 · 主仓 W1、二仓 W2</td><td><span class="tag tag-success">正常</span></td><td class="muted">11-19 08:12</td><td><button class="btn btn-text btn-sm" type="button">编辑</button></td></tr>
+        <tr><td>lina</td><td>李娜</td><td>销售</td><td>华东商贸 · 整家公司</td><td><span class="tag tag-warning">需修改密码</span></td><td class="muted">11-18 17:30</td><td><button class="btn btn-text btn-sm" type="button">编辑</button></td></tr>
+        <tr><td>chenjie</td><td>陈洁</td><td>出纳</td><td>华东商贸 · 整家公司</td><td><span class="tag tag-danger">已锁定</span></td><td class="muted">11-19 09:01</td><td><button class="btn btn-text btn-sm" type="button">解锁</button></td></tr>
+      </tbody></table></div>
+  </section>
+
+  <div class="cols-2">
+    <section class="panel">
+      <div class="panel-head"><h2>王强 · 数据范围</h2></div>
+      <div class="panel-body">
+        <div class="table-wrap"><table class="table"><thead><tr><th>公司</th><th>范围</th></tr></thead><tbody>
+          <tr><td>华东商贸 C01</td><td><div class="radio-row" style="height:auto;flex-wrap:wrap"><label><input type="radio" name="sc1">整家公司</label><label><input type="radio" name="sc1" checked>指定仓库：</label><label class="check"><input type="checkbox" checked>主仓 W1</label><label class="check"><input type="checkbox" checked>二仓 W2</label></div></td></tr>
+          <tr><td>华南贸易 C02</td><td class="muted">无权访问</td></tr>
+        </tbody></table></div>
+        <p class="hint">限定仓库的用户不能关账、不能看整家公司的报表汇总；数据范围在服务端校验，菜单只是不显示入口。</p>
+        <div class="actions" style="justify-content:flex-end"><button class="btn" type="button">重置密码</button><button class="btn btn-primary" type="button">保存</button></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>角色权限 · 仓库管理员</h2><input class="input sm" style="width:200px" placeholder="搜索权限" aria-label="搜索权限"></div>
+      <div class="table-wrap"><table class="table matrix">
+        <thead><tr><th>资源</th><th>查看</th><th>新建</th><th>修改</th><th>提交</th><th>过账</th><th>其他</th></tr></thead>
+        <tbody>
+          <tr><td>发货与签收</td><td><input type="checkbox" checked aria-label="发货单查看"></td><td><input type="checkbox" checked aria-label="发货单新建"></td><td><input type="checkbox" checked aria-label="发货单修改"></td><td><input type="checkbox" checked aria-label="发货单提交"></td><td><input type="checkbox" checked aria-label="发货单过账"></td><td class="small">签收 · 差异处理</td></tr>
+          <tr><td>库存盘点</td><td><input type="checkbox" checked aria-label="盘点查看"></td><td><input type="checkbox" checked aria-label="盘点新建"></td><td><input type="checkbox" checked aria-label="盘点修改"></td><td><input type="checkbox" checked aria-label="盘点提交"></td><td><input type="checkbox" aria-label="盘点过账"></td><td class="small">审核 ✕</td></tr>
+          <tr><td>销售订单</td><td><input type="checkbox" checked aria-label="销售订单查看"></td><td><input type="checkbox" aria-label="销售订单新建"></td><td><input type="checkbox" aria-label="销售订单修改"></td><td><input type="checkbox" aria-label="销售订单提交"></td><td class="weak">—</td><td class="small">审批 ✕</td></tr>
+          <tr><td>查看成本</td><td colspan="6" style="text-align:left"><label class="check"><input type="checkbox">允许查看单位成本、库存金额、毛利</label></td></tr>
+        </tbody></table></div>
+      <div class="panel-foot"><span class="hint">共 46 项权限，已选 19 项</span><button class="btn btn-primary" type="button">保存</button></div>
+    </section>
+  </div>
+
+  <aside class="spec-note">
+    <strong>设计说明</strong>
+    <ul>
+      <li>对应 <code>pages/ResourcePage.vue</code>（users、roles）和 <code>components/RecordRelations.vue</code>。用户和角色合并为一个入口，用页签切换。</li>
+      <li>角色权限改为“资源 × 动作”矩阵，代替逐条勾选的长列表；不常见的动作放在“其他”列。权限码保持 <code>资源:动作</code> 不变。</li>
+      <li>数据范围在用户编辑里按公司逐行设置；“整家公司”和“指定仓库”二选一。</li>
+      <li>状态用标签区分：正常、需修改密码、已锁定、已停用；已锁定的用户直接显示“解锁”操作。</li>
+    </ul>
+  </aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

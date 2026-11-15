@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>会计期间与关账</title>
+<link rel="stylesheet" href="assets/erp-ui.css">
+</head>
+<body data-nav="accounting-periods" data-crumb="财务期间 / 会计期间与关账">
+<main id="page">
+  <div class="page-head">
+    <div class="title"><h1>会计期间与关账</h1><span class="muted">按月关账，只能按顺序关闭；可以重新打开最近一个已关闭期间</span></div>
+    <button class="btn" type="button">开启下一期间</button>
+  </div>
+
+  <div class="split">
+    <section class="panel side" style="flex:1 1 320px">
+      <div class="panel-head"><h2>期间</h2></div>
+      <div class="table-wrap"><table class="table tnum">
+        <thead><tr><th>期间</th><th>状态</th><th>关闭人 · 时间</th></tr></thead>
+        <tbody>
+          <tr class="selected"><td><strong>2026-11</strong></td><td><span class="tag tag-primary">开放</span></td><td class="weak">—</td></tr>
+          <tr><td>2026-10</td><td><span class="tag tag-neutral">已关闭</span></td><td class="muted">周敏 · 11-03 18:20</td></tr>
+          <tr><td>2026-09</td><td><span class="tag tag-neutral">已关闭</span></td><td class="muted">周敏 · 10-08 17:45</td></tr>
+        </tbody></table></div>
+    </section>
+
+    <section class="panel main">
+      <div class="panel-head"><div class="title-row"><h2>2026-11 关账检查</h2><span class="tag tag-danger">2 项未通过</span></div><div class="actions"><button class="btn" type="button">重新检查</button><button class="btn btn-primary" type="button" disabled title="检查全部通过后才能关账">关账</button></div></div>
+      <div class="panel-body" style="padding-top:4px">
+        <ul class="check-list">
+          <li><span class="state-icon fail" aria-hidden="true">✕</span><div style="flex:1"><strong>已提交未过账的单据</strong><div class="muted">有 2 张单据还没有过账，过账或作废后才能关账。</div>
+            <div class="table-wrap" style="margin-top:8px"><table class="table tnum"><tbody>
+              <tr><td>发货单</td><td><a href="13-shipment-sign.html">SH-C01-202611-000051</a></td><td><span class="tag tag-primary">已提交</span></td><td><a href="13-shipment-sign.html">去处理</a></td></tr>
+              <tr><td>采购收货单</td><td><a href="10-document-list.html">GR-C01-202611-000033</a></td><td><span class="tag tag-primary">已提交</span></td><td><a href="10-document-list.html">去处理</a></td></tr>
+            </tbody></table></div></div></li>
+          <li><span class="state-icon fail" aria-hidden="true">✕</span><div><strong>待确认的资金</strong><div class="muted">1 笔收款待确认：<a href="20-money-documents.html">RC-C01-202611-000014</a></div></div></li>
+          <li><span class="state-icon ok" aria-hidden="true">✓</span><div><strong>库存对账</strong><div class="muted">库存余额、预留、成本与账本一致</div></div></li>
+          <li><span class="state-icon ok" aria-hidden="true">✓</span><div><strong>资金与往来对账</strong><div class="muted">资金余额、未清项、凭证借贷一致</div></div></li>
+          <li><span class="state-icon ok" aria-hidden="true">✓</span><div><strong>成本尾差</strong><div class="muted">数量归零的成本尾差已处理</div></div></li>
+        </ul>
+        <p class="hint">检查于 11-19 10:12。关账时系统会在锁定期间后再检查一次，期间内正在进行的过账会先完成。</p>
+      </div>
+    </section>
+  </div>
+
+  <div class="overlay"><form class="dialog" role="dialog" aria-labelledby="ro">
+    <div class="dialog-head"><h2 id="ro">重新打开 2026-10</h2></div>
+    <div class="dialog-body">
+      <div class="alert alert-warning"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><span>重新打开后可以在 10 月补录和冲销，已出具的 10 月报表可能变化。这是第 1 次重新打开。</span></div>
+      <div class="field"><label for="why">原因 <span class="req">*</span></label><textarea id="why" class="input">10 月一笔供应商发票金额录错，需要冲销重录</textarea></div>
+    </div>
+    <div class="dialog-foot"><button class="btn" type="button">取消</button><button class="btn btn-danger" type="submit">重新打开</button></div>
+  </form></div>
+
+  <aside class="spec-note">
+    <strong>设计说明</strong>
+    <ul>
+      <li>对应 <code>pages/ResourcePage.vue</code>（accounting-periods）和 <code>components/PeriodActions.vue</code>。建议把期间管理从通用资料页拆成专用页面，左边期间列表、右边检查结果。</li>
+      <li>检查结果来自 <code>POST /accounting-periods/{id}/close-check</code>，每项未通过都列出具体单据并可跳转（接口已返回 <code>documents</code>）。</li>
+      <li>“关账”在检查未通过时禁用，鼠标悬停说明原因；关账、重开都需要整家公司的数据范围。</li>
+    </ul>
+  </aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>核销工作台</title>
+<link rel="stylesheet" href="assets/erp-ui.css">
+</head>
+<body data-nav="settlements" data-crumb="资金与往来 / 核销工作台">
+<main id="page">
+  <div class="page-head">
+    <div class="title"><h1>核销工作台</h1><span class="muted">把收款、退货信用额分配到应收上。核销不产生资金流水，可以撤销。</span></div>
+    <form class="actions" style="align-items:flex-end">
+      <div class="field"><label for="pt">往来单位</label><input id="pt" class="input" style="width:260px" value="CUS1 华东商贸有限公司"></div>
+      <fieldset class="field"><legend>范围</legend><div class="segmented" role="group" aria-label="核销范围"><button type="button" aria-pressed="true">应收侧</button><button type="button" aria-pressed="false">应付侧</button></div></fieldset>
+    </form>
+  </div>
+
+  <div class="cols-2">
+    <section class="panel">
+      <div class="panel-head"><h2>待收 <span class="small muted">应收、退款申请</span></h2><span class="small muted tnum">未核销合计 692.50</span></div>
+      <div class="table-wrap"><table class="table tnum">
+        <thead><tr><th style="width:40px"><span class="sr-only">选择</span></th><th>来源</th><th class="num">账龄</th><th class="num">未核销 / 原金额</th></tr></thead>
+        <tbody>
+          <tr class="selected"><td><input type="checkbox" checked aria-label="选择 保温杯应收"></td><td><div class="cell-2"><a href="13-shipment-sign.html">SH-C01-202611-000046</a><span class="sub">应收 · 保温杯 4 件</span></div></td><td class="num muted">0 天</td><td class="num"><strong>234.16</strong><span class="muted"> / 366.66</span></td></tr>
+          <tr class="selected"><td><input type="checkbox" checked aria-label="选择 餐具应收"></td><td><div class="cell-2"><a href="13-shipment-sign.html">SH-C01-202611-000046</a><span class="sub">应收 · 餐具 2 件</span></div></td><td class="num muted">0 天</td><td class="num"><strong>91.67</strong><span class="muted"> / 91.67</span></td></tr>
+          <tr class="selected"><td><input type="checkbox" checked aria-label="选择 水壶应收"></td><td><div class="cell-2"><a href="13-shipment-sign.html">SH-C01-202611-000046</a><span class="sub">应收 · 水壶 2 件</span></div></td><td class="num muted">0 天</td><td class="num"><strong>366.67</strong><span class="muted"> / 366.67</span></td></tr>
+        </tbody></table></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>可用于冲抵 <span class="small muted">收款、退货信用额</span></h2><span class="small muted tnum">未分配合计 845.83</span></div>
+      <div class="table-wrap"><table class="table tnum">
+        <thead><tr><th style="width:40px"><span class="sr-only">选择</span></th><th>来源</th><th>日期</th><th class="num">未分配 / 原金额</th></tr></thead>
+        <tbody>
+          <tr class="selected"><td><input type="checkbox" checked aria-label="选择 收款 RC-000012"></td><td><div class="cell-2"><a href="20-money-documents.html">RC-C01-202611-000012</a><span class="sub">收款 · 招商银行基本户</span></div></td><td class="muted">11-19</td><td class="num"><strong>800.00</strong><span class="muted"> / 800.00</span></td></tr>
+          <tr><td><input type="checkbox" aria-label="选择 退货信用额 SR-000003"></td><td><div class="cell-2"><a href="#">SR-C01-202611-000003</a><span class="sub">退货信用额 · 餐具 1 件</span></div></td><td class="muted">11-20</td><td class="num"><strong>45.83</strong><span class="muted"> / 45.83</span></td></tr>
+        </tbody></table></div>
+    </section>
+  </div>
+
+  <section class="panel" aria-label="本次核销">
+    <div class="panel-body">
+      <div class="page-head" style="align-items:flex-end">
+        <dl class="kv tnum" style="flex:1"><div><dt>已选待收</dt><dd style="font-size:18px;font-weight:600">692.50</dd></div><div><dt>已选可冲抵</dt><dd style="font-size:18px;font-weight:600">800.00</dd></div><div><dt>本次核销</dt><dd style="font-size:18px;font-weight:600;color:var(--primary)">692.50</dd></div><div><dt>核销后收款剩余</dt><dd style="font-size:18px;font-weight:600">107.50</dd></div></dl>
+        <button class="btn btn-primary" type="button">确认核销</button>
+      </div>
+      <p class="hint">按账龄从早到晚逐笔配对：保温杯 234.16、餐具 91.67、水壶 366.67，都由 RC-C01-202611-000012 冲抵；剩余 107.50 留作该客户的预收。多对核销在一次提交里完成，任何一对失败都不生效。</p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>最近核销</h2></div>
+    <div class="table-wrap"><table class="table tnum" style="min-width:760px">
+      <thead><tr><th>时间</th><th>方式</th><th>冲抵来源</th><th>待收项</th><th class="num">金额</th><th><span class="sr-only">操作</span></th></tr></thead>
+      <tbody>
+        <tr><td class="muted">11-19 16:02</td><td>按订单自动</td><td>RC-C01-202611-000010</td><td>SH-…046 保温杯</td><td class="num">132.50</td><td><button class="btn btn-text btn-sm" type="button" style="color:var(--danger)" aria-label="撤销 11-19 16:02 的核销 132.50">撤销</button></td></tr>
+        <tr><td class="muted">11-17 16:40</td><td>按订单自动</td><td>RC-C01-202611-000010</td><td>SH-…045 餐具</td><td class="num">137.50</td><td><button class="btn btn-text btn-sm" type="button" style="color:var(--danger)" aria-label="撤销 11-17 16:40 的核销 137.50">撤销</button></td></tr>
+        <tr><td class="muted">11-17 16:40</td><td>按订单自动</td><td>RC-C01-202611-000010</td><td>SH-…045 运费</td><td class="num">30.00</td><td><button class="btn btn-text btn-sm" type="button" style="color:var(--danger)" aria-label="撤销 11-17 16:40 的核销 30.00">撤销</button></td></tr>
+      </tbody></table></div>
+  </section>
+
+  <aside class="spec-note">
+    <strong>设计说明</strong>
+    <ul>
+      <li>对应 <code>pages/SettlementPage.vue</code>。两列布局，左边借方、右边贷方，底部固定显示本次核销汇总。</li>
+      <li>配对预览由前端按账龄排序生成，提交时把多对一起发给 <code>POST /settlement-allocations</code>；金额以接口返回为准。</li>
+      <li>撤销核销需要填写原因（R7-05），点“撤销”弹出原因输入框；退款和冲销产生的核销不显示“撤销”按钮。</li>
+    </ul>
+  </aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

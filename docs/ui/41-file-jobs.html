@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>导入与导出</title>
+<link rel="stylesheet" href="assets/erp-ui.css">
+</head>
+<body data-nav="file-jobs" data-crumb="报表与数据 / 导入与导出">
+<main id="page">
+  <div class="page-head">
+    <div class="title"><h1>导入与导出</h1><span class="muted">任务在后台处理；这里只显示你在当前公司创建、且仍有权限访问的任务</span></div>
+    <button class="btn" type="button">刷新任务</button>
+  </div>
+
+  <section class="panel">
+    <div class="tabs" role="tablist" aria-label="任务类型"><button class="tab" role="tab" aria-selected="true" type="button">数据导入</button><button class="tab" role="tab" aria-selected="false" type="button">报表导出</button></div>
+    <div class="panel-body">
+      <div class="form-grid" style="align-items:end">
+        <div class="field"><label for="it">导入内容</label><select id="it" class="select"><option>SKU 与条码</option><option>往来单位</option><option>库存期初</option></select></div>
+        <div class="field" style="grid-column:span 2"><label for="if">文件</label><input id="if" class="input" type="file" accept=".csv" style="padding-top:7px"></div>
+        <div class="actions"><a class="btn btn-text" href="#">下载模板</a><button class="btn btn-primary" type="button">开始导入</button></div>
+      </div>
+      <p class="hint">只支持 UTF-8 编码的 CSV，单个文件不超过 20MB。同一个文件重复提交不会重复创建资料；出错的行会逐行列出原因，其余行照常导入。</p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="table-wrap"><table class="table tnum" style="min-width:880px">
+      <thead><tr><th>内容</th><th>状态</th><th>处理结果</th><th>创建时间</th><th><span class="sr-only">操作</span></th></tr></thead>
+      <tbody>
+        <tr class="selected"><td>SKU 与条码 · sku-1119.csv</td><td><span class="tag tag-warning">部分成功</span></td><td>成功 118 / 错误 2 / 共 120 行</td><td class="muted">11-19 14:49</td><td><button class="btn btn-text btn-sm" type="button">查看结果</button></td></tr>
+        <tr><td>往来单位 · partners.csv</td><td><span class="tag tag-success">已完成</span></td><td>成功 36 / 错误 0 / 共 36 行</td><td class="muted">11-18 16:20</td><td><button class="btn btn-text btn-sm" type="button">查看结果</button></td></tr>
+        <tr><td>库存期初 · opening.csv</td><td><span class="tag tag-primary">处理中</span></td><td><div style="display:flex;align-items:center;gap:8px"><div class="progress" style="width:120px"><span style="width:45%"></span></div><span>540 / 1,200 行</span></div></td><td class="muted">11-19 15:02</td><td><button class="btn btn-text btn-sm" type="button">查看结果</button></td></tr>
+      </tbody></table></div>
+    <div class="pager"><span>第 1 页</span><div class="actions"><button class="btn btn-sm" type="button" disabled>上一页</button><button class="btn btn-sm" type="button" disabled>下一页</button></div></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>处理结果 · SKU 与条码</h2><span class="small muted">完成于 11-19 14:51</span></div>
+    <div class="table-wrap"><table class="table tnum">
+      <thead><tr><th>行号</th><th>列</th><th>原因</th></tr></thead>
+      <tbody>
+        <tr><td>17</td><td>条码</td><td>条码 6901234567890 已被 SKU-A 使用</td></tr>
+        <tr><td>58</td><td>换算率</td><td>换算率最多 6 位小数</td></tr>
+      </tbody></table></div>
+    <div class="panel-foot"><span class="hint">改正后可以只导入这 2 行，已成功的行不会重复创建。</span><button class="btn" type="button">下载错误行</button></div>
+  </section>
+
+  <aside class="spec-note">
+    <strong>设计说明</strong>
+    <ul>
+      <li>对应 <code>pages/FileJobsPage.vue</code>。“创建时间”和“文件到期”现在直接显示 UTC 原始字符串（如 <code>2026-11-15T06:49:29.673Z</code>），改为本地时间 <code>MM-DD HH:mm</code>（O-10）。</li>
+      <li>状态用标签表达：处理中（蓝）、部分成功（橙）、已完成（绿）、失败（红）；处理中显示进度条，页面每 2 秒刷新进行中的任务，最多 10 分钟。</li>
+      <li>导出页签的表格把“处理结果”换为“行数 · 文件到期时间”，已完成的任务显示“下载文件”。</li>
+      <li>“下载错误行”为新增功能，需要后端返回错误行 CSV；没有该接口前先隐藏按钮。</li>
+    </ul>
+  </aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

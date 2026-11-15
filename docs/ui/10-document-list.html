@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>单据列表</title>
+<link rel="stylesheet" href="assets/erp-ui.css">
+</head>
+<body data-nav="sales-orders" data-crumb="销售 / 销售订单">
+<main id="page">
+  <div class="page-head">
+    <h1>销售订单</h1>
+    <div class="actions">
+      <button class="btn" type="button">导出</button>
+      <a class="btn btn-primary" href="11-order-editor.html">新建销售订单</a>
+    </div>
+  </div>
+
+  <section class="panel">
+    <div class="tabs" role="tablist" aria-label="按状态筛选">
+      <button class="tab" role="tab" aria-selected="false" type="button">全部<span class="count">27</span></button>
+      <button class="tab" role="tab" aria-selected="false" type="button">草稿<span class="count">2</span></button>
+      <button class="tab" role="tab" aria-selected="false" type="button">待审核<span class="count">4</span></button>
+      <button class="tab" role="tab" aria-selected="true" type="button">进行中<span class="count">21</span></button>
+      <button class="tab" role="tab" aria-selected="false" type="button">已关闭</button>
+      <button class="tab" role="tab" aria-selected="false" type="button">已取消</button>
+    </div>
+
+    <form class="filters">
+      <div class="field grow"><label for="kw">单号或备注</label><input id="kw" class="input" placeholder="输入单号或备注关键字"></div>
+      <div class="field grow"><label for="cus">客户</label><input id="cus" class="input" placeholder="编码或名称，可搜索"></div>
+      <div class="field grow"><label for="date">业务日期</label><input id="date" class="input tnum" value="2026-11-01 至 2026-11-30"></div>
+      <div class="field"><label for="ful">履约</label><select id="ful" class="select"><option>全部</option><option>未履约</option><option>部分履约</option><option>全部履约</option></select></div>
+      <div class="field"><label for="set">结算</label><select id="set" class="select"><option>全部</option><option>未结算</option><option>部分结算</option><option>已结算</option></select></div>
+      <div class="actions"><button class="btn btn-primary" type="submit">查询</button><button class="btn" type="reset">重置</button></div>
+    </form>
+
+    <div class="table-wrap">
+      <table class="table" style="min-width:1100px">
+        <thead><tr><th>单号</th><th>客户</th><th>业务日期</th><th>状态</th><th>履约（已签收 / 订购）</th><th class="num">已收 / 合计</th><th>制单</th><th><span class="sr-only">操作</span></th></tr></thead>
+        <tbody class="tnum">
+          <tr><td><a href="12-document-detail.html">SO-C01-202611-000123</a></td><td>华东商贸有限公司</td><td class="muted">2026-11-15</td><td><span class="tag tag-primary">已批准</span></td><td><div style="display:flex;align-items:center;gap:8px"><div class="progress" style="width:96px"><span style="width:21%"></span></div><span>3 / 14 件</span></div></td><td class="num"><span class="muted">167.50 / </span>1,130.00</td><td class="muted">李娜</td><td><a href="12-document-detail.html">查看</a></td></tr>
+          <tr><td><a href="12-document-detail.html">SO-C01-202611-000122</a></td><td>杭州云帆电子商务有限公司</td><td class="muted">2026-11-15</td><td><span class="tag tag-warning">待审核</span></td><td class="muted">未履约</td><td class="num"><span class="muted">0.00 / </span>6,780.00</td><td class="muted">王磊</td><td><a href="12-document-detail.html">查看</a></td></tr>
+          <tr><td><a href="12-document-detail.html">SO-C01-202611-000121</a></td><td>苏州恒达五金批发部</td><td class="muted">2026-11-14</td><td><span class="tag tag-warning">变更待审核</span></td><td><div style="display:flex;align-items:center;gap:8px"><div class="progress" style="width:96px"><span style="width:40%"></span></div><span>20 / 50 件</span></div></td><td class="num"><span class="muted">2,260.00 / </span>5,650.00</td><td class="muted">李娜</td><td><a href="12-document-detail.html">查看</a></td></tr>
+          <tr><td><a href="12-document-detail.html">SO-C01-202611-000120</a></td><td>南京百川贸易有限公司</td><td class="muted">2026-11-14</td><td><span class="tag tag-primary">已批准</span></td><td><div style="display:flex;align-items:center;gap:8px"><div class="progress" style="width:96px"><span style="width:100%"></span></div><span>120 / 120 件</span></div></td><td class="num"><span class="muted">13,560.00 / </span>13,560.00</td><td class="muted">周敏</td><td><a href="12-document-detail.html">查看</a></td></tr>
+          <tr><td><a href="12-document-detail.html">SO-C01-202611-000118</a></td><td>宁波港城商贸有限公司</td><td class="muted">2026-11-13</td><td><span class="tag tag-neutral">草稿</span></td><td class="muted">—</td><td class="num"><span class="muted">— / </span>2,260.00</td><td class="muted">周敏</td><td><a href="11-order-editor.html">编辑</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="pager"><span>共 21 条，第 1—5 条</span><div class="actions"><button class="btn btn-sm" type="button" disabled>上一页</button><button class="btn btn-sm" type="button">下一页</button></div></div>
+  </section>
+
+  <div class="cols-2">
+    <section class="panel"><div class="panel-head plain"><h3>空状态</h3></div><div class="empty"><svg class="i" viewBox="0 0 24 24" aria-hidden="true" style="width:32px;height:32px"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/></svg><strong style="color:var(--text)">没有符合条件的订单</strong><span>调整筛选条件，或新建一张订单。</span><button class="btn btn-sm" type="button">清除筛选</button></div></section>
+    <section class="panel"><div class="panel-head plain"><h3>加载失败</h3></div><div class="empty"><div class="alert alert-danger" style="text-align:left"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg><span>列表加载失败，请检查网络后重试。</span></div><button class="btn btn-sm" type="button">重新加载</button></div></section>
+  </div>
+
+  <aside class="spec-note">
+    <strong>设计说明：所有单据列表共用这个模板</strong>
+    <ul>
+      <li>对应 <code>pages/SalesListPage.vue</code>、<code>pages/ProcurementListPage.vue</code>、<code>pages/StockOperationPage.vue</code>（列表部分）。各单据只换列，见下一条。</li>
+      <li>列：发货单换为“发货日期、签收日期、签收状态”；收付款换为“账户、金额、确认状态”；调拨换为“调出仓 → 调入仓”；盘点换为“仓库、快照时间、差异行数”。</li>
+      <li>状态页签带数量。现有列表只有一个状态下拉框；页签上的数量需要列表接口支持 <code>withTotal</code>，或新增按状态计数的接口。</li>
+      <li>筛选：现有只有“单号/备注”和“状态”。需要补“客户/供应商、业务日期范围、履约、结算”。后端 <code>SalesOrderController.list</code> 已支持 <code>customerId</code>，还需要增加 <code>dateFrom</code>、<code>dateTo</code>、<code>fulfillmentStatus</code>、<code>settlementStatus</code>。</li>
+      <li>分页：“共 N 条，第 a—b 条”放在左侧，按钮放在右侧，与面板同样留 16px 内边距（现有页脚紧贴面板边缘）。</li>
+      <li>筛选条件写入地址栏参数，刷新和从工作台跳转时能还原。</li>
+    </ul>
+  </aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

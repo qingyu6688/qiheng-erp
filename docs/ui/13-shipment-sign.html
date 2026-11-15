@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>发货与签收</title>
+<link rel="stylesheet" href="assets/erp-ui.css">
+</head>
+<body data-nav="shipments" data-crumb="销售 / 发货与签收 / SH-C01-202611-000046">
+<main id="page">
+  <section class="panel">
+    <div class="panel-body">
+      <div class="page-head">
+        <div class="title">
+          <div class="title-row"><h1 class="tnum">SH-C01-202611-000046</h1><span class="tag tag-primary">已出库·待签收</span></div>
+          <span class="muted">华东商贸有限公司 · 来源 <a href="12-document-detail.html">SO-C01-202611-000123</a></span>
+        </div>
+        <div class="actions">
+          <a class="btn" href="43-print.html">打印发货单</a>
+          <button class="btn btn-primary" type="button">登记签收</button>
+        </div>
+      </div>
+      <dl class="kv tnum">
+        <div><dt>发货仓 · 方式</dt><dd>主仓 W1 · 送货</dd></div>
+        <div><dt>发货日期</dt><dd>2026-11-18</dd></div>
+        <div><dt>出库</dt><dd>王强 · 11-18 09:40</dd></div>
+        <div><dt>出库成本</dt><dd>502.00</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <div class="overlay" aria-label="登记签收对话框示意">
+    <form class="dialog wide" role="dialog" aria-labelledby="sign-title">
+      <div class="dialog-head"><h2 id="sign-title">登记签收</h2><button class="icon-btn" type="button" aria-label="关闭"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
+      <div class="dialog-body">
+        <div class="form-grid">
+          <div class="field"><label for="sd">签收日期 <span class="req">*</span></label><input id="sd" class="input tnum" value="2026-11-19"></div>
+          <div class="field" style="grid-column:span 2"><label for="sf">签收回单</label><input id="sf" class="input" type="file" accept=".jpg,.jpeg,.png,.pdf" style="padding-top:7px"></div>
+        </div>
+        <p class="hint">签收日期不能早于出库日期 11-18，也不能晚于今天；应收账龄从签收日起算。</p>
+        <div class="table-wrap">
+          <table class="table tnum">
+            <thead><tr><th>商品</th><th class="num">发货</th><th class="num" style="width:130px">签收数量</th><th class="num">差异</th><th class="num">本次应收</th><th class="num">其中税额</th></tr></thead>
+            <tbody>
+              <tr><td>保温杯 500ml 银色</td><td class="num">4</td><td><input class="input sm num" aria-label="保温杯签收数量" value="4"></td><td class="num weak">0</td><td class="num">366.66</td><td class="num muted">42.18</td></tr>
+              <tr><td>陶瓷餐具四件套 白</td><td class="num">3</td><td><input class="input sm num" aria-label="餐具签收数量" value="2"></td><td class="num" style="color:var(--warning);font-weight:600">1</td><td class="num">91.67</td><td class="num muted">10.54</td></tr>
+              <tr><td>电热水壶 1.7L</td><td class="num">2</td><td><input class="input sm num" aria-label="水壶签收数量" value="2"></td><td class="num weak">0</td><td class="num">366.67</td><td class="num muted">42.18</td></tr>
+              <tr class="total"><td>合计</td><td class="num">9</td><td class="num">8</td><td class="num">1</td><td class="num">825.00</td><td class="num">94.90</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="alert alert-warning"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><span>餐具少签收 1 件。确认后这 1 件进入“签收差异待处理”，订单可发数量恢复 1 件，只按签收数量确认应收。</span></div>
+        <dl class="kv tnum"><div><dt>本次确认应收</dt><dd style="font-size:18px;font-weight:600">825.00</dd></div><div><dt>自动冲抵关联预收</dt><dd style="font-size:18px;font-weight:600">132.50</dd></div><div><dt>签收后待收</dt><dd style="font-size:18px;font-weight:600">692.50</dd></div></dl>
+      </div>
+      <div class="dialog-foot"><span class="hint" style="margin-right:auto">签收后不能修改，录错需申请冲销</span><button class="btn" type="button">取消</button><button class="btn btn-primary" type="submit">确认签收</button></div>
+    </form>
+  </div>
+
+  <section class="panel">
+    <div class="panel-head"><div class="title-row"><h2>签收差异处理</h2><span class="tag tag-warning">签收有差异</span></div><span class="small muted">签收后出现；可以等货物退回后再处理</span></div>
+    <div class="panel-body">
+      <div class="form-grid" style="align-items:end">
+        <div class="field"><span class="label">差异行</span><div class="cell-2"><strong>陶瓷餐具四件套 白</strong><span class="sub">SKU-B · 差异 1 件 · 出库成本 10.00</span></div></div>
+        <fieldset class="field"><legend>处理方式</legend><div class="radio-row"><label><input type="radio" name="disp" checked>拒收退回</label><label><input type="radio" name="disp">运输损失</label></div></fieldset>
+        <div class="field"><label for="rd">处理日期</label><input id="rd" class="input tnum" value="2026-11-20"></div>
+        <div class="field"><label for="rs">原因 <span class="req">*</span></label><input id="rs" class="input" value="客户拒收：外箱破损"></div>
+      </div>
+      <div class="actions" style="justify-content:space-between"><span class="hint">拒收退回：货物回到原仓库并冻结待检，按原出库成本入库。运输损失：成本计入损失。两种处理都不改变已确认的应收。</span><button class="btn btn-primary" type="button">确认处理</button></div>
+    </div>
+  </section>
+
+  <aside class="spec-note">
+    <strong>设计说明</strong>
+    <ul>
+      <li>对应 <code>pages/SalesDetailPage.vue</code>（发货单）和 <code>components/sales/CommandDialog.vue</code> 的 <code>sign</code>、<code>resolve-diff</code> 命令。</li>
+      <li>签收对话框默认把签收数量填为发货数量，用户只改有差异的行；差异、本次应收在输入后由前端按行显示，提交后以接口返回为准。</li>
+      <li>本次应收的预览需要新接口或扩展试算：按累计法计算（R3-08），前端不要自行计算。没有接口前，先只显示数量和差异，金额在签收成功后显示。</li>
+      <li>回单上传沿用附件接口，先上传再把 <code>attachmentIds</code> 带入签收命令。</li>
+    </ul>
+  </aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

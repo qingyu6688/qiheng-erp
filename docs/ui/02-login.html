@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>登录</title>
+<link rel="stylesheet" href="assets/erp-ui.css">
+<style>
+  .login-wrap { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; padding: 48px 16px; }
+  .login-card { width: 100%; max-width: 400px; background: var(--white); border: 1px solid var(--line); border-radius: var(--radius-panel); padding: 32px; display: flex; flex-direction: column; gap: 20px; }
+  .states { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; width: 100%; max-width: 980px; }
+</style>
+</head>
+<body>
+<div class="login-wrap">
+  <div class="brand"><div class="brand-mark" aria-hidden="true">ERP</div><div><strong>进销存管理系统</strong><div class="small muted">采购 · 销售 · 库存 · 往来 · 资金</div></div></div>
+
+  <form class="login-card">
+    <h1>登录</h1>
+    <div class="field"><label for="tenant">企业编码</label><input id="tenant" class="input" autocomplete="organization" value="HDSM"></div>
+    <div class="field"><label for="user">用户名</label><input id="user" class="input" autocomplete="username" placeholder="请输入用户名"></div>
+    <div class="field"><label for="pwd">密码</label><input id="pwd" class="input" type="password" autocomplete="current-password" placeholder="请输入密码"></div>
+    <button class="btn btn-primary" type="submit" style="height:44px">登录</button>
+    <p class="hint">连续输错 5 次密码，账号会锁定 15 分钟。忘记密码请联系系统管理员重置。</p>
+  </form>
+
+  <section class="states" aria-label="登录页的其他状态">
+    <div class="alert alert-danger"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg><div><strong>用户名或密码错误</strong><div>未知用户和密码错误用同一句提示，提示条放在“登录”标题下方。</div></div></div>
+    <div class="alert alert-warning"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><div><strong>登录失败次数过多</strong><div>请 15 分钟后再试。锁定期间“登录”按钮可点，但直接显示这条提示。</div></div></div>
+    <div class="alert alert-info"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg><div><strong>正在登录…</strong><div>按钮显示加载状态并禁用，防止重复提交。</div></div></div>
+  </section>
+
+  <aside class="spec-note" style="max-width:980px;width:100%">
+    <strong>设计说明</strong>
+    <ul>
+      <li>对应 <code>pages/LoginPage.vue</code>，现有页面结构基本一致，本稿只补充三种状态的样式和位置。</li>
+      <li>企业编码记住上次输入，存在 <code>localStorage</code>，读写都要包在 try/catch 里；用户名和密码不保存。</li>
+      <li>开发环境的预填账号只在 <code>npm run dev</code> 时注入（现有 <code>vite.config.ts</code> 已如此），生产构建为空。</li>
+    </ul>
+  </aside>
+</div>
+</body>
+</html>
