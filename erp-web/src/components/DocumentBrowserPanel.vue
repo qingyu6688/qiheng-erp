@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Refresh, Search } from '@element-plus/icons-vue'
 import { allRecords } from '../api/admin'
 import { browseDocuments } from '../api/document-browser'
 import { isCancelled, messageOf } from '../api/http'
@@ -277,8 +278,11 @@ onBeforeUnmount(() => {
         ><el-input :id="kind + '-search'" v-model="filter.keyword" clearable />
       </div>
       <div v-if="hasPartner && partners.length" class="filter-field">
-        <label :for="kind + '-partner'">{{ partnerLabel }}</label
-        ><el-select :id="kind + '-partner'" v-model="filter.partnerId" filterable clearable
+        <label :for="kind + '-partner'">{{ partnerLabel }}</label><el-select
+          :id="kind + '-partner'"
+          v-model="filter.partnerId"
+          filterable
+          clearable
           ><el-option
             v-for="row in partners"
             :key="row.id"
@@ -325,9 +329,13 @@ onBeforeUnmount(() => {
               :label="label"
           /></el-select></div
       ></template>
-      <el-checkbox v-if="kind === 'shipments'" v-model="filter.signOverdue">仅签收超期</el-checkbox
-      ><el-button native-type="submit" type="primary" :loading="loading">查询</el-button
-      ><el-button @click="reset">重置</el-button>
+      <el-checkbox v-if="kind === 'shipments'" v-model="filter.signOverdue">仅签收超期</el-checkbox>
+      <div class="document-filter-actions">
+        <el-button native-type="submit" type="primary" :icon="Search" :loading="loading"
+          >查询</el-button
+        >
+        <el-button :icon="Refresh" @click="reset">重置</el-button>
+      </div>
     </form>
     <el-alert v-if="error" type="error" :title="error" :closable="false" />
     <el-table :data="rows" row-key="id">
@@ -413,8 +421,9 @@ onBeforeUnmount(() => {
       >
       <template #empty
         ><div class="empty-state">
-          <strong>{{ loading ? '正在加载…' : error ? '加载失败' : '没有符合条件的单据' }}</strong
-          ><span v-if="!loading">{{
+          <strong>{{
+            loading ? '正在加载…' : error ? '加载失败' : '没有符合条件的单据'
+          }}</strong><span v-if="!loading">{{
             error ? '请检查筛选或重新查询。' : '调整筛选条件，或新建一张单据。'
           }}</span
           ><el-button v-if="!loading" text @click="error ? load() : reset()">{{
@@ -440,45 +449,3 @@ onBeforeUnmount(() => {
     </footer>
   </section>
 </template>
-<style scoped>
-.document-status-tabs {
-  display: flex;
-  gap: 20px;
-  padding: 0 24px;
-  border-bottom: 1px solid var(--el-border-color-light);
-  overflow-x: auto;
-}
-.document-status-tabs button {
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: none;
-  padding: 14px 0;
-  color: var(--el-text-color-secondary);
-  white-space: nowrap;
-  cursor: pointer;
-}
-.document-status-tabs button[aria-selected='true'] {
-  color: var(--el-color-primary);
-  border-color: var(--el-color-primary);
-  font-weight: 600;
-}
-.document-status-tabs span {
-  font-size: 12px;
-  margin-left: 4px;
-}
-.filters .filter-field {
-  width: 190px;
-}
-.filters .small {
-  width: 140px;
-}
-.filters input[type='date'] {
-  height: 40px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 4px;
-  padding: 0 8px;
-  background: white;
-  color: var(--el-text-color-primary);
-  width: 100%;
-}
-</style>

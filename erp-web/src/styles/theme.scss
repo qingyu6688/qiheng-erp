@@ -1,7 +1,7 @@
 @forward 'element-plus/theme-chalk/src/common/var.scss' with (
   $colors: (
     'primary': (
-      'base': #1e5bd7,
+      'base': #3d63dd,
     ),
     'success': (
       'base': #12805c,
@@ -20,21 +20,25 @@
     ),
   ),
   $text-color: (
-    'primary': #1d2129,
-    'regular': #1d2129,
-    'secondary': #4e5969,
+    'primary': #252d3e,
+    'regular': #343e52,
+    'secondary': #57647b,
     'placeholder': #6b7380,
     'disabled': #6b7380,
   ),
   $border-color: (
     '': #c9cdd4,
-    'light': #e3e6eb,
+    'light': #e9ecf2,
   ),
   $bg-color: (
-    'page': #f5f6f8,
+    'page': #f7f8fc,
   ),
   $fill-color: (
-    'light': #f7f8fa,
+    'light': #f5f7fb,
+  ),
+  $border-radius: (
+    'base': 8px,
+    'small': 6px,
   )
 );
 @use 'element-plus/theme-chalk/src/base.scss';

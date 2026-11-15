@@ -32,24 +32,33 @@ const emit = defineEmits<{ close: [] }>()
 </template>
 <style scoped>
 .record-inline > header {
-  padding: 16px 20px;
-  border-bottom: 1px solid #e3e6eb;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--el-border-color-light);
 }
 .record-inline h2 {
   margin: 0;
   font-size: 16px;
+  font-weight: 600;
 }
 .record-inline-body {
-  padding: 20px;
+  padding: 24px;
 }
 .record-inline > footer {
-  padding: 16px 20px;
-  border-top: 1px solid #e3e6eb;
+  padding: 16px 24px;
+  border-top: 1px solid var(--el-border-color-light);
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
 }
 .record-inline {
   min-width: 0;
+}
+@media (max-width: 480px) {
+  .record-inline > header,
+  .record-inline-body,
+  .record-inline > footer {
+    padding-inline: 16px;
+  }
 }
 </style>

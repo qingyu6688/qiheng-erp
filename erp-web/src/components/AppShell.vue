@@ -1,7 +1,25 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { OfficeBuilding, SwitchButton, Lock, Bell, User } from '@element-plus/icons-vue'
+import {
+  ArrowDown,
+  ArrowRight,
+  Bell,
+  Box,
+  Close,
+  DataAnalysis,
+  Document,
+  Expand,
+  Fold,
+  House,
+  Lock,
+  OfficeBuilding,
+  Setting,
+  ShoppingCart,
+  SwitchButton,
+  Tickets,
+  Wallet,
+} from '@element-plus/icons-vue'
 import { useSessionStore } from '../stores/session'
 import { messageOf, isCancelled } from '../api/http'
 import { workbenchSummary } from '../api/workbench'
@@ -22,15 +40,17 @@ const loggingOut = ref(false),
 const title = computed(() =>
   String(route.meta.title ?? (route.name === 'password' ? '账户设置' : '工作台')),
 )
+const accountName = computed(() => session.user?.displayName || session.user?.username || '账户')
 interface NavigationItem {
   path: string
   title: string
   permission?: string
   any?: string[]
 }
-const definitions: { title: string; items: NavigationItem[] }[] = [
+const definitions = [
   {
     title: '销售',
+    icon: Tickets,
     items: [
       { path: 'sales-orders', title: '销售订单', permission: 'sales_order:view' },
       { path: 'shipments', title: '发货与签收', permission: 'shipment:view' },
@@ -39,6 +59,7 @@ const definitions: { title: string; items: NavigationItem[] }[] = [
   },
   {
     title: '采购',
+    icon: ShoppingCart,
     items: [
       { path: 'purchase-requisitions', title: '请购管理', permission: 'purchase_requisition:view' },
       { path: 'purchase-orders', title: '采购订单', permission: 'purchase_order:view' },
@@ -48,6 +69,7 @@ const definitions: { title: string; items: NavigationItem[] }[] = [
   },
   {
     title: '库存',
+    icon: Box,
     items: [
       { path: 'inventory-balances', title: '实时库存', permission: 'inventory:view' },
       { path: 'stock-transfers', title: '库存调拨', permission: 'stock_transfer:view' },
@@ -57,6 +79,7 @@ const definitions: { title: string; items: NavigationItem[] }[] = [
   },
   {
     title: '资金与往来',
+    icon: Wallet,
     items: [
       { path: 'receipts', title: '收款登记', permission: 'receipt:view' },
       { path: 'payments', title: '付款登记', permission: 'payment:view' },
@@ -69,6 +92,7 @@ const definitions: { title: string; items: NavigationItem[] }[] = [
   },
   {
     title: '财务期间',
+    icon: Document,
     items: [
       { path: 'document-reversals', title: '单据冲销', permission: 'reversal:view' },
       { path: 'accounting-periods', title: '会计期间与关账', permission: 'period:view' },
@@ -76,6 +100,7 @@ const definitions: { title: string; items: NavigationItem[] }[] = [
   },
   {
     title: '报表与数据',
+    icon: DataAnalysis,
     items: [
       {
         path: 'reports',
@@ -94,6 +119,7 @@ const definitions: { title: string; items: NavigationItem[] }[] = [
   },
   {
     title: '基础资料',
+    icon: OfficeBuilding,
     items: [
       { path: 'partners', title: '往来单位', permission: 'partner:view' },
       { path: 'skus', title: '商品与 SKU', any: ['sku:view', 'product:view'] },
@@ -106,20 +132,21 @@ const definitions: { title: string; items: NavigationItem[] }[] = [
   },
   {
     title: '系统管理',
+    icon: Setting,
     items: [
       { path: 'companies', title: '公司与参数', permission: 'company:view' },
       { path: 'users', title: '用户与角色', any: ['user:view', 'role:view'] },
       { path: 'audit-logs', title: '操作审计', any: ['audit:view', 'admin:outbox'] },
     ],
   },
-]
+] satisfies { title: string; icon: typeof Box; items: NavigationItem[] }[]
 const groups = computed(() =>
   session.user?.mustChangePassword
     ? []
     : definitions
         .map((group) => ({
           ...group,
-          items: group.items
+          items: (group.items as NavigationItem[])
             .filter((item) =>
               item.permission ? session.can(item.permission) : item.any?.some(session.can),
             )
@@ -136,20 +163,94 @@ const groups = computed(() =>
         .filter((group) => group.items.length),
 )
 const expanded = ref<Record<string, boolean>>({})
+const activeGroup = computed(() =>
+  groups.value.find((group) => group.items.some((item) => active(item.path))),
+)
+const activeItem = computed(() => activeGroup.value?.items.find((item) => active(item.path)))
+const compactViewport = window.matchMedia('(max-width: 800px)')
+const mobile = ref(compactViewport.matches)
+const desktopNavigation = ref(true)
+const mobileNavigation = ref(false)
+const navigationVisible = computed(() =>
+  mobile.value ? mobileNavigation.value : desktopNavigation.value,
+)
+const menuButton = ref<HTMLButtonElement>()
+const closeButton = ref<HTMLButtonElement>()
+function syncViewport(event: MediaQueryListEvent): void {
+  mobile.value = event.matches
+  mobileNavigation.value = false
+}
+compactViewport.addEventListener('change', syncViewport)
+onScopeDispose(() => compactViewport.removeEventListener('change', syncViewport))
+function closeNavigation(): void {
+  mobileNavigation.value = false
+  void nextTick(() => menuButton.value?.focus())
+}
+function toggleNavigation(): void {
+  if (!mobile.value) {
+    desktopNavigation.value = !desktopNavigation.value
+  } else if (mobileNavigation.value) {
+    closeNavigation()
+  } else {
+    mobileNavigation.value = true
+    void nextTick(() => closeButton.value?.focus())
+  }
+}
+
+interface WorkTab {
+  key: string
+  title: string
+  to: string
+}
+const workTabs = ref<WorkTab[]>([])
+const workTabKey = computed(
+  () => activeItem.value?.path ?? (route.name === 'password' ? 'password' : ''),
+)
+const MAX_WORK_TABS = 8
 watch(
-  () => route.path,
+  () => session.companyId,
   () => {
-    for (const group of groups.value)
-      if (group.items.some((item) => active(item.path))) expanded.value[group.title] = true
+    workTabs.value = []
+  },
+  { flush: 'sync' },
+)
+watch(
+  [() => route.fullPath, workTabKey, () => session.companyId],
+  () => {
+    if (!workTabKey.value || session.user?.mustChangePassword) return
+    const tab = {
+      key: workTabKey.value,
+      title: activeItem.value?.title ?? title.value,
+      to: route.fullPath,
+    }
+    const index = workTabs.value.findIndex((item) => item.key === tab.key)
+    if (index >= 0) workTabs.value[index] = tab
+    else workTabs.value = [...workTabs.value, tab].slice(-MAX_WORK_TABS)
+  },
+  { immediate: true },
+)
+async function closeWorkTab(tab: WorkTab): Promise<void> {
+  if (tab.key === workTabKey.value) {
+    const adjacent = workTabs.value.filter((item) => item.key !== tab.key).at(-1)
+    if (await router.push(adjacent?.to ?? '/')) return
+  }
+  workTabs.value = workTabs.value.filter((item) => item.key !== tab.key)
+}
+
+watch(
+  [() => route.fullPath, activeGroup],
+  ([, group]) => {
+    if (group) expanded.value[group.title] = true
+    if (mobileNavigation.value) closeNavigation()
   },
   { immediate: true },
 )
 function active(path: string): boolean {
   return path === 'reports'
     ? route.path.startsWith('/reports/')
-    : path === 'skus'
+    : path === 'skus' || path === 'products'
       ? ['/skus', '/products'].includes(route.path)
-      : path === 'users'
+      : path === 'users' || path === 'roles'
         ? ['/users', '/roles'].includes(route.path)
         : route.path === '/' + path || route.path.startsWith('/' + path + '/')
 }
@@ -186,17 +287,47 @@ async function logout(): Promise<void> {
 }
 </script>
 <template>
-  <div class="shell">
-    <aside class="sidebar">
-      <BrandMark />
-      <nav aria-label="主导航">
+  <div
+    class="shell"
+    :class="{ 'shell-with-sidebar': navigationVisible && !mobile }"
+    @keydown.esc="mobileNavigation && closeNavigation()"
+  >
+    <div
+      v-if="mobileNavigation"
+      class="sidebar-backdrop"
+      aria-hidden="true"
+      @click="closeNavigation()"
+    />
+    <aside
+      v-show="navigationVisible"
+      id="workspace-sidebar"
+      class="sidebar"
+      :role="mobile ? 'dialog' : undefined"
+      :aria-modal="mobile ? true : undefined"
+      :aria-label="mobile ? '业务导航' : undefined"
+    >
+      <div class="sidebar-head">
+        <BrandMark />
+        <button
+          v-if="mobile"
+          ref="closeButton"
+          class="shell-button"
+          type="button"
+          aria-label="关闭导航"
+          @click="closeNavigation()"
+        >
+          <Close class="icon" aria-hidden="true" />
+        </button>
+      </div>
+      <nav v-if="!session.user?.mustChangePassword" aria-label="主导航">
         <router-link
-          v-if="!session.user?.mustChangePassword"
           class="nav-link home-link"
           to="/"
           :class="{ 'is-current': route.path === '/' }"
-          >工作台</router-link
+          @click="mobileNavigation && route.fullPath === '/' && closeNavigation()"
+          ><House class="icon" aria-hidden="true" />工作台</router-link
         >
+        <div v-if="groups.length" class="nav-caption">业务菜单</div>
         <details
           v-for="group in groups"
           :key="group.title"
@@ -204,13 +335,17 @@ async function logout(): Promise<void> {
           :open="expanded[group.title]"
           @toggle="expanded[group.title] = ($event.target as HTMLDetailsElement).open"
         >
-          <summary>{{ group.title }}</summary>
+          <summary :class="{ 'has-current': activeGroup?.title === group.title }">
+            <component :is="group.icon" class="icon" aria-hidden="true" />{{ group.title }}
+            <ArrowRight class="nav-arrow" aria-hidden="true" />
+          </summary>
           <router-link
             v-for="item in group.items"
             :key="item.path"
             class="nav-link"
             :class="{ 'is-current': active(item.path) }"
             :to="'/' + item.path"
+            @click="mobileNavigation && route.fullPath === '/' + item.path && closeNavigation()"
             >{{ item.title
             }}<span v-if="item.path === 'shipments' && overdue" class="nav-count">{{
               overdue
@@ -219,56 +354,126 @@ async function logout(): Promise<void> {
         </details>
       </nav>
     </aside>
-    <div class="workspace">
+    <div class="workspace" :inert="mobileNavigation">
       <header class="topbar">
-        <span class="breadcrumb">{{ title }}</span>
+        <div class="topbar-start">
+          <button
+            ref="menuButton"
+            class="shell-button"
+            type="button"
+            :aria-label="navigationVisible ? '收起导航' : '展开导航'"
+            :aria-expanded="navigationVisible"
+            aria-controls="workspace-sidebar"
+            @click="toggleNavigation"
+          >
+            <Fold v-if="navigationVisible" class="icon" aria-hidden="true" />
+            <Expand v-else class="icon" aria-hidden="true" />
+          </button>
+          <nav class="breadcrumb" aria-label="当前位置">
+            <router-link
+              v-if="route.path !== '/' && !session.user?.mustChangePassword"
+              to="/"
+              aria-label="返回工作台"
+              title="返回工作台"
+            >
+              <House class="icon" aria-hidden="true" />
+            </router-link>
+            <ArrowRight v-if="activeGroup" class="breadcrumb-arrow" aria-hidden="true" />
+            <span v-if="activeGroup">{{ activeGroup.title }}</span>
+            <ArrowRight
+              v-if="route.path !== '/' && !session.user?.mustChangePassword"
+              class="breadcrumb-arrow"
+              aria-hidden="true"
+            />
+            <strong aria-current="page">{{ title }}</strong>
+          </nav>
+        </div>
         <div class="topbar-actions">
-          <OfficeBuilding class="icon company-icon" aria-hidden="true" /><label
-            for="company-select"
-            class="sr-only"
-            >当前公司</label
-          ><el-select
+          <label for="company-select" class="sr-only">当前公司</label>
+          <el-select
             id="company-select"
             class="company-select"
             :model-value="session.companyId"
             placeholder="请选择公司"
             @change="selectCompany"
-            ><el-option
+          >
+            <template #prefix
+              ><OfficeBuilding class="icon company-icon" aria-hidden="true"
+            /></template>
+            <el-option
               v-for="company in session.user?.companies"
               :key="company.id"
               :value="company.id"
               :label="company.name"
-          /></el-select>
+            />
+          </el-select>
           <router-link
             v-if="!session.user?.mustChangePassword"
-            class="workbench-bell"
+            class="shell-button workbench-bell"
             to="/"
             :aria-label="'查看待办，' + taskCount + '条'"
-            ><Bell class="icon" /><span v-if="taskCount" class="nav-count">{{
+            title="查看待办"
+            ><Bell class="icon" aria-hidden="true" /><span v-if="taskCount" class="nav-count">{{
               taskCount
             }}</span></router-link
           >
           <details class="account-menu">
-            <summary>
-              <User class="icon" /><span>{{
-                session.user?.displayName || session.user?.username
+            <summary :aria-label="accountName + '账户菜单'">
+              <span class="account-avatar" aria-hidden="true">{{
+                accountName.charAt(0).toUpperCase()
               }}</span>
+              <span class="account-label">{{ accountName }}</span>
+              <ArrowDown class="account-arrow" aria-hidden="true" />
             </summary>
-            <div>
-              <router-link to="/account/password"><Lock class="icon" />修改密码</router-link
-              ><el-button text :loading="loggingOut" @click="logout">退出登录</el-button>
+            <div class="account-options">
+              <router-link
+                to="/account/password"
+                @click="
+                  ($event.currentTarget as HTMLElement).closest('details')?.removeAttribute('open')
+                "
+              >
+                <Lock class="icon" aria-hidden="true" />修改密码
+              </router-link>
             </div>
           </details>
-          <el-button
-            text
-            :loading="loggingOut"
+          <button
+            class="shell-button"
+            type="button"
+            :disabled="loggingOut"
             aria-label="退出登录"
             title="退出登录"
             @click="logout"
-            ><SwitchButton class="icon"
-          /></el-button>
+          >
+            <SwitchButton class="icon" aria-hidden="true" />
+          </button>
         </div>
       </header>
+      <nav v-if="!session.user?.mustChangePassword" class="work-tabs" aria-label="工作标签">
+        <router-link
+          class="work-tab-home"
+          to="/"
+          :class="{ 'is-current': route.path === '/' }"
+          aria-label="切换到工作台"
+        >
+          <House class="icon" aria-hidden="true" />工作台
+        </router-link>
+        <div
+          v-for="tab in workTabs"
+          :key="tab.key"
+          class="work-tab"
+          :class="{ 'is-current': tab.key === workTabKey }"
+        >
+          <router-link :to="tab.to" :aria-label="'切换到' + tab.title">{{ tab.title }}</router-link>
+          <button
+            type="button"
+            :aria-label="'关闭' + tab.title + '标签'"
+            :title="'关闭' + tab.title + '标签'"
+            @click="closeWorkTab(tab)"
+          >
+            <Close aria-hidden="true" />
+          </button>
+        </div>
+      </nav>
       <main class="content">
         <el-alert v-if="error" type="error" :title="error" :closable="false" /><router-view
           :key="route.path + ':' + session.companyId"

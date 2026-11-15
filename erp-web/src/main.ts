@@ -19,6 +19,8 @@ import { router } from './router'
 import { useSessionStore } from './stores/session'
 import './styles/theme.scss'
 import './styles/app.css'
+import './styles/art-business.css'
+import './styles/workspace.css'
 
 const app = createApp(App)
 const pinia = createPinia()

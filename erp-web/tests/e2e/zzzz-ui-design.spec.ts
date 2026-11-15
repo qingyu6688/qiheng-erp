@@ -1,5 +1,47 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page, type TestInfo } from '@playwright/test'
 import { env } from 'node:process'
+
+async function verifyWorkspaceNavigation(page: Page, testInfo: TestInfo): Promise<void> {
+  await expect(page.locator('.workbench-stat').first()).toBeVisible()
+  await page.screenshot({
+    path: testInfo.outputPath('art-workbench.png'),
+    fullPage: true,
+    animations: 'disabled',
+  })
+
+  await page.locator('.workbench-stat[data-metric="sales-orders"]').click()
+  await expect(page).toHaveURL(/sales-orders\?status=pending/)
+  const tabs = page.getByRole('navigation', { name: '工作标签' })
+  await tabs.getByRole('link', { name: '切换到工作台' }).click()
+  await tabs.getByRole('link', { name: '切换到销售订单' }).click()
+  await expect(page).toHaveURL(/sales-orders\?status=pending/)
+  await tabs.getByRole('button', { name: '关闭销售订单标签' }).click()
+  await expect(page.getByRole('heading', { name: '工作台', exact: true })).toBeVisible()
+  await expect(tabs.getByRole('link', { name: '切换到销售订单' })).toHaveCount(0)
+
+  const desktop = page.viewportSize()!
+  await page.setViewportSize({ width: 390, height: 844 })
+  const open = page.getByRole('button', { name: '展开导航' })
+  await open.click()
+  const menu = page.getByRole('dialog', { name: '业务导航' })
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole('button', { name: '关闭导航' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  await expect(open).toBeFocused()
+  await open.click()
+  await menu.getByText('库存', { exact: true }).click()
+  await menu.getByRole('link', { name: '实时库存', exact: true }).click()
+  await expect(menu).toBeHidden()
+  await expect(page.getByRole('heading', { name: '实时库存', exact: true })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390)
+  await page.screenshot({
+    path: testInfo.outputPath('art-inventory-mobile.png'),
+    fullPage: true,
+    animations: 'disabled',
+  })
+  await page.setViewportSize(desktop)
+}
 
 test('工作台入口、单据筛选刷新、独立订单50行与未保存保护', async ({ page }, testInfo) => {
   test.setTimeout(90_000)
@@ -13,6 +55,7 @@ test('工作台入口、单据筛选刷新、独立订单50行与未保存保护
   await page.locator('#password').fill(env.ERP_E2E_PASSWORD)
   await page.getByRole('button', { name: '登录', exact: true }).click()
   await expect(page.getByRole('heading', { name: '工作台', exact: true })).toBeVisible()
+  await verifyWorkspaceNavigation(page, testInfo)
   await page.goto('/sales-orders?status=approved&dateFrom=2026-11-01&dateTo=2026-11-15')
   await expect(page.getByRole('tab', { name: /^已批准/ })).toHaveAttribute('aria-selected', 'true')
   await expect(page.locator('#sales-orders-from')).toHaveValue('2026-11-01')

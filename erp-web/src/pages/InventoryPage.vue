@@ -338,4 +338,17 @@ function refresh(): void {
 .filters .filter-field {
   width: 210px;
 }
+@media (max-width: 480px) {
+  .inventory-statistics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .inventory-statistic {
+    padding: 12px;
+  }
+  .inventory-statistic strong {
+    font-size: 20px;
+    overflow-wrap: anywhere;
+  }
+}
 </style>

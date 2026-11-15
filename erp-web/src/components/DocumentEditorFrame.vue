@@ -3,7 +3,7 @@ defineProps<{ inline?: boolean; title: string; busy: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 </script>
 <template>
-  <section v-if="inline" class="panel order-editor-page" :aria-label="title">
+  <section v-if="inline" class="panel order-editor-page" :aria-label="title" :aria-busy="busy">
     <header>
       <h2>{{ title }}</h2>
       <p>金额由服务器试算；保存草稿后再提交审核。</p>
@@ -32,9 +32,11 @@ const emit = defineEmits<{ close: [] }>()
 h2 {
   margin: 0;
   font-size: 16px;
+  font-weight: 600;
 }
 .order-editor-page > header p {
   margin: 6px 0 0;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 .order-editor-body {
@@ -45,10 +47,19 @@ h2 {
   bottom: 0;
   z-index: 3;
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   padding: 16px 24px;
-  background: white;
+  background: var(--el-bg-color);
   border-top: 1px solid var(--el-border-color-light);
+  border-radius: 0 0 12px 12px;
+}
+@media (max-width: 480px) {
+  .order-editor-page > header,
+  .order-editor-body,
+  .order-editor-footer {
+    padding-inline: 16px;
+  }
 }
 </style>
