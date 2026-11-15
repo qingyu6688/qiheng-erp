@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+  <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+  <appender name="REQUEST_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <file>${ERP_HTTP_LOG_FILE:-./logs/http.log}</file>
+    <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+      <fileNamePattern>${ERP_HTTP_LOG_FILE:-./logs/http.log}.%d{yyyy-MM-dd,Asia/Shanghai}.%i.gz</fileNamePattern>
+      <maxFileSize>50MB</maxFileSize>
+      <maxHistory>14</maxHistory>
+      <totalSizeCap>2GB</totalSizeCap>
+    </rollingPolicy>
+    <encoder>
+      <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX,Asia/Shanghai} [%thread] %-5level %msg%n</pattern>
+      <charset>UTF-8</charset>
+    </encoder>
+  </appender>
+  <!-- 请求日志独立落盘，避免控制台管道持锁阻塞所有 HTTP 线程；队列满时等待，禁止丢弃。 -->
+  <appender name="ASYNC_REQUESTS" class="ch.qos.logback.classic.AsyncAppender">
+    <queueSize>8192</queueSize>
+    <discardingThreshold>0</discardingThreshold>
+    <neverBlock>false</neverBlock>
+    <maxFlushTime>30000</maxFlushTime>
+    <appender-ref ref="REQUEST_FILE"/>
+  </appender>
+  <logger name="cn.erp.shared.RequestIds" level="INFO" additivity="false">
+    <appender-ref ref="ASYNC_REQUESTS"/>
+  </logger>
+  <springProfile name="prod | production">
+    <include resource="org/springframework/boot/logging/logback/file-appender.xml"/>
+    <root level="INFO"><appender-ref ref="CONSOLE"/><appender-ref ref="FILE"/></root>
+  </springProfile>
+  <springProfile name="!prod &amp; !production">
+    <root level="INFO"><appender-ref ref="CONSOLE"/></root>
+  </springProfile>
+</configuration>

@@ -55,6 +55,7 @@ services:
       SERVER_ADDRESS: 0.0.0.0
       ERP_NODE_ID: 10
       ERP_WORKER_ENABLED: "false"
+      ERP_HTTP_LOG_FILE: /var/log/erp/api-http.log
     networks: [web, data]
   worker:
     image: ${ERP_IMAGE:?请设置已构建校验的ERP镜像摘要}
@@ -70,6 +71,7 @@ services:
       ERP_NODE_ID: 11
       ERP_WORKER_ENABLED: "true"
       ERP_LOG_FILE: /var/log/erp/worker.log
+      ERP_HTTP_LOG_FILE: /var/log/erp/worker-http.log
     networks: [web, data]
   nginx:
     image: ${NGINX_IMAGE:?请设置已审阅的固定版本及摘要}

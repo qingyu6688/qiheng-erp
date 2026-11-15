@@ -31,7 +31,7 @@ try {
     'START TRANSACTION; INSERT INTO audit_log(id,tenant_id,action,object_type) VALUES(850000000000000001,850000000000000001,''permission.check'',''test''); SELECT COUNT(*) FROM audit_log WHERE id=850000000000000001; ROLLBACK;' | & $mysql @connection ('--user='+$runtime) ('--database='+$Database) 2> (Join-Path $output 'runtime.err.log') | Out-Null
     if($LASTEXITCODE -ne 0){throw '运行账号的合法只追加写入失败。'}
     $blocked=@()
-    foreach($probe in @(@('ddl','CREATE TABLE runtime_forbidden_probe(id INT);'),@('audit_update','UPDATE audit_log SET action=action WHERE id=0;'),@('journal_delete','DELETE FROM journal WHERE id=0;'),@('permission_write','UPDATE sys_permission SET name=name WHERE id=0;'))){
+    foreach($probe in @(@('ddl','CREATE TABLE runtime_forbidden_probe(id INT);'),@('audit_update','UPDATE audit_log SET action=action WHERE id=0;'),@('journal_update','UPDATE journal SET id=id WHERE id=0;'),@('journal_delete','DELETE FROM journal WHERE id=0;'),@('permission_write','UPDATE sys_permission SET name=name WHERE id=0;'))){
         $probe[1] | & $mysql @connection ('--user='+$runtime) ('--database='+$Database) 2> (Join-Path $output ($probe[0]+'.err.log')) | Out-Null
         if($LASTEXITCODE -eq 0){throw ('运行账号越权检查未阻止：'+$probe[0])};$blocked+=$probe[0]
     }

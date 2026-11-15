@@ -10,10 +10,14 @@ const hotPreconnect = scenario === 'hotspot' && __ENV.ERP_LOAD_HOT_PRECONNECT ==
 const systemError = new Rate('system_error'), businessRejected = new Counter('business_rejected'), committed = new Counter('committed_operations'), hotAccepted = new Counter('hot_accepted'), refundAccepted = new Counter('refund_accepted'), invariantFailures = new Counter('invariant_failures');
 const mixedInboundCompleted = new Counter('mixed_inbound_completed'), mixedRefundCompleted = new Counter('mixed_refund_completed'), exportsAccepted = new Counter('exports_accepted');
 const preconnectError = new Rate('preconnect_error'), preconnectTime = new Trend('preconnect_duration', true), preconnected = new Counter('preconnected_clients'), preconnectLate = new Counter('preconnect_late'), hotRequests = new Counter('hot_requests'), hotReused = new Counter('hot_reused_connections'), hotDispatchDelay = new Trend('hot_dispatch_delay', true);
+const hotCold = new Counter('hot_new_connections');
 const readTime = new Trend('read_duration', true), writeTime = new Trend('write_duration', true), workflowTime = new Trend('workflow_duration', true);
 const arrival = { executor: 'constant-arrival-rate', rate, timeUnit: '1s', duration, preAllocatedVUs: Math.min(100, Math.max(10, rate)), maxVUs: Number(__ENV.MAX_VUS || 250), gracefulStop: '60s' };
+// 按查询延迟上限预先准备客户端，避免计时开始后临时初始化 VU 造成调度丢弃。
+const queryLatencyBudgetSeconds = 0.5;
+const queryVus = Math.max(arrival.preAllocatedVUs, Math.ceil(rate * queryLatencyBudgetSeconds));
 const definitions = {
-  query: { ...arrival, exec: 'query' },
+  query: { ...arrival, preAllocatedVUs: queryVus, maxVUs: Math.max(queryVus, arrival.maxVUs), exec: 'query' },
   write: { ...arrival, exec: 'write' },
   hotspot: { executor: 'per-vu-iterations', vus: 1000, iterations: 1, maxDuration: '4m', exec: 'hotspot' },
   duplicate: { executor: 'per-vu-iterations', vus: 100, iterations: 1, maxDuration: '3m', exec: 'duplicate' },
@@ -24,6 +28,8 @@ const definitions = {
 };
 if (!definitions[scenario]) throw new Error('容量场景无效');
 const thresholds = { system_error: ['rate<0.01'], invariant_failures: ['count==0'], checks: ['rate==1'] };
+if (['query', 'write', 'mixed', 'burst'].includes(scenario)) thresholds.dropped_iterations = ['count==0'];
+if (scenario === 'query' && duration === '30s') thresholds.iterations = ['count>=' + rate * 30];
 if (['query', 'mixed', 'burst'].includes(scenario)) {
   thresholds.read_duration = ['p(95)<500'];
   for (const operation of ['/sales-orders', '/purchase-orders', '/inventory-balances', '/skus', '/document-browser/sales-orders', '/document-browser/purchase-orders']) thresholds['read_duration{operation:' + operation + '}'] = ['p(95)<500'];
@@ -37,9 +43,10 @@ if (['mixed', 'burst'].includes(scenario)) {
   for (const operation of ['/capacity/mixed-inbound', '/refund-requests', '/refund-requests/:id/submit', '/refund-requests/:id/approve', '/refund-requests/:id/register-paid']) thresholds['write_duration{operation:' + operation + '}'] = ['p(95)<1000'];
 }
 if (scenario === 'hotspot') { thresholds.hot_accepted = ['count==100']; thresholds.hot_requests = ['count==1000']; }
+if (scenario === 'hotspot' && !hotPreconnect) { thresholds.hot_new_connections = ['count==1000']; thresholds.system_error = ['rate==0']; }
 if (hotPreconnect) { thresholds.preconnect_error = ['rate==0']; thresholds.preconnect_late = ['count==0']; thresholds.preconnected_clients = ['count==1000']; thresholds.hot_reused_connections = ['count==1000']; }
 if (scenario === 'refund') thresholds.refund_accepted = ['count==50'];
-export const options = { scenarios: { [scenario]: definitions[scenario] }, thresholds, summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(50)', 'p(95)', 'p(99)'], setupTimeout: '60s', teardownTimeout: '2m', discardResponseBodies: false };
+export const options = { scenarios: { [scenario]: definitions[scenario] }, thresholds, noConnectionReuse: scenario === 'hotspot' && !hotPreconnect, summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(50)', 'p(95)', 'p(99)'], setupTimeout: '60s', teardownTimeout: '2m', discardResponseBodies: false };
 
 function body(response) { try { return response.json(); } catch { return null; } }
 function login(code, username = 'operator') {
@@ -64,6 +71,7 @@ function request(context, method, path, data, key, timing) {
 export function setup() {
   invariantFailures.add(0); hotAccepted.add(0); refundAccepted.add(0); committed.add(0); businessRejected.add(0); mixedInboundCompleted.add(0); mixedRefundCompleted.add(0); exportsAccepted.add(0);
   preconnected.add(0); preconnectLate.add(0); hotRequests.add(0); hotReused.add(0);
+  hotCold.add(0);
   const first = login('LOAD-' + __ENV.ERP_LOAD_RUN_ID + '-0');
   const initial = { companyId: first.companies[0].id, cookies: first.cookies };
   const manifest = request(initial, 'GET', '/capacity/manifest');
@@ -75,7 +83,17 @@ export function setup() {
     const diagnostic = request(c, 'GET', '/capacity/diagnostics');
     if (diagnostic.response.status !== 200) throw new Error('容量执行计划读取失败');
     console.log(JSON.stringify({ phase: 'diagnostics', company: c.companyId, ...diagnostic.data }));
-    for (const path of queryPaths(c)) if (request(c, 'GET', path).response.status !== 200) throw new Error('容量查询温启动失败：' + path.split('?')[0]);
+    const paths = queryPaths(c);
+    for (const path of paths) {
+      const result = request(c, 'GET', path);
+      if (result.response.status !== 200 || !Array.isArray(result.data?.items)) {
+        throw new Error('容量查询温启动失败：' + path.split('?')[0]);
+      }
+    }
+    if (scenario === 'query') {
+      c.queryHeaders = headers(c);
+      c.queryRequests = paths.map(path => ({ path, operation: path.split('?')[0] }));
+    }
   }
   if (hotPreconnect) { const barrier = Date.now() + 10000; for (const c of contexts) c.hotStartAt = barrier; }
   return contexts;
@@ -86,9 +104,17 @@ function queryPaths(c) {
   return ['/sales-orders?limit=20', '/purchase-orders?limit=20', '/inventory-balances?limit=20', '/skus?keyword=LOAD-199&limit=20', '/document-browser/sales-orders?limit=20&status=approved&dateFrom=' + from + '&dateTo=' + c.businessDate, '/document-browser/purchase-orders?limit=20&status=cancelled&dateFrom=' + from + '&dateTo=' + c.businessDate];
 }
 export function query(data) {
-  const c = context(data), paths = queryPaths(c);
-  const result = request(c, 'GET', paths[exec.scenario.iterationInTest % paths.length], undefined, undefined, readTime);
-  check(result.response, { '查询成功': value => value.status === 200 });
+  const c = context(data);
+  const { path, operation } = c.queryRequests[exec.scenario.iterationInTest % c.queryRequests.length];
+  http.cookieJar().clear(base);
+  const start = Date.now();
+  // 温启动已校验各公司、各路径的 JSON。计时阶段完整接收响应，不在同机重复解析并保留 JSON。
+  const response = http.get(base + '/api/v1' + path, {
+    headers: c.queryHeaders, timeout: '60s', responseType: 'none', tags: { operation, scenario },
+  });
+  readTime.add(Date.now() - start, { operation });
+  systemError.add(response.status === 0 || response.status >= 400);
+  check(response, { '查询成功': value => value.status === 200 });
 }
 export function write(data) {
   const count = Number(__ENV.LINES || [1, 20, 100][exec.scenario.iterationInTest % 3]), key = __ENV.ERP_LOAD_RUN_ID + '_' + (__ENV.ERP_LOAD_PHASE || 'baseline') + '_' + scenario[0] + '_' + rate + '_' + count + '_' + exec.scenario.iterationInTest;
@@ -146,6 +172,7 @@ export function recover(data) {
   }
 }
 export function hotspot(data) {
+  if (!hotPreconnect) hotDispatchDelay.add(Date.now() - exec.scenario.startTime);
   if (hotPreconnect) {
     sleep((exec.vu.idInTest - 1) * 3 / 1000);
     const warm = request(data[0], 'GET', '/capacity/manifest', undefined, undefined, preconnectTime);
@@ -159,6 +186,7 @@ export function hotspot(data) {
   }
   hotRequests.add(1);
   const result = request(data[0], 'POST', '/capacity/reserve/' + (exec.vu.idInTest - 1), {}, undefined, writeTime);
+  if (!hotPreconnect && result.response.status !== 0 && result.response.timings.connecting > 0) hotCold.add(1);
   if (hotPreconnect && result.response.status !== 0 && result.response.timings.connecting === 0) hotReused.add(1);
   if (result.response.status === 200) hotAccepted.add(1);
   check(result.response, { '抢库存成功或明确拒绝': value => value.status === 200 || result.rejected });
@@ -227,4 +255,8 @@ export function teardown(data) {
     console.log(JSON.stringify({ phase: 'reconciliation', scenario, company: c.companyId, ...result.data }));
   }
 }
-export function handleSummary(data) { return { [__ENV.SUMMARY_PATH || 'capacity-summary.json']: JSON.stringify(data, null, 2) }; }
+export function handleSummary(data) {
+  data.metadata = { scenario, runId: __ENV.ERP_LOAD_RUN_ID, label: __ENV.ERP_LOAD_PHASE, artifactSha256: __ENV.ERP_LOAD_ARTIFACT_SHA256 || '', generatorCpus: Number(__ENV.GOMAXPROCS || 0), preconnected: hotPreconnect, forceColdConnections: options.noConnectionReuse, preAllocatedVus: definitions[scenario].preAllocatedVUs || definitions[scenario].vus, maxVus: definitions[scenario].maxVUs || definitions[scenario].vus, rate, lines: Number(__ENV.LINES || 1), duration };
+  if (scenario === 'query') data.metadata.queryResponseType = 'none';
+  return { [__ENV.SUMMARY_PATH || 'capacity-summary.json']: JSON.stringify(data, null, 2) };
+}

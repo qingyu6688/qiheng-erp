@@ -32,5 +32,5 @@ $classpath=(Join-Path $nativeOutput 'BOOT-INF/classes')+';'+(Join-Path $nativeOu
 & (Join-Path $JavaHome 'bin/javac.exe') -encoding UTF-8 -cp $classpath -d $nativeOutput (Join-Path $PSScriptRoot 'java/RecoveryVerifier.java')
 if($LASTEXITCODE -ne 0){throw '恢复对账检查编译失败。'}
 $result=Join-Path $output 'reconciliation-result.json'
-& (Join-Path $JavaHome 'bin/java.exe') -Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dstdout.encoding=UTF-8 -cp ($nativeOutput+';'+$classpath) RecoveryVerifier (Resolve-Path -LiteralPath $SettingsFile).Path $Database $result
+& (Join-Path $JavaHome 'bin/java.exe') '-Dfile.encoding=UTF-8' '-Dsun.stdout.encoding=UTF-8' '-Dstdout.encoding=UTF-8' -cp ($nativeOutput+';'+$classpath) RecoveryVerifier (Resolve-Path -LiteralPath $SettingsFile).Path $Database $result
 if($LASTEXITCODE -ne 0){throw '恢复库对账未通过。'}

@@ -53,7 +53,8 @@ public class CapacityDiagnostics {
     }
     private Map<String,Object> connector() {
         if(!(web.getWebServer() instanceof TomcatWebServer server)||!(server.getTomcat().getConnector().getProtocolHandler() instanceof AbstractProtocol<?> protocol))throw new IllegalStateException("容量诊断需要实际Tomcat连接器");
-        return Map.of("acceptCount",protocol.getAcceptCount(),"maxConnections",protocol.getMaxConnections(),"maxThreads",protocol.getMaxThreads(),"keepAliveTimeout",protocol.getKeepAliveTimeout(),"maxQueueSize",protocol.getMaxQueueSize(),"port",protocol.getLocalPort(),"protocol",protocol.getClass().getSimpleName());
+        var executor=protocol.getExecutor();
+        return Map.of("acceptCount",protocol.getAcceptCount(),"maxConnections",protocol.getMaxConnections(),"maxThreads",protocol.getMaxThreads(),"keepAliveTimeout",protocol.getKeepAliveTimeout(),"maxQueueSize",protocol.getMaxQueueSize(),"port",protocol.getLocalPort(),"protocol",protocol.getClass().getSimpleName(),"executor",executor.getClass().getSimpleName(),"poolSize",executor instanceof org.apache.tomcat.util.threads.ThreadPoolExecutor pool?pool.getPoolSize():0,"corePoolSize",protocol.getMinSpareThreads());
     }
     private Map<String,Object> plan(String name,String sql,Object... args) {
         return Map.of("name",name,"sql",sql,"explain",jdbc.queryForList("EXPLAIN "+sql,args));

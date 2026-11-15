@@ -13,6 +13,7 @@ Environment=SPRING_PROFILES_ACTIVE=prod
 Environment=ERP_WORKER_ENABLED=false
 Environment=ERP_NODE_ID=10
 Environment=ERP_LOG_FILE=/var/log/erp/api.log
+Environment=ERP_HTTP_LOG_FILE=/var/log/erp/api-http.log
 ExecStart=/usr/bin/java -XX:MaxRAMPercentage=70 -jar /opt/erp/current/erp-server.jar
 Restart=on-failure
 RestartSec=5

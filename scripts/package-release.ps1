@@ -1,7 +1,7 @@
 ﻿#requires -Version 7.0
 [CmdletBinding()]
 param(
-    [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+$')][string]$Version='0.8.0',
+    [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+$')][string]$Version='0.9.0',
     [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local/release')
 )
 $ErrorActionPreference='Stop'
@@ -31,7 +31,14 @@ if(Test-Path -LiteralPath $javaDirectory -PathType Container){
  New-Item -ItemType Directory -Path (Join-Path $stage 'scripts/java') | Out-Null
  foreach($file in Get-ChildItem -LiteralPath $javaDirectory -Filter '*.java' -File){Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $stage 'scripts/java')}
 }
-foreach($name in '运维手册.md','部署说明.md','用户使用手册.md','测试报告.md','容量测试报告.md','接口设计.md','数据库设计.md','开发计划.md','优化文档.md','项目总结.md','环境检查.md','更新日志.md') {Copy-Item -LiteralPath (Join-Path $root ('docs/'+$name)) -Destination (Join-Path $stage 'docs')}
+$documents=@(
+ '运维手册.md','部署说明.md','用户使用手册.md','测试报告.md','容量测试报告.md',
+ '接口设计.md','数据库设计.md','开发计划.md','优化文档.md','项目总结.md','环境检查.md',
+ '更新日志.md','上线准备清单.md','本机期初导入与业务试运行报告.md','多方式登录配置.md'
+)
+foreach($name in $documents) {
+ Copy-Item -LiteralPath (Join-Path $root ('docs/'+$name)) -Destination (Join-Path $stage 'docs')
+}
 $files=@(Get-ChildItem -LiteralPath $stage -Recurse -File)
 if(@($files | Where-Object { $_.Name -eq '.env' -or ([IO.Path]::GetRelativePath($stage,$_.FullName) -match '(^|[\\/])(?:\.local|test-results|node_modules|private)([\\/]|$)') }).Count){throw '交付内容混入本机配置、测试数据或私有目录。'}
 $manifest=@{version=$Version;kind='本机验收交付包，正式生产上线另行验收';createdAt=[DateTime]::UtcNow.ToString('o');files=@($files | Sort-Object FullName | ForEach-Object {@{path=[IO.Path]::GetRelativePath($stage,$_.FullName).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant();bytes=$_.Length}})}

@@ -4,11 +4,14 @@ param(
     [string]$Database,
     [string]$SettingsFile,
     [string]$RunFile,
+    [string]$JarFile,
     [switch]$Resume,
     [ValidatePattern('^[a-z0-9]{1,16}$')][string]$Label='baseline',
     [ValidateSet('baseline','explore')][string]$Mode='baseline',
     [string[]]$Scenarios=@('query','write','hotspot','duplicate','refund','mixed','burst'),
     [ValidateSet(1,20,100)][int[]]$LineCounts=@(1,20,100),
+    [ValidateSet(20,200,500,1000)][int[]]$QueryRates,
+    [ValidateRange(1,16)][int]$LoadGeneratorCpus=2,
     [switch]$HotPreconnect,
     [int]$SkuCount=20000,
     [string]$Duration='30s'
@@ -45,10 +48,20 @@ if($Action -eq 'server') {
     $env:SPRING_SESSION_REDIS_NAMESPACE='erp:session:load:'+$state.runId
     $env:ERP_STORAGE_LOCAL_ROOT=Join-Path $root ('.local\load-objects-'+$state.runId)
     $env:ERP_WORKER_ENABLED='true';$env:SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE='30'
-    $env:SERVER_TOMCAT_ACCEPT_COUNT='2000';$env:SERVER_TOMCAT_MAX_CONNECTIONS='8192';$env:SERVER_TOMCAT_THREADS_MAX='200'
+    $env:ERP_HTTP_LOG_FILE=Join-Path $root ('.local/load-http-'+$state.runId+'.log')
+    $env:SERVER_TOMCAT_ACCEPT_COUNT='2000';$env:SERVER_TOMCAT_MAX_CONNECTIONS='8192';$env:SERVER_TOMCAT_THREADS_MAX='200';$env:SERVER_TOMCAT_THREADS_MIN_SPARE='200'
     $env:Path="$env:JAVA_HOME\bin;$env:Path"
+    if($JarFile){
+        $artifact=(Resolve-Path -LiteralPath $JarFile).Path
+        $fixtures=Join-Path $root 'erp-server/target/test-classes'
+        if(!(Test-Path -LiteralPath (Join-Path $fixtures 'cn/erp/capacity/CapacityFixture.class'))){throw '容量夹具未编译，请先完成后端验证'}
+        $state|Add-Member -NotePropertyName artifactSha256 -NotePropertyValue ((Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant()) -Force
+        $state|ConvertTo-Json|Set-Content -LiteralPath $RunFile -Encoding utf8NoBOM
+        & (Join-Path $env:JAVA_HOME 'bin/java.exe') ("-Dloader.path="+$fixtures) -cp $artifact org.springframework.boot.loader.launch.PropertiesLauncher
+        exit $LASTEXITCODE
+    }
     Push-Location (Join-Path $root 'erp-server')
-    try{mvn spring-boot:test-run '-Dspring-boot.run.main-class=cn.erp.ErpApplication';$status=$LASTEXITCODE}finally{Pop-Location}
+    try{mvn spring-boot:test-run '-Dspring-boot.run.main-class=cn.erp.ErpApplication' '-Dspring-boot.test-run.optimizedLaunch=false';$status=$LASTEXITCODE}finally{Pop-Location}
     exit $status
 }
 $k6=Get-ChildItem -LiteralPath (Join-Path $root '.local\tools\k6') -Recurse -Filter k6.exe | Select-Object -First 1
@@ -57,18 +70,22 @@ if(!(Test-Path -LiteralPath $RunFile)){throw '容量运行文件不存在，请�
 $state=Get-Content -LiteralPath $RunFile -Raw | ConvertFrom-Json
 if($state.database -notmatch '^erp_load_[a-z0-9]+(?:_[a-z0-9]+)*$' -or $state.runId -notmatch '^[a-f0-9]{12}$'){throw '容量运行文件无效'}
 $env:ERP_LOAD_RUN_ID=$state.runId;$env:ERP_LOAD_PASSWORD=$state.password;$env:ERP_LOAD_KEY=$state.key;$env:ERP_LOAD_URL='http://127.0.0.1:19080'
+$previousGeneratorCpus=$env:GOMAXPROCS
 $env:ERP_LOAD_PHASE=$Label
+$env:ERP_LOAD_ARTIFACT_SHA256=if($state.artifactSha256){$state.artifactSha256}else{''}
 $env:ERP_LOAD_HOT_PRECONNECT=if($HotPreconnect){'true'}else{'false'}
 $output=Join-Path $root ('.local\capacity-results-'+$state.runId+'\'+$Label)
 New-Item -ItemType Directory -Force -Path $output | Out-Null
 $failed=@()
 try {
+ $env:GOMAXPROCS=[string]$LoadGeneratorCpus
  foreach($scenario in $Scenarios) {
     if($scenario -notin @('query','write','hotspot','duplicate','refund','mixed','burst','recovery')){throw '容量场景无效'}
-    $rates=if($Mode -eq 'explore' -and $scenario -eq 'query'){@(200,500,1000)}elseif($Mode -eq 'explore' -and $scenario -eq 'write'){@(20,50,100,200)}else{@($(if($scenario -in @('write','mixed','burst')){2}else{20}))}
+    $rates=if($scenario -eq 'query' -and $QueryRates){$QueryRates}elseif($Mode -eq 'explore' -and $scenario -eq 'query'){@(200,500,1000)}elseif($Mode -eq 'explore' -and $scenario -eq 'write'){@(20,50,100,200)}else{@($(if($scenario -in @('write','mixed','burst')){2}else{20}))}
     $lines=if($scenario -eq 'write'){$LineCounts}else{@(1)}
     foreach($rate in $rates){foreach($lineCount in $lines){
         $name=$scenario+'-r'+$rate+'-l'+$lineCount
+        if($Action -eq 'run' -and ((Test-Path -LiteralPath (Join-Path $output ($name+'.json'))) -or (Test-Path -LiteralPath (Join-Path $output ($name+'.log'))))){throw '该场景的原始证据已存在，请使用新的 Label'}
         $env:SCENARIO=$scenario;$env:RATE=[string]$rate;$env:LINES=[string]$lineCount;$env:DURATION=$Duration;$env:SUMMARY_PATH=Join-Path $output ($name+'.json')
         if($Action -eq 'inspect'){& $k6.FullName inspect --include-system-env-vars (Join-Path $PSScriptRoot 'capacity.js');if($LASTEXITCODE -ne 0){throw '容量脚本检查失败'};continue}
         & $k6.FullName run --include-system-env-vars --no-color (Join-Path $PSScriptRoot 'capacity.js') *> (Join-Path $output ($name+'.log'))
@@ -76,5 +93,5 @@ try {
         [PSCustomObject]@{Scenario=$name;ExitCode=$LASTEXITCODE;Summary=$env:SUMMARY_PATH}
     }}
  }
-} finally {Remove-Item Env:ERP_LOAD_PASSWORD,Env:ERP_LOAD_KEY -ErrorAction SilentlyContinue}
+} finally {$env:GOMAXPROCS=$previousGeneratorCpus;Remove-Item Env:ERP_LOAD_PASSWORD,Env:ERP_LOAD_KEY -ErrorAction SilentlyContinue}
 if($failed.Count){throw ('以下场景未达到阈值，须检查真实数据并记录，不能忽略正确性错误：'+($failed -join '、'))}
