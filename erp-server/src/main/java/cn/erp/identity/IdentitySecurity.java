@@ -2,6 +2,7 @@ package cn.erp.identity;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Set;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -11,7 +12,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -21,6 +21,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
@@ -30,6 +31,12 @@ import cn.erp.shared.ApiException;
 class IdentitySecurity {
     static final String AUTH = "/api/v1/auth";
     private static final String HEALTH = "/actuator/health";
+    private static final Set<String> PUBLIC_POSTS = Set.of(
+            AUTH + "/login", AUTH + "/code/send", AUTH + "/code/login", AUTH + "/wechat/start");
+    private static final Set<String> PUBLIC_GETS = Set.of(HEALTH, AUTH + "/methods", AUTH + "/wechat/callback");
+    private static final RequestMatcher PUBLIC_AUTH = request ->
+            ("POST".equals(request.getMethod()) && PUBLIC_POSTS.contains(request.getServletPath())) ||
+            ("GET".equals(request.getMethod()) && PUBLIC_GETS.contains(request.getServletPath()));
 
     @Bean
     PasswordEncoder passwordEncoder() {
@@ -51,13 +58,12 @@ class IdentitySecurity {
         // Axios 把同域 Cookie 原值放入请求头，普通 GET 也需要下发令牌。
         csrf.setCsrfRequestAttributeName(null);
         http.csrf(c -> c.csrfTokenRepository(tokens).csrfTokenRequestHandler(csrf)
-                        .ignoringRequestMatchers(AUTH + "/login"))
+                        .ignoringRequestMatchers(PUBLIC_AUTH))
                 .requestCache(c -> c.disable())
                 .logout(c -> c.disable())
                 .formLogin(c -> c.disable())
                 .httpBasic(c -> c.disable())
-                .authorizeHttpRequests(a -> a.requestMatchers(HttpMethod.POST, AUTH + "/login").permitAll()
-                        .requestMatchers(HttpMethod.GET, HEALTH).permitAll().anyRequest().authenticated())
+                .authorizeHttpRequests(a -> a.requestMatchers(PUBLIC_AUTH).permitAll().anyRequest().authenticated())
                 .exceptionHandling(h -> h.authenticationEntryPoint((req, res, ex) ->
                                 errors.resolveException(req, res, null, SessionAccount.expired()))
                         .accessDeniedHandler((req, res, ex) -> errors.resolveException(req, res, null,
@@ -77,9 +83,7 @@ class IdentitySecurity {
 
         @Override
         protected boolean shouldNotFilter(HttpServletRequest request) {
-            String path = request.getServletPath();
-            return ("POST".equals(request.getMethod()) && (AUTH + "/login").equals(path))
-                    || ("GET".equals(request.getMethod()) && HEALTH.equals(path));
+            return PUBLIC_AUTH.matches(request);
         }
 
         @Override

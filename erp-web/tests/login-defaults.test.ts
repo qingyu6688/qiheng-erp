@@ -3,7 +3,13 @@ import { defineComponent } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
 import LoginPage from '../src/pages/LoginPage.vue'
 
-vi.mock('vue-router', () => ({ useRouter: () => ({ replace: vi.fn() }) }))
+vi.mock('vue-router', () => ({
+  useRoute: () => ({ query: {} }),
+  useRouter: () => ({ replace: vi.fn() }),
+}))
+vi.mock('../src/api/auth', () => ({
+  availableLoginMethods: vi.fn().mockResolvedValue({ sms: false, email: false, wechat: false }),
+}))
 vi.mock('../src/stores/session', () => ({ useSessionStore: () => ({ signIn: vi.fn() }) }))
 const input = defineComponent({
   props: ['modelValue', 'id'],
@@ -17,5 +23,6 @@ describe('本地管理员登录默认值', () => {
     } } })
     expect((wrapper.get('#tenant').element as HTMLInputElement).value).toBe('DEMO')
     expect((wrapper.get('#username').element as HTMLInputElement).value).toBe('admin')
+    wrapper.unmount()
   })
 })

@@ -98,6 +98,8 @@ test('维护基础资料、商品单位条码和角色权限', async ({ page }, 
   await page.locator('label.el-checkbox').filter({ has: warehousePermission }).click()
   await expect(warehousePermission).toBeChecked()
   await expect(page.getByRole('table', { name: '角色权限矩阵' })).toBeVisible()
+  const systemSettings = page.getByRole('row').filter({ has: page.getByRole('rowheader', { name: '系统管理' }) })
+  await expect(systemSettings.getByRole('checkbox', { name: '登录方式设置 tenant:login_settings' })).toBeEnabled()
   await page.screenshot({ path: testInfo.outputPath('role-permission-matrix.png'), fullPage: true })
   await page.getByRole('button', { name: '保存权限' }).click()
   await expect(page.getByText('设置已保存')).toBeVisible()

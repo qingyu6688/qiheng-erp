@@ -56,6 +56,17 @@ it('退出失败恢复会话后业务请求仍可执行', async () => {
   await expect(request({ method: 'GET', url: '/users' })).resolves.toEqual({ items: [] })
 })
 
+it('退出后备用登录仍可发起，验证码失败不触发旧会话过期跳转', async () => {
+  renewSessionScope(false)
+  clientRequest.mockResolvedValueOnce({ data: { data: { sms: true } } })
+  await expect(request({ method: 'GET', url: '/auth/methods' })).resolves.toEqual({ sms: true })
+  clientRequest.mockRejectedValueOnce({
+    isAxiosError: true, response: { status: 401, data: { errorCode: 'UNAUTHENTICATED' } },
+  })
+  await expect(request({ method: 'POST', url: '/auth/code/login' })).rejects.toMatchObject({ status: 401 })
+  expect(expired).not.toHaveBeenCalled()
+})
+
 it('二进制下载仍携带公司范围并返回原始文件', async () => {
   setCompanyScope('9007199254740993')
   const blob = new Blob(['\uFEFF金额\r\n12345678901234567890.12'], { type: 'text/csv' })

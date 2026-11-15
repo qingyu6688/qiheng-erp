@@ -2,12 +2,10 @@ package cn.erp.identity;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.MediaType;
-import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -24,14 +22,14 @@ class AuthController {
     private final CredentialsService credentials;
     private final AccessService access;
     private final LoginLimiter limiter;
-    private final CookieCsrfTokenRepository tokens;
+    private final AuthSessions sessions;
 
     AuthController(CredentialsService credentials, AccessService access, LoginLimiter limiter,
-                   CookieCsrfTokenRepository tokens) {
+                   AuthSessions sessions) {
         this.credentials = credentials;
         this.access = access;
         this.limiter = limiter;
-        this.tokens = tokens;
+        this.sessions = sessions;
     }
 
     @PostMapping(value = "/login", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -46,13 +44,7 @@ class AuthController {
             throw ex;
         }
         var actor = credentials.authenticate(body.tenantCode(), body.username(), body.password());
-        HttpSession previous = req.getSession(false);
-        if (previous != null) {
-            previous.invalidate();
-        }
-        actor.save(req);
-        tokens.saveToken(tokens.generateToken(req), req, res);
-        return ApiResponse.success(access.current(req, actor));
+        return ApiResponse.success(sessions.open(actor, req, res));
     }
 
     @GetMapping("/me")
@@ -66,14 +58,13 @@ class AuthController {
         var actor = credentials.changePassword(SessionAccount.read(req), body.oldPassword(), body.newPassword());
         req.changeSessionId();
         actor.save(req);
-        tokens.saveToken(tokens.generateToken(req), req, res);
+        sessions.refreshCsrf(req, res);
         return ApiResponse.success(null);
     }
 
     @PostMapping("/logout")
     ApiResponse<Void> logout(HttpServletRequest req, HttpServletResponse res) {
-        req.getSession(false).invalidate();
-        tokens.saveToken(null, req, res);
+        sessions.clear(req, res);
         return ApiResponse.success(null);
     }
 

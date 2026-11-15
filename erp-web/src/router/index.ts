@@ -172,9 +172,21 @@ export const router = createRouter({
           component: () => import('../pages/WarehousePage.vue'),
         },
         {
+          path: 'login-settings',
+          name: 'login-settings',
+          component: () => import('../pages/LoginSettingsPage.vue'),
+          meta: { title: '登录方式设置', permission: 'tenant:login_settings' },
+        },
+        {
           path: 'account/password',
           name: 'password',
           component: () => import('../pages/PasswordPage.vue'),
+        },
+        {
+          path: 'account/login-methods',
+          name: 'account-login-methods',
+          component: () => import('../pages/AccountLoginMethodsPage.vue'),
+          meta: { title: '我的登录方式' },
         },
       ],
     },

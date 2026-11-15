@@ -1,0 +1,94 @@
+package cn.erp.identity;
+
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.SecureRandom;
+import java.util.Base64;
+
+import javax.crypto.Cipher;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+import cn.erp.shared.ApiException;
+
+@Component
+class LoginSettingsCipher {
+    private static final Logger LOG = LoggerFactory.getLogger(LoginSettingsCipher.class);
+    private static final int KEY_BYTES = 32;
+    private static final int NONCE_BYTES = 12;
+    private static final int TAG_BITS = 128;
+    private static final String ENVELOPE_VERSION = "1.";
+    private static final String ALGORITHM = "AES/GCM/NoPadding";
+
+    private final SecureRandom random = new SecureRandom();
+    private final SecretKeySpec key;
+
+    LoginSettingsCipher(@Value("${ERP_LOGIN_SETTINGS_KEY:}") String encodedKey) {
+        key = loadKey(encodedKey);
+    }
+
+    boolean configured() {
+        return key != null;
+    }
+
+    String encrypt(long tenantId, String method, String secret) {
+        byte[] nonce = new byte[NONCE_BYTES];
+        random.nextBytes(nonce);
+        try {
+            byte[] encrypted = cipher(Cipher.ENCRYPT_MODE, tenantId, method, nonce)
+                    .doFinal(secret.getBytes(StandardCharsets.UTF_8));
+            return ENVELOPE_VERSION + Base64.getEncoder().encodeToString(
+                    ByteBuffer.allocate(nonce.length + encrypted.length).put(nonce).put(encrypted).array());
+        } catch (GeneralSecurityException failure) {
+            throw unavailable();
+        }
+    }
+
+    String decrypt(long tenantId, String method, String encrypted) {
+        if (encrypted == null || !encrypted.startsWith(ENVELOPE_VERSION)) throw unavailable();
+        try {
+            byte[] value = Base64.getDecoder().decode(encrypted.substring(ENVELOPE_VERSION.length()));
+            if (value.length <= NONCE_BYTES + TAG_BITS / Byte.SIZE) throw unavailable();
+            byte[] nonce = new byte[NONCE_BYTES];
+            ByteBuffer.wrap(value).get(nonce);
+            byte[] clear = cipher(Cipher.DECRYPT_MODE, tenantId, method, nonce)
+                    .doFinal(value, NONCE_BYTES, value.length - NONCE_BYTES);
+            return new String(clear, StandardCharsets.UTF_8);
+        } catch (GeneralSecurityException | IllegalArgumentException failure) {
+            throw unavailable();
+        }
+    }
+
+    private Cipher cipher(int operation, long tenantId, String method, byte[] nonce)
+            throws GeneralSecurityException {
+        if (key == null) throw unavailable();
+        Cipher cipher = Cipher.getInstance(ALGORITHM);
+        cipher.init(operation, key, new GCMParameterSpec(TAG_BITS, nonce));
+        // 将密文固定在企业及登录方式上，禁止跨配置复制使用。
+        cipher.updateAAD(("erp-login:" + tenantId + ":" + method).getBytes(StandardCharsets.UTF_8));
+        return cipher;
+    }
+
+    private SecretKeySpec loadKey(String value) {
+        if (value.isBlank()) return null;
+        try {
+            byte[] bytes = Base64.getDecoder().decode(value.strip());
+            if (bytes.length == KEY_BYTES) return new SecretKeySpec(bytes, "AES");
+        } catch (IllegalArgumentException failure) {
+            LOG.warn("登录设置密钥的 Base64 格式无效，扩展登录方式不可用");
+            return null;
+        }
+        LOG.warn("登录设置密钥必须解码为 32 字节，扩展登录方式不可用");
+        return null;
+    }
+
+    private ApiException unavailable() {
+        return new ApiException(503, "LOGIN_SETTINGS_UNAVAILABLE", "登录方式配置暂不可用，请联系管理员");
+    }
+}

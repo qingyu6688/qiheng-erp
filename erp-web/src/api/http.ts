@@ -25,6 +25,13 @@ let companyId: string | null = null
 let companyRequests = new AbortController()
 let sessionRevision = 0
 let sessionActive = true
+const publicAuthPaths = [
+  '/auth/login',
+  '/auth/methods',
+  '/auth/code/send',
+  '/auth/code/login',
+  '/auth/wechat/start',
+]
 
 export function renewSessionScope(active = true): void {
   sessionRevision++
@@ -53,7 +60,8 @@ export function isCancelled(error: unknown): boolean {
 export async function request<T>(config: AxiosRequestConfig, companyScoped = false): Promise<T> {
   const scope = companyRequests
   const revision = sessionRevision
-  if (!sessionActive && !['/auth/login', '/auth/logout'].includes(config.url ?? '')) {
+  const publicAuth = publicAuthPaths.includes(config.url ?? '')
+  if (!sessionActive && !publicAuth && config.url !== '/auth/logout') {
     throw new axios.CanceledError('会话已退出')
   }
   if (companyScoped && !companyId) throw new ApiError(403, 'COMPANY_NOT_ALLOWED', '请选择公司。')
@@ -81,7 +89,7 @@ export async function request<T>(config: AxiosRequestConfig, companyScoped = fal
     const status = cause.response?.status ?? 0
     if (
       status === 401 &&
-      config.url !== '/auth/login' &&
+      !publicAuth &&
       config.url !== '/auth/me' &&
       body?.errorCode === 'UNAUTHENTICATED'
     ) {

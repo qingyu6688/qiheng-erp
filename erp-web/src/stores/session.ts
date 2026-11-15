@@ -2,7 +2,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import * as auth from '../api/auth'
 import { ApiError, setCompanyScope, renewSessionScope } from '../api/http'
-import type { Company, LoginInput, UserSession } from '../types/auth'
+import type { CodeLoginInput, Company, LoginInput, UserSession } from '../types/auth'
 
 const COMPANY_KEY = 'erp.company'
 
@@ -62,6 +62,12 @@ export const useSessionStore = defineStore('session', () => {
     accept(user)
   }
 
+  async function signInByCode(input: CodeLoginInput): Promise<void> {
+    const user = await auth.loginByCode(input)
+    renewSessionScope()
+    accept(user)
+  }
+
   async function refresh(): Promise<void> {
     accept(await auth.currentUser())
   }
@@ -89,6 +95,7 @@ export const useSessionStore = defineStore('session', () => {
     restore,
     refresh,
     signIn,
+    signInByCode,
     signOut,
     selectCompany,
     clear,

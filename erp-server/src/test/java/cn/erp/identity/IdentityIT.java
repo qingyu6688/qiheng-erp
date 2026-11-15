@@ -60,7 +60,11 @@ class IdentityIT {
     @AfterEach
     void removeFixture() {
         jdbc.update("DELETE FROM sys_user_data_scope WHERE tenant_id = ?", tenantId);
+        jdbc.update("DELETE FROM sys_user_role WHERE tenant_id = ?", tenantId);
+        jdbc.update("DELETE FROM sys_role_permission WHERE tenant_id = ?", tenantId);
+        jdbc.update("DELETE FROM sys_role WHERE tenant_id = ?", tenantId);
         jdbc.update("DELETE FROM sys_user WHERE tenant_id = ?", tenantId);
+        jdbc.update("DELETE FROM warehouse WHERE tenant_id = ?", tenantId);
         jdbc.update("DELETE FROM company WHERE tenant_id = ?", tenantId);
         jdbc.update("DELETE FROM tenant WHERE id = ?", tenantId);
     }
@@ -78,6 +82,45 @@ class IdentityIT {
         request("PUT", "/auth/password", change.toString(), true, 200);
         assertFalse(request("GET", "/auth/me", null, false, 200).get("data").get("mustChangePassword").asBoolean());
         request("POST", "/auth/logout", "{}", true, 200);
+        request("GET", "/auth/me", null, false, 401);
+    }
+
+    @Test
+    void sameSessionReflectsRoleAndCompanyRevocationOnNextRequest() throws Exception {
+        long roleId = Ids.next(), restrictedCompany = Ids.next(), firstWarehouse = Ids.next(), secondWarehouse = Ids.next();
+        jdbc.update("UPDATE sys_user SET must_change_password = 0 WHERE id = ?", userId);
+        jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(?,?,'WAREHOUSE','仓库查看员')", roleId, tenantId);
+        jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)", Ids.next(), tenantId, userId, roleId);
+        jdbc.update("""
+                INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id)
+                SELECT ?,?,?,id FROM sys_permission WHERE code='warehouse:view'
+                """, Ids.next(), tenantId, roleId);
+        jdbc.update("INSERT INTO company(id,tenant_id,code,name) VALUES(?,?,'R','按仓分配公司')", restrictedCompany, tenantId);
+        jdbc.update("INSERT INTO warehouse(id,tenant_id,company_id,code,name) VALUES(?,?,?,'A','甲仓'),(?,?,?,'B','乙仓')",
+                firstWarehouse, tenantId, restrictedCompany, secondWarehouse, tenantId, restrictedCompany);
+        jdbc.update("""
+                INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id,warehouse_id)
+                VALUES(?,?,?,'warehouse',?,?),(?,?,?,'warehouse',?,?)
+                """, Ids.next(), tenantId, userId, restrictedCompany, secondWarehouse,
+                Ids.next(), tenantId, userId, restrictedCompany, firstWarehouse);
+
+        var form = json.createObjectNode().put("tenantCode", tenantCode).put("username", "buyer").put("password", password);
+        var profile = request("POST", "/auth/login", form.toString(), false, 200).get("data");
+        assertEquals("warehouse:view", profile.get("permissions").get(0).asString());
+        assertTrue(profile.get("companies").get(0).get("allWarehouses").asBoolean());
+        var restricted = profile.get("companies").get(1);
+        assertEquals(Long.toString(restrictedCompany), restricted.get("id").asString());
+        assertFalse(restricted.get("allWarehouses").asBoolean());
+        assertEquals(Long.toString(firstWarehouse), restricted.get("warehouseIds").get(0).asString());
+        assertEquals(Long.toString(secondWarehouse), restricted.get("warehouseIds").get(1).asString());
+
+        jdbc.update("UPDATE sys_role SET status = 'disabled' WHERE id = ?", roleId);
+        jdbc.update("UPDATE company SET status = 'disabled' WHERE id = ?", companyId);
+        profile = request("GET", "/auth/me", null, false, 200).get("data");
+        assertEquals(0, profile.get("permissions").size());
+        assertEquals(1, profile.get("companies").size());
+        assertEquals(Long.toString(restrictedCompany), profile.get("companies").get(0).get("id").asString());
+        jdbc.update("UPDATE sys_user SET status = 'disabled' WHERE id = ?", userId);
         request("GET", "/auth/me", null, false, 401);
     }
 

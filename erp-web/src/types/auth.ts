@@ -22,3 +22,24 @@ export interface LoginInput {
   username: string
   password: string
 }
+
+export type CodeLoginMethod = 'sms' | 'email'
+export type AlternateLoginMethod = CodeLoginMethod | 'wechat'
+export type LoginAvailability = Record<AlternateLoginMethod, boolean>
+
+export interface CodeRequest {
+  tenantCode: string
+  method: CodeLoginMethod
+  destination: string
+}
+
+export interface CodeLoginInput extends CodeRequest {
+  code: string
+}
+
+export interface LoginBindings {
+  sms: string | null
+  email: string | null
+  wechat: boolean
+  methods: LoginAvailability
+}

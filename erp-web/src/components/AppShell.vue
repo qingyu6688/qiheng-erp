@@ -136,6 +136,7 @@ const definitions = [
     items: [
       { path: 'companies', title: '公司与参数', permission: 'company:view' },
       { path: 'users', title: '用户与角色', any: ['user:view', 'role:view'] },
+      { path: 'login-settings', title: '登录方式设置', permission: 'tenant:login_settings' },
       { path: 'audit-logs', title: '操作审计', any: ['audit:view', 'admin:outbox'] },
     ],
   },
@@ -433,6 +434,15 @@ async function logout(): Promise<void> {
                 "
               >
                 <Lock class="icon" aria-hidden="true" />修改密码
+              </router-link>
+              <router-link
+                v-if="!session.user?.mustChangePassword"
+                to="/account/login-methods"
+                @click="
+                  ($event.currentTarget as HTMLElement).closest('details')?.removeAttribute('open')
+                "
+              >
+                <Lock class="icon" aria-hidden="true" />我的登录方式
               </router-link>
             </div>
           </details>

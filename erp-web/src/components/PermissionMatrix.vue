@@ -64,6 +64,7 @@ const resourceNames: Record<string, string> = {
   import: '导入',
   attachment: '附件',
   admin: '系统运维',
+  tenant: '系统管理',
 }
 const groups = computed(() => {
   const grouped = new Map<string, { resource: string; name: string; permissions: Permission[] }>()

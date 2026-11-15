@@ -1,5 +1,7 @@
 package cn.erp.identity;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -7,7 +9,7 @@ import java.util.Set;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowCallbackHandler;
+import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.stereotype.Service;
 
 import cn.erp.shared.ApiException;
@@ -16,12 +18,33 @@ import cn.erp.shared.ApiException;
 public class AccessService {
     static final String PASSWORD_REVISION = "COALESCE(TIMESTAMPDIFF(MICROSECOND, '1970-01-01', u.password_changed_at), 0)";
     private static final String PROFILE = AccessService.class.getName() + ".profile";
+    // 同一条查询读取有效账号、权限和公司范围，避免多次往返及不同查询时点的授权组合。
+    private static final String PROFILE_SQL = """
+            WITH active_account AS (
+                SELECT u.tenant_id, u.id, u.username, u.display_name, u.must_change_password
+                FROM sys_user u JOIN tenant t ON t.id = u.tenant_id
+                WHERE u.tenant_id = ? AND u.id = ? AND u.status = 'active' AND t.status = 'active'
+                  AND %s = ?
+            )
+            SELECT 0 AS row_kind, username, display_name, must_change_password, NULL AS permission_code,
+                   NULL AS company_id, NULL AS company_code, NULL AS company_name,
+                   NULL AS scope_type, NULL AS warehouse_id, NULL AS warehouse_key
+            FROM active_account
+            UNION ALL
+            SELECT 1, NULL, NULL, NULL, p.code, NULL, NULL, NULL, NULL, NULL, NULL
+            %s
+            JOIN active_account a ON a.tenant_id = ur.tenant_id AND a.id = ur.user_id
+            UNION ALL
+            SELECT 2, NULL, NULL, NULL, NULL, c.id, c.code, c.name, s.scope_type, s.warehouse_id, s.warehouse_key
+            FROM active_account a
+            JOIN sys_user_data_scope s ON s.tenant_id = a.tenant_id AND s.user_id = a.id
+            JOIN company c ON c.tenant_id = s.tenant_id AND c.id = s.company_id AND c.status = 'active'
+            ORDER BY row_kind, company_id, warehouse_key
+            """.formatted(PASSWORD_REVISION, UserAccessMapper.ROLE_PERMISSIONS);
     private final JdbcTemplate jdbc;
-    private final UserAccessMapper mapper;
 
-    AccessService(JdbcTemplate jdbc, UserAccessMapper mapper) {
+    AccessService(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
-        this.mapper = mapper;
     }
 
     /** 同一请求内复用校验结果，下一次请求重新检查账号、角色和数据范围。 */
@@ -63,46 +86,48 @@ public class AccessService {
         if (request.getAttribute(PROFILE) instanceof UserView profile) {
             return profile;
         }
-        var rows = jdbc.query("""
-                SELECT u.username, u.display_name, u.must_change_password
-                FROM sys_user u JOIN tenant t ON t.id = u.tenant_id
-                WHERE u.tenant_id = ? AND u.id = ? AND u.status = 'active' AND t.status = 'active' AND
-                """ + PASSWORD_REVISION + " = ?", (rs, n) -> new UserInfo(rs.getString(1), rs.getString(2),
-                rs.getBoolean(3)), actor.tenantId(), actor.userId(), actor.passwordRevision());
-        if (rows.isEmpty()) {
+        UserView profile = jdbc.query(PROFILE_SQL,
+                (ResultSetExtractor<UserView>) rows -> readProfile(rows, actor.userId()),
+                actor.tenantId(), actor.userId(), actor.passwordRevision());
+        if (profile == null) {
             request.getSession(false).invalidate();
             throw SessionAccount.expired();
         }
-        UserInfo user = rows.getFirst();
-        UserView profile = new UserView(Long.toString(actor.userId()), user.username(), user.displayName(),
-                user.mustChangePassword(), Set.copyOf(mapper.permissions(actor.tenantId(), actor.userId())), companies(actor));
         request.setAttribute(PROFILE, profile);
         return profile;
     }
 
-    private List<CompanyView> companies(SessionAccount actor) {
+    private UserView readProfile(ResultSet rows, long userId) throws SQLException {
+        if (!rows.next()) {
+            return null;
+        }
+        String username = rows.getString("username");
+        String displayName = rows.getString("display_name");
+        boolean mustChangePassword = rows.getBoolean("must_change_password");
+        var permissions = new LinkedHashSet<String>();
         var companies = new LinkedHashMap<String, CompanyView>();
-        jdbc.query("""
-                SELECT c.id, c.code, c.name, s.scope_type, s.warehouse_id FROM sys_user_data_scope s
-                JOIN company c ON c.tenant_id = s.tenant_id AND c.id = s.company_id AND c.status = 'active'
-                WHERE s.tenant_id = ? AND s.user_id = ? ORDER BY c.id, s.warehouse_key
-                """, (RowCallbackHandler) rs -> {
-            String id = rs.getString(1);
+        while (rows.next()) {
+            String permission = rows.getString("permission_code");
+            if (permission != null) {
+                permissions.add(permission);
+                continue;
+            }
+            String id = rows.getString("company_id");
             CompanyView company = companies.get(id);
             if (company == null) {
-                company = new CompanyView(id, rs.getString(2), rs.getString(3),
-                        "company".equals(rs.getString(4)), new LinkedHashSet<>());
+                company = new CompanyView(id, rows.getString("company_code"), rows.getString("company_name"),
+                        "company".equals(rows.getString("scope_type")), new LinkedHashSet<>());
                 companies.put(id, company);
             }
-            String warehouseId = rs.getString(5);
+            String warehouseId = rows.getString("warehouse_id");
             if (warehouseId != null) {
                 company.warehouseIds().add(warehouseId);
             }
-        }, actor.tenantId(), actor.userId());
-        return List.copyOf(companies.values());
+        }
+        return new UserView(Long.toString(userId), username, displayName, mustChangePassword,
+                Set.copyOf(permissions), List.copyOf(companies.values()));
     }
 
-    private record UserInfo(String username, String displayName, boolean mustChangePassword) {}
     record UserView(String id, String username, String displayName, boolean mustChangePassword,
                     Set<String> permissions, List<CompanyView> companies) {}
     record CompanyView(String id, String code, String name, boolean allWarehouses, Set<String> warehouseIds) {}
