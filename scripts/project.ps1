@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [ValidateSet('verify', 'server', 'web', 'e2e', 'e2e-api', 'e2e-web')]
     [string]$Action = 'verify'
@@ -17,13 +17,15 @@ foreach ($line in [IO.File]::ReadAllLines($settingsFile)) {
     if ($line -match '^([A-Z][A-Z0-9_]*)=(.*)$') {
         if ($frontend -and $matches[1] -ne 'SERVER_PORT' -and !($Action -eq 'web' -and $matches[1] -in 'ERP_DEV_ADMIN_PASSWORD','ERP_DEV_TENANT_CODE') -and
             !($Action -eq 'e2e' -and $matches[1] -eq 'ERP_DEV_ADMIN_PASSWORD')) { continue }
-        [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
+        [Environment]::SetEnvironmentVariable($matches[1], $matches[2].TrimEnd("`r"), 'Process')
     }
 }
 if ($Action -in 'web','e2e','e2e-web') {
     $directory = Get-Item -LiteralPath $projectRoot
     if ($directory.LinkType -eq 'Junction') {
-        $projectRoot = $directory.ResolveLinkTarget($true).FullName
+        $linkedRoot = @($directory.Target)[0]
+        if (!$linkedRoot -or !(Test-Path -LiteralPath $linkedRoot -PathType Container)) { throw '项目目录联接目标无效。' }
+        $projectRoot = (Resolve-Path -LiteralPath $linkedRoot).Path
     }
     Push-Location (Join-Path $projectRoot 'erp-web')
     try {

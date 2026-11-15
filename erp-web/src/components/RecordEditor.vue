@@ -1,14 +1,20 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { record, allRecords, writeRecord } from '../api/admin'
 import { ApiError, isCancelled, messageOf, newIdempotencyKey } from '../api/http'
 import { fieldValues, editorPayload, optionsFrom } from '../utils/admin'
 import { useSessionStore } from '../stores/session'
 import type { DataRow, FormField, ResourceSpec, SelectOption } from '../types/admin'
 import DataFields from './DataFields.vue'
+import RecordFrame from './RecordFrame.vue'
 
-const props = defineProps<{ spec: ResourceSpec; row?: DataRow }>()
-const emit = defineEmits<{ close: []; saved: [] }>()
+const props = defineProps<{ spec: ResourceSpec; row?: DataRow; inline?: boolean }>()
+const emit = defineEmits<{
+  close: []
+  saved: []
+  dirty: [value: boolean]
+  pending: [value: boolean]
+}>()
 const session = useSessionStore()
 const fields = computed(() =>
   props.spec.fields.filter((f) => !f.permission || session.can(f.permission)),
@@ -21,6 +27,17 @@ const error = ref('')
 const conflict = ref(false)
 const uncertain = ref(false)
 const key = newIdempotencyKey()
+let baseline = JSON.stringify(editorPayload(fields.value, values, props.row))
+watch(
+  () => JSON.stringify(editorPayload(fields.value, values, props.row)),
+  (value) => emit('dirty', value !== baseline),
+  { flush: 'sync' },
+)
+watch(busy, (value) => emit('pending', value), { flush: 'sync' })
+function markClean(): void {
+  baseline = JSON.stringify(editorPayload(fields.value, values, props.row))
+  emit('dirty', false)
+}
 
 onMounted(async () => {
   try {
@@ -65,6 +82,7 @@ async function save(): Promise<void> {
       props.spec.company,
       props.row ? undefined : key,
     )
+    markClean()
     emit('saved')
   } catch (cause: unknown) {
     if (isCancelled(cause)) return
@@ -86,8 +104,10 @@ async function checkResult(): Promise<void> {
       'command-results?operation=' + operation + '&key=' + key,
       props.spec.company,
     )
-    if (result.status === 'succeeded') emit('saved')
-    else error.value = '操作正在处理，请稍后再次查询。'
+    if (result.status === 'succeeded') {
+      markClean()
+      emit('saved')
+    } else error.value = '操作正在处理，请稍后再次查询。'
   } catch (cause: unknown) {
     if (cause instanceof ApiError && cause.status === 404) {
       uncertain.value = false
@@ -99,13 +119,11 @@ async function checkResult(): Promise<void> {
 }
 </script>
 <template>
-  <el-dialog
-    :model-value="true"
+  <RecordFrame
+    :inline="inline"
+    :busy="busy"
     :title="(row ? '编辑' : '新建') + spec.singular"
     width="560px"
-    :close-on-click-modal="false"
-    :show-close="!busy"
-    :close-on-press-escape="!busy"
     @close="emit('close')"
   >
     <fieldset :disabled="busy || loading || uncertain || conflict" class="form-fieldset">
@@ -133,5 +151,5 @@ async function checkResult(): Promise<void> {
         >保存</el-button
       >
     </template>
-  </el-dialog>
+  </RecordFrame>
 </template>

@@ -9,25 +9,33 @@ vi.mock('../src/api/http', () => ({ request: vi.fn() }))
 beforeEach(() => vi.mocked(request).mockReset())
 
 describe('基础资料表单', () => {
-  it('只有销售或核销权限的用户登录后进入对应工作台', () => {
-    expect(defaultWorkspace(permission => permission === 'sales_order:view', true)).toBe('/sales-orders')
-    expect(defaultWorkspace(permission => permission === 'settlement:view', true)).toBe('/settlements')
-    expect(defaultWorkspace(permission => permission === 'inventory:view', true)).toBe('/inventory-balances')
-    expect(defaultWorkspace(permission => permission === 'purchase_order:view', true)).toBe('/purchase-orders')
-    expect(defaultWorkspace(permission => permission === 'opening_entry:view', true)).toBe('/opening-entries')
-    expect(defaultWorkspace(permission => permission === 'sales_order:view', false)).toBe('/account/password')
+  it('业务用户登录后统一进入工作台', () => {
+    expect(defaultWorkspace((permission) => permission === 'sales_order:view', true)).toBe('/')
+    expect(defaultWorkspace((permission) => permission === 'settlement:view', true)).toBe('/')
+    expect(defaultWorkspace((permission) => permission === 'inventory:view', true)).toBe('/')
+    expect(defaultWorkspace((permission) => permission === 'purchase_order:view', true)).toBe('/')
+    expect(defaultWorkspace((permission) => permission === 'opening_entry:view', true)).toBe('/')
+    expect(defaultWorkspace((permission) => permission === 'sales_order:view', false)).toBe('/')
   })
   it('初始密码保留用户输入的前后空格', () => {
-    expect(editorPayload([{key: 'password', label: '初始密码', kind: 'password'}], {password: '  Pass word  '}))
-      .toEqual({password: '  Pass word  '})
+    expect(
+      editorPayload([{ key: 'password', label: '初始密码', kind: 'password' }], {
+        password: '  Pass word  ',
+      }),
+    ).toEqual({ password: '  Pass word  ' })
   })
   it('有权限编辑银行账号时明确提交空字符串以清空', () => {
-    expect(editorPayload([{key: 'accountNo', label: '银行账号', emptyAsNull: false}], {accountNo: ''}, {id:'3', version:2}))
-      .toEqual({accountNo: '', version:2})
-    expect(editorPayload([], {}, {id:'3', version:2})).not.toHaveProperty('accountNo')
+    expect(
+      editorPayload(
+        [{ key: 'accountNo', label: '银行账号', emptyAsNull: false }],
+        { accountNo: '' },
+        { id: '3', version: 2 },
+      ),
+    ).toEqual({ accountNo: '', version: 2 })
+    expect(editorPayload([], {}, { id: '3', version: 2 })).not.toHaveProperty('accountNo')
   })
-  it('仅获商品权限的用户登录后进入商品页面', () => {
-    expect(defaultWorkspace(permission => permission === 'product:view', false)).toBe('/products')
+  it('仅获商品权限的用户也进入工作台', () => {
+    expect(defaultWorkspace((permission) => permission === 'product:view', false)).toBe('/')
   })
   it('编辑提交保留字符串价格和原商品关联，移除初始密码', () => {
     const fields: FormField[] = [

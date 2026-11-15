@@ -51,7 +51,7 @@ public class SalesOrderService {
             long id=Ids.next();String no=numbers.next(scope,"SO",YearMonth.from(input.businessDate()));
             jdbc.update("INSERT INTO sales_order(id,tenant_id,company_id,order_no,customer_id,business_date,price_tax_inclusive,created_by,updated_by) VALUES(?,?,?,?,?,?,1,?,?)",
                     id,scope.tenantId(),scope.companyId(),no,identifier(input.customerId()),input.businessDate(),scope.userId(),scope.userId());
-            writer.write(scope,id,input,preview);
+            writer.writeNew(scope,id,input,preview);
             var result=queries.get(scope,id);
             audit.record(scope,"sales_order.create","sales_order",id,null,result);
             return result;

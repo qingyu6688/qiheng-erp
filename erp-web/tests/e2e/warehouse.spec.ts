@@ -10,7 +10,8 @@ test('管理员登录、维护仓库并切换公司', async ({ page }) => {
   await page.getByLabel('用户名').fill('admin')
   await page.locator('#password').fill(password)
   await page.getByRole('button', { name: '登录', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '仓库管理' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '工作台', exact: true })).toBeVisible()
+  await page.goto('/warehouses')
 
   await page.getByRole('button', { name: '新建仓库' }).click()
   const dialog = page.getByRole('dialog')

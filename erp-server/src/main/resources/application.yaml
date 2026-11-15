@@ -8,7 +8,7 @@ spring:
       max-file-size: 20MB
       max-request-size: 21MB
   datasource:
-    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:erp_dev}?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:erp_dev}?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8&sslMode=${DB_SSL_MODE:DISABLED}
     username: ${DB_USER}
     password: ${DB_PASSWORD}
     hikari:
@@ -26,6 +26,8 @@ spring:
       namespace: erp:session:${APP_ENV:prod}
   flyway:
     clean-disabled: true
+    user: ${DB_MIGRATION_USER:}
+    password: ${DB_MIGRATION_PASSWORD:}
 server:
   port: ${SERVER_PORT:8080}
   servlet:

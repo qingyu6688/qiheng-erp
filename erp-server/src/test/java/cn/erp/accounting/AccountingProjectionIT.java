@@ -113,6 +113,16 @@ class AccountingProjectionIT {
         assertPeriodBalance(period,"9.00","8.00","17.00");
     }
 
+    @Test
+    void O08ProjectionUpsertHasNoMysqlDeprecationWarnings() {
+        boolean ignored=jdbc.isIgnoreWarnings();jdbc.setIgnoreWarnings(false);
+        try {
+            long first=ledger.post(scope,posting("1.23"));delivery.deliver(claimOwn(first));
+            long second=ledger.post(scope,posting("2.34"));delivery.deliver(claimOwn(second));
+            assertBalances("3.57",second);
+        } finally {jdbc.setIgnoreWarnings(ignored);}
+    }
+
     private void assertPeriodBalance(long periodId,String opening,String debit,String closing) {
         var row=jdbc.queryForMap("SELECT opening_balance,debit_amount,closing_balance FROM ledger_balance WHERE tenant_id=? AND period_id=? AND account_code='OTHER_EXPENSE'",tenant,periodId);
         assertThat((BigDecimal)row.get("opening_balance")).isEqualByComparingTo(opening);

@@ -38,9 +38,9 @@ class LedgerProjectionHandler implements EventHandler {
                     """,BigDecimal.class,row.get("period_id"),event.tenantId(),company,row.get("account_code"),row.get("partner_key"),row.get("cash_key"),row.get("warehouse_key"));
             jdbc.update("""
                     INSERT INTO ledger_balance(id,tenant_id,company_id,period_id,account_code,partner_key,cash_account_key,warehouse_key,
-                    opening_balance,debit_amount,credit_amount,projected_journal_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
-                    ON DUPLICATE KEY UPDATE opening_balance=VALUES(opening_balance),debit_amount=debit_amount+VALUES(debit_amount),
-                    credit_amount=credit_amount+VALUES(credit_amount),projected_journal_id=GREATEST(projected_journal_id,VALUES(projected_journal_id))
+                    opening_balance,debit_amount,credit_amount,projected_journal_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) AS incoming
+                    ON DUPLICATE KEY UPDATE opening_balance=incoming.opening_balance,debit_amount=ledger_balance.debit_amount+incoming.debit_amount,
+                    credit_amount=ledger_balance.credit_amount+incoming.credit_amount,projected_journal_id=GREATEST(ledger_balance.projected_journal_id,incoming.projected_journal_id)
                     """,Ids.next(),event.tenantId(),row.get("company_id"),row.get("period_id"),row.get("account_code"),row.get("partner_key"),
                     row.get("cash_key"),row.get("warehouse_key"),opening,row.get("d"),row.get("c"),event.aggregateId());
             BigDecimal movement=((BigDecimal)row.get("d")).subtract((BigDecimal)row.get("c"));

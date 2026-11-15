@@ -1,0 +1,29 @@
+[Unit]
+Description=ERP API 服务
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=erp
+Group=erp
+WorkingDirectory=/opt/erp/current
+EnvironmentFile=/etc/erp/api.env
+Environment=SPRING_PROFILES_ACTIVE=prod
+Environment=ERP_WORKER_ENABLED=false
+Environment=ERP_NODE_ID=10
+Environment=ERP_LOG_FILE=/var/log/erp/api.log
+ExecStart=/usr/bin/java -XX:MaxRAMPercentage=70 -jar /opt/erp/current/erp-server.jar
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=90
+SuccessExitStatus=143
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/log/erp
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

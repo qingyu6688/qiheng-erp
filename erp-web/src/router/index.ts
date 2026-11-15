@@ -26,36 +26,146 @@ export const router = createRouter({
       path: '/',
       component: () => import('../components/AppShell.vue'),
       children: [
-        { path: '', name: 'home', component: () => import('../pages/WarehousePage.vue') },
-        ...salesSpecs.flatMap(spec => [
-          { path: spec.path, name: spec.path, component: () => import('../pages/SalesListPage.vue'), props: { kind: spec.path }, meta: { permission: spec.permission + ':view', company: true, title: spec.title } },
-          { path: spec.path + '/:id', name: spec.path + '-detail', component: () => import('../pages/SalesDetailPage.vue'), props: { kind: spec.path }, meta: { permission: spec.permission + ':view', company: true, title: spec.title } },
-        ]),
-        ...procurementSpecs.flatMap(spec => [
-          { path: spec.path, name: spec.path, component: () => import('../pages/ProcurementListPage.vue'), props: { kind: spec.path }, meta: { permission: spec.permission + ':view', company: true, title: spec.title } },
-          { path: spec.path + '/:id', name: spec.path + '-detail', component: () => import('../pages/ProcurementDetailPage.vue'), props: { kind: spec.path }, meta: { permission: spec.permission + ':view', company: true, title: spec.title } },
-        ]),
-        ...stockSpecs.flatMap(spec => [
-          { path: spec.path, name: spec.path, component: () => import('../pages/StockOperationPage.vue'), props: { kind: spec.path }, meta: { permission: spec.permission + ':view', company: true, title: spec.title } },
-          { path: spec.path + '/:id', name: spec.path + '-detail', component: () => import('../pages/StockOperationPage.vue'), props: { kind: spec.path }, meta: { permission: spec.permission + ':view', company: true, title: spec.title } },
-        ]),
-        { path: 'settlements', name: 'settlements', component: () => import('../pages/SettlementPage.vue'), meta: { permission: 'settlement:view', company: true, title: '核销工作台' } },
-        { path: 'inventory-balances', name: 'inventory-balances', component: () => import('../pages/InventoryPage.vue'), meta: { permission: 'inventory:view', company: true, title: '实时库存' } },
-        ...reportSpecs.map(spec => ({ path: 'reports/' + spec.type, name: 'report-' + spec.type, component: () => import('../pages/ReportPage.vue'), props: { type: spec.type }, meta: { permission: reportPermission(spec.type), company: true, title: spec.title } })),
-        { path: 'file-jobs', name: 'file-jobs', component: () => import('../pages/FileJobsPage.vue'), meta: { company: true, title: '导入与导出', anyPermissions: [...importSpecs.map(spec => 'import:' + spec.type), ...reportSpecs.map(spec => reportPermission(spec.type, 'export'))] } },
-        { path: 'audit-logs', name: 'audit-logs', component: () => import('../pages/AuditPage.vue'), meta: { title: '操作审计', anyPermissions: ['audit:view', 'admin:outbox'] } },
-        { path: 'print/:type/:id', name: 'document-print', component: () => import('../pages/PrintPage.vue'), meta: { title: '打印预览', company: true, documentPrint: true } },
-        ...Object.values(resourceSpecs).filter(spec => spec.path !== 'audit-logs').map((spec) => ({
-          path: spec.path,
-          name: spec.path,
-          component: () => import('../pages/ResourcePage.vue'),
-          props: { resource: spec.path },
-          meta: {
-            permission: spec.permission + ':view',
-            company: Boolean(spec.company),
-            title: spec.title,
+        {
+          path: '',
+          name: 'home',
+          component: () => import('../pages/WorkbenchPage.vue'),
+          meta: { title: '工作台' },
+        },
+        {
+          path: 'reports',
+          name: 'reports',
+          redirect: () =>
+            '/reports/' +
+            (reportSpecs.find((spec) => useSessionStore().can(reportPermission(spec.type)))?.type ??
+              'inventory-summary'),
+        },
+        ...(['sales-orders', 'purchase-orders'] as const).flatMap((kind) =>
+          ['new', ':id/edit'].map((action) => ({
+            path: kind + '/' + action,
+            name: kind + '-' + (action === 'new' ? 'new' : 'edit'),
+            component: () => import('../pages/OrderEditPage.vue'),
+            props: { kind },
+            meta: {
+              company: true,
+              permission:
+                (kind === 'sales-orders' ? 'sales_order:' : 'purchase_order:') +
+                (action === 'new' ? 'create' : 'update'),
+              title: action === 'new' ? '新建订单' : '编辑订单',
+            },
+          })),
+        ),
+        ...salesSpecs.flatMap((spec) => [
+          {
+            path: spec.path,
+            name: spec.path,
+            component: () => import('../pages/SalesListPage.vue'),
+            props: { kind: spec.path },
+            meta: { permission: spec.permission + ':view', company: true, title: spec.title },
           },
+          {
+            path: spec.path + '/:id',
+            name: spec.path + '-detail',
+            component: () => import('../pages/SalesDetailPage.vue'),
+            props: { kind: spec.path },
+            meta: { permission: spec.permission + ':view', company: true, title: spec.title },
+          },
+        ]),
+        ...procurementSpecs.flatMap((spec) => [
+          {
+            path: spec.path,
+            name: spec.path,
+            component: () => import('../pages/ProcurementListPage.vue'),
+            props: { kind: spec.path },
+            meta: { permission: spec.permission + ':view', company: true, title: spec.title },
+          },
+          {
+            path: spec.path + '/:id',
+            name: spec.path + '-detail',
+            component: () => import('../pages/ProcurementDetailPage.vue'),
+            props: { kind: spec.path },
+            meta: { permission: spec.permission + ':view', company: true, title: spec.title },
+          },
+        ]),
+        ...stockSpecs.flatMap((spec) => [
+          {
+            path: spec.path,
+            name: spec.path,
+            component: () => import('../pages/StockOperationPage.vue'),
+            props: { kind: spec.path },
+            meta: { permission: spec.permission + ':view', company: true, title: spec.title },
+          },
+          {
+            path: spec.path + '/:id',
+            name: spec.path + '-detail',
+            component: () => import('../pages/StockOperationPage.vue'),
+            props: { kind: spec.path },
+            meta: { permission: spec.permission + ':view', company: true, title: spec.title },
+          },
+        ]),
+        {
+          path: 'accounting-periods',
+          name: 'accounting-periods',
+          component: () => import('../pages/PeriodsPage.vue'),
+          meta: { permission: 'period:view', company: true, title: '会计期间与关账' },
+        },
+        {
+          path: 'settlements',
+          name: 'settlements',
+          component: () => import('../pages/SettlementPage.vue'),
+          meta: { permission: 'settlement:view', company: true, title: '核销工作台' },
+        },
+        {
+          path: 'inventory-balances',
+          name: 'inventory-balances',
+          component: () => import('../pages/InventoryPage.vue'),
+          meta: { permission: 'inventory:view', company: true, title: '实时库存' },
+        },
+        ...reportSpecs.map((spec) => ({
+          path: 'reports/' + spec.type,
+          name: 'report-' + spec.type,
+          component: () => import('../pages/ReportPage.vue'),
+          props: { type: spec.type },
+          meta: { permission: reportPermission(spec.type), company: true, title: spec.title },
         })),
+        {
+          path: 'file-jobs',
+          name: 'file-jobs',
+          component: () => import('../pages/FileJobsPage.vue'),
+          meta: {
+            company: true,
+            title: '导入与导出',
+            anyPermissions: [
+              ...importSpecs.map((spec) => 'import:' + spec.type),
+              ...reportSpecs.map((spec) => reportPermission(spec.type, 'export')),
+            ],
+          },
+        },
+        {
+          path: 'audit-logs',
+          name: 'audit-logs',
+          component: () => import('../pages/AuditPage.vue'),
+          meta: { title: '操作审计', anyPermissions: ['audit:view', 'admin:outbox'] },
+        },
+        {
+          path: 'print/:type/:id',
+          name: 'document-print',
+          component: () => import('../pages/PrintPage.vue'),
+          meta: { title: '打印预览', company: true, documentPrint: true },
+        },
+        ...Object.values(resourceSpecs)
+          .filter((spec) => !['audit-logs', 'accounting-periods'].includes(spec.path))
+          .map((spec) => ({
+            path: spec.path,
+            name: spec.path,
+            component: () => import('../pages/ResourcePage.vue'),
+            props: { resource: spec.path },
+            meta: {
+              permission: spec.permission + ':view',
+              company: Boolean(spec.company),
+              title: spec.title,
+            },
+          })),
         {
           path: 'warehouses',
           name: 'warehouses',
@@ -83,12 +193,19 @@ router.beforeEach(async (to) => {
   }
   if (!session.user) return to.name === 'login' ? true : { name: 'login' }
   if (session.user.mustChangePassword && to.name !== 'password') return { name: 'password' }
-  if (to.name === 'login' || to.name === 'home') return defaultWorkspace(session.can, Boolean(session.company))
+  if (to.name === 'login') return defaultWorkspace(session.can, Boolean(session.company))
   if (to.name === 'warehouses' && (!session.company || !session.can('warehouse:view')))
     return { name: 'forbidden' }
   if (to.meta.company && !session.company) return { name: 'forbidden' }
-  if (Array.isArray(to.meta.anyPermissions) && !to.meta.anyPermissions.some(permission => typeof permission === 'string' && session.can(permission))) return { name: 'forbidden' }
-  if (to.meta.documentPrint && !session.can(documentPermission(String(to.params.type)) + ':print')) return { name: 'forbidden' }
+  if (
+    Array.isArray(to.meta.anyPermissions) &&
+    !to.meta.anyPermissions.some(
+      (permission) => typeof permission === 'string' && session.can(permission),
+    )
+  )
+    return { name: 'forbidden' }
+  if (to.meta.documentPrint && !session.can(documentPermission(String(to.params.type)) + ':print'))
+    return { name: 'forbidden' }
   if (
     typeof to.meta.permission === 'string' &&
     (!session.can(to.meta.permission) || (to.meta.company && !session.company))

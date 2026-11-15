@@ -7,12 +7,18 @@ const warehouse = '验收销售仓'
 const account = '验收银行'
 
 async function selectId(page: Page, id: string, option: string | RegExp): Promise<void> {
-  await page.locator('.el-select').filter({ has: page.locator('#' + id) }).click()
+  const combobox = page.locator('#' + id)
+  await expect(combobox).toBeEnabled()
+  await page.locator('.el-select').filter({ has: combobox }).click()
+  await expect(combobox).toHaveAttribute('aria-expanded', 'true')
   await page.getByRole('option', { name: option, exact: typeof option === 'string' }).click()
 }
 
 async function selectName(page: Page, name: string, option: string | RegExp): Promise<void> {
-  await page.locator('.el-select').filter({ has: page.getByRole('combobox', { name, exact: true }) }).click()
+  const combobox = page.getByRole('combobox', { name, exact: true })
+  await expect(combobox).toBeEnabled()
+  await page.locator('.el-select').filter({ has: combobox }).click()
+  await expect(combobox).toHaveAttribute('aria-expanded', 'true')
   await page.getByRole('option', { name: option, exact: typeof option === 'string' }).click()
 }
 
@@ -35,7 +41,11 @@ async function command(page: Page, action: string): Promise<void> {
   await expect(dialog).toBeHidden()
 }
 
-async function documentSaved(page: Page, kind: string, expectedNo: string | RegExp = /-[0-9]{6}-[0-9]{6}$/): Promise<string> {
+async function documentSaved(
+  page: Page,
+  kind: string,
+  expectedNo: string | RegExp = /-[0-9]{6}-[0-9]{6}$/,
+): Promise<string> {
   await page.getByRole('dialog').getByRole('button', { name: '保存单据', exact: true }).click()
   await expect(page).toHaveURL(new RegExp('/' + kind + '/[0-9]+$'))
   await expect(page.locator('.sales-detail-header .el-tag').first()).toBeVisible()
@@ -47,13 +57,16 @@ async function status(page: Page, text: string): Promise<void> {
   await expect(page.locator('.sales-detail-header .el-tag').first()).toHaveText(text)
 }
 
-test('销售订单、发货签收、收款核销、开票和退货退款形成完整闭环', async ({ page, browser }, testInfo) => {
+test('销售订单、发货签收、收款核销、开票和退货退款形成完整闭环', async ({
+  page,
+  browser,
+}, testInfo) => {
   test.setTimeout(180_000)
   const errors: string[] = []
-  page.on('pageerror', error => errors.push(error.message))
+  page.on('pageerror', (error) => errors.push(error.message))
   const reviewerContext = await browser.newContext({ baseURL: 'http://127.0.0.1:15173' })
   const reviewer = await reviewerContext.newPage()
-  reviewer.on('pageerror', error => errors.push(error.message))
+  reviewer.on('pageerror', (error) => errors.push(error.message))
   try {
     await login(page, 'admin')
     await login(reviewer, 'reviewer')
@@ -89,10 +102,46 @@ test('销售订单、发货签收、收款核销、开票和退货退款形成�
     await command(page, '提交')
     await command(page, '过账')
     await status(page, '已出库待签收')
-    await expect(page.locator('.sales-detail-header')).toContainText('¥0.00')
-    await command(page, '登记签收')
+    await expect(
+      page
+        .locator('.sales-detail-header dt')
+        .filter({ hasText: /^金额/ })
+        .locator('xpath=following-sibling::dd[1]'),
+    ).toHaveText('0.00')
+    await page.getByRole('button', { name: '登记签收', exact: true }).click()
+    const signDialog = page.getByRole('dialog', { name: '登记签收', exact: true })
+    await expect(signDialog.getByRole('textbox', { name: '签收数量', exact: true })).toHaveValue(
+      /^4(?:\.0+)?$/,
+    )
+    await signDialog.getByLabel('上传回单').setInputFiles({
+      name: '签收回单.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.7\n签收回单验收\n%%EOF', 'utf8'),
+    })
+    await signDialog.getByRole('button', { name: '上传并选中', exact: true }).click()
+    await expect(
+      signDialog.getByRole('checkbox', { name: '签收回单.pdf', exact: true }),
+    ).toBeChecked()
+    await page.screenshot({
+      path: testInfo.outputPath('shipment-sign-receipt.png'),
+      fullPage: true,
+    })
+    const signRequest = page.waitForRequest(
+      (request) =>
+        request.method() === 'POST' && request.url().endsWith('/api/v1' + shipmentPath + '/sign'),
+    )
+    await signDialog.getByRole('button', { name: '确认登记签收', exact: true }).click()
+    expect((await signRequest).postDataJSON().attachmentIds).toEqual([
+      expect.stringMatching(/^[1-9][0-9]*$/),
+    ])
+    await expect(signDialog).toBeHidden()
     await status(page, '已签收')
-    await expect(page.locator('.sales-detail-header')).toContainText('¥400.00')
+    await expect(
+      page
+        .locator('.sales-detail-header dt')
+        .filter({ hasText: /^金额/ })
+        .locator('xpath=following-sibling::dd[1]'),
+    ).toHaveText('400.00')
     await expect(page.locator('.sales-detail-header')).toContainText('46.02')
 
     await page.goto('/receipts')
@@ -112,8 +161,12 @@ test('销售订单、发货签收、收款核销、开票和退货退款形成�
 
     await page.goto('/settlements')
     await selectId(page, 'settlement-customer', customer)
-    const debitSection: Locator = page.locator('.settlement-columns > section').filter({ has: page.getByRole('heading', { name: '待收应收', exact: true }) })
-    const creditSection = page.locator('.settlement-columns > section').filter({ has: page.getByRole('heading', { name: '可用预收 / 退货信用额', exact: true }) })
+    const debitSection: Locator = page
+      .locator('.settlement-columns > section')
+      .filter({ has: page.getByRole('heading', { name: '待收应收', exact: true }) })
+    const creditSection = page
+      .locator('.settlement-columns > section')
+      .filter({ has: page.getByRole('heading', { name: '可用预收 / 退货信用额', exact: true }) })
     await debitSection.locator('.el-radio').first().click()
     await creditSection.locator('.el-radio').first().click()
     await expect(debitSection.getByRole('radio').first()).toBeChecked()
@@ -170,9 +223,17 @@ test('销售订单、发货签收、收款核销、开票和退货退款形成�
     await status(page, '已退款')
 
     await page.goto('/cash-accounts')
-    await expect(page.getByRole('row').filter({ has: page.getByRole('cell', { name: account, exact: true }) })).toContainText('300.00')
+    await expect(
+      page.getByRole('row').filter({ has: page.getByRole('cell', { name: account, exact: true }) }),
+    ).toContainText('300.00')
     await page.goto('/inventory-balances')
-    await expect(page.getByRole('row').filter({ has: page.getByRole('cell', { name: '验收商品', exact: true }) })).toContainText('17.000000')
+    await expect(
+      page
+        .getByRole('row')
+        .filter({ has: page.getByRole('cell', { name: '验收商品', exact: true }) })
+        .getByRole('cell')
+        .nth(3),
+    ).toHaveText('17')
     await page.goto('/settlements')
     await selectId(page, 'settlement-customer', customer)
     await expect(page.getByText('暂无待收应收', { exact: true })).toBeVisible()
@@ -181,7 +242,10 @@ test('销售订单、发货签收、收款核销、开票和退货退款形成�
     await status(page, '已签收')
     await page.goto(orderPath)
     await expect(page.locator('.sales-progress')).toContainText('结算 已完成')
-    await page.screenshot({ path: testInfo.outputPath('sales-order-completed.png'), fullPage: true })
+    await page.screenshot({
+      path: testInfo.outputPath('sales-order-completed.png'),
+      fullPage: true,
+    })
     expect(errors).toEqual([])
   } finally {
     await reviewerContext.close()

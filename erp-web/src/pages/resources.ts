@@ -1,9 +1,4 @@
 import type { FormField, ResourceSpec, SelectOption } from '../types/admin'
-import { salesSpecs } from '../types/sales'
-import { procurementSpecs } from '../types/procurement'
-import { stockSpecs } from '../types/stock-operations'
-import { reportSpecs, reportPermission } from '../types/reporting'
-import { importSpecs } from '../types/file-jobs'
 
 const choices = (pairs: string[][]): SelectOption[] =>
   pairs.map(([value, label]) => ({ value: value!, label: label! }))
@@ -219,7 +214,13 @@ export const resourceSpecs: Record<string, ResourceSpec> = {
         ]),
       },
       { key: 'bankName', label: '开户银行', max: 100 },
-      { key: 'accountNo', label: '银行账号', max: 64, permission: 'cash_account_no:view', emptyAsNull: false },
+      {
+        key: 'accountNo',
+        label: '银行账号',
+        max: 64,
+        permission: 'cash_account_no:view',
+        emptyAsNull: false,
+      },
     ],
     columns: [
       ...baseColumns,
@@ -291,22 +292,11 @@ export const resourceGroups = [
   { title: '商品', paths: ['units', 'product-categories', 'products', 'skus'] },
 ]
 
-export function defaultWorkspace(can: (permission: string) => boolean, hasCompany: boolean): string {
-  if (hasCompany && can('warehouse:view')) return '/warehouses'
-  if (hasCompany) {
-    const sales = salesSpecs.find(spec => can(spec.permission + ':view'))
-    if (sales) return '/' + sales.path
-    const procurement = procurementSpecs.find(spec => can(spec.permission + ':view'))
-    if (procurement) return '/' + procurement.path
-    const stock = stockSpecs.find(spec => can(spec.permission + ':view'))
-    if (stock) return '/' + stock.path
-    if (can('settlement:view')) return '/settlements'
-    if (can('inventory:view')) return '/inventory-balances'
-    const report = reportSpecs.find(spec => can(reportPermission(spec.type)))
-    if (report) return '/reports/' + report.type
-    if (importSpecs.some(spec => can('import:' + spec.type)) || reportSpecs.some(spec => can(reportPermission(spec.type, 'export')))) return '/file-jobs'
-    if (can('admin:outbox')) return '/audit-logs'
-  }
-  const first = Object.values(resourceSpecs).find(spec => can(spec.permission + ':view') && (!spec.company || hasCompany))
-  return first ? '/' + first.path : '/account/password'
+export function defaultWorkspace(
+  _can: (permission: string) => boolean,
+  _hasCompany: boolean,
+): string {
+  void _can
+  void _hasCompany
+  return '/'
 }

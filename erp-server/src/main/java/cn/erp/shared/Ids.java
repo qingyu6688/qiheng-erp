@@ -14,11 +14,20 @@ public final class Ids {
     private Ids() {}
 
     private static long readNode() {
-        long node = Long.parseLong(System.getenv().getOrDefault("ERP_NODE_ID", "0"));
-        if (node < 0 || node >= (1L << NODE_BITS)) {
-            throw new IllegalArgumentException("节点编号须在 0 到 1023 之间");
+        return parseNode(System.getenv("ERP_NODE_ID"));
+    }
+
+    static long parseNode(String input) {
+        String value = input == null ? "" : input.strip();
+        if (value.isEmpty()) return 0;
+        try {
+            long node = Long.parseLong(value);
+            if (node >= 0 && node < (1L << NODE_BITS)) return node;
+        } catch (NumberFormatException error) {
+            // 格式错误和越界使用同一配置说明，避免启动时只显示底层解析异常。
         }
-        return node;
+        String visible = value.replace("\r", "\\r").replace("\n", "\\n");
+        throw new IllegalArgumentException("ERP_NODE_ID 须为 0 到 1023 之间的整数，当前值为 \"" + visible + "\"");
     }
 
     public static synchronized long next() {

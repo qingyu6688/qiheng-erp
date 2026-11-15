@@ -20,8 +20,9 @@ public class InventoryService {
     private static final Set<String> OUTBOUND=Set.of("sales_out","transfer_out","count_loss","adjust_out","scrap","purchase_return_out");
     private final InventoryStore store;
     private final JdbcTemplate jdbc;
+    private final ReservationService reservations;
 
-    public InventoryService(InventoryStore store,JdbcTemplate jdbc) {this.store=store;this.jdbc=jdbc;}
+    public InventoryService(InventoryStore store,JdbcTemplate jdbc,ReservationService reservations) {this.store=store;this.jdbc=jdbc;this.reservations=reservations;}
 
     /** 调用者按仓库、SKU 排序传入整笔单据涉及的键，锁持续到外层事务提交。 */
     public void lockKeys(CompanyAccess scope,List<Key> keys) {
@@ -97,6 +98,7 @@ public class InventoryService {
                         status=IF(remaining_qty=0,'consumed','active'),version=version+1 WHERE id=?
                     """,consumed,reservationId);
             store.reservationChange(scope,reservationId,"consume",consumed.negate(),posting.source());
+            reservations.refreshLineState(scope,((Number)reservation.get("order_line_id")).longValue());
         }
         BigDecimal beforeQty=decimal(current,"qty"),beforeCost=decimal(current,"total_cost");
         if(beforeQty.compareTo(quantity)<0) {throw insufficient();}

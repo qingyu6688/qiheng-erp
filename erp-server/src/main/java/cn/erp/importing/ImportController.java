@@ -42,6 +42,12 @@ class ImportController {
     ApiResponse<?> get(HttpServletRequest request,@PathVariable long id){return ApiResponse.success(jobs.get(anyAccess(request),id));}
     @GetMapping("/import-jobs/{id}/errors")
     ApiResponse<?> errors(HttpServletRequest request,@PathVariable long id,@RequestParam(required=false) Long cursor,@RequestParam(defaultValue="100") int limit){return ApiResponse.success(jobs.errors(anyAccess(request),id,cursor,limit));}
+    @GetMapping("/import-jobs/{id}/error-rows.csv")
+    ResponseEntity<byte[]> errorRows(HttpServletRequest request,@PathVariable long id) {
+        return ResponseEntity.ok().contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
+                .header(HttpHeaders.CONTENT_DISPOSITION,"attachment; filename=\"import-errors.csv\"")
+                .header(HttpHeaders.CACHE_CONTROL,"private, no-store").body(jobs.errorRows(anyAccess(request),id));
+    }
     @PostMapping("/import-jobs/{id}/retry")
     ResponseEntity<?> retry(HttpServletRequest request,@PathVariable long id,@RequestHeader(value="Idempotency-Key",required=false) String key) {
         return ResponseEntity.accepted().body(new ApiResponse<>(202,"任务已重新排队",jobs.retry(anyAccess(request),id,key),RequestIds.current(),null,null));

@@ -35,7 +35,7 @@ function Invoke-SetupSql([string]$sql, [string]$dbUser, [string]$dbPassword) {
 function Read-ProjectSettings([string]$path) {
     $config = @{}
     foreach ($line in [IO.File]::ReadAllLines($path)) {
-        if ($line -match '^([A-Z][A-Z0-9_]*)=(.*)$') { $config[$matches[1]] = $matches[2] }
+        if ($line -match '^([A-Z][A-Z0-9_]*)=(.*)$') { $config[$matches[1]] = $matches[2].TrimEnd("`r") }
     }
     return $config
 }

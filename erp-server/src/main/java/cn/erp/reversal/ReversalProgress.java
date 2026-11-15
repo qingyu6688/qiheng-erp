@@ -1,6 +1,7 @@
 package cn.erp.reversal;
 
 import cn.erp.identity.CompanyAccess;
+import cn.erp.inventory.ReservationService;
 import cn.erp.purchasing.PurchaseOrderQueries;
 import cn.erp.salesorder.SalesOrderQueries;
 import java.math.BigDecimal;
@@ -14,7 +15,8 @@ class ReversalProgress {
     private final JdbcTemplate jdbc;
     private final SalesOrderQueries sales;
     private final PurchaseOrderQueries purchases;
-    ReversalProgress(JdbcTemplate jdbc,SalesOrderQueries sales,PurchaseOrderQueries purchases){this.jdbc=jdbc;this.sales=sales;this.purchases=purchases;}
+    private final ReservationService reservations;
+    ReversalProgress(JdbcTemplate jdbc,SalesOrderQueries sales,PurchaseOrderQueries purchases,ReservationService reservations){this.jdbc=jdbc;this.sales=sales;this.purchases=purchases;this.reservations=reservations;}
     List<Map<String,Object>> lines(CompanyAccess scope,String type,long source) {
         return lines(scope,type,source,true);
     }
@@ -52,7 +54,8 @@ class ReversalProgress {
             switch(type) {
                 case "shipment" -> {
                     BigDecimal shipped=head.get("status").equals("posted")?qty:decimal(row,"signed_base_qty");
-                    jdbc.update("UPDATE sales_order_line SET shipped_base_qty=shipped_base_qty-?,signed_base_qty=signed_base_qty-?,recognized_amount=recognized_amount-?,recognized_tax=recognized_tax-?,reservation_state='expired',version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?",shipped,decimal(row,"signed_base_qty"),zero(row,"receivable_amount"),zero(row,"tax_amount"),scope.userId(),scope.tenantId(),scope.companyId(),orderLine);
+                    jdbc.update("UPDATE sales_order_line SET shipped_base_qty=shipped_base_qty-?,signed_base_qty=signed_base_qty-?,recognized_amount=recognized_amount-?,recognized_tax=recognized_tax-?,version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?",shipped,decimal(row,"signed_base_qty"),zero(row,"receivable_amount"),zero(row,"tax_amount"),scope.userId(),scope.tenantId(),scope.companyId(),orderLine);
+                    reservations.refreshLineState(scope,orderLine);
                 }
                 case "sales_return" -> {
                     jdbc.update("UPDATE shipment_line SET returned_base_qty=returned_base_qty-?,credited_amount=credited_amount-?,credited_tax=credited_tax-?,version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?",qty,decimal(row,"credit_amount"),decimal(row,"tax_amount"),scope.userId(),scope.tenantId(),scope.companyId(),row.get("shipment_line_id"));

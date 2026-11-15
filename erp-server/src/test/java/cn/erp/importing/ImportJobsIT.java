@@ -33,6 +33,14 @@ class ImportJobsIT extends ImportTestData {
         assertThat(count("business_partner")).isEqualTo(1);assertThat(count("partner_role")).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT name FROM business_partner WHERE tenant_id=?",String.class,tenant)).isEqualTo("甲,乙公司");
     }
+    @Test void errorRowDownloadPreservesOriginalColumnsAndOnlyFailedRowsWithCurrentAuthorization() {
+        long job=id(create("partner","GOOD,有效单位,,,supplier\r\n=BAD,\"错误,单位\",简称,,invalid"));processor.processNext();
+        String csv=new String(jobs.errorRows(maker,job),java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(csv).startsWith("\uFEFF").contains("错误原因","'=BAD","\"错误,单位\"","invalid").doesNotContain("有效单位");
+        assertThatThrownBy(()->jobs.errorRows(reviewer,job)).isInstanceOfSatisfying(ApiException.class,error->assertThat(error.getStatus()).isEqualTo(404));
+        jdbc.update("DELETE FROM sys_role_permission WHERE tenant_id=? AND role_id=? AND permission_id=(SELECT id FROM sys_permission WHERE code='import:partner')",tenant,role);
+        assertThatThrownBy(()->jobs.errorRows(maker,job)).isInstanceOf(ApiException.class);
+    }
     @Test void openingImportCreatesDraftOnlyThenRealTwoPersonApprovalPostingReconciles() {
         long job=id(create("opening_stock","SKU,件,3,30,库存期初"));processor.processNext();
         assertThat(jobs.get(maker,job)).containsEntry("status","succeeded");
@@ -52,6 +60,9 @@ class ImportJobsIT extends ImportTestData {
         assertThat(jobs.get(maker,job)).containsEntry("status","failed").containsEntry("failedRows",3);
         assertThat(count("stock_adjustment")).isZero();assertThat(count("stock_adjustment_line")).isZero();
         assertThat(jobs.errors(maker,job,null,100).get("items").toString()).contains("qty","totalCost","skuCode","数量须大于零");
+        assertThat(new String(jobs.errorRows(maker,job),java.nio.charset.StandardCharsets.UTF_8)).contains("数量错误","金额精度错误","资料错误");
+        jdbc.update("DELETE FROM sys_role_permission WHERE tenant_id=? AND role_id=? AND permission_id=(SELECT id FROM sys_permission WHERE code='cost:view')",tenant,role);
+        assertThatThrownBy(()->jobs.errorRows(maker,job)).isInstanceOf(ApiException.class);
     }
     @Test void identicalFingerprintAndIdempotencyAcrossConcurrentKeysCreateOneJobAndOneDraft() throws Exception {
         byte[] bytes=csv("opening_stock","SKU,件,1,10,并发期初");

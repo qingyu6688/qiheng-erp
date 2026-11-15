@@ -1,0 +1,23 @@
+[mysqld]
+# 安装版本固定 MySQL 8.0.46；根据实际私网地址修改，禁止监听公网。
+bind-address=127.0.0.1
+server-id=101
+log-bin=mysql-bin
+binlog-format=ROW
+binlog-row-image=FULL
+gtid-mode=ON
+enforce-gtid-consistency=ON
+sync-binlog=1
+innodb-flush-log-at-trx-commit=1
+binlog-expire-logs-seconds=604800
+character-set-server=utf8mb4
+collation-server=utf8mb4_0900_ai_ci
+default-authentication-plugin=caching_sha2_password
+# 跨主机连接必须配置证书并开启 require_secure_transport。
+require-secure-transport=ON
+ssl-ca=/etc/mysql/tls/ca.pem
+ssl-cert=/etc/mysql/tls/server-cert.pem
+ssl-key=/etc/mysql/tls/server-key.pem
+slow-query-log=ON
+long-query-time=1
+slow-query-log-file=/var/log/mysql/slow.log

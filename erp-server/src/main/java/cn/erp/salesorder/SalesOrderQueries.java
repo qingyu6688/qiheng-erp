@@ -1,6 +1,7 @@
 package cn.erp.salesorder;
 
 import cn.erp.identity.CompanyAccess;
+import cn.erp.inventory.ReservationService;
 import cn.erp.shared.ApiException;
 import java.math.BigDecimal;
 import java.time.*;
@@ -53,10 +54,10 @@ public class SalesOrderQueries {
         result.put("unit",reference("unit",scope,number(line,"unit_id")));
         result.put("warehouse",line.get("warehouse_id")==null?null:reference("warehouse",scope,number(line,"warehouse_id")));
         result.put("lineDiscountAmount",decimal(line,"line_discount").toPlainString());
-        var reservations=jdbc.queryForList("SELECT status,remaining_qty FROM inventory_reservation WHERE tenant_id=? AND company_id=? AND order_line_id=? ORDER BY id DESC LIMIT 1",scope.tenantId(),scope.companyId(),number(line,"id"));
-        String reservationState=reservations.isEmpty()?"none":reservations.getFirst().get("status").toString();
-        result.put("reservationState",reservationState.equals("active")?"reserved":reservationState);
-        result.put("reservedQty",reservationState.equals("active")?decimal(reservations.getFirst(),"remaining_qty").toPlainString():"0.000000");
+        var reservations=jdbc.queryForList("SELECT status,remaining_qty FROM inventory_reservation WHERE tenant_id=? AND company_id=? AND order_line_id=? ORDER BY id DESC",scope.tenantId(),scope.companyId(),number(line,"id"));
+        var reservation=ReservationService.projectLine(reservations);
+        result.put("reservationState",reservation.state());
+        result.put("reservedQty",reservation.reservedQty().toPlainString());
         result.put("progress",Map.of("baseQty",decimal(line,"base_qty").toPlainString(),"closedQty",decimal(line,"closed_base_qty").toPlainString(),
             "shippedQty",decimal(line,"shipped_base_qty").toPlainString(),"signedQty",decimal(line,"signed_base_qty").toPlainString(),
             "pendingShipQty",decimal(line,"pending_ship_base_qty").toPlainString(),"returnedQty",decimal(line,"returned_base_qty").toPlainString(),

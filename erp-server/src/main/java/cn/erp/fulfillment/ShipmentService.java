@@ -34,13 +34,14 @@ public class ShipmentService {
     private final BusinessCommands commands;
     private final AuditService audit;
     private final SalesOrderQueries orders;
+    private final ReservationService reservations;
 
     public ShipmentService(JdbcTemplate jdbc,ShipmentQueries queries,InventoryService inventory,
             OrderLineOccupancy occupancy,CatalogAvailability catalog,ReferenceAvailability reference,
             LedgerService ledger,SettlementService settlement,DocumentNumbers numbers,
-            BusinessCommands commands,AuditService audit,SalesOrderQueries orders) {
+            BusinessCommands commands,AuditService audit,SalesOrderQueries orders,ReservationService reservations) {
         this.jdbc=jdbc;this.queries=queries;this.inventory=inventory;this.occupancy=occupancy;this.catalog=catalog;
-        this.reference=reference;this.ledger=ledger;this.settlement=settlement;this.numbers=numbers;this.commands=commands;this.audit=audit;this.orders=orders;
+        this.reference=reference;this.ledger=ledger;this.settlement=settlement;this.numbers=numbers;this.commands=commands;this.audit=audit;this.orders=orders;this.reservations=reservations;
     }
 
     public Map<String,Object> create(CompanyAccess scope,String key,ShipmentModels.Input input) {
@@ -190,9 +191,10 @@ public class ShipmentService {
                     """,qty,diff,diff.signum()==0?"none":"pending",amount,taxAmount,amount.subtract(taxAmount),signedCost,diffCost,scope.userId(),line.get("id"));
             jdbc.update("""
                     UPDATE sales_order_line SET signed_base_qty=signed_base_qty+?,shipped_base_qty=shipped_base_qty-?,
-                    recognized_amount=recognized_amount+?,recognized_tax=recognized_tax+?,reservation_state=IF(? > 0,'expired',reservation_state),
+                    recognized_amount=recognized_amount+?,recognized_tax=recognized_tax+?,
                     version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?
-                    """,qty,diff,amount,taxAmount,diff,scope.userId(),scope.tenantId(),scope.companyId(),line.get("order_line_id"));
+                    """,qty,diff,amount,taxAmount,scope.userId(),scope.tenantId(),scope.companyId(),line.get("order_line_id"));
+            reservations.refreshLineState(scope,id(line,"order_line_id"));
             if(qty.signum()>0) {signedOrders.add(id(source,"order_id"));}
             createReceivable(scope,id,id(line,"id"),"shipment_line",id(header,"customer_id"),id(source,"order_id"),amount,taxAmount,input.signDate(),period);
             add(entries,"AR","D",amount,id(header,"customer_id"),null,null,id(line,"id"));

@@ -84,8 +84,14 @@ class CatalogQueries {
                 SELECT c.unit_id,u.name,c.rate_to_base,c.is_base FROM unit_conversion c
                 JOIN unit u ON u.tenant_id=c.tenant_id AND u.id=c.unit_id
                 WHERE c.tenant_id=? AND c.sku_id=? ORDER BY c.is_base DESC,c.id
-                """, (rs,n) -> new CatalogModels.UnitView(rs.getString(1),rs.getString(2),rs.getBigDecimal(3).toPlainString(),rs.getBoolean(4)),
+                """, (rs,n) -> new CatalogModels.UnitView(rs.getString(1),rs.getString(2),rs.getBigDecimal(3).toPlainString(),rs.getBoolean(4), referenced(scope,skuId,rs.getLong(1))),
                 scope.tenantId(),skuId);
+    }
+    private boolean referenced(CompanyAccess scope,long sku,long unit) {
+        for(String table:List.of("sales_order_line","shipment_line","sales_return_line","purchase_requisition_line","purchase_order_line","goods_receipt_line","purchase_return_line","stock_transfer_line","stock_adjustment_line")) {
+            if(Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM "+table+" WHERE tenant_id=? AND sku_id=? AND unit_id=?)",Boolean.class,scope.tenantId(),sku,unit)))return true;
+        }
+        return false;
     }
 
     List<CatalogModels.BarcodeView> barcodes(CompanyAccess scope, long skuId) {

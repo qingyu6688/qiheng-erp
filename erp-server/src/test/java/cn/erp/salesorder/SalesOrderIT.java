@@ -91,11 +91,27 @@ class SalesOrderIT {
         assertThat((List<?>)submitted.get("warnings")).hasSize(1);
         var balance=items(stock.balances(maker,id(warehouse),"",null,20)).getFirst();
         assertThat(balance).containsEntry("availableQty","10.000000").containsEntry("pendingDemandQty","60.000000");
+        var costScope=new CompanyAccess(tenant,maker.userId(),company,true,Set.of(),Set.of("inventory:view","cost:view"));
+        var filtered=stock.balances(costScope,id(warehouse),"",null,1,true,true);
+        assertThat(filtered.get("summary")).asString().contains("shortageCount=1","costAmount=100.00");
+        assertThat(items(filtered)).hasSize(1);
+        var hidden=new CompanyAccess(tenant,maker.userId(),company,false,Set.of(warehouse),Set.of("inventory:view"));
+        var safe=stock.balances(hidden,id(warehouse),"",null,20,true,true);
+        assertThat(items(safe).getFirst()).doesNotContainKeys("costAmount","unitCost");
+        assertThat(safe.get("summary").toString()).doesNotContain("costAmount","unreceivedCostAmount","unreceivedCount");
         assertThat(inventory.balance(maker,new Key(warehouse,sku)).reserved()).isEqualByComparingTo("0");
         assertThatThrownBy(()->command(reviewer,first,"approve")).isInstanceOfSatisfying(ApiException.class,
                 e->assertThat(e.getErrorCode()).isEqualTo("INVENTORY_INSUFFICIENT"));
         assertThat(queries.get(maker,oid(first))).containsEntry("status","pending");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM inventory_reservation WHERE tenant_id=?",Integer.class,tenant)).isZero();
+    }
+
+    @Test
+    void inventoryUnitCostKeepsEightDecimalPlacesBeforeDisplayRounding() {
+        inventory.receive(maker,new Posting(new Key(warehouse,sku),new Source("opening",Ids.next(),Ids.next()),date,period,"opening_in"),new BigDecimal("3"),new BigDecimal("1.00"));
+        var costScope=new CompanyAccess(tenant,maker.userId(),company,true,Set.of(),Set.of("inventory:view","cost:view"));
+        assertThat(items(stock.balances(costScope,id(warehouse),"",null,20)).getFirst())
+                .containsEntry("unitCost","0.33333333").containsEntry("costAmount","1.00");
     }
 
     @Test
@@ -170,6 +186,20 @@ class SalesOrderIT {
         command(maker,order,"reserve");
         assertThat(inventory.balance(maker,new Key(warehouse,sku)).reserved()).isEqualByComparingTo("3");
         assertThat(lines(queries.get(maker,oid(order))).getFirst()).containsEntry("reservationState","reserved");
+    }
+
+    @Test
+    void O06NewerExpiredHistoryCannotHideAnEarlierActiveReservation() {
+        receive(warehouse,sku,"5");var order=approved("3");
+        long line=Long.parseLong(lines(order).getFirst().get("id").toString());
+        jdbc.update("""
+            INSERT INTO inventory_reservation(id,tenant_id,company_id,order_line_id,warehouse_id,sku_id,
+                reserved_qty,remaining_qty,expire_at,status,created_by)
+            VALUES(?,?,?,?,?,?,1,0,DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 1 SECOND),'expired',?)
+            """,Ids.next(),tenant,company,line,warehouse,sku,maker.userId());
+        reservations.refreshLineState(maker,line);
+        assertThat(lines(queries.get(maker,oid(order))).getFirst()).containsEntry("reservationState","reserved").containsEntry("reservedQty","3.000000");
+        assertThat(jdbc.queryForObject("SELECT reservation_state FROM sales_order_line WHERE id=?",String.class,line)).isEqualTo("reserved");
     }
 
     @Test

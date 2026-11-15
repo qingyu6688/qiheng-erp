@@ -101,6 +101,8 @@ class CatalogIT {
                 .isInstanceOfSatisfying(ApiException.class,e -> assertThat(e.getErrorCode()).isEqualTo("DEPENDENCY_EXISTS"));
         assertThat(jdbc.queryForObject("SELECT rate_to_base FROM unit_conversion WHERE tenant_id=? AND sku_id=? AND unit_id=?",
                 String.class,scope.tenantId(),id,box)).isEqualTo("12.000000");
+        assertThat(catalog.detail(scope,"sku",id).units()).filteredOn(v -> v.unitId().equals(Long.toString(box)))
+                .singleElement().satisfies(v -> assertThat(v.referenced()).isTrue());
     }
 
     @Test

@@ -1,14 +1,29 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { record, records, allRecords, writeRecord } from '../api/admin'
 import { isCancelled, messageOf, newIdempotencyKey } from '../api/http'
 import { useSessionStore } from '../stores/session'
 import { fieldValues, optionsFrom } from '../utils/admin'
 import type { DataRow, FormField, SelectOption } from '../types/admin'
 import DataFields from './DataFields.vue'
+import RecordFrame from './RecordFrame.vue'
+import PermissionMatrix from './PermissionMatrix.vue'
 
-const props = defineProps<{ resource: string; row: DataRow }>()
-const emit = defineEmits<{ close: []; saved: [] }>()
+const policyHelp = [
+  '按新增业务单据冻结税身份，修改不回写已过账单据。',
+  '新预留的有效天数，旧预留到期时间不变。',
+  '交货日期后的预留宽限天数。',
+  '仅影响之后审批的采购订单，原可收上限不变。',
+  '启用后制单人与审核人须为不同用户。',
+  '启用后登记人与收付款确认人须为不同用户。',
+]
+const props = defineProps<{ resource: string; row: DataRow; inline?: boolean }>()
+const emit = defineEmits<{
+  close: []
+  saved: []
+  dirty: [value: boolean]
+  pending: [value: boolean]
+}>()
 const session = useSessionStore()
 const current = ref(props.row)
 const busy = ref(false)
@@ -21,12 +36,43 @@ const roleIds = ref<string[]>([])
 const permissionCodes = ref<string[]>([])
 const permissions = ref<{ code: string; name: string }[]>([])
 const scopes = ref<{ companyId: string; scopeType: string; warehouseId: string }[]>([])
-const unitRows = ref<{ unitId: string; rateToBase: string; isBase: boolean }[]>([])
+const unitRows = ref<
+  { unitId: string; rateToBase: string; isBase: boolean; referenced: boolean }[]
+>([])
 const barcodeRows = ref<{ unitId: string; barcode: string }[]>([])
+const activeTab = ref('units')
+const contactTab = ref('contacts')
 const password = ref('')
 const contact = ref<DataRow>()
 const contactKey = ref(newIdempotencyKey())
 const requestKeys = new Map<string, string>()
+const baselines: Record<string, string> = {}
+let initialized = false
+function sectionValues(): Record<string, unknown> {
+  if (props.resource === 'companies') return { policy: { ...input } }
+  if (props.resource === 'partners') return { contact: { ...input } }
+  if (props.resource === 'users')
+    return { roles: roleIds.value, scopes: scopes.value, password: password.value }
+  if (props.resource === 'roles') return { permissions: permissionCodes.value }
+  return { units: unitRows.value, barcodes: barcodeRows.value }
+}
+function sectionDirty(action: string): boolean {
+  return initialized && JSON.stringify(sectionValues()[action]) !== baselines[action]
+}
+function updateDirty(): void {
+  emit('dirty', Object.keys(baselines).some(sectionDirty))
+}
+function markClean(action?: string): void {
+  const values = sectionValues(),
+    target = action === 'reset-password' ? 'password' : action
+  if (target && Object.hasOwn(values, target)) baselines[target] = JSON.stringify(values[target])
+  else if (!target)
+    for (const [name, value] of Object.entries(values)) baselines[name] = JSON.stringify(value)
+  initialized = true
+  updateDirty()
+}
+watch(sectionValues, updateDirty, { deep: true, flush: 'sync' })
+watch(busy, (value) => emit('pending', value), { flush: 'sync' })
 const title = computed(
   () =>
     ({
@@ -60,8 +106,11 @@ const allContactFields: FormField[] = [
   { key: 'address', label: '地址', max: 200 },
   { key: 'isDefault', label: '默认联系人', kind: 'boolean' },
 ]
-const contactFields = computed(() => allContactFields.filter(field =>
-  !['mobile', 'address'].includes(field.key) || session.can('partner_contact:view')))
+const contactFields = computed(() =>
+  allContactFields.filter(
+    (field) => !['mobile', 'address'].includes(field.key) || session.can('partner_contact:view'),
+  ),
+)
 
 function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : []
@@ -79,32 +128,48 @@ function keyFor(action: string): string {
   if (!requestKeys.has(action)) requestKeys.set(action, newIdempotencyKey())
   return requestKeys.get(action)!
 }
-async function refresh(): Promise<void> {
+async function refresh(savedAction?: string): Promise<void> {
   error.value = ''
+  const replace = (action: string): boolean =>
+    !savedAction || action === savedAction || !sectionDirty(action)
   if (props.resource === 'companies')
     Object.assign(input, await record('companies/' + props.row.id + '/policy'))
   if (props.resource === 'users') {
     current.value = await record('users/' + props.row.id)
-    roleIds.value = strings(current.value.roleIds)
-    scopes.value = list(current.value.dataScopes).map((s) => ({
-      companyId: String(s.companyId),
-      scopeType: String(s.scopeType),
-      warehouseId: s.warehouseId == null ? '' : String(s.warehouseId),
-    }))
+    if (replace('roles')) roleIds.value = strings(current.value.roleIds)
+    if (replace('scopes'))
+      scopes.value = list(current.value.dataScopes).map((s) => ({
+        companyId: String(s.companyId),
+        scopeType: String(s.scopeType),
+        warehouseId: s.warehouseId == null ? '' : String(s.warehouseId),
+      }))
+    await Promise.all(scopes.value.map((_, index) => loadScopeWarehouses(index)))
   }
   if (props.resource === 'partners')
     items.value = (await records('partners/' + props.row.id + '/contacts')).items
   if (props.resource === 'skus') {
     current.value = await record('skus/' + props.row.id)
-    unitRows.value = list(current.value.units).map((u) => ({
-      unitId: String(u.unitId),
-      rateToBase: String(u.rateToBase),
-      isBase: Boolean(u.isBase),
+    const existingUnits = list(current.value.units).map((unit) => ({
+      value: String(unit.unitId),
+      label: String(unit.unitName ?? '已关联单位'),
     }))
-    barcodeRows.value = list(current.value.barcodes).map((b) => ({
-      unitId: String(b.unitId),
-      barcode: String(b.barcode),
-    }))
+    options.units = [
+      ...new Map(
+        [...existingUnits, ...(options.units ?? [])].map((unit) => [unit.value, unit]),
+      ).values(),
+    ]
+    if (replace('units'))
+      unitRows.value = list(current.value.units).map((u) => ({
+        unitId: String(u.unitId),
+        rateToBase: String(u.rateToBase),
+        isBase: Boolean(u.isBase),
+        referenced: u.referenced === true,
+      }))
+    if (replace('barcodes'))
+      barcodeRows.value = list(current.value.barcodes).map((b) => ({
+        unitId: String(b.unitId),
+        barcode: String(b.barcode),
+      }))
   }
 }
 async function load(): Promise<void> {
@@ -121,11 +186,18 @@ async function load(): Promise<void> {
       permissions.value = flattenPermissions(result.items)
       permissionCodes.value = strings(current.value.permissionCodes)
     }
-    if (props.resource === 'skus' && session.can('unit:view'))
-      options.units = optionsFrom(await allRecords('units'))
+    if (props.resource === 'skus' && session.can('unit:view')) {
+      const choices = optionsFrom(await allRecords('units'))
+      options.units = [
+        ...new Map(
+          [...(options.units ?? []), ...choices].map((unit) => [unit.value, unit]),
+        ).values(),
+      ]
+    }
   } catch (cause: unknown) {
     if (!isCancelled(cause)) error.value = messageOf(cause)
   } finally {
+    markClean()
     busy.value = false
   }
 }
@@ -175,7 +247,18 @@ async function save(action: string): Promise<void> {
       requestKeys.delete(action)
     }
     if (action === 'units')
-      await writeRecord(base + '/units', { version, units: unitRows.value }, 'PUT')
+      await writeRecord(
+        base + '/units',
+        {
+          version,
+          units: unitRows.value.map(({ unitId, rateToBase, isBase }) => ({
+            unitId,
+            rateToBase,
+            isBase,
+          })),
+        },
+        'PUT',
+      )
     if (action === 'barcodes')
       await writeRecord(base + '/barcodes', { version, barcodes: barcodeRows.value }, 'PUT')
     if (action === 'contact') {
@@ -190,24 +273,41 @@ async function save(action: string): Promise<void> {
         false,
         contact.value ? undefined : contactKey.value,
       )
-      newContact()
+      newContact(undefined, true)
     }
     notice.value = '设置已保存'
-    emit('saved')
     if (props.resource === 'roles') {
       current.value = await record('roles/' + props.row.id)
-    } else await refresh()
+    } else await refresh(action)
+    markClean(action)
+    emit('saved')
   } catch (cause: unknown) {
     error.value = cause instanceof Error ? cause.message : messageOf(cause)
   } finally {
     busy.value = false
   }
 }
-function newContact(row?: DataRow): void {
+function newContact(row?: DataRow, saved = false): void {
+  if (
+    !saved &&
+    sectionDirty('contact') &&
+    !window.confirm('联系人修改尚未保存，确定放弃这些修改？')
+  )
+    return
   contact.value = row
   contactKey.value = newIdempotencyKey()
   for (const key of Object.keys(input)) delete input[key]
   Object.assign(input, fieldValues(contactFields.value, row))
+  if (row) contactTab.value = 'contact-editor'
+  if (initialized) markClean('contact')
+}
+function reload(): void {
+  if (
+    Object.keys(baselines).some(sectionDirty) &&
+    !window.confirm('修改尚未保存，确定刷新并放弃这些修改？')
+  )
+    return
+  void load()
 }
 async function deleteContact(row: DataRow): Promise<void> {
   busy.value = true
@@ -229,6 +329,11 @@ async function selectScopeCompany(index: number): Promise<void> {
   const scope = scopes.value[index]
   if (!scope) return
   scope.warehouseId = ''
+  await loadScopeWarehouses(index)
+}
+async function loadScopeWarehouses(index: number): Promise<void> {
+  const scope = scopes.value[index]
+  if (!scope) return
   if (!scope.companyId) {
     options['warehouses-' + index] = []
     return
@@ -246,15 +351,17 @@ onMounted(() => {
   newContact()
   void load()
 })
+function createContact(): void {
+  newContact()
+  contactTab.value = 'contact-editor'
+}
 </script>
 <template>
-  <el-dialog
-    :model-value="true"
+  <RecordFrame
+    :inline="inline"
+    :busy="busy"
     :title="title + ' · ' + (row.name ?? row.displayName ?? row.code)"
     width="760px"
-    :close-on-click-modal="false"
-    :show-close="!busy"
-    :close-on-press-escape="!busy"
     @close="emit('close')"
   >
     <el-alert v-if="error" type="error" :title="error" :closable="false" show-icon />
@@ -267,6 +374,11 @@ onMounted(() => {
           :disabled="busy"
           @change="(k, v) => (input[k] = v)"
         />
+        <ul class="policy-help">
+          <li v-for="(help, index) in policyHelp" :key="help">
+            {{ policyFields[index]?.label }}：{{ help }}
+          </li>
+        </ul>
         <el-button
           v-if="session.can('company_policy:update')"
           type="primary"
@@ -320,7 +432,9 @@ onMounted(() => {
             <el-button
               @click="scopes.push({ companyId: '', scopeType: 'company', warehouseId: '' })"
               >添加范围</el-button
-            ><el-button type="primary" :loading="busy" @click="save('scopes')">保存数据范围</el-button>
+            ><el-button type="primary" :loading="busy" @click="save('scopes')"
+              >保存数据范围</el-button
+            >
           </div>
         </section>
         <section v-if="session.can('user:reset_password')" class="relation-section">
@@ -341,43 +455,74 @@ onMounted(() => {
         >
       </template>
       <template v-if="resource === 'roles'">
-        <el-checkbox-group v-model="permissionCodes" class="permission-grid">
-          <el-checkbox
-            v-for="p in permissions"
-            :key="p.code"
-            :value="p.code"
-            :disabled="!session.can(p.code)"
-            >{{ p.name }}<small>{{ p.code }}</small></el-checkbox
-          >
-        </el-checkbox-group>
+        <PermissionMatrix v-model="permissionCodes" :permissions="permissions" :disabled="busy" />
         <el-button type="primary" :loading="busy" @click="save('permissions')">保存权限</el-button>
       </template>
       <template v-if="resource === 'partners'">
-        <el-table :data="items"
-          ><el-table-column prop="name" label="姓名" /><el-table-column
-            v-if="session.can('partner_contact:view')"
-            prop="mobile"
-            label="电话"
-          /><el-table-column prop="email" label="邮箱" />
-          <el-table-column label="操作"
-            ><template #default="{ row: item }"
-              ><button
-                v-if="session.can('partner_contact:update')"
-                class="text-link"
-                @click="newContact(item)"
-              >
-                编辑</button
-              ><el-popconfirm
-                v-if="session.can('partner_contact:delete')"
-                title="确认删除此联系人？"
-                @confirm="deleteContact(item)"
-                ><template #reference><el-button text>删除</el-button></template></el-popconfirm
-              ></template
-            ></el-table-column
+        <div class="relation-tabs" role="tablist" aria-label="联系人分区">
+          <button
+            id="contacts-tab"
+            type="button"
+            role="tab"
+            :aria-selected="contactTab === 'contacts'"
+            aria-controls="contacts-panel"
+            @click="contactTab = 'contacts'"
           >
-        </el-table>
+            联系人列表 <span>{{ items.length }}</span>
+          </button>
+          <button
+            v-if="session.can('partner_contact:create') || session.can('partner_contact:update')"
+            id="contact-editor-tab"
+            type="button"
+            role="tab"
+            :aria-selected="contactTab === 'contact-editor'"
+            aria-controls="contact-editor-panel"
+            @click="contactTab = 'contact-editor'"
+          >
+            {{ contact ? '编辑联系人' : '新建联系人' }}
+          </button>
+        </div>
+        <div
+          v-show="contactTab === 'contacts'"
+          id="contacts-panel"
+          role="tabpanel"
+          aria-labelledby="contacts-tab"
+        >
+          <el-table :data="items"
+            ><el-table-column prop="name" label="姓名" /><el-table-column
+              v-if="session.can('partner_contact:view')"
+              prop="mobile"
+              label="电话"
+            /><el-table-column prop="email" label="邮箱" />
+            <el-table-column label="操作"
+              ><template #default="{ row: item }"
+                ><button
+                  v-if="session.can('partner_contact:update')"
+                  class="text-link"
+                  @click="newContact(item)"
+                >
+                  编辑</button
+                ><el-popconfirm
+                  v-if="session.can('partner_contact:delete')"
+                  title="确认删除此联系人？"
+                  @confirm="deleteContact(item)"
+                  ><template #reference><el-button text>删除</el-button></template></el-popconfirm
+                ></template
+              ></el-table-column
+            >
+          </el-table>
+          <el-button
+            v-if="session.can('partner_contact:create')"
+            @click="createContact"
+            >新建联系人</el-button
+          >
+        </div>
         <section
           v-if="session.can('partner_contact:create') || session.can('partner_contact:update')"
+          v-show="contactTab === 'contact-editor'"
+          id="contact-editor-panel"
+          role="tabpanel"
+          aria-labelledby="contact-editor-tab"
           class="relation-section"
         >
           <h2>{{ contact ? '编辑联系人' : '新建联系人' }}</h2>
@@ -392,31 +537,85 @@ onMounted(() => {
         </section>
       </template>
       <template v-if="resource === 'skus'">
-        <section class="relation-section">
+        <div class="relation-tabs" role="tablist" aria-label="SKU 分区">
+          <button
+            id="sku-units-tab"
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'units'"
+            aria-controls="sku-units-panel"
+            @click="activeTab = 'units'"
+          >
+            单位换算 <span>{{ unitRows.length }}</span>
+          </button>
+          <button
+            id="sku-barcodes-tab"
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'barcodes'"
+            aria-controls="sku-barcodes-panel"
+            @click="activeTab = 'barcodes'"
+          >
+            条码 <span>{{ barcodeRows.length }}</span>
+          </button>
+        </div>
+        <section
+          v-show="activeTab === 'units'"
+          id="sku-units-panel"
+          class="relation-section"
+          role="tabpanel"
+          aria-labelledby="sku-units-tab"
+        >
           <h2>单位换算</h2>
-          <p>换算率表示 1 个该单位相当于多少基础单位。已被业务引用的换算率受服务端保护。</p>
-          <div v-for="(unit, index) in unitRows" :key="index" class="relation-row">
-            <el-select v-model="unit.unitId" aria-label="换算单位"
-              ><el-option
-                v-for="o in options.units"
-                :key="o.value"
-                :value="o.value"
-                :label="o.label"
-            /></el-select>
-            <el-input
-              v-model="unit.rateToBase"
-              aria-label="换算率"
-              placeholder="换算率"
-            /><el-checkbox v-model="unit.isBase">基础单位</el-checkbox
-            ><el-button text @click="unitRows.splice(index, 1)">移除</el-button>
+          <p class="relation-hint">
+            换算率表示 1 个该单位相当于多少基础单位。已引用的单位由服务端标记，只能查看。
+          </p>
+          <div v-for="(unit, index) in unitRows" :key="index" class="unit-entry">
+            <div class="relation-row">
+              <el-select v-model="unit.unitId" aria-label="换算单位" :disabled="unit.referenced"
+                ><el-option
+                  v-for="o in options.units"
+                  :key="o.value"
+                  :value="o.value"
+                  :label="o.label"
+              /></el-select>
+              <el-input
+                v-model="unit.rateToBase"
+                aria-label="换算率"
+                placeholder="换算率"
+                :disabled="unit.referenced"
+              /><el-checkbox v-model="unit.isBase" :disabled="unit.referenced">基础单位</el-checkbox
+              ><el-button text :disabled="unit.referenced" @click="unitRows.splice(index, 1)"
+                >移除</el-button
+              >
+            </div>
+            <p v-if="unit.referenced" class="relation-hint unit-readonly">
+              已被单据引用，不能修改单位、换算率或移除。
+            </p>
           </div>
           <div class="relation-actions">
-            <el-button @click="unitRows.push({ unitId: '', rateToBase: '1.000000', isBase: false })"
+            <el-button
+              @click="
+                unitRows.push({
+                  unitId: '',
+                  rateToBase: '1.000000',
+                  isBase: false,
+                  referenced: false,
+                })
+              "
               >添加单位</el-button
-            ><el-button type="primary" :loading="busy" @click="save('units')">保存单位换算</el-button>
+            ><el-button type="primary" :loading="busy" @click="save('units')"
+              >保存单位换算</el-button
+            >
           </div>
         </section>
-        <section class="relation-section">
+        <section
+          v-show="activeTab === 'barcodes'"
+          id="sku-barcodes-panel"
+          class="relation-section"
+          role="tabpanel"
+          aria-labelledby="sku-barcodes-tab"
+        >
           <h2>条码</h2>
           <div v-for="(barcode, index) in barcodeRows" :key="index" class="relation-row">
             <el-input
@@ -434,14 +633,63 @@ onMounted(() => {
           </div>
           <div class="relation-actions">
             <el-button @click="barcodeRows.push({ unitId: '', barcode: '' })">添加条码</el-button
-            ><el-button type="primary" :loading="busy" @click="save('barcodes')">保存条码</el-button>
+            ><el-button type="primary" :loading="busy" @click="save('barcodes')"
+              >保存条码</el-button
+            >
           </div>
         </section>
       </template>
     </fieldset>
     <template #footer
       ><el-button :disabled="busy" @click="emit('close')">关闭</el-button
-      ><el-button :disabled="busy" @click="load">刷新</el-button></template
+      ><el-button :disabled="busy" @click="reload">刷新</el-button></template
     >
-  </el-dialog>
+  </RecordFrame>
 </template>
+<style scoped>
+.relation-tabs {
+  display: flex;
+  gap: 20px;
+  border-bottom: 1px solid #e3e6eb;
+  margin-bottom: 16px;
+}
+.relation-tabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 10px 0;
+  background: none;
+  color: #6b7380;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.relation-tabs button[aria-selected='true'] {
+  color: #245fe5;
+  border-bottom-color: #245fe5;
+  font-weight: 600;
+}
+.relation-tabs span {
+  font-weight: 400;
+  font-size: 12px;
+  margin-left: 4px;
+}
+.relation-hint {
+  font-size: 12px;
+  line-height: 20px;
+  color: #6b7380;
+}
+.unit-entry {
+  padding: 6px 0;
+  border-bottom: 1px solid #edf0f4;
+}
+.unit-readonly {
+  margin: 0 0 10px;
+}
+.relation-section:last-child {
+  border-bottom: 0;
+  margin-bottom: 0;
+}
+.relation-section:deep(.el-input) {
+  min-width: 0;
+}
+</style>

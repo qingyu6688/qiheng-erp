@@ -70,7 +70,7 @@ public class ReservationService {
                     request.key().skuId(),request.quantity(),request.quantity(),Timestamp.from(request.expiresAt()),scope.userId());
             store.reservationChange(scope,id,"reserve",request.quantity(),
                     new Source("sales_order",((Number)lines.get(request.orderLineId()).get("order_id")).longValue(),request.orderLineId()));
-            jdbc.update("UPDATE sales_order_line SET reservation_state='reserved',version=version+1 WHERE id=?",request.orderLineId());
+            refreshLineState(scope,request.orderLineId());
             result.add(id);
         }
         return List.copyOf(result);
@@ -124,9 +124,25 @@ public class ReservationService {
                   status=IF(remaining_qty=0,?,'active'),version=version+1 WHERE id=? AND status='active' AND remaining_qty>=?
                 """,quantity,reason.equals("expire")?"expired":"released",id,quantity);
         store.reservationChange(scope,id,reason,quantity.negate(),source);
-        String lineState=quantity.compareTo(decimal(row,"remaining_qty"))<0?"reserved":reason.equals("expire")?"expired":"released";
-        jdbc.update("UPDATE sales_order_line SET reservation_state=?,version=version+1 WHERE id=?",lineState,lineId);
+        refreshLineState(scope,lineId);
         return quantity;
+    }
+
+    /** 调用方已持有订单行锁；只读取真实预留结果，不为签收或冲销编造到期状态。 */
+    public void refreshLineState(CompanyAccess scope,long lineId) {
+        var rows=jdbc.queryForList("SELECT status,remaining_qty FROM inventory_reservation WHERE tenant_id=? AND company_id=? AND order_line_id=? ORDER BY id DESC FOR UPDATE",scope.tenantId(),scope.companyId(),lineId);
+        jdbc.update("UPDATE sales_order_line SET reservation_state=?,version=version+1 WHERE tenant_id=? AND company_id=? AND id=?",projectLine(rows).cachedState(),scope.tenantId(),scope.companyId(),lineId);
+    }
+
+    public record LineProjection(String state,String cachedState,BigDecimal reservedQty) {}
+
+    /** 有效剩余量优先于较新的历史记录，详情与行缓存共用此规则。记录按编号倒序传入。 */
+    public static LineProjection projectLine(List<Map<String,Object>> rows) {
+        BigDecimal remaining=rows.stream().filter(row->"active".equals(row.get("status")))
+                .map(row->decimal(row,"remaining_qty")).filter(value->value.signum()>0).reduce(BigDecimal.ZERO,BigDecimal::add);
+        String state=remaining.signum()>0?"reserved":rows.isEmpty()?"none":rows.getFirst().get("status").toString();
+        String cached=Set.of("none","reserved","expired").contains(state)?state:"released";
+        return new LineProjection(state,cached,remaining.setScale(6));
     }
 
     /** 返回当前租户和公司内到期明细，Worker 在每笔独立事务调用 expire。 */

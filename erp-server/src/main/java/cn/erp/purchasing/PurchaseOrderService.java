@@ -45,7 +45,7 @@ public class PurchaseOrderService {
             long id=Ids.next();String no=numbers.next(scope,"PO",YearMonth.from(input.businessDate()));
             jdbc.update("INSERT INTO purchase_order(id,tenant_id,company_id,order_no,supplier_id,business_date,price_tax_inclusive,created_by,updated_by) VALUES(?,?,?,?,?,?,1,?,?)",
                     id,scope.tenantId(),scope.companyId(),no,identifier(input.supplierId()),input.businessDate(),scope.userId(),scope.userId());
-            writer.write(scope,id,input,preview);
+            writer.writeNew(scope,id,input,preview);
             var result=queries.get(scope,id);
             audit.record(scope,"purchase_order.create","purchase_order",id,null,result);
             return result;

@@ -1,10 +1,11 @@
 {
   "name": "erp-web",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.8.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/clean-dist.mjs",
     "build": "vue-tsc --noEmit && vite build",
     "lint": "eslint .",
     "format": "prettier --write src tests",

@@ -51,7 +51,12 @@ class InventoryStore {
 
     void ensureAndLockBalance(CompanyAccess scope, Key key) {
         visible(scope, key);
-        jdbc.update("""
+        // 已存在的维度直接点锁，避免同一事务反复用新主键 UPSERT 争用聚簇索引尾部。
+        var existing=jdbc.queryForList("""
+                SELECT id FROM inventory_balance WHERE tenant_id=? AND company_id=? AND warehouse_id=? AND sku_id=?
+                AND location_key='' AND lot_key=''
+                """,Long.class,scope.tenantId(),scope.companyId(),key.warehouseId(),key.skuId());
+        if(existing.isEmpty())jdbc.update("""
                 INSERT INTO inventory_balance(id,tenant_id,company_id,warehouse_id,sku_id) VALUES(?,?,?,?,?)
                 ON DUPLICATE KEY UPDATE id=id
                 """, Ids.next(), scope.tenantId(), scope.companyId(), key.warehouseId(), key.skuId());
@@ -62,7 +67,9 @@ class InventoryStore {
     }
 
     Map<String,Object> lockCost(CompanyAccess scope, Key key) {
-        jdbc.update("""
+        var existing=jdbc.queryForList("SELECT id FROM inventory_cost WHERE tenant_id=? AND company_id=? AND warehouse_id=? AND sku_id=?",
+                Long.class,scope.tenantId(),scope.companyId(),key.warehouseId(),key.skuId());
+        if(existing.isEmpty())jdbc.update("""
                 INSERT INTO inventory_cost(id,tenant_id,company_id,warehouse_id,sku_id) VALUES(?,?,?,?,?)
                 ON DUPLICATE KEY UPDATE id=id
                 """, Ids.next(), scope.tenantId(), scope.companyId(), key.warehouseId(), key.skuId());

@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { formatMoney, formatPrice, formatQuantity } from '../src/utils/format'
+import {
+  formatMoney,
+  formatPrice,
+  formatQuantity,
+  formatDateTime,
+  formatDateTimeSeconds,
+  formatPrintTime,
+  formatRelativeTime,
+} from '../src/utils/format'
 
 describe('服务端数值的显示', () => {
   it('显示精确金额和负数', () => {
@@ -16,5 +24,30 @@ describe('服务端数值的显示', () => {
   it('未返回的数据使用占位符', () => {
     expect(formatMoney(null)).toBe('—')
     expect(formatQuantity(undefined, '件')).toBe('—')
+  })
+})
+
+describe('上海业务时间显示', () => {
+  const now = new Date('2026-11-15T08:00:00Z')
+  it('同年、跨年及跨零点按上海时区显示', () => {
+    expect(formatDateTime('2026-11-15T06:49:29.673Z', now)).toBe('11-15 14:49')
+    expect(formatDateTime('2025-12-31T15:59:00Z', now)).toBe('2025-12-31 23:59')
+    expect(formatDateTime('2026-11-14T16:01:00Z', now)).toBe('11-15 00:01')
+    expect(formatDateTimeSeconds('2026-11-15T06:49:29Z', now)).toBe('11-15 14:49:29')
+    expect(formatPrintTime('2026-11-15T06:49:29Z')).toBe('2026-11-15 14:49')
+  })
+  it('今天昨天与更早时间边界正确', () => {
+    expect(formatRelativeTime('2026-11-15T00:30:00Z', now)).toBe('08:30')
+    expect(formatRelativeTime('2026-11-14T15:59:00Z', now)).toBe('昨天 23:59')
+    expect(formatRelativeTime('2026-11-13T12:00:00Z', now)).toBe('11-13 20:00')
+    expect(formatRelativeTime('2025-11-13T12:00:00Z', now)).toBe('2025-11-13 20:00')
+  })
+  it('日期字段、空值及非法值不被误转为时间', () => {
+    for (const input of [undefined, null, '', '错误', '2026-11-15']) {
+      expect(formatDateTime(input, now)).toBe('—')
+      expect(formatDateTimeSeconds(input, now)).toBe('—')
+      expect(formatPrintTime(input)).toBe('—')
+      expect(formatRelativeTime(input, now)).toBe('—')
+    }
   })
 })

@@ -39,7 +39,7 @@ class ReversalIT extends ReversalTestData {
         var balance=inventory.balance(maker,new InventoryModels.Key(warehouse,sku));
         assertThat(balance.onHand()).isEqualByComparingTo("10");assertThat(balance.reserved()).isEqualByComparingTo("3");
         assertThat(value("SELECT shipped_base_qty FROM sales_order_line WHERE order_id=?",order)).isEqualByComparingTo("0");
-        assertThat(jdbc.queryForObject("SELECT reservation_state FROM sales_order_line WHERE order_id=?",String.class,order)).isEqualTo("expired");
+        assertThat(jdbc.queryForObject("SELECT reservation_state FROM sales_order_line WHERE order_id=?",String.class,order)).isEqualTo("reserved");
         assertThat(value("SELECT SUM(remaining_qty) FROM inventory_reservation WHERE tenant_id=?",tenant)).isEqualByComparingTo("3");zero();
     }
     @Test void signedShipmentReversesReceivableCostReturnedDifferenceAndInvoiceCandidate() {

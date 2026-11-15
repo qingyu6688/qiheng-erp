@@ -1,0 +1,12 @@
+/var/log/nginx/*.log /var/log/mysql/slow.log /var/log/redis/*.log {
+  daily
+  rotate 14
+  size 50M
+  compress
+  delaycompress
+  missingok
+  notifempty
+  copytruncate
+  create 0640
+}
+# 应用日志由 application-prod.yaml 的 Logback 滚动策略管理，不重复轮转。

@@ -139,6 +139,53 @@ class InventoryIT {
     }
 
     @Test
+    void O06OnlyActualExpiryProjectsExpiredAndConsumptionProjectsReleased() {
+        inventory.receive(scope,posting("opening_in"),d("2"),d("2.00"));long first=line(d("1"));
+        long reservation=reservations.reserve(scope,List.of(new ReservationRequest(first,key,d("1"),Instant.now().plusSeconds(60)))).getFirst();
+        jdbc.update("UPDATE inventory_reservation SET expire_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 1 SECOND) WHERE id=?",reservation);
+        reservations.expire(scope,reservation,Instant.now());
+        assertThat(jdbc.queryForObject("SELECT reservation_state FROM sales_order_line WHERE id=?",String.class,first)).isEqualTo("expired");
+        long second=line(d("1"));long consumed=reservations.reserve(scope,List.of(new ReservationRequest(second,key,d("1"),Instant.now().plusSeconds(60)))).getFirst();
+        inventory.issue(scope,posting("sales_out"),d("1"),consumed);
+        assertThat(jdbc.queryForObject("SELECT reservation_state FROM sales_order_line WHERE id=?",String.class,second)).isEqualTo("released");
+    }
+
+    @Test
+    void O06RefreshAfterConcurrentReleaseOrConsumptionUsesCurrentRowsInsteadOfOldSnapshot() throws Exception {
+        for(boolean consume:List.of(false,true)) {
+            inventory.receive(scope,posting("opening_in"),d("1"),d("1.00"));
+            long source=line(d("1"));
+            long reservation=reservations.reserve(scope,List.of(new ReservationRequest(source,key,d("1"),Instant.now().plusSeconds(60)))).getFirst();
+            var snapshotReady=new CountDownLatch(1);var changeCommitted=new CountDownLatch(1);
+            try(var pool=Executors.newSingleThreadExecutor()) {
+                var refreshed=pool.submit(()->{
+                    var transaction=new TransactionTemplate(manager);
+                    transaction.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_REPEATABLE_READ);
+                    return transaction.execute(status->{
+                        assertThat(jdbc.queryForObject("SELECT status FROM inventory_reservation WHERE id=?",String.class,reservation)).isEqualTo("active");
+                        snapshotReady.countDown();
+                        try {assertThat(changeCommitted.await(10,TimeUnit.SECONDS)).isTrue();}
+                        catch(InterruptedException error) {Thread.currentThread().interrupt();throw new IllegalStateException("预留投影验收线程被中断",error);}
+                        // 再次普通读仍看到旧 active，证明用例确实处于旧的 RR 快照。
+                        assertThat(jdbc.queryForObject("SELECT status FROM inventory_reservation WHERE id=?",String.class,reservation)).isEqualTo("active");
+                        jdbc.queryForObject("SELECT id FROM sales_order_line WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,tenant,company,source);
+                        reservations.refreshLineState(scope,source);
+                        return jdbc.queryForObject("SELECT reservation_state FROM sales_order_line WHERE id=?",String.class,source);
+                    });
+                });
+                try {
+                    assertThat(snapshotReady.await(10,TimeUnit.SECONDS)).isTrue();
+                    if(consume)inventory.issue(scope,posting("sales_out"),d("1"),reservation);
+                    else reservations.release(scope,reservation,d("1"),"release_close",new Source("inventory_test",Ids.next(),source));
+                } finally {changeCommitted.countDown();}
+                assertThat(refreshed.get(20,TimeUnit.SECONDS)).isEqualTo("released");
+            }
+            assertThat(inventory.balance(scope,key).reserved()).isEqualByComparingTo("0");
+            assertThat(jdbc.queryForObject("SELECT remaining_qty FROM inventory_reservation WHERE id=?",BigDecimal.class,reservation)).isZero();
+        }
+    }
+
+    @Test
     void T04FailureRollsBackBalanceCostMovementAndOrderLine() {
         inventory.receive(scope,posting("opening_in"),d("5"),d("10.00"));
         long line=line(d("2"));

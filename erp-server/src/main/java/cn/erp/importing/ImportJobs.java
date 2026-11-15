@@ -113,6 +113,27 @@ public class ImportJobs {
         boolean more=rows.size()>limit;if(more)rows.removeLast();
         var result=new LinkedHashMap<String,Object>();result.put("items",rows.stream().map(ImportJobs::publicRow).toList());result.put("nextCursor",more?rows.getLast().get("id").toString():null);return result;
     }
+    /** 只导出已判错误的原始行，仍以当前授权检查源文件中的采购价和仓库。 */
+    public byte[] errorRows(CompanyAccess scope,long id) {
+        authorize(scope,id);
+        var job=jdbc.queryForMap("SELECT j.job_type,a.storage_key,a.sha256 FROM import_job j JOIN attachment a ON a.id=j.attachment_id WHERE j.tenant_id=? AND j.company_id=? AND j.id=?",scope.tenantId(),scope.companyId(),id);
+        byte[] source=files.read(job.get("storage_key").toString());
+        if(!digest(source).equals(job.get("sha256")))throw ImportCsv.invalid("源文件校验失败，请联系管理员");
+        String type=job.get("job_type").toString();var rows=ImportCsv.parse(type,source);
+        var errors=jdbc.queryForList("SELECT row_no,column_name,message FROM import_job_error WHERE tenant_id=? AND company_id=? AND job_id=? ORDER BY row_no,id",scope.tenantId(),scope.companyId(),id);
+        var byRow=new LinkedHashMap<Integer,List<String>>();
+        for(var error:errors)byRow.computeIfAbsent(((Number)error.get("row_no")).intValue(),key->new ArrayList<>()).add(error.get("column_name")+"："+error.get("message"));
+        var output=new StringBuilder("\uFEFF");var header=new ArrayList<>(ImportCsv.headers(type));header.add("错误原因");csvLine(output,header);
+        for(var row:rows)if(byRow.containsKey(row.rowNo())) {var cells=new ArrayList<>(row.cells());cells.add(String.join("；",byRow.get(row.rowNo())));csvLine(output,cells);}
+        authorize(scope,id);return output.toString().getBytes(StandardCharsets.UTF_8);
+    }
+    private void csvLine(StringBuilder output,List<String> cells) {
+        var safe=new ArrayList<String>();for(String value:cells) {
+            String stripped=value.stripLeading();boolean formula=!stripped.isEmpty()&&"=+-@".indexOf(stripped.charAt(0))>=0;
+            safe.add("\""+(formula?"'":"")+value.replace("\"","\"\"")+"\"");
+        }
+        output.append(String.join(",",safe)).append("\r\n");
+    }
     @SuppressWarnings({"unchecked","rawtypes"})
     public Map<String,Object> retry(CompanyAccess scope,long id,String key) {
         authorize(scope,id);

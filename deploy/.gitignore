@@ -1,0 +1,5 @@
+private/
+.env
+*.pem
+*.key
+*.crt

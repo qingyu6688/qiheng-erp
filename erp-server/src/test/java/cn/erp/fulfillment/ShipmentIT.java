@@ -123,6 +123,16 @@ class ShipmentIT {
     }
 
     @Test
+    void O06ShortReceiptKeepsReservationProjectionDerivedFromActualConsumption() {
+        approvedOrder("O06", "1000", "0", "0", "1000", "1000", "0");
+        long source=line(1,0,"10","100","0","0","1000","0");reserve(source,0,"10");
+        long sent=ship(source,"10","delivery");sign(sent,"8");
+        assertThat(jdbc.queryForObject("SELECT reservation_state FROM sales_order_line WHERE id=?",String.class,source)).isEqualTo("released");
+        assertThat(jdbc.queryForObject("SELECT status FROM inventory_reservation WHERE order_line_id=?",String.class,source)).isEqualTo("consumed");
+        assertThat(value("SELECT SUM(remaining_qty) FROM inventory_reservation WHERE order_line_id=?",source)).isZero();
+    }
+
+    @Test
     void SO4ThreeBatchesUseCumulativeRoundingAndRecognizeBuyerFeeExactlyOnce() {
         var lines=so4();prepayment("300");
         long first=ship(lines.get(1),"3","delivery");

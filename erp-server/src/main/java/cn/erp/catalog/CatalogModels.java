@@ -53,7 +53,7 @@ final class CatalogModels {
                   String productId, String spec, String defaultTaxRate,
                   @JsonInclude(JsonInclude.Include.NON_NULL) String purchasePrice, String salePrice,
                   List<UnitView> units, List<BarcodeView> barcodes, List<String> allowedActions) {}
-    record UnitView(String unitId, String unitName, String rateToBase, boolean isBase) {}
+    record UnitView(String unitId, String unitName, String rateToBase, boolean isBase, boolean referenced) {}
     record BarcodeView(String barcode, String unitId) {}
     record Scan(Detail sku, String unitId, String unitName, String rateToBase) {}
 }

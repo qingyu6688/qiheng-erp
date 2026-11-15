@@ -28,6 +28,14 @@ class SalesOrderWriter {
     }
 
     void write(CompanyAccess scope,long orderId,SalesOrderModels.Input input,PricingModels.Preview preview) {
+        write(scope,orderId,input,preview,false);
+    }
+
+    void writeNew(CompanyAccess scope,long orderId,SalesOrderModels.Input input,PricingModels.Preview preview) {
+        write(scope,orderId,input,preview,true);
+    }
+
+    private void write(CompanyAccess scope,long orderId,SalesOrderModels.Input input,PricingModels.Preview preview,boolean newOrder) {
         jdbc.update("""
             UPDATE sales_order SET customer_id=?,business_date=?,delivery_date=?,price_tax_inclusive=?,pricing_version=2,
               goods_amount=?,line_discount_amount=?,order_discount_amount=?,fee_amount=?,total_amount=?,untaxed_amount=?,tax_amount=?,remark=?,updated_by=?
@@ -35,10 +43,11 @@ class SalesOrderWriter {
             """,identifier(input.customerId()),input.businessDate(),input.deliveryDate(),preview.priceTaxInclusive(),
             preview.goodsAmount(),preview.lineDiscountAmount(),preview.orderDiscountAmount(),preview.feeAmount(),preview.totalAmount(),preview.untaxedAmount(),preview.taxAmount(),
             input.remark(),scope.userId(),scope.tenantId(),scope.companyId(),orderId);
-        var old=jdbc.queryForList("SELECT * FROM sales_order_line WHERE tenant_id=? AND company_id=? AND order_id=? AND is_deleted=0 ORDER BY id FOR UPDATE",scope.tenantId(),scope.companyId(),orderId);
+        // 新表头在本事务中刚插入，不存在旧明细；锁空范围会让不同新订单争用索引尾部间隙。
+        List<Map<String,Object>> old=newOrder?List.of():jdbc.queryForList("SELECT * FROM sales_order_line WHERE tenant_id=? AND company_id=? AND order_id=? AND is_deleted=0 ORDER BY id FOR UPDATE",scope.tenantId(),scope.companyId(),orderId);
         Map<Long,Map<String,Object>> oldById=new HashMap<>();old.forEach(r->oldById.put(number(r,"id"),r));
         Set<Long> kept=new HashSet<>();
-        int last=jdbc.queryForObject("SELECT COALESCE(MAX(line_no),0) FROM sales_order_line WHERE order_id=?",Integer.class,orderId);
+        int last=newOrder?0:jdbc.queryForObject("SELECT COALESCE(MAX(line_no),0) FROM sales_order_line WHERE order_id=?",Integer.class,orderId);
         for(int i=0;i<preview.lines().size();i++) {
             var source=input.lines().get(i);var line=preview.lines().get(i);
             Long id=null;
@@ -75,11 +84,11 @@ class SalesOrderWriter {
             if(decimal(row,"shipped_base_qty").signum()>0 || decimal(row,"pending_ship_base_qty").signum()>0) {throw new ApiException(422,"CHANGE_NOT_ALLOWED","已发或待发的订单行不能删除");}
             jdbc.update("UPDATE sales_order_line SET is_deleted=1,version=version+1 WHERE id=?",number(row,"id"));
         }}
-        writeFees(scope,orderId,input,preview);
+        writeFees(scope,orderId,input,preview,newOrder);
     }
 
-    private void writeFees(CompanyAccess scope,long orderId,SalesOrderModels.Input input,PricingModels.Preview preview) {
-        var old=jdbc.queryForList("SELECT * FROM sales_order_fee WHERE tenant_id=? AND company_id=? AND order_id=? ORDER BY id FOR UPDATE",scope.tenantId(),scope.companyId(),orderId);
+    private void writeFees(CompanyAccess scope,long orderId,SalesOrderModels.Input input,PricingModels.Preview preview,boolean newOrder) {
+        List<Map<String,Object>> old=newOrder?List.of():jdbc.queryForList("SELECT * FROM sales_order_fee WHERE tenant_id=? AND company_id=? AND order_id=? ORDER BY id FOR UPDATE",scope.tenantId(),scope.companyId(),orderId);
         boolean unchanged=old.size()==preview.fees().size();
         for(int i=0;unchanged&&i<old.size();i++) {unchanged=sameFee(old.get(i),preview.fees().get(i));}
         if(unchanged) {return;}
