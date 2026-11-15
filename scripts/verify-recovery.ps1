@@ -4,18 +4,15 @@ param(
     [Parameter(Mandatory)][string]$SettingsFile,
     [Parameter(Mandatory)][ValidatePattern('^erp_restore_[a-z0-9_]{1,40}$')][string]$Database,
     [Parameter(Mandatory)][string]$JarFile,
-    [string]$JavaHome='E:\JDK21'
+    [string]$JavaHome='E:\JDK21',
+    [string]$OutputDirectory
 )
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
-$output=Join-Path $root ('.local/recovery-check-'+(Get-Date -Format 'yyyyMMdd-HHmmss'))
+$output=if($OutputDirectory){[IO.Path]::GetFullPath($OutputDirectory)}else{Join-Path $root ('.local/recovery-check-'+(Get-Date -Format 'yyyyMMdd-HHmmss'))}
+$settingsPath=(Resolve-Path -LiteralPath $SettingsFile).Path
+if(Test-Path -LiteralPath $output){throw '恢复核验输出目录已存在。'}
 New-Item -ItemType Directory -Path $output | Out-Null
-$nativeOutput=$output
-if($output -match '[^\x00-\x7F]'){
- $alias='F:\projects\erp';$link=Get-Item -LiteralPath $alias
- if($link.LinkType -ne 'Junction' -or [IO.Path]::GetFullPath(@($link.Target)[0]).TrimEnd('\') -ne [IO.Path]::GetFullPath($root).TrimEnd('\')){throw '需要已核验的英文项目联接运行Java恢复检查。'}
- $nativeOutput=Join-Path $alias ([IO.Path]::GetRelativePath($root,$output))
-}
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive=[IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $JarFile))
 try{
@@ -28,9 +25,15 @@ try{
   [IO.Compression.ZipFileExtensions]::ExtractToFile($entry,$target,$false)
  }
 }finally{$archive.Dispose()}
-$classpath=(Join-Path $nativeOutput 'BOOT-INF/classes')+';'+(Join-Path $nativeOutput 'BOOT-INF/lib/*')
-& (Join-Path $JavaHome 'bin/javac.exe') -encoding UTF-8 -cp $classpath -d $nativeOutput (Join-Path $PSScriptRoot 'java/RecoveryVerifier.java')
-if($LASTEXITCODE -ne 0){throw '恢复对账检查编译失败。'}
-$result=Join-Path $output 'reconciliation-result.json'
-& (Join-Path $JavaHome 'bin/java.exe') '-Dfile.encoding=UTF-8' '-Dsun.stdout.encoding=UTF-8' '-Dstdout.encoding=UTF-8' -cp ($nativeOutput+';'+$classpath) RecoveryVerifier (Resolve-Path -LiteralPath $SettingsFile).Path $Database $result
-if($LASTEXITCODE -ne 0){throw '恢复库对账未通过。'}
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'java/RecoveryVerifier.java') -Destination $output
+$java=(Resolve-Path -LiteralPath (Join-Path $JavaHome 'bin/java.exe')).Path
+$javac=(Resolve-Path -LiteralPath (Join-Path $JavaHome 'bin/javac.exe')).Path
+# 相对类路径可直接在中文解包目录运行，避免依赖开发机专用的英文链接。
+$classpath='BOOT-INF/classes;BOOT-INF/lib/*'
+Push-Location -LiteralPath $output
+try{
+ & $javac -encoding UTF-8 -cp $classpath -d . RecoveryVerifier.java
+ if($LASTEXITCODE -ne 0){throw '恢复对账检查编译失败。'}
+ & $java '-Dfile.encoding=UTF-8' '-Dsun.stdout.encoding=UTF-8' '-Dstdout.encoding=UTF-8' -cp ('.;'+$classpath) RecoveryVerifier $settingsPath $Database 'reconciliation-result.json'
+ if($LASTEXITCODE -ne 0){throw '恢复库对账未通过。'}
+}finally{Pop-Location}
