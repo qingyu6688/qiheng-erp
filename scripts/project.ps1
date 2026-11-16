@@ -36,13 +36,32 @@ if ($Action -in 'web','e2e','e2e-web') {
             npm run test:e2e
         } elseif ($Action -eq 'e2e-web') {
             $env:ERP_API_ORIGIN = 'http://127.0.0.1:18080'
-            npm run dev -- --port 15173
+            npm run build
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            npm run preview -- --host 127.0.0.1 --port 15173 --strictPort
         } else {
             $env:ERP_API_ORIGIN = "http://127.0.0.1:$env:SERVER_PORT"
             npm run dev
         }
         $status = $LASTEXITCODE
-    } finally { Pop-Location }
+    } finally {
+        Pop-Location
+        if ($Action -eq 'e2e' -and $IsWindows) {
+            # Windows 下测试超时可能留下子进程，只回收本工作区占用测试端口的API和Vite。
+            $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object LocalPort -in 18080,15173)
+            foreach ($listener in $listeners) {
+                $testProcess = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $listener.OwningProcess) -ErrorAction SilentlyContinue
+                if (!$testProcess) { continue }
+                $belongsToProject = $testProcess.CommandLine -and $testProcess.CommandLine.Replace('/','\').IndexOf($projectRoot,[StringComparison]::OrdinalIgnoreCase) -ge 0
+                if (!$belongsToProject -and $testProcess.Name -eq 'java.exe') {
+                    $testParent = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $testProcess.ParentProcessId) -ErrorAction SilentlyContinue
+                    $belongsToProject = $testParent -and $testParent.CommandLine -match 'spring-boot:test-run' -and $testParent.CommandLine.IndexOf($projectRoot,[StringComparison]::OrdinalIgnoreCase) -ge 0
+                }
+                $isTestServer = ($testProcess.Name -eq 'java.exe' -and $testProcess.CommandLine -match 'cn.erp.ErpApplication') -or ($testProcess.Name -eq 'node.exe' -and $testProcess.CommandLine -match 'vite')
+                if ($belongsToProject -and $isTestServer) { Stop-Process -Id $listener.OwningProcess -Force -ErrorAction SilentlyContinue }
+            }
+        }
+    }
     exit $status
 }
 $javaCompiler = if ([IO.Path]::DirectorySeparatorChar -eq '\') { 'bin/javac.exe' } else { 'bin/javac' }
