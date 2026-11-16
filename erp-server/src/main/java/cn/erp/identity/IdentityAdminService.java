@@ -6,6 +6,7 @@ import cn.erp.shared.BusinessCommands;
 import cn.erp.shared.Ids;
 import java.util.*;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,9 +22,10 @@ class IdentityAdminService {
     private final AuditService audit;
     private final BusinessCommands commands;
     private final UserAccessMapper mapper;
+    private final ApplicationEventPublisher events;
 
-    IdentityAdminService(JdbcTemplate jdbc,PasswordEncoder passwords,AuditService audit,BusinessCommands commands,UserAccessMapper mapper) {
-        this.jdbc=jdbc;this.passwords=passwords;this.audit=audit;this.commands=commands;this.mapper=mapper;
+    IdentityAdminService(JdbcTemplate jdbc,PasswordEncoder passwords,AuditService audit,BusinessCommands commands,UserAccessMapper mapper,ApplicationEventPublisher events) {
+        this.jdbc=jdbc;this.passwords=passwords;this.audit=audit;this.commands=commands;this.mapper=mapper;this.events=events;
     }
 
     Page<UserView> users(CompanyAccess actor,String keyword,String cursor,int limit) {
@@ -124,6 +126,10 @@ class IdentityAdminService {
                 """,Ids.next(),actor.tenantId(),id,scope.scopeType(),identifier(scope.companyId()),
                 scope.warehouseId()==null?null:identifier(scope.warehouseId()),actor.userId());
         touchUser(actor,id);ensureAdministrators(actor,prior);
+        var retainedCompanies=scopes.stream().map(DataScope::companyId).collect(java.util.stream.Collectors.toSet());
+        var removedCompanies=before.dataScopes().stream().map(DataScope::companyId).filter(company->!retainedCompanies.contains(company))
+                .map(Long::valueOf).collect(java.util.stream.Collectors.toSet());
+        events.publishEvent(new UserCompanyScopesChanged(actor,id,removedCompanies));
         return userAfter(actor,id,"user.assign_scope",before);
     }
 
