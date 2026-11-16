@@ -24,6 +24,8 @@ M10 本机迭代增加默认收付款账户、工作台金额与十二个月趋�
 
 ### 技术栈与目录
 
+M11 的 Y-01 增加公司部门树、企业共享岗位及按公司保存的用户任职。每家公司独立维护主部门和版本；组织配置不增加业务访问范围，撤销公司权限会同步清理任职及负责人。当前为未发布功能，部署包含新增 V36，操作说明见[用户手册](docs/用户使用手册.md#m11-部门与岗位未发布)，验证范围见[M11 本机验收报告](docs/M11部门岗位本机验收报告.md)。
+
 前端使用 Vue 3、TypeScript、Vite 和 Element Plus。后端使用 Java 21、Spring Boot 和 Maven，提供 REST API。MySQL 8.0.46 保存业务数据，Flyway 负责数据库迁移，Redis 保存会话。后台 Worker 处理导入、导出等异步任务，生产附件和文件任务使用私有 S3 兼容对象仓。
 
 | 路径 | 内容 |
@@ -107,6 +109,8 @@ The unreleased M10 iteration adds default receipt and payment accounts, permissi
 An opening-stock CSV import creates drafts for review and posting before the balances and costs are recorded. See the [business rules (Chinese)](docs/业务规则.md) and [user guide (Chinese)](docs/用户使用手册.md) for the full workflows.
 
 ### Stack and repository layout
+
+The unreleased M11 Y-01 work adds company department trees, tenant-wide job definitions, and company-specific user assignments. Primary departments and organization versions remain independent between companies. Assignments do not grant business access; revoking company access also clears its assignments and department leaders. Deployment includes migration V36. See the [user guide (Chinese)](docs/用户使用手册.md) and [M11 local acceptance report (Chinese)](docs/M11部门岗位本机验收报告.md).
 
 The web app uses Vue 3, TypeScript, Vite, and Element Plus. The REST API uses Java 21, Spring Boot, and Maven. MySQL 8.0.46 stores business data, Flyway manages schema migrations, and Redis stores sessions. A worker runs background jobs such as imports and exports. Production file jobs and attachments use private S3-compatible storage.
 
