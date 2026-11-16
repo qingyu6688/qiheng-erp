@@ -46,7 +46,7 @@ public class PurchaseOrderQueries {
         result.put("allowedActions",actions(scope,raw));
         var changes=jdbc.queryForList("SELECT id,change_no,status,version,from_revision,to_revision FROM document_change WHERE tenant_id=? AND company_id=? AND document_type='purchase_order' AND document_id=? ORDER BY id DESC LIMIT 1",scope.tenantId(),scope.companyId(),id);
         if(!changes.isEmpty()) {result.put("change",camel(changes.getFirst()));}
-        return result;
+        cn.erp.shared.BusinessPeople.enrich(jdbc,scope,result);return result;
     }
 
     private Map<String,Object> lineView(CompanyAccess scope,Map<String,Object> line) {

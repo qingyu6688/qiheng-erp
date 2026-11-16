@@ -54,7 +54,7 @@ public class ReceiptService {
         result.put("partnerName",raw.get("partner_id")==null?null:jdbc.queryForObject("SELECT name FROM business_partner WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),raw.get("partner_id")));
         result.put("cashAccountName",jdbc.queryForObject("SELECT name FROM cash_account WHERE tenant_id=? AND company_id=? AND id=?",String.class,scope.tenantId(),scope.companyId(),raw.get("cash_account_id")));
         result.put("allowedActions",actions(scope,raw));
-        return result;
+        cn.erp.shared.BusinessPeople.enrich(jdbc,scope,result);return result;
     }
 
     private List<String> actions(CompanyAccess scope,Map<String,Object> raw) {
@@ -81,6 +81,7 @@ public class ReceiptService {
                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,id,scope.tenantId(),scope.companyId(),no,input.receiptType(),input.partnerId(),input.incomeItemId(),input.cashAccountId(),
                     amount(input.amount()),input.businessDate(),input.relatedOrderId(),blank(input.bankSerialNo()),input.remark(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
+            cn.erp.shared.BusinessPeople.assign(jdbc,scope,"receipt",id,input.salesUserId());
             audit.record(scope,"receipt.create","receipt",id,null,Map.of("documentNo",no));
             return get(scope,id);
         });
@@ -94,6 +95,7 @@ public class ReceiptService {
                 related_order_id=?,bank_serial_no=?,remark=?,version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?
                 """,input.receiptType(),input.partnerId(),input.incomeItemId(),input.cashAccountId(),amount(input.amount()),input.businessDate(),
                 input.relatedOrderId(),blank(input.bankSerialNo()),input.remark(),scope.userId(),scope.tenantId(),scope.companyId(),id);
+        cn.erp.shared.BusinessPeople.assign(jdbc,scope,"receipt",id,input.salesUserId());
         audit.record(scope,"receipt.update","receipt",id,null,Map.of("version",input.version()+1));return get(scope,id);
     }
 

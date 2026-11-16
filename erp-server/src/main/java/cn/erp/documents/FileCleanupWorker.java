@@ -16,7 +16,7 @@ public class FileCleanupWorker {
 
     public FileCleanupWorker(ObjectCompensation compensation) { this.compensation = compensation; }
 
-    @Scheduled(fixedDelay=60_000, initialDelay=60_000)
+
     public void clean() {
         try { compensation.retry(); }
         catch (RuntimeException error) { LOG.warn("私有对象清理任务暂不可用，下轮重试"); }

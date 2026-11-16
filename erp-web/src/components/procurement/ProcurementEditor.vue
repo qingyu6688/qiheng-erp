@@ -11,6 +11,8 @@ import type { SalesSkuUnit } from '../../types/sales'
 import { today } from '../../types/sales'
 import { useSessionStore } from '../../stores/session'
 import DocumentEditorFrame from '../DocumentEditorFrame.vue'
+import BusinessUserSelect from '../BusinessUserSelect.vue'
+
 const props = defineProps<{
   kind: ProcurementKind
   original?: ProcurementDocument
@@ -21,6 +23,7 @@ const emit = defineEmits<{ close: []; saved: [ProcurementDocument]; dirty: [bool
 const session = useSessionStore(),
   spec = computed(() => procurementSpecs.find((s) => s.path === props.kind)!)
 const form = reactive({
+  buyerUserId: (props.original?.buyerUserId === '0' ? '' : props.original?.buyerUserId) ?? '',
   supplierId:
     props.original?.supplierId ?? props.original?.supplier?.id ?? props.original?.partnerId ?? '',
   warehouseId: props.original?.warehouseId ?? '',
@@ -203,6 +206,9 @@ watch(
 )
 function body(): Record<string, unknown> {
   const common = {
+    ...(['purchase-orders', 'goods-receipts', 'purchase-returns', 'payments'].includes(props.kind)
+      ? { buyerUserId: form.buyerUserId || null }
+      : {}),
     businessDate: form.businessDate,
     remark: form.remark,
     version: props.original?.version,
@@ -356,7 +362,10 @@ onMounted(async () => {
       accounts.value = await allRecords('cash-accounts', true)
     if (props.kind === 'payments') {
       if (!props.original && !form.cashAccountId)
-        form.cashAccountId = accounts.value.find(account => account.status === 'active' && account.defaultForPayment === true)?.id ?? ''
+        form.cashAccountId =
+          accounts.value.find(
+            (account) => account.status === 'active' && account.defaultForPayment === true,
+          )?.id ?? ''
       if (session.can('purchase_order:view'))
         orders.value = await allRecords('purchase-orders', true)
       if (session.can('income_expense_item:view'))
@@ -472,6 +481,17 @@ async function verify(): Promise<void> {
               :value="w.id"
               :label="String(w.name)" /></el-select
         ></el-form-item>
+        <el-form-item
+          v-if="
+            ['purchase-orders', 'goods-receipts', 'purchase-returns', 'payments'].includes(kind)
+          "
+          label="采购员"
+          ><BusinessUserSelect
+            v-model="form.buyerUserId"
+            label="采购员"
+            :name="original?.buyerUserName"
+            :disabled="Boolean(change)"
+        /></el-form-item>
         <el-form-item label="业务日期" for="purchase-date"
           ><el-input id="purchase-date" v-model="form.businessDate" type="date"
         /></el-form-item>

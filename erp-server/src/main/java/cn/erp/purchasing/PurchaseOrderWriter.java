@@ -37,6 +37,7 @@ class PurchaseOrderWriter {
     }
 
     private void write(CompanyAccess scope,long orderId,PurchaseOrderModels.Input input,PricingModels.Preview preview,boolean newOrder) {
+        BusinessPeople.assign(jdbc,scope,"purchase_order",orderId,input.buyerUserId());
         links.replace(scope,orderId,input,preview);
         jdbc.update("""
             UPDATE purchase_order SET supplier_id=?,business_date=?,delivery_date=?,price_tax_inclusive=?,pricing_version=2,

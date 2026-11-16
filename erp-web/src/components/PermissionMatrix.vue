@@ -18,6 +18,17 @@ const actions = [
   { key: 'post', label: '过账' },
 ]
 const resourceNames: Record<string, string> = {
+  dict: '数据字典',
+  notice: '通知公告',
+  notify_template: '消息模板',
+  notify_log: '消息发送日志',
+  notify_robot: '企业微信机器人',
+  login_log: '登录日志',
+  online_user: '在线用户',
+  sys_config: '系统参数',
+  job: '定时任务',
+  api_log: 'API访问日志',
+  api_error: 'API异常日志',
   company: '公司',
   org_department: '部门',
   org_post: '岗位',

@@ -12,6 +12,7 @@ class ImportWorker {
     private static final Logger LOG=LoggerFactory.getLogger(ImportWorker.class);
     private final ImportProcessor processor;
     ImportWorker(ImportProcessor processor){this.processor=processor;}
-    @Scheduled(fixedDelayString="${erp.worker.poll-millis:1000}")
+    @org.springframework.beans.factory.annotation.Autowired
+    void managed(cn.erp.shared.ManagedJobs jobs) {jobs.register("import.poll",tenant->processor.processTenant(tenant));}
     public void poll(){try{processor.processNext();}catch(RuntimeException error){LOG.warn("导入任务暂不可用，将在下一轮重试");}}
 }

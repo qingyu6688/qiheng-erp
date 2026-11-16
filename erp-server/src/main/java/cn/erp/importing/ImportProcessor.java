@@ -40,15 +40,17 @@ public class ImportProcessor {
     public boolean processNext() {
         return processNext(Integer.MAX_VALUE);
     }
-    boolean processNext(int rowBudget) {
+    public boolean processTenant(long tenant) {return processNext(Integer.MAX_VALUE,tenant);}
+    boolean processNext(int rowBudget) {return processNext(rowBudget,null);}
+    private boolean processNext(int rowBudget,Long tenant) {
         String owner=UUID.randomUUID().toString();
         Map<String,Object> job=tx.execute(status->{
-            jdbc.update("UPDATE import_job SET status='failed',error_message='导入任务租约连续失效，请恢复后重试任务',finished_at=UTC_TIMESTAMP(3),lease_owner=NULL,lease_until=NULL WHERE status='running' AND attempts>=3 AND lease_until<UTC_TIMESTAMP(3)");
+            jdbc.update("UPDATE import_job SET status='failed',error_message='导入任务租约连续失效，请恢复后重试任务',finished_at=UTC_TIMESTAMP(3),lease_owner=NULL,lease_until=NULL WHERE (? IS NULL OR tenant_id=?) AND status='running' AND attempts>=3 AND lease_until<UTC_TIMESTAMP(3)",tenant,tenant);
             var candidates=jdbc.queryForList("""
                     SELECT j.*,a.storage_key,a.sha256 FROM import_job j JOIN attachment a ON a.id=j.attachment_id
-                    WHERE j.attempts<3 AND ((j.status='pending' AND (j.next_attempt_at IS NULL OR j.next_attempt_at<=UTC_TIMESTAMP(3))) OR (j.status='running' AND j.lease_until<UTC_TIMESTAMP(3)))
+                    WHERE (? IS NULL OR j.tenant_id=?) AND j.attempts<3 AND ((j.status='pending' AND (j.next_attempt_at IS NULL OR j.next_attempt_at<=UTC_TIMESTAMP(3))) OR (j.status='running' AND j.lease_until<UTC_TIMESTAMP(3)))
                     ORDER BY j.created_at,j.id LIMIT 1 FOR UPDATE SKIP LOCKED
-                    """);
+                    """,tenant,tenant);
             if(candidates.isEmpty())return null;var row=candidates.getFirst();
             jdbc.update("UPDATE import_job SET status='running',attempts=attempts+1,next_attempt_at=NULL,lease_owner=?,lease_until=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 5 MINUTE),started_at=COALESCE(started_at,UTC_TIMESTAMP(3)),error_message=NULL WHERE id=?",owner,row.get("id"));return row;
         });

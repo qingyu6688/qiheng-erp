@@ -14,7 +14,8 @@ import static cn.erp.salesorder.SalesOrderQueries.*;
 class SalesOrderWriter {
     private final JdbcTemplate jdbc;
     private final PricingService pricing;
-    SalesOrderWriter(JdbcTemplate jdbc,PricingService pricing) {this.jdbc=jdbc;this.pricing=pricing;}
+    private final cn.erp.sysadmin.AreaService areas;
+    SalesOrderWriter(JdbcTemplate jdbc,PricingService pricing,cn.erp.sysadmin.AreaService areas) {this.jdbc=jdbc;this.pricing=pricing;this.areas=areas;}
 
     PricingModels.Preview price(CompanyAccess scope,SalesOrderModels.Input input) {
         if(input.businessDate().isAfter(LocalDate.now(ZoneId.of("Asia/Shanghai")))) {throw invalid("业务日期不能晚于今天");}
@@ -36,6 +37,9 @@ class SalesOrderWriter {
     }
 
     private void write(CompanyAccess scope,long orderId,SalesOrderModels.Input input,PricingModels.Preview preview,boolean newOrder) {
+        BusinessPeople.assign(jdbc,scope,"sales_order",orderId,input.salesUserId());
+        areas.validate(input.deliveryAreaId());
+        jdbc.update("UPDATE sales_order SET delivery_area_id=COALESCE(?,delivery_area_id),delivery_address=COALESCE(?,delivery_address) WHERE tenant_id=? AND company_id=? AND id=?",input.deliveryAreaId(),input.deliveryAddress(),scope.tenantId(),scope.companyId(),orderId);
         jdbc.update("""
             UPDATE sales_order SET customer_id=?,business_date=?,delivery_date=?,price_tax_inclusive=?,pricing_version=2,
               goods_amount=?,line_discount_amount=?,order_discount_amount=?,fee_amount=?,total_amount=?,untaxed_amount=?,tax_amount=?,remark=?,updated_by=?

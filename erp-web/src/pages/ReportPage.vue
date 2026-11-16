@@ -16,6 +16,7 @@ import type { ReportResult } from '../types/reporting'
 import type { DataRow } from '../types/admin'
 import { useSessionStore } from '../stores/session'
 import { formatDateTime } from '../utils/format'
+import BusinessUserSelect from '../components/BusinessUserSelect.vue'
 const props = defineProps<{ type: string }>(),
   session = useSessionStore(),
   router = useRouter(),
@@ -31,7 +32,9 @@ const dateFrom = ref(''),
   warehouseId = ref(''),
   skuId = ref(''),
   partnerId = ref(''),
-  cashAccountId = ref('')
+  cashAccountId = ref(''),
+  businessUserId = ref(''),
+  groupBy = ref('standard')
 const warehouses = ref<DataRow[]>([]),
   skus = ref<DataRow[]>([]),
   partners = ref<DataRow[]>([]),
@@ -59,22 +62,35 @@ const partnerReport = computed(
 const commercialSummary = computed(
   () => ['sales-summary', 'purchase-summary'].includes(props.type) && !detail.value,
 )
+const commercialPeople = computed(() =>
+  ['sales-summary', 'purchase-summary', 'gross-margin'].includes(props.type),
+)
 const columns = computed(() =>
-  (detail.value && props.type === 'inventory-flow'
+  (commercialPeople.value && groupBy.value === 'business_user' && !detail.value
     ? [
-        'businessDate',
-        'warehouseName',
-        'skuCode',
-        'skuName',
-        'sourceNo',
+        'businessUserName',
         'qty',
-        'blockedQty',
+        'amount',
+        'untaxedAmount',
+        'taxAmount',
         'costAmount',
-        'postingAction',
+        ...(props.type === 'gross-margin' ? ['grossMargin'] : []),
       ]
-    : detail.value
-      ? ['sourceNo', ...spec.value.fields]
-      : spec.value.fields
+    : detail.value && props.type === 'inventory-flow'
+      ? [
+          'businessDate',
+          'warehouseName',
+          'skuCode',
+          'skuName',
+          'sourceNo',
+          'qty',
+          'blockedQty',
+          'costAmount',
+          'postingAction',
+        ]
+      : detail.value
+        ? ['sourceNo', ...spec.value.fields]
+        : spec.value.fields
   ).filter(
     (field) =>
       (!detail.value || field !== 'sourceCount') &&
@@ -104,6 +120,8 @@ function query(): Record<string, unknown> {
     partnerId: partnerId.value || undefined,
     cashAccountId: cashAccountId.value || undefined,
     detail: detail.value || undefined,
+    businessUserId: commercialPeople.value ? businessUserId.value || undefined : undefined,
+    groupBy: commercialPeople.value && !detail.value ? groupBy.value : undefined,
     feesOnly: route.query.feesOnly === 'true' || undefined,
   }
 }
@@ -199,6 +217,9 @@ async function initialize(): Promise<void> {
   skuId.value = typeof route.query.skuId === 'string' ? route.query.skuId : ''
   partnerId.value = typeof route.query.partnerId === 'string' ? route.query.partnerId : ''
   cashAccountId.value = ''
+  businessUserId.value =
+    typeof route.query.businessUserId === 'string' ? route.query.businessUserId : ''
+  groupBy.value = route.query.groupBy === 'business_user' ? 'business_user' : 'standard'
   const local = reportToday()
   dateFrom.value =
     typeof route.query.dateFrom === 'string' ? route.query.dateFrom : local.slice(0, 8) + '01'
@@ -279,6 +300,19 @@ onBeforeUnmount(() => {
   />
   <section class="panel table-panel">
     <form class="filters" @submit.prevent="search">
+      <template v-if="commercialPeople"
+        ><div class="filter-field">
+          <label>业务员</label
+          ><BusinessUserSelect v-model="businessUserId" include-unassigned label="业务员筛选" />
+        </div>
+        <div v-if="!detail" class="filter-field">
+          <label>汇总方式</label
+          ><el-select v-model="groupBy" aria-label="汇总方式"
+            ><el-option value="standard" label="按往来与商品" /><el-option
+              value="business_user"
+              label="按业务员"
+          /></el-select></div
+      ></template>
       <template v-if="!spec.snapshot"
         ><div class="filter-field">
           <label for="report-date-from">开始日期</label
@@ -345,7 +379,8 @@ onBeforeUnmount(() => {
     <p v-if="result?.visibilityBasis" class="muted">{{ result.visibilityBasis }}</p>
     <p v-if="result" class="muted">
       数据时间 {{ formatDateTime(result.asOf)
-      }}<template v-if="result.dataSource === 'replica'"> · 只读备库</template><template v-if="result.statisticDate"> · 统计日 {{ result.statisticDate }}</template>
+      }}<template v-if="result.dataSource === 'replica'"> · 只读备库</template
+      ><template v-if="result.statisticDate"> · 统计日 {{ result.statisticDate }}</template>
     </p>
     <dl v-if="result?.summary" class="report-summary">
       <template v-for="(value, field) in result.summary" :key="field"
@@ -375,7 +410,10 @@ onBeforeUnmount(() => {
       >
       <el-table-column label="追溯" min-width="100"
         ><template #default="{ row }"
-          ><el-button v-if="commercialSummary && row.detailUrl" text @click="documents(row)"
+          ><el-button
+            v-if="(commercialSummary || groupBy === 'business_user') && row.detailUrl"
+            text
+            @click="documents(row)"
             >单据明细</el-button
           ><el-button
             v-else-if="

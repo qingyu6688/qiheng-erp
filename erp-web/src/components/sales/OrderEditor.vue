@@ -8,6 +8,8 @@ import type { SalesDocument, SalesSkuUnit } from '../../types/sales'
 import type { DataRow } from '../../types/admin'
 import { useSessionStore } from '../../stores/session'
 import DocumentEditorFrame from '../DocumentEditorFrame.vue'
+import BusinessUserSelect from '../BusinessUserSelect.vue'
+import AreaCascader from '../AreaCascader.vue'
 
 const props = defineProps<{ original?: SalesDocument; change?: boolean; inline?: boolean }>()
 const emit = defineEmits<{ close: []; saved: [SalesDocument]; dirty: [boolean] }>()
@@ -15,6 +17,9 @@ const session = useSessionStore()
 const customerId = props.original?.customerId ?? props.original?.customer?.id ?? ''
 const form = reactive({
   customerId,
+  salesUserId: (props.original?.salesUserId === '0' ? '' : props.original?.salesUserId) ?? '',
+  deliveryAreaId: props.original?.deliveryAreaId ?? (null as string | null),
+  deliveryAddress: props.original?.deliveryAddress ?? '',
   businessDate: props.original?.businessDate ?? today(),
   deliveryDate: props.original?.deliveryDate ?? '',
   priceTaxInclusive: props.original?.priceTaxInclusive ?? true,
@@ -75,6 +80,9 @@ const ready = computed(() =>
 function body(): Record<string, unknown> {
   return {
     ...form,
+    salesUserId: form.salesUserId || null,
+    deliveryAreaId: form.deliveryAreaId || null,
+    deliveryAddress: form.deliveryAddress || null,
     deliveryDate: form.deliveryDate || null,
     version: props.original?.version,
     lines: lines.value.map((l) => ({
@@ -231,6 +239,19 @@ async function verify(): Promise<void> {
               :value="c.id"
               :label="String(c.name)" /></el-select
         ></el-form-item>
+        <el-form-item label="销售员"
+          ><BusinessUserSelect
+            v-model="form.salesUserId"
+            label="销售员"
+            :name="original?.salesUserName"
+            :disabled="Boolean(change)"
+        /></el-form-item>
+        <el-form-item label="送货省市区"
+          ><AreaCascader v-model="form.deliveryAreaId" label="送货省市区"
+        /></el-form-item>
+        <el-form-item label="送货详细地址"
+          ><el-input v-model="form.deliveryAddress" maxlength="200"
+        /></el-form-item>
         <el-form-item label="业务日期" for="order-date"
           ><el-input id="order-date" v-model="form.businessDate" type="date"
         /></el-form-item>

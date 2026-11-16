@@ -4,6 +4,8 @@ import * as auth from '../api/auth'
 import { ApiError, setCompanyScope, renewSessionScope } from '../api/http'
 import type { CodeLoginInput, Company, LoginInput, UserSession } from '../types/auth'
 
+import { clearDictionaryCache } from '../utils/dictionary-cache'
+
 const COMPANY_KEY = 'erp.company'
 
 export const useSessionStore = defineStore('session', () => {
@@ -34,6 +36,7 @@ export const useSessionStore = defineStore('session', () => {
 
   function clear(): void {
     renewSessionScope(false)
+    clearDictionaryCache()
     user.value = null
     selectCompany(null)
     ready.value = true

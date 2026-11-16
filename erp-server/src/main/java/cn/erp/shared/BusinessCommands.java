@@ -15,11 +15,13 @@ public class BusinessCommands {
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
     private final CommandResultAccess resultAccess;
+    private final org.springframework.context.ApplicationEventPublisher events;
 
-    public BusinessCommands(JdbcTemplate jdbc, ObjectMapper json, CommandResultAccess resultAccess) {
+    public BusinessCommands(JdbcTemplate jdbc, ObjectMapper json, CommandResultAccess resultAccess,org.springframework.context.ApplicationEventPublisher events) {
         this.jdbc = jdbc;
         this.json = json;
         this.resultAccess = resultAccess;
+        this.events=events;
     }
 
     @Transactional
@@ -61,6 +63,7 @@ public class BusinessCommands {
         T result = command.get();
         jdbc.update("UPDATE idempotency_record SET status='succeeded',http_status=?,response_body=? WHERE id=?",
                 httpStatus, json.writeValueAsString(result), claim);
+        if(scope.companyId()>0) events.publishEvent(new BusinessChanged(scope.tenantId(),scope.companyId(),scope.userId(),operation,claim));
         return result;
     }
 
@@ -75,7 +78,10 @@ public class BusinessCommands {
     private static Object canonical(Object value) {
         if(value instanceof java.util.Map<?,?> map) {
             var sorted=new java.util.TreeMap<String,Object>();
-            map.forEach((key,item)->sorted.put(key.toString(),canonical(item)));
+            map.forEach((key,item)->{
+                // 新增的可选字段未填写时保持旧请求摘要，允许升级后按原键查询和重试。
+                if(item!=null||!java.util.Set.of("salesUserId","buyerUserId","areaId","deliveryAreaId","deliveryAddress","sourceCode","businessUserId","groupBy").contains(key.toString())) sorted.put(key.toString(),canonical(item));
+            });
             return sorted;
         }
         if(value instanceof java.util.List<?> list) {return list.stream().map(BusinessCommands::canonical).toList();}

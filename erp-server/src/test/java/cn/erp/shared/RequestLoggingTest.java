@@ -19,6 +19,11 @@ import static org.assertj.core.api.Assertions.*;
 
 class RequestLoggingTest {
     @TempDir Path directory;
+    @Test void unsupportedMethodsCannotPoisonTheBoundedLogColumnOrExposeArbitraryInput() throws Exception {
+        var observations=new ArrayList<ApiObservation>();var filter=new RequestIds();filter.setEvents(event->observations.add((ApiObservation)event));
+        var request=new MockHttpServletRequest("PRIVATE-METHOD-DO-NOT-LOG","/api/v1/unknown/123");request.setQueryString("secret=private");filter.doFilter(request,new MockHttpServletResponse(),(req,res)->{});
+        assertThat(observations).hasSize(1);assertThat(observations.getFirst().method()).isEqualTo("其他");assertThat(observations.getFirst().route()).isEqualTo("未匹配路由").doesNotContain("123");assertThat(observations.toString()).doesNotContain("PRIVATE-METHOD","secret=");
+    }
 
     @Test void concurrentRequestsKeepEveryIdAndStatusWhenAsyncQueueIsSmallerThanTheBurst() throws Exception {
         var context=(LoggerContext)LoggerFactory.getILoggerFactory();var logger=context.getLogger(RequestIds.class);

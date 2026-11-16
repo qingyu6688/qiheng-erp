@@ -63,21 +63,28 @@ public class ReportService {
             params.put("cash",query.cashAccountId());sql+=" AND cash_account_id=:cash";
         }
         boolean commercial=Set.of(ReportType.SALES_SUMMARY,ReportType.PURCHASE_SUMMARY).contains(type);
+        boolean byBusinessUser="business_user".equals(query.groupBy());
+        if(query.businessUserId()!=null||byBusinessUser) {
+            if(!commercial&&type!=ReportType.GROSS_MARGIN) throw invalid("此报表不支持业务员汇总或筛选");
+            if(query.businessUserId()!=null) {sql+=" AND business_user_id=:businessUser";params.put("businessUser",query.businessUserId());}
+        }
         if(Boolean.TRUE.equals(query.feesOnly())) {
             if(!commercial || query.skuId()!=null) { throw invalid("仅费用筛选只适用于销售或采购报表，且不能同时选择商品"); }
             sql+=" AND sku_id IS NULL";
         }
-        boolean aggregate=commercial && !Boolean.TRUE.equals(query.detail());
-        if(aggregate) {
-            sql="SELECT MIN(id) id,partner_id,sku_id,business_date,IF(COUNT(DISTINCT warehouse_id)=1,MIN(warehouse_id),NULL) warehouse_id,"+
+        boolean aggregate=(commercial||byBusinessUser) && !Boolean.TRUE.equals(query.detail());
+        if(byBusinessUser) {
+            sql="SELECT MIN(id) id,business_user_id,SUM(qty) qty,SUM(amount) amount,SUM(untaxed_amount) untaxed_amount,SUM(tax_amount) tax_amount,SUM(cost_amount) cost_amount,SUM(untaxed_amount)-SUM(cost_amount) gross_margin,COUNT(*) source_count FROM ("+sql+") facts GROUP BY business_user_id";
+        } else if(aggregate) {
+            sql="SELECT MIN(id) id,partner_id,sku_id,business_date,IF(COUNT(DISTINCT business_user_id)=1,MIN(business_user_id),NULL) business_user_id,IF(COUNT(DISTINCT business_user_id)=1,NULL,'多位业务员') business_user_name,IF(COUNT(DISTINCT warehouse_id)=1,MIN(warehouse_id),NULL) warehouse_id,"+
                 "IF(COUNT(DISTINCT warehouse_id)=1,NULL,'多个仓库') warehouse_name,SUM(qty) qty,SUM(amount) amount,SUM(untaxed_amount) untaxed_amount,SUM(tax_amount) tax_amount,SUM(cost_amount) cost_amount,COUNT(*) source_count FROM ("+sql+") facts GROUP BY partner_id,sku_id,business_date";
         }
-        sql+=" ORDER BY "+switch(type) {
+        sql+=" ORDER BY "+(byBusinessUser?"business_user_id":switch(type) {
             case INVENTORY_SUMMARY,INVENTORY_FLOW -> Boolean.TRUE.equals(query.detail()) && type==ReportType.INVENTORY_FLOW?"business_date,id":"warehouse_id,sku_id";
             case RECEIVABLE_AGING,PAYABLE_AGING -> "aging_date,id";
             case SALES_SUMMARY,PURCHASE_SUMMARY,GROSS_MARGIN -> aggregate?"business_date,id,partner_id,sku_id":"business_date,id,source_line_id";
             default -> aggregate?"business_date,id,partner_id,sku_id":"business_date,id";
-        }+" LIMIT "+(MAX_ROWS+1);
+        })+" LIMIT "+(MAX_ROWS+1);
         var raw=jdbc.queryForList(sql,params);
         if(raw.size()>MAX_ROWS) { throw invalid("报表超过50000行，请缩小日期或筛选范围后重试"); }
         var asOf=database.asOf();
@@ -91,11 +98,14 @@ public class ReportService {
             if(type==ReportType.RECEIVABLE_AGING || type==ReportType.PAYABLE_AGING) { agingBuckets(row); }
             row.forEach((key,value)->{ if(value instanceof BigDecimal decimal) { totals.merge(key,decimal,BigDecimal::add); } });
             var item=FinanceSupport.row(row);source(item);
-            if(aggregate) {
+            if(byBusinessUser) {
+                item.put("detailUrl","/reports/"+type.code().replace('_','-')+"?detail=true&businessUserId="+item.get("businessUserId")+"&dateFrom="+query.dateFrom()+"&dateTo="+query.dateTo());
+            } else if(aggregate) {
                 String day=item.get("businessDate").toString();
                 String url="/reports/"+type.code().replace('_','-')+"?detail=true&partnerId="+item.get("partnerId")+"&dateFrom="+day+"&dateTo="+day;
                 url+=item.get("skuId")==null?"&feesOnly=true":"&skuId="+item.get("skuId");
                 if(query.warehouseId()!=null) { url+="&warehouseId="+query.warehouseId(); }
+                if(query.businessUserId()!=null) {url+="&businessUserId="+query.businessUserId();}
                 item.put("detailUrl",url);
             }
             if(type==ReportType.INVENTORY_FLOW && !Boolean.TRUE.equals(query.detail())) {
@@ -118,6 +128,12 @@ public class ReportService {
         return new Snapshot(asOf,List.copyOf(items),summary);
     }
     private void names(CompanyAccess actor,List<Map<String,Object>> rows) {
+        var userIds=new HashSet<Object>();for(var row:rows) if(row.get("business_user_id")!=null) userIds.add(row.get("business_user_id"));
+        if(!userIds.isEmpty()) {
+            var users=new HashMap<String,String>();
+            for(var user:jdbc.queryForList("SELECT id,display_name FROM sys_user WHERE tenant_id=:tenant AND id IN (:ids)",Map.of("tenant",actor.tenantId(),"ids",userIds))) users.put(user.get("id").toString(),user.get("display_name").toString());
+            for(var row:rows) if(row.get("business_user_id")!=null) row.put("business_user_name",users.getOrDefault(row.get("business_user_id").toString(),"未分配"));
+        }
         for(String table:List.of("warehouse","sku","business_partner","cash_account")) {
             String field=table.equals("business_partner")?"partner":table;
             var ids=new HashSet<Object>();for(var row:rows) { if(row.get(field+"_id")!=null) { ids.add(row.get(field+"_id")); } }

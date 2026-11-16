@@ -24,6 +24,7 @@ public final class ExportCsv {
             }
             case UNSIGNED_SHIPMENTS -> add(columns,"partnerName","客户","sourceNo","发货单号","businessDate","发货日期","unsignedQty","未签收数量","costAmount","发出商品成本","diffDisposition","差异处理");
             case SALES_SUMMARY,PURCHASE_SUMMARY,GROSS_MARGIN -> {
+                add(columns,"businessUserName",type==ReportType.PURCHASE_SUMMARY?"采购员":"销售员");
                 add(columns,"partnerName",type==ReportType.PURCHASE_SUMMARY?"供应商":"客户","businessDate","业务日期");
                 if(detail || type==ReportType.GROSS_MARGIN) { add(columns,"sourceNo","来源单号"); }
                 add(columns,"qty","基础数量","amount","含税金额","untaxedAmount","不含税金额","taxAmount","税额","costAmount","成本金额");

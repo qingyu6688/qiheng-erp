@@ -41,6 +41,14 @@ class LoginSettingsCipher {
         return key != null;
     }
 
+    String fingerprint(long tenant,String purpose,String value) {
+        if(key==null) throw unavailable();
+        try {
+            var mac=javax.crypto.Mac.getInstance("HmacSHA256");mac.init(new SecretKeySpec(key.getEncoded(),"HmacSHA256"));
+            return java.util.HexFormat.of().formatHex(mac.doFinal((tenant+":"+purpose+":"+value).getBytes(StandardCharsets.UTF_8)));
+        } catch(GeneralSecurityException error) {throw unavailable();}
+    }
+
     String encrypt(long tenantId, String method, String secret) {
         byte[] nonce = new byte[NONCE_BYTES];
         random.nextBytes(nonce);

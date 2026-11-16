@@ -4,6 +4,8 @@ import { ElAlert } from 'element-plus/es/components/alert/index.mjs'
 import { ElButton } from 'element-plus/es/components/button/index.mjs'
 import { ElConfigProvider } from 'element-plus/es/components/config-provider/index.mjs'
 import { ElDialog } from 'element-plus/es/components/dialog/index.mjs'
+import { ElDrawer } from 'element-plus/es/components/drawer/index.mjs'
+import { ElCascader } from 'element-plus/es/components/cascader/index.mjs'
 import { ElForm, ElFormItem } from 'element-plus/es/components/form/index.mjs'
 import { ElInput } from 'element-plus/es/components/input/index.mjs'
 import { ElOption, ElSelect } from 'element-plus/es/components/select/index.mjs'
@@ -30,6 +32,8 @@ for (const component of [
   ElButton,
   ElConfigProvider,
   ElDialog,
+  ElDrawer,
+  ElCascader,
   ElForm,
   ElFormItem,
   ElInput,
@@ -53,5 +57,9 @@ app.use(router)
 window.addEventListener('erp:session-expired', () => {
   useSessionStore(pinia).clear()
   void router.replace({ name: 'expired' })
+})
+window.addEventListener('erp:session-kicked', () => {
+  useSessionStore(pinia).clear()
+  void router.replace({ name: 'login' })
 })
 app.mount('#app')

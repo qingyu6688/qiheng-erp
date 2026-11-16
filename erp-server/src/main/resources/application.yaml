@@ -60,3 +60,7 @@ management:
   endpoint:
     health:
       show-details: never
+
+erp:
+  websocket:
+    allowed-origins: ${ERP_WEBSOCKET_ALLOWED_ORIGINS:}

@@ -26,6 +26,37 @@ export const router = createRouter({
       path: '/',
       component: () => import('../components/AppShell.vue'),
       children: [
+        ...[
+          ['dict-types', 'dict:view', '数据字典'],
+          ['dict-items', 'dict:view', '字典项'],
+          ['notices', 'notice:view', '通知公告'],
+          ['notify-templates', 'notify_template:view', '消息模板'],
+          ['notify-send-logs', 'notify_log:view', '消息发送日志'],
+          ['notify-robot', 'notify_robot:manage', '企业微信机器人'],
+          ['configs', 'sys_config:view', '系统参数'],
+          ['jobs', 'job:view', '定时任务'],
+          ['login-logs', 'login_log:view', '登录日志'],
+          ['online-users', 'online_user:view', '在线用户'],
+          ['api-access-logs', 'api_log:view', 'API访问日志'],
+          ['api-error-logs', 'api_error:view', 'API异常日志'],
+        ].map(([kind, permission, title]) => ({
+          path: 'sys/' + kind,
+          name: 'sys-' + kind,
+          component: () => import('../pages/PlatformAdministrationPage.vue'),
+          props: { kind },
+          meta: {
+            permission,
+            title,
+            company: ['api-access-logs', 'api-error-logs', 'notify-send-logs'].includes(kind!),
+          },
+        })),
+
+        {
+          path: 'messages',
+          name: 'messages',
+          component: () => import('../pages/MessageCenterPage.vue'),
+          meta: { company: true, title: '消息中心' },
+        },
         {
           path: '',
           name: 'home',

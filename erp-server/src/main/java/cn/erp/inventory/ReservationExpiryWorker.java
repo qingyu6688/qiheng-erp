@@ -24,13 +24,16 @@ public class ReservationExpiryWorker {
     }
 
     /** 每条预留在自己的事务中释放，任务中断后重复扫描仍由数据库状态保证只释放一次。 */
-    @Scheduled(fixedDelayString="${erp.worker.reservation-poll-millis:60000}")
-    public void poll() {
+    @org.springframework.beans.factory.annotation.Autowired
+    void managed(cn.erp.shared.ManagedJobs jobs) {jobs.register("reservation.expire",this::poll);}
+
+    public void poll() {poll(null);}
+    public void poll(Long tenant) {
         try {
             var candidates=jdbc.queryForList("""
                     SELECT id,tenant_id,company_id,warehouse_id FROM inventory_reservation
-                    WHERE status='active' AND expire_at<=UTC_TIMESTAMP(3) ORDER BY expire_at,id LIMIT 200
-                    """);
+                    WHERE (? IS NULL OR tenant_id=?) AND status='active' AND expire_at<=UTC_TIMESTAMP(3) ORDER BY expire_at,id LIMIT 200
+                    """,tenant,tenant);
             for(var candidate:candidates) {
                 long id=((Number)candidate.get("id")).longValue();
                 var scope=new CompanyAccess(((Number)candidate.get("tenant_id")).longValue(),0,

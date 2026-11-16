@@ -62,12 +62,16 @@ class LoginCodeDelivery {
     }
 
     private void sendSms(LoginSettingsService.Provider provider, String destination, String code) {
+        sendBusinessSms(provider,destination,provider.config().get("templateCode"),Map.of("code",code));
+    }
+
+    void sendBusinessSms(LoginSettingsService.Provider provider,String destination,String template,Map<String,String> parameters) {
         if (destination == null || !destination.matches("\\+861[3-9][0-9]{9}")) throw deliveryFailure();
         var config = provider.config();
         // 阿里云国内短信接受不含国家码的手机号，签名和发送共用同一份排序后的编码串。
         String query = query(Map.of("PhoneNumbers", destination.substring(3),
-                "SignName", config.get("signName"), "TemplateCode", config.get("templateCode"),
-                "TemplateParam", json.writeValueAsString(Map.of("code", code))));
+                "SignName", config.get("signName"), "TemplateCode", template,
+                "TemplateParam", json.writeValueAsString(parameters)));
         try {
             var signed = smsHeaders(SMS_HOST, "SendSms", SMS_VERSION,
                     Instant.now().truncatedTo(ChronoUnit.SECONDS).toString(), UUID.randomUUID().toString());
@@ -90,6 +94,10 @@ class LoginCodeDelivery {
     }
 
     private void sendEmail(LoginSettingsService.Provider provider, String destination, String code) {
+        sendBusinessEmail(provider,destination,"柒衡 ERP 登录验证码","您的验证码为 "+code+"。请勿向他人透露验证码。");
+    }
+
+    void sendBusinessEmail(LoginSettingsService.Provider provider,String destination,String title,String content) {
         var config = provider.config();
         String host = config.get("host");
         if (!settings.smtpAllowed(host) || destination == null || destination.length() > 254
@@ -110,8 +118,8 @@ class LoginCodeDelivery {
             var message = new MimeMessage(session);
             message.setFrom(new InternetAddress(config.get("from"), true));
             message.setRecipient(Message.RecipientType.TO, new InternetAddress(destination, true));
-            message.setSubject("柒衡 ERP 登录验证码", StandardCharsets.UTF_8.name());
-            message.setText("您的验证码为 " + code + "。请勿向他人透露验证码。", StandardCharsets.UTF_8.name());
+            message.setSubject(title, StandardCharsets.UTF_8.name());
+            message.setText(content, StandardCharsets.UTF_8.name());
             message.saveChanges();
             transport.connect(host, port, config.get("username"), provider.secret());
             transport.sendMessage(message, message.getAllRecipients());

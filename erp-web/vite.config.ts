@@ -13,6 +13,12 @@ export default defineConfig(({ command }) => ({
     ),
   },
   plugins: [vue()],
+  optimizeDeps: {
+    include: [
+      'element-plus/es/components/cascader/index.mjs',
+      'element-plus/es/components/drawer/index.mjs',
+    ],
+  },
   build: {
     emptyOutDir: true,
     rollupOptions: {
@@ -39,7 +45,16 @@ export default defineConfig(({ command }) => ({
     host: '127.0.0.1',
     port: 5173,
     strictPort: true,
-    proxy: { '/api': env.ERP_API_ORIGIN || 'http://127.0.0.1:8080' },
+    proxy: {
+      '/api': env.ERP_API_ORIGIN || 'http://127.0.0.1:8080',
+      '/ws': { target: env.ERP_API_ORIGIN || 'http://127.0.0.1:8080', ws: true },
+    },
+  },
+  preview: {
+    proxy: {
+      '/api': env.ERP_API_ORIGIN || 'http://127.0.0.1:8080',
+      '/ws': { target: env.ERP_API_ORIGIN || 'http://127.0.0.1:8080', ws: true },
+    },
   },
   test: { environment: 'jsdom', clearMocks: true, include: ['tests/**/*.test.ts'] },
 }))

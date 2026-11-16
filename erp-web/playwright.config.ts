@@ -4,10 +4,14 @@ import { env } from 'node:process'
 export default defineConfig({
   testDir: './tests/e2e',
   workers: 1,
-  globalTimeout: 360_000,
+  globalTimeout: 600_000,
   use: {
-    baseURL: 'http://127.0.0.1:15173', headless: true, channel: env.ERP_BROWSER_CHANNEL, locale: 'zh-CN',
-    actionTimeout: 10_000, trace: 'retain-on-failure',
+    baseURL: 'http://127.0.0.1:15173',
+    headless: true,
+    channel: env.ERP_BROWSER_CHANNEL,
+    locale: 'zh-CN',
+    actionTimeout: 10_000,
+    trace: 'retain-on-failure',
   },
   webServer: [
     {

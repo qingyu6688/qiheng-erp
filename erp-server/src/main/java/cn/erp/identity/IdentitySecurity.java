@@ -51,7 +51,7 @@ class IdentitySecurity {
     }
 
     @Bean
-    SecurityFilterChain apiSecurity(HttpSecurity http, AccessService access, CookieCsrfTokenRepository tokens,
+    SecurityFilterChain apiSecurity(HttpSecurity http, AccessService access, SessionAuthority authority,CookieCsrfTokenRepository tokens,
                                     @Qualifier("handlerExceptionResolver") HandlerExceptionResolver errors)
             throws Exception {
         var csrf = new CsrfTokenRequestAttributeHandler();
@@ -68,17 +68,19 @@ class IdentitySecurity {
                                 errors.resolveException(req, res, null, SessionAccount.expired()))
                         .accessDeniedHandler((req, res, ex) -> errors.resolveException(req, res, null,
                                 new ApiException(403, "FORBIDDEN", "请求校验失败，请刷新后重试"))))
-                .addFilterBefore(new SessionFilter(access, errors), AuthorizationFilter.class);
+                .addFilterBefore(new SessionFilter(access, authority,errors), AuthorizationFilter.class);
         return http.build();
     }
 
     private static class SessionFilter extends OncePerRequestFilter {
         private final AccessService access;
         private final HandlerExceptionResolver errors;
+        private final SessionAuthority authority;
 
-        SessionFilter(AccessService access, HandlerExceptionResolver errors) {
+        SessionFilter(AccessService access, SessionAuthority authority,HandlerExceptionResolver errors) {
             this.access = access;
             this.errors = errors;
+            this.authority=authority;
         }
 
         @Override
@@ -90,8 +92,11 @@ class IdentitySecurity {
         protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
                 throws IOException, ServletException {
             try {
+                if(req.getRequestedSessionId()!=null) authority.check(req.getRequestedSessionId());
                 SessionAccount account = SessionAccount.read(req);
                 var profile = access.current(req, account);
+                req.setAttribute("erp.actor.tenant",account.tenantId());req.setAttribute("erp.actor.user",account.userId());
+                authority.touch(req,account);
                 if (profile.mustChangePassword() && !allowsForcedChange(req)) {
                     throw new ApiException(403, "PASSWORD_CHANGE_REQUIRED", "请先修改密码");
                 }

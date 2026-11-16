@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "format": "prettier --write src tests",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "preview": "vite preview"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",

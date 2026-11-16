@@ -4,7 +4,6 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowDown,
   ArrowRight,
-  Bell,
   Box,
   Close,
   DataAnalysis,
@@ -24,6 +23,7 @@ import { useSessionStore } from '../stores/session'
 import { messageOf, isCancelled } from '../api/http'
 import { workbenchSummary } from '../api/workbench'
 import BrandMark from './BrandMark.vue'
+import NotificationBell from './NotificationBell.vue'
 import { reportSpecs, reportPermission } from '../types/reporting'
 import { importSpecs } from '../types/file-jobs'
 import { confirmCompanyLeave } from '../utils/unsaved'
@@ -35,8 +35,7 @@ function selectCompany(id: string): void {
 }
 const loggingOut = ref(false),
   error = ref(''),
-  overdue = ref(0),
-  taskCount = ref(0)
+  overdue = ref(0)
 const title = computed(() =>
   String(route.meta.title ?? (route.name === 'password' ? '账户设置' : '工作台')),
 )
@@ -138,6 +137,18 @@ const definitions = [
       { path: 'organization', title: '部门与岗位', any: ['org_department:view', 'org_post:view'] },
       { path: 'users', title: '用户与角色', any: ['user:view', 'role:view'] },
       { path: 'login-settings', title: '登录方式设置', permission: 'tenant:login_settings' },
+
+      { path: 'sys/dict-types', title: '数据字典', permission: 'dict:view' },
+      { path: 'sys/notices', title: '通知公告', permission: 'notice:view' },
+      { path: 'sys/notify-templates', title: '消息模板', permission: 'notify_template:view' },
+      { path: 'sys/notify-send-logs', title: '消息发送日志', permission: 'notify_log:view' },
+      { path: 'sys/notify-robot', title: '企业微信机器人', permission: 'notify_robot:manage' },
+      { path: 'sys/configs', title: '系统参数', permission: 'sys_config:view' },
+      { path: 'sys/jobs', title: '定时任务', permission: 'job:view' },
+      { path: 'sys/login-logs', title: '登录日志', permission: 'login_log:view' },
+      { path: 'sys/online-users', title: '在线用户', permission: 'online_user:view' },
+      { path: 'sys/api-access-logs', title: 'API访问日志', permission: 'api_log:view' },
+      { path: 'sys/api-error-logs', title: 'API异常日志', permission: 'api_error:view' },
       { path: 'audit-logs', title: '操作审计', any: ['audit:view', 'admin:outbox'] },
     ],
   },
@@ -260,14 +271,12 @@ watch(
   () => session.companyId,
   async () => {
     overdue.value = 0
-    taskCount.value = 0
     if (!session.companyId || session.user?.mustChangePassword) return
     const company = session.companyId
     try {
       const data = await workbenchSummary()
       if (company === session.companyId) {
         overdue.value = data.blocks.find((block) => block.key === 'shipments')?.count ?? 0
-        taskCount.value = data.todos.length
       }
     } catch (cause: unknown) {
       if (!isCancelled(cause)) error.value = messageOf(cause)
@@ -409,16 +418,7 @@ async function logout(): Promise<void> {
               :label="company.name"
             />
           </el-select>
-          <router-link
-            v-if="!session.user?.mustChangePassword"
-            class="shell-button workbench-bell"
-            to="/"
-            :aria-label="'查看待办，' + taskCount + '条'"
-            title="查看待办"
-            ><Bell class="icon" aria-hidden="true" /><span v-if="taskCount" class="nav-count">{{
-              taskCount
-            }}</span></router-link
-          >
+          <NotificationBell v-if="!session.user?.mustChangePassword" />
           <details class="account-menu">
             <summary :aria-label="accountName + '账户菜单'">
               <span class="account-avatar" aria-hidden="true">{{

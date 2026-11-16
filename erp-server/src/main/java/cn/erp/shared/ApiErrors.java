@@ -24,6 +24,10 @@ public class ApiErrors {
 
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiResponse<Void>> api(ApiException error) {
+        if(error.getStatus()>=500) {
+            var attributes=org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+            if(attributes!=null&&attributes.getAttribute("erp.api.failure",org.springframework.web.context.request.RequestAttributes.SCOPE_REQUEST)==null) attributes.setAttribute("erp.api.failure",error,org.springframework.web.context.request.RequestAttributes.SCOPE_REQUEST);
+        }
         return ResponseEntity.status(error.getStatus()).body(ApiResponse.error(error.getStatus(),
                 error.getErrorCode(), error.getMessage(), error.getDetails()));
     }
@@ -73,7 +77,9 @@ public class ApiErrors {
             return api(new ApiException(status, status == 404 ? "NOT_FOUND" : "INVALID_REQUEST",
                     status == 404 ? "访问的地址不存在" : "请求方式或参数有误"));
         }
-        LOG.error("请求处理失败，请求号 {}", RequestIds.current(), error);
+        var attributes=org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+        if(attributes!=null) attributes.setAttribute("erp.api.failure",error,org.springframework.web.context.request.RequestAttributes.SCOPE_REQUEST);
+        LOG.error("请求处理失败，请求号 {}，异常类型 {}", RequestIds.current(),error.getClass().getName());
         return api(new ApiException(500, "INTERNAL_ERROR", "处理请求时发生错误，请联系管理员"));
     }
 }

@@ -44,7 +44,7 @@ try {
  Start-Sleep -Milliseconds 500
  # curl 只信任本次生成的证书并校验回环主机名，不修改系统信任仓。
  $results=@()
- foreach($case in @(@("http://127.0.0.1:$HttpPort/login",308),@("https://127.0.0.1:$HttpsPort/login",200),@("https://127.0.0.1:$HttpsPort/actuator/health",404),@("https://127.0.0.1:$HttpsPort/private-objects/test",404),@("https://127.0.0.1:$HttpsPort/api/v1/companies",401))){
+ foreach($case in @(@("http://127.0.0.1:$HttpPort/login",308),@("https://127.0.0.1:$HttpsPort/login",200),@("https://127.0.0.1:$HttpsPort/actuator/health",404),@("https://127.0.0.1:$HttpsPort/private-objects/test",404),@("https://127.0.0.1:$HttpsPort/api/v1/companies",401),@("https://127.0.0.1:$HttpsPort/ws/v1/events",401))){
   $status=& curl.exe --silent --show-error --cacert $certificate --output NUL --write-out '%{http_code}' $case[0]
   if($LASTEXITCODE -ne 0 -or [int]$status -ne $case[1]){throw ('生产入口检查未通过：'+([uri]$case[0]).AbsolutePath)}
   $results+=@{path=([uri]$case[0]).AbsolutePath;scheme=([uri]$case[0]).Scheme;status=[int]$status}

@@ -188,6 +188,10 @@ onMounted(load)
             value.status === 'posted' ? '已过账' : (statusLabels[value.status] ?? value.status)
           }}</el-tag>
         </dd>
+        <template v-if="value.buyerUserName"
+          ><dt>采购员</dt>
+          <dd>{{ value.buyerUserName }}</dd></template
+        >
         <dt>业务日期</dt>
         <dd>{{ value.businessDate }}</dd>
         <dt>供应商 / 往来</dt>

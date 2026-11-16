@@ -95,12 +95,14 @@ public class ExportJobs {
         Object value=row.get("expire_at");return value instanceof Timestamp timestamp?timestamp.toInstant().isBefore(Instant.now()):value instanceof java.time.LocalDateTime date && date.toInstant(java.time.ZoneOffset.UTC).isBefore(Instant.now());
     }
     @Transactional
-    public Claimed claim() {
+    public Claimed claim() {return claim(null);}
+    @Transactional
+    public Claimed claim(Long tenant) {
         var rows=jdbc.queryForList("""
-            SELECT * FROM export_job WHERE expire_at>UTC_TIMESTAMP(3) AND attempts<3 AND
+            SELECT * FROM export_job WHERE (? IS NULL OR tenant_id=?) AND expire_at>UTC_TIMESTAMP(3) AND attempts<3 AND
               (status='pending' OR status='running' AND lease_until<UTC_TIMESTAMP(3))
             ORDER BY created_at,id LIMIT 1 FOR UPDATE SKIP LOCKED
-            """);
+            """,tenant,tenant);
         if(rows.isEmpty()) { return null; }
         var row=rows.getFirst();String owner=UUID.randomUUID().toString();
         jdbc.update("UPDATE export_job SET status='running',attempts=attempts+1,lease_owner=?,lease_until=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 2 MINUTE),error_message=NULL WHERE id=?",owner,row.get("id"));
@@ -125,17 +127,19 @@ public class ExportJobs {
         jdbc.update("UPDATE export_job SET status=IF(attempts>=3 OR ?,'failed','pending'),error_message=?,finished_at=IF(attempts>=3 OR ?,UTC_TIMESTAMP(3),NULL),lease_owner=NULL,lease_until=NULL WHERE tenant_id=? AND id=? AND lease_owner=? AND status='running'",permanent,message,permanent,job.tenant(),job.id(),job.owner());
     }
     @Transactional
-    public List<String> expire() {
+    public List<String> expire() {return expire(null);}
+    @Transactional
+    public List<String> expire(Long tenant) {
         // 成品的对象删除在事务外执行；状态先过期，下载立即停止。
-        var expired=jdbc.queryForList("SELECT j.id,j.attachment_id,a.storage_key FROM export_job j LEFT JOIN attachment a ON a.id=j.attachment_id WHERE j.status<>'expired' AND j.expire_at<UTC_TIMESTAMP(3) ORDER BY j.id LIMIT 100 FOR UPDATE SKIP LOCKED");
+        var expired=jdbc.queryForList("SELECT j.id,j.attachment_id,a.storage_key FROM export_job j LEFT JOIN attachment a ON a.id=j.attachment_id WHERE (? IS NULL OR j.tenant_id=?) AND j.status<>'expired' AND j.expire_at<UTC_TIMESTAMP(3) ORDER BY j.id LIMIT 100 FOR UPDATE SKIP LOCKED",tenant,tenant);
         var keys=new ArrayList<String>();
         for(var row:expired) {
             jdbc.update("UPDATE export_job SET status='expired',lease_owner=NULL,lease_until=NULL WHERE id=?",row.get("id"));
             if(row.get("attachment_id")!=null) { jdbc.update("UPDATE attachment SET status='deleted' WHERE id=?",row.get("attachment_id")); }
         }
         // 第三次租约耗尽的崩溃任务应落为终态，不长期卡在运行中。
-        jdbc.update("UPDATE export_job SET status='failed',error_message='导出任务租约耗尽，请重新提交',finished_at=UTC_TIMESTAMP(3),lease_owner=NULL,lease_until=NULL WHERE status='running' AND attempts>=3 AND lease_until<UTC_TIMESTAMP(3)");
-        keys.addAll(jdbc.queryForList("SELECT a.storage_key FROM export_job j JOIN attachment a ON a.id=j.attachment_id WHERE j.status='expired' AND j.object_deleted_at IS NULL ORDER BY j.id LIMIT 100",String.class));
+        jdbc.update("UPDATE export_job SET status='failed',error_message='导出任务租约耗尽，请重新提交',finished_at=UTC_TIMESTAMP(3),lease_owner=NULL,lease_until=NULL WHERE (? IS NULL OR tenant_id=?) AND status='running' AND attempts>=3 AND lease_until<UTC_TIMESTAMP(3)",tenant,tenant);
+        keys.addAll(jdbc.queryForList("SELECT a.storage_key FROM export_job j JOIN attachment a ON a.id=j.attachment_id WHERE (? IS NULL OR j.tenant_id=?) AND j.status='expired' AND j.object_deleted_at IS NULL ORDER BY j.id LIMIT 100",String.class,tenant,tenant));
         return keys;
     }
     @Transactional

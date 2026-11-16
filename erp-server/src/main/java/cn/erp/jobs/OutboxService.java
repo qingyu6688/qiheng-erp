@@ -33,13 +33,16 @@ public class OutboxService {
     }
 
     @Transactional
-    public List<Event> claim(int limit) {
+    public List<Event> claim(int limit) {return claim(limit,null);}
+
+    @Transactional
+    public List<Event> claim(int limit,Long tenant) {
         if(limit<1 || limit>100) {throw new IllegalArgumentException("任务批量数须在1到100之间");}
         var ids=jdbc.queryForList("""
-                SELECT id FROM outbox_event WHERE (status='pending' AND next_attempt_at<=UTC_TIMESTAMP(3))
-                OR (status='processing' AND lease_until<UTC_TIMESTAMP(3))
+                SELECT id FROM outbox_event WHERE (? IS NULL OR tenant_id=?) AND ((status='pending' AND next_attempt_at<=UTC_TIMESTAMP(3))
+                OR (status='processing' AND lease_until<UTC_TIMESTAMP(3)))
                 ORDER BY next_attempt_at,id LIMIT ? FOR UPDATE SKIP LOCKED
-                """,Long.class,limit);
+                """,Long.class,tenant,tenant,limit);
         return ids.stream().map(id->{
             String owner=UUID.randomUUID().toString();
             jdbc.update("UPDATE outbox_event SET status='processing',lease_owner=?,lease_until=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 60 SECOND),attempts=attempts+1 WHERE id=?",owner,id);
@@ -69,7 +72,9 @@ public class OutboxService {
     }
 
     @Transactional
-    public int cleanExpiredCommands() {
-        return jdbc.update("DELETE FROM idempotency_record WHERE expire_at<UTC_TIMESTAMP(3) AND status IN ('succeeded','failed') ORDER BY expire_at LIMIT 1000");
+    public int cleanExpiredCommands() {return cleanExpiredCommands(null);}
+    @Transactional
+    public int cleanExpiredCommands(Long tenant) {
+        return jdbc.update("DELETE FROM idempotency_record WHERE (? IS NULL OR tenant_id=?) AND expire_at<UTC_TIMESTAMP(3) AND status IN ('succeeded','failed') ORDER BY expire_at LIMIT 1000",tenant,tenant);
     }
 }

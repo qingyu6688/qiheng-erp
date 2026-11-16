@@ -94,6 +94,8 @@ export const resourceSpecs: Record<string, ResourceSpec> = {
     fields: [
       code,
       name,
+      { key: 'areaId', label: '省市区', kind: 'area' },
+      { key: 'sourceCode', label: '客户来源', kind: 'dict', dictionary: 'customer_source' },
       { key: 'shortName', label: '简称', max: 50 },
       { key: 'taxNo', label: '税号', max: 32 },
       {

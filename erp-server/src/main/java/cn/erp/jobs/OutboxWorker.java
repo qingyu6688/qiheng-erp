@@ -17,20 +17,21 @@ public class OutboxWorker {
 
     public OutboxWorker(OutboxService events,OutboxDelivery delivery) {this.events=events;this.delivery=delivery;}
 
-    @Scheduled(fixedDelayString="${erp.worker.poll-millis:1000}")
+    @org.springframework.beans.factory.annotation.Autowired
+    void managed(cn.erp.shared.ManagedJobs jobs) {jobs.register("outbox.poll",this::pollTenant);jobs.register("commands.cleanup",tenant->events.cleanExpiredCommands(tenant));}
     public void poll() {
-        try {
-            for(var event:events.claim(20)) {
+        try {pollTenant(null);} catch(RuntimeException error) {LOG.warn("后台任务暂不可用，将在下轮重试，原因 {}",error.getClass().getSimpleName());}
+    }
+    private void pollTenant(Long tenant) {
+            for(var event:events.claim(20,tenant)) {
                 try {delivery.deliver(event);}
                 catch(RuntimeException error) {
                     LOG.warn("事件 {} 消费失败，类型 {}，第 {} 次",event.id(),event.type(),event.attempts());
                     delivery.failed(event);
                 }
             }
-        } catch(RuntimeException error) {LOG.warn("后台任务暂不可用，将在下轮重试，原因 {}",error.getClass().getSimpleName());}
     }
 
-    @Scheduled(fixedDelay=3_600_000,initialDelay=3_600_000)
     public void cleanCommands() {
         try {events.cleanExpiredCommands();}
         catch(RuntimeException error) {LOG.warn("过期命令清理失败，将在下轮重试");}

@@ -66,12 +66,20 @@ public class AccessService {
             throw new ApiException(403, "FORBIDDEN", "没有执行此操作的权限");
         }
         Set<Long> warehouses = new LinkedHashSet<>();
+        request.setAttribute("erp.actor.company",Long.parseLong(company.id()));
         company.warehouseIds().forEach(id -> warehouses.add(Long.valueOf(id)));
         return new CompanyAccess(actor.tenantId(), actor.userId(), Long.parseLong(company.id()),
                 company.allWarehouses(), warehouses, profile.permissions(),orgScope(request,actor,Long.parseLong(company.id())));
     }
 
     /** 租户级资料沿用登录主体，权限仍在服务端逐次核对。 */
+    public CompanyAccess requireUser(HttpServletRequest request) {
+        SessionAccount actor=SessionAccount.read(request);
+        UserView profile=current(request,actor);
+        if(profile.mustChangePassword()) throw new ApiException(403,"PASSWORD_CHANGE_REQUIRED","请先修改密码");
+        return new CompanyAccess(actor.tenantId(),actor.userId(),0,true,Set.of(),profile.permissions());
+    }
+
     public CompanyAccess requireTenant(HttpServletRequest request, String permission) {
         SessionAccount actor = SessionAccount.read(request);
         UserView profile = current(request, actor);
@@ -82,6 +90,18 @@ public class AccessService {
             throw new ApiException(403, "FORBIDDEN", "没有执行此操作的权限");
         }
         return new CompanyAccess(actor.tenantId(), actor.userId(), 0, true, Set.of(), profile.permissions());
+    }
+
+    /** 后台任务使用实时主库授权，与浏览器请求采用相同的公司、仓库和部门交集。 */
+    public CompanyAccess forUser(long tenant,long user,long companyId) {
+        var revisions=jdbc.queryForList("SELECT "+PASSWORD_REVISION+" FROM sys_user u WHERE tenant_id=? AND id=? AND status='active'",Long.class,tenant,user);
+        if(revisions.isEmpty()) return null;
+        UserView profile=jdbc.query(PROFILE_SQL,(ResultSetExtractor<UserView>) rows->readProfile(rows,user),tenant,user,revisions.getFirst());
+        if(profile==null||profile.mustChangePassword()) return null;
+        if(companyId==0) return new CompanyAccess(tenant,user,0,true,Set.of(),profile.permissions());
+        var company=profile.companies().stream().filter(c->c.id().equals(Long.toString(companyId))).findFirst().orElse(null);if(company==null) return null;
+        var warehouses=new LinkedHashSet<Long>();company.warehouseIds().forEach(id->warehouses.add(Long.parseLong(id)));
+        return new CompanyAccess(tenant,user,companyId,company.allWarehouses(),warehouses,profile.permissions(),orgScopes.resolve(tenant,companyId,user));
     }
 
     private cn.erp.shared.OrgScope orgScope(HttpServletRequest request,SessionAccount actor,long company) {

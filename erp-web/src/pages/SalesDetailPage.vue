@@ -192,6 +192,10 @@ function closeEditor(): void {
             salesStatusLabel(kind, value.status)
           }}</el-tag>
         </dd>
+        <template v-if="value.salesUserName"
+          ><dt>销售员</dt>
+          <dd>{{ value.salesUserName }}</dd></template
+        >
         <dt>业务日期</dt>
         <dd>{{ value.businessDate ?? value.invoiceDate }}</dd>
         <dt>客户 / 往来</dt>

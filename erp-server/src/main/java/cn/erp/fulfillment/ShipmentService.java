@@ -57,6 +57,7 @@ public class ShipmentService {
                     """,id,scope.tenantId(),scope.companyId(),number,input.customerId(),input.warehouseId(),input.businessDate(),
                     input.deliveryMethod()==null?"delivery":input.deliveryMethod(),input.remark(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             saveLines(scope,id,input);
+            cn.erp.shared.BusinessPeople.assign(jdbc,scope,"shipment",id,input.salesUserId());
             changed(scope,id,"create",null);
             return safe(scope,id);
         });
@@ -72,7 +73,7 @@ public class ShipmentService {
                 """,input.customerId(),input.warehouseId(),input.businessDate(),input.deliveryMethod()==null?"delivery":input.deliveryMethod(),
                 input.remark(),scope.userId(),scope.tenantId(),scope.companyId(),id);
         jdbc.update("DELETE FROM shipment_line WHERE tenant_id=? AND company_id=? AND shipment_id=?",scope.tenantId(),scope.companyId(),id);
-        saveLines(scope,id,input);changed(scope,id,"update",before);
+        saveLines(scope,id,input);cn.erp.shared.BusinessPeople.assign(jdbc,scope,"shipment",id,input.salesUserId());changed(scope,id,"update",before);
         return queries.get(scope,id);
     }
 

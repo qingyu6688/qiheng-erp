@@ -80,7 +80,7 @@ public class SalesReturnService {
         if(!scope.hasPermission("cost:view")) {
             result.remove("costAmount");lines.forEach(line->{line.remove("unitCost");line.remove("costAmount");});
         }
-        result.put("allowedActions",actions(scope,raw));return result;
+        result.put("allowedActions",actions(scope,raw));cn.erp.shared.BusinessPeople.enrich(jdbc,scope,result);return result;
     }
 
     private List<String> actions(CompanyAccess scope,Map<String,Object> raw) {
@@ -103,6 +103,7 @@ public class SalesReturnService {
             jdbc.update("INSERT INTO sales_return(id,tenant_id,company_id,return_no,customer_id,warehouse_id,business_date,reason,created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                     id,scope.tenantId(),scope.companyId(),no,input.customerId(),input.warehouseId(),input.businessDate(),input.reason(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             saveLines(scope,id,input);
+            cn.erp.shared.BusinessPeople.assign(jdbc,scope,"sales_return",id,input.salesUserId());
             audit.record(scope,"sales_return.create","sales_return",id,null,Map.of("documentNo",no));return safe(get(scope,id));
         });
     }
@@ -114,6 +115,7 @@ public class SalesReturnService {
         jdbc.update("UPDATE sales_return SET customer_id=?,warehouse_id=?,business_date=?,reason=?,version=version+1,updated_by=? WHERE id=?",
                 input.customerId(),input.warehouseId(),input.businessDate(),input.reason(),scope.userId(),id);
         saveLines(scope,id,input);
+        cn.erp.shared.BusinessPeople.assign(jdbc,scope,"sales_return",id,input.salesUserId());
         audit.record(scope,"sales_return.update","sales_return",id,null,Map.of("version",input.version()+1));return get(scope,id);
     }
 

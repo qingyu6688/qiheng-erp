@@ -25,13 +25,16 @@ public class ExportWorker {
     public ExportWorker(ExportJobs jobs,ExportAccess access,ReportService reports,ObjectFiles files,ObjectMapper json,ObjectCompensation compensation) {
         this.jobs=jobs;this.access=access;this.reports=reports;this.files=files;this.json=json;this.compensation=compensation;
     }
-    @Scheduled(fixedDelayString="${erp.worker.poll-millis:1000}")
+    @org.springframework.beans.factory.annotation.Autowired
+    void managed(cn.erp.shared.ManagedJobs jobs) {jobs.register("export.poll",tenant->runOne(tenant));}
+
     public void poll() {
         try { runOne(); }
         catch(RuntimeException error) { LOG.warn("导出队列暂不可用，将在下轮重试"); }
     }
-    public boolean runOne() {
-        var job=jobs.claim();if(job==null) { return false; }
+    public boolean runOne() {return runOne(null);}
+    public boolean runOne(Long tenant) {
+        var job=jobs.claim(tenant);if(job==null) { return false; }
         String key=null;
         try {
             var actor=access.intersect(access.current(job.tenant(),job.company(),job.user()),job.initial(),job.type());
@@ -51,9 +54,10 @@ public class ExportWorker {
         }
         return true;
     }
-    @Scheduled(fixedDelay=60_000,initialDelay=60_000)
-    public void clean() {
-        try { for(String key:jobs.expire()) { try { files.delete(key);jobs.removed(key); }catch(RuntimeException error) { LOG.warn("过期导出对象清理失败，将在下轮重试"); } } }
+
+    public void clean() {clean(null);}
+    public void clean(Long tenant) {
+        try { for(String key:jobs.expire(tenant)) { try { files.delete(key);jobs.removed(key); }catch(RuntimeException error) { LOG.warn("过期导出对象清理失败，将在下轮重试"); } } }
         catch(RuntimeException error) { LOG.warn("过期导出任务清理失败，将在下轮重试"); }
     }
     public static String checksum(byte[] bytes) {
