@@ -15,6 +15,7 @@
 | 采购 | 从请购转采购订单，经审批后收货入库并确认应付。支持采购退货、供应商退款、付款和核销。 |
 | 库存 | 查询在库、可用、预留和冻结数量。支持调拨、盘点、库存调整及移动加权成本核算。 |
 | 往来与资金 | 导入或录入期初数据，管理应收应付、收付款、资金账户和内部转账。支持单据冲销、八类对账及期间关账、重开。 |
+| 财务总账（候选） | 公司独立人民币账套、两套准则样例、七维辅助、手工及业务凭证、三表指标、期末结转；支持信用、催收和坏账，见[M12使用说明](docs/M12财务总账使用说明.md)。 |
 | 报表与文件 | 提供库存收发存、销售采购汇总、账龄、资金日记账、毛利等十类报表。支持后台 CSV 导入导出、错误行下载、单据打印预览和私有附件。 |
 | 权限与审计 | 按企业、公司和仓库划分数据范围，按角色与操作授权。关键审核支持经办与复核分离，并记录操作审计。管理员可以按企业配置短信、邮箱验证码和微信扫码登录。 |
 
@@ -31,6 +32,8 @@ M11 的 Y-02 继续增加按公司配置的五种角色部门范围，与现有�
 M11 前半的其余功能继续加入业务员归属及报表汇总、数据字典、官方省市区、公告与消息中心、短信邮件模板及日志、企业微信机器人、在线会话强退、系统参数、定时任务和API日志。工作台待办与消息中心共用权限过滤，WebSocket通过Redis跨实例广播摘要。本轮追加V38—V43，仍未正式发布；配置及权限详见[M11使用说明](docs/M11组织消息与运维使用说明.md)，测试与升级证据见[本机验收报告](docs/M11组织消息与运维本机验收报告.md)。
 
 M11 后半加入 Flowable 8.0.0 工作流：SIMPLE设计发布、组织选人、会签/或签/依次、分支、转委加减签、超时提醒和个人审批中心，接入销售/采购订单、退款、冲销及库存调整；X-03最低售价支持提示、人工价格审批或禁止。先通过真实同库事务门槛，保持原状态及服务端硬规则；未匹配流程保留原单级审批。追加V44—V46，目标1.3.0未发布；见[工作流使用说明](docs/M11工作流使用说明.md)和[详细设计](docs/详细设计/02-工作流.md)。
+
+M12候选增量增加公司独立人民币账套、企业/小企业准则样例、七维辅助、期初试算、双人复核凭证、运营自动凭证、六类账簿、公式三表、财务指标和统一结账；同时增加账龄、信用审批与临时额度、催收和坏账。CSV/XLSX导出复用现有后台文件任务，配置及输出均校验公司完整范围。追加V47—V51，目标1.4.0未发布；[使用说明](docs/M12财务总账使用说明.md)解释启用步骤及财务确认边界，[详细设计](docs/详细设计/03-财务总账.md)说明接口与规则。
 
 前端使用 Vue 3、TypeScript、Vite 和 Element Plus。后端使用 Java 21、Spring Boot 和 Maven，提供 REST API。MySQL 8.0.46 保存业务数据，Flyway 负责数据库迁移，Redis 保存会话。后台 Worker 处理导入、导出等异步任务，生产附件和文件任务使用私有 S3 兼容对象仓。
 
@@ -95,6 +98,10 @@ M10 已开始接入运行监控。独立管理端口提供 Prometheus 指标，�
 柒衡 ERP 项目代码采用 [GNU Affero 通用公共许可证第 3 版](LICENSE)，SPDX 标识为 `AGPL-3.0-only`。第三方依赖适用各自的许可条款。
 
 ## English
+
+The unreleased M12 increment adds an independent CNY ledger per company, enterprise/small-enterprise sample charts, seven auxiliary dimensions, opening trials, independently reviewed manual vouchers, automatic business vouchers, six ledger views, configurable statements, seven financial indicators, and integrated period closing/reopening. Receivables gain company-specific aging, concurrent credit controls with mandatory manual approvals, temporary increases, collection reminders, and standard-specific bad-debt treatment. CSV/XLSX exports reuse the existing private background file pipeline. Company, warehouse, department, cost, and operation permissions are enforced on the server, including saved results and downloads.
+
+Migrations V47–V51 are required. These are local candidate changes; target 1.4.0 has not been released. Production charts, auxiliary rules, opening figures, mappings, and formulas require financial review before activation. Samples do not claim to cover every regulated industry or import format. Mid-year cash-flow year-to-date figures remain unavailable without pre-activation classifications. See the [usage guide (Chinese)](docs/M12财务总账使用说明.md), [technical design (Chinese)](docs/详细设计/03-财务总账.md), and [acceptance report (Chinese)](docs/M12财务总账本机验收报告.md).
 
 Qiheng ERP is an inventory and business finance system for trading and warehouse teams. Purchasing, sales, warehouse, and finance staff work with the same transactions to track order fulfillment, inventory costs, receivables, payables, and account balances.
 
