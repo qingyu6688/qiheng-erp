@@ -19,6 +19,10 @@ import static cn.erp.salesorder.SalesOrderQueries.*;
 @Service
 @Transactional
 public class SalesOrderService {
+    private WorkflowPort workflow;
+    private MinimumSalePrice minimumPrices;
+    @org.springframework.beans.factory.annotation.Autowired
+    void workflow(WorkflowPort workflow,MinimumSalePrice minimumPrices) {this.workflow=workflow;this.minimumPrices=minimumPrices;}
     private final JdbcTemplate jdbc;
     private final SalesOrderQueries queries;
     private final SalesOrderWriter writer;
@@ -79,13 +83,14 @@ public class SalesOrderService {
         queries.header(scope,id,false);
         return execute(scope,action,key,List.of(id,input),200,()->{
             var before=queries.header(scope,id,true);version(input.version(),before);
+            workflow.guard(scope,"sales_order",id,action);
             var rows=queries.lines(scope,id,true);
             switch(action) {
-                case "submit" -> {state(before,"draft");active(scope,before,rows,false);changeState(scope,id,"pending");approval(scope,id,before,"submit",input.comment());}
+                case "submit" -> {state(before,"draft");active(scope,before,rows,false);minimumPrices.submitting(scope,id);changeState(scope,id,"pending");workflow.start(scope,"sales_order",id,input.workflowAssignees());approval(scope,id,before,"submit",input.comment());}
                 case "withdraw" -> {state(before,"pending");changeState(scope,id,"draft");approval(scope,id,before,"withdraw",input.comment());}
                 case "reject" -> {state(before,"pending");reason(input.comment());changeState(scope,id,"draft");approval(scope,id,before,"reject",input.comment());}
                 case "approve" -> {
-                    state(before,"pending");separateApprover(scope,before);active(scope,before,rows,true);reserveRows(scope,before,rows);
+                    state(before,"pending");separateApprover(scope,before);minimumPrices.approving(scope,id);active(scope,before,rows,true);reserveRows(scope,before,rows);
                     jdbc.update("UPDATE sales_order SET status='approved',revision=revision+1,approved_by=?,approved_at=UTC_TIMESTAMP(3),version=version+1,updated_by=? WHERE id=? AND tenant_id=? AND company_id=?",
                             scope.userId(),scope.userId(),id,scope.tenantId(),scope.companyId());
                     approval(scope,id,before,"approve",input.comment());

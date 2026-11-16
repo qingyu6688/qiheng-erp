@@ -31,7 +31,10 @@ final class CatalogModels {
             @Pattern(regexp = "0(\\.[0-9]{1,6})?", message = "税率须小于 1，最多六位小数") String defaultTaxRate,
             @Pattern(regexp = "[0-9]{1,16}(\\.[0-9]{1,8})?", message = "采购价格式有误，最多八位小数") String purchasePrice,
             @Pattern(regexp = "[0-9]{1,16}(\\.[0-9]{1,8})?", message = "销售价格式有误，最多八位小数") String salePrice,
-            @Pattern(regexp = "active|disabled", message = "SKU 状态无效") String status, Long version) {}
+            @Pattern(regexp = "active|disabled", message = "SKU 状态无效") String status, Long version,
+            @Pattern(regexp="[0-9]{1,16}(\\.[0-9]{1,8})?",message="最低售价须为非负数，最多八位小数") String minSalePrice) {
+        public SkuInput(Long productId,String code,String name,String spec,String defaultTaxRate,String purchasePrice,String salePrice,String status,Long version) {this(productId,code,name,spec,defaultTaxRate,purchasePrice,salePrice,status,version,null);}
+    }
     record Version(@NotNull(message = "请提供版本号") @PositiveOrZero(message = "版本号无效") Long version) {}
     record Conversion(
             @NotNull(message = "请选择单位") Long unitId,
@@ -52,7 +55,7 @@ final class CatalogModels {
                   String categoryId, String itemType, String baseUnitId, List<Detail> skus,
                   String productId, String spec, String defaultTaxRate,
                   @JsonInclude(JsonInclude.Include.NON_NULL) String purchasePrice, String salePrice,
-                  List<UnitView> units, List<BarcodeView> barcodes, List<String> allowedActions) {}
+                  List<UnitView> units, List<BarcodeView> barcodes, List<String> allowedActions,String minSalePrice) {}
     record UnitView(String unitId, String unitName, String rateToBase, boolean isBase, boolean referenced) {}
     record BarcodeView(String barcode, String unitId) {}
     record Scan(Detail sku, String unitId, String unitName, String rateToBase) {}

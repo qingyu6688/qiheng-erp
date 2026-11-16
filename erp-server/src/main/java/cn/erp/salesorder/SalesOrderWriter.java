@@ -12,6 +12,9 @@ import static cn.erp.salesorder.SalesOrderQueries.*;
 
 @Service
 class SalesOrderWriter {
+    private cn.erp.pricing.MinimumSalePrice minimumPrices;
+    @org.springframework.beans.factory.annotation.Autowired
+    void minimumPrices(cn.erp.pricing.MinimumSalePrice minimumPrices) {this.minimumPrices=minimumPrices;}
     private final JdbcTemplate jdbc;
     private final PricingService pricing;
     private final cn.erp.sysadmin.AreaService areas;
@@ -87,6 +90,7 @@ class SalesOrderWriter {
             jdbc.update("UPDATE sales_order_line SET is_deleted=1,version=version+1 WHERE id=?",number(row,"id"));
         }}
         writeFees(scope,orderId,input,preview,newOrder);
+        minimumPrices.saved(scope,orderId);
     }
 
     private void writeFees(CompanyAccess scope,long orderId,SalesOrderModels.Input input,PricingModels.Preview preview,boolean newOrder) {

@@ -46,7 +46,7 @@ public class PurchaseOrderQueries {
         result.put("allowedActions",actions(scope,raw));
         var changes=jdbc.queryForList("SELECT id,change_no,status,version,from_revision,to_revision FROM document_change WHERE tenant_id=? AND company_id=? AND document_type='purchase_order' AND document_id=? ORDER BY id DESC LIMIT 1",scope.tenantId(),scope.companyId(),id);
         if(!changes.isEmpty()) {result.put("change",camel(changes.getFirst()));}
-        cn.erp.shared.BusinessPeople.enrich(jdbc,scope,result);return result;
+        cn.erp.shared.BusinessPeople.enrich(jdbc,scope,result);cn.erp.shared.WorkflowViews.decorate(jdbc,scope,"purchase_order",id,result);return result;
     }
 
     private Map<String,Object> lineView(CompanyAccess scope,Map<String,Object> line) {
@@ -99,7 +99,7 @@ public class PurchaseOrderQueries {
             if(!pending.isEmpty()&&canApprove(scope,pending.getFirst())) {add(scope,actions,"change_approve");}
             add(scope,actions,"change_reject");
         }
-        return actions;
+        return cn.erp.shared.WorkflowViews.actions(row,actions);
     }
     private boolean canApprove(CompanyAccess scope,Map<String,Object> row) {
         var policies=jdbc.queryForList("SELECT separate_order_approver FROM company_policy WHERE tenant_id=? AND company_id=?",Integer.class,scope.tenantId(),scope.companyId());

@@ -21,6 +21,9 @@ import static cn.erp.salesfinance.FinanceSupport.*;
 @Service
 @Transactional
 public class OpeningService {
+    private WorkflowPort workflow;
+    @org.springframework.beans.factory.annotation.Autowired
+    void workflow(WorkflowPort workflow) {this.workflow=workflow;}
     public record Stock(@Pattern(regexp="opening|gain|loss|block|unblock|scrap",message="库存调整类型无效") String adjustType,
         @NotNull(message="请选择仓库") Long warehouseId,@NotNull(message="请选择业务日期") LocalDate businessDate,
         @NotBlank(message="请填写调整原因") @Size(max=200,message="原因最多200字") String reason,
@@ -32,7 +35,9 @@ public class OpeningService {
         @NotBlank(message="请填写期初金额") String amount,@NotNull(message="请选择业务日期") LocalDate businessDate,
         @Size(max=200,message="备注最多200字") String remark,Long version) {}
     public record Version(@NotNull(message="请提供版本号") @PositiveOrZero(message="版本号无效") Long version,
-        @Size(max=200,message="意见最多200字") String reason) {}
+        @Size(max=200,message="意见最多200字") String reason,@Size(max=100,message="自选节点最多100个") Map<String,List<Long>> workflowAssignees) {
+        public Version(Long version,String reason) {this(version,reason,null);}
+    }
     private final JdbcTemplate jdbc;
     private final FinanceSupport support;
     private final ReferenceAvailability references;
@@ -85,12 +90,13 @@ public class OpeningService {
     }
     public Map<String,Object> command(CompanyAccess scope,boolean stock,long id,String action,String key,Version input) {
         return execute(scope,resource(stock)+"."+action,key,List.of(id,input),200,()->{
+            if(stock) workflow.guard(scope,"stock_adjustment",id,action);
             var snapshot=find(scope,stock,id,false);
             Long period=Set.of("submit","approve","post").contains(action)?support.period(scope,((java.sql.Date)snapshot.get("business_date")).toLocalDate()):null;
             var before=find(scope,stock,id,true);version(before,input.version());
             String table=table(stock);
             switch(action) {
-                case "submit" -> {if(!stock)throw invalid("往来期初直接送交审核");state(before,"draft");updateState(scope,table,id,"pending");}
+                case "submit" -> {if(!stock)throw invalid("往来期初直接送交审核");state(before,"draft");updateState(scope,table,id,"pending");workflow.start(scope,"stock_adjustment",id,input.workflowAssignees());}
                 case "approve" -> {
                     state(before,stock?"pending":"draft");differentReviewer(scope,before);
                     jdbc.update("UPDATE "+table+" SET status='approved',approved_by=?,approved_at=UTC_TIMESTAMP(3),version=version+1,updated_by=? WHERE id=?",scope.userId(),scope.userId(),id);
@@ -177,7 +183,7 @@ public class OpeningService {
             if(raw.get("partner_id")!=null)result.put("partnerName",jdbc.queryForObject("SELECT name FROM business_partner WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),raw.get("partner_id")));
             if(raw.get("cash_account_id")!=null)result.put("cashAccountName",jdbc.queryForObject("SELECT name FROM cash_account WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),raw.get("cash_account_id")));
         }
-        result.put("allowedActions",actions(scope,stock,raw));return result;
+        result.put("allowedActions",actions(scope,stock,raw));if(stock)WorkflowViews.decorate(jdbc,scope,"stock_adjustment",id,result);return result;
     }
     public Map<String,Object> list(CompanyAccess scope,boolean stock,String status,Long cursor,int limit) {
         return list(scope,stock,status,null,cursor,limit);
@@ -201,7 +207,7 @@ public class OpeningService {
         if(state.equals("draft")) {add(scope,actions,resource,"update");add(scope,actions,resource,stock?"submit":"approve",stock||id(head,"created_by")!=scope.userId());}
         if(stock&&state.equals("pending")&&id(head,"created_by")!=scope.userId()){add(scope,actions,resource,"approve");add(scope,actions,resource,"reject");}
         if(state.equals("approved"))add(scope,actions,resource,"post");
-        if(Set.of("draft","pending","approved").contains(state))add(scope,actions,resource,"void");return actions;
+        if(Set.of("draft","pending","approved").contains(state))add(scope,actions,resource,"void");return stock?WorkflowViews.actions(head,actions):actions;
     }
     private void validateStock(CompanyAccess scope,Stock input) {
         date(input.businessDate());String type=adjustType(input);

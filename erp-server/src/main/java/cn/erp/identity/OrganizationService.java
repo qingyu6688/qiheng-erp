@@ -86,7 +86,7 @@ class OrganizationService {
         var policies=jdbc.query("SELECT * FROM company_policy WHERE tenant_id=? AND company_id=?",(r,n)->
                 new PolicyView(r.getString("taxpayer_type"),r.getInt("reservation_valid_days"),r.getInt("reservation_grace_days"),
                         r.getBigDecimal("over_receipt_pct").toPlainString(),r.getBoolean("separate_order_approver"),
-                        r.getBoolean("separate_receipt_confirmer"),r.getLong("version")),actor.tenantId(),id);
+                        r.getBoolean("separate_receipt_confirmer"),r.getLong("version"),r.getString("below_min_price_policy")),actor.tenantId(),id);
         return policies.isEmpty()?new PolicyView("general",30,7,"0.00",true,true,0):policies.getFirst();
     }
 
@@ -98,10 +98,10 @@ class OrganizationService {
         jdbc.update("INSERT IGNORE INTO company_policy(id,tenant_id,company_id,created_by) VALUES(?,?,?,?)",Ids.next(),actor.tenantId(),id,actor.userId());
         jdbc.update("""
                 UPDATE company_policy SET taxpayer_type=?,reservation_valid_days=?,reservation_grace_days=?,
-                over_receipt_pct=?,separate_order_approver=?,separate_receipt_confirmer=?,version=version+1,updated_by=?
+                over_receipt_pct=?,separate_order_approver=?,separate_receipt_confirmer=?,below_min_price_policy=COALESCE(?,below_min_price_policy),version=version+1,updated_by=?
                 WHERE tenant_id=? AND company_id=?
                 """,input.taxpayerType(),input.reservationValidDays(),input.reservationGraceDays(),new java.math.BigDecimal(input.overReceiptPct()),
-                input.separateOrderApprover(),input.separateReceiptConfirmer(),actor.userId(),actor.tenantId(),id);
+                input.separateOrderApprover(),input.separateReceiptConfirmer(),input.belowMinPricePolicy(),actor.userId(),actor.tenantId(),id);
         var after=policy(actor,id);
         audit.record(companyScope(actor,id),"company_policy.update","company_policy",id,before,after);
         return after;

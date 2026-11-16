@@ -30,7 +30,9 @@ public final class SalesOrderModels {
         @NotBlank(message="请输入费用金额") String amount,String taxRate) {}
     public record Command(@NotNull(message="请提供版本号") @PositiveOrZero(message="版本号无效") Long version,
                           @Size(max=500,message="意见最多500字") String comment,
-                          @Size(max=200,message="原因最多200字") String reason) {}
+                          @Size(max=200,message="原因最多200字") String reason,@Size(max=100,message="自选节点最多100个") java.util.Map<String,List<Long>> workflowAssignees) {
+        public Command(Long version,String comment,String reason) {this(version,comment,reason,null);}
+    }
     public record CloseLine(@NotBlank(message="请选择订单行") String lineId,@NotBlank(message="请输入关闭数量") String closeQty) {}
     public record Close(@NotNull(message="请提供版本号") Long version,
                         @NotBlank(message="请填写关闭原因") @Size(max=200,message="原因最多200字") String reason,

@@ -17,6 +17,9 @@ import static cn.erp.purchasing.PurchaseOrderQueries.*;
 @Service
 @Transactional
 public class PurchaseOrderService {
+    private WorkflowPort workflow;
+    @org.springframework.beans.factory.annotation.Autowired
+    void workflow(WorkflowPort workflow) {this.workflow=workflow;}
     private final JdbcTemplate jdbc;
     private final PurchaseOrderQueries queries;
     private final PurchaseOrderWriter writer;
@@ -73,9 +76,9 @@ public class PurchaseOrderService {
     public Map<String,Object> command(CompanyAccess scope,long id,String action,String key,PurchaseOrderModels.Command input) {
         queries.header(scope,id,false);
         return execute(scope,action,key,List.of(id,input),200,()->{
-            var before=queries.header(scope,id,true);version(input.version(),before);var rows=queries.lines(scope,id,true);
+            var before=queries.header(scope,id,true);version(input.version(),before);workflow.guard(scope,"purchase_order",id,action);var rows=queries.lines(scope,id,true);
             switch(action) {
-                case "submit" -> {state(before,"draft");active(scope,before,rows,false);changeState(scope,id,"pending");}
+                case "submit" -> {state(before,"draft");active(scope,before,rows,false);changeState(scope,id,"pending");workflow.start(scope,"purchase_order",id,input.workflowAssignees());}
                 case "withdraw" -> {state(before,"pending");changeState(scope,id,"draft");}
                 case "reject" -> {state(before,"pending");reason(input.comment());changeState(scope,id,"draft");}
                 case "approve" -> {

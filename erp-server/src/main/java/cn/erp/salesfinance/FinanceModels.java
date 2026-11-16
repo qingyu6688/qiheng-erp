@@ -18,7 +18,9 @@ public final class FinanceModels {
         public Receipt(String receiptType,Long partnerId,Long incomeItemId,Long cashAccountId,String amount,LocalDate businessDate,Long relatedOrderId,String bankSerialNo,String remark,Long version) {this(receiptType,partnerId,incomeItemId,cashAccountId,amount,businessDate,relatedOrderId,bankSerialNo,remark,version,null);}
     }
     public record Version(@NotNull(message="请提供版本号") @PositiveOrZero(message="版本号不能为负") Long version,
-                          LocalDate businessDate,@Size(max=200,message="原因最多200字") String reason) {}
+                          LocalDate businessDate,@Size(max=200,message="原因最多200字") String reason,@Size(max=100,message="自选节点最多100个") java.util.Map<String,List<Long>> workflowAssignees) {
+        public Version(Long version,LocalDate businessDate,String reason) {this(version,businessDate,reason,null);}
+    }
     public record ReturnInput(
         @NotNull(message="请选择客户") Long customerId,@NotNull(message="请选择退回仓库") Long warehouseId,
         @NotNull(message="请选择业务日期") LocalDate businessDate,@NotBlank(message="请填写退货原因") @Size(max=200,message="原因最多200字") String reason,

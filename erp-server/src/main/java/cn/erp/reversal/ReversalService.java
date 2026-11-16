@@ -13,6 +13,9 @@ import static cn.erp.salesfinance.FinanceSupport.*;
 @Service
 @Transactional
 public class ReversalService {
+    private cn.erp.shared.WorkflowPort workflow;
+    @org.springframework.beans.factory.annotation.Autowired
+    void workflow(cn.erp.shared.WorkflowPort workflow) {this.workflow=workflow;}
     private final JdbcTemplate jdbc;
     private final FinanceSupport finance;
     private final ReversalSources sources;
@@ -35,12 +38,20 @@ public class ReversalService {
             if(!jdbc.queryForList("SELECT id FROM document_reversal WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"document_reversal")+" AND source_type=? AND source_id=? AND status<>'rejected' FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),input.sourceType(),input.sourceId()).isEmpty())throw new ApiException(409,"STATE_CONFLICT","原单已有待处理或已完成的冲销单");
             long id=Ids.next();
             jdbc.update("INSERT INTO document_reversal(id,tenant_id,company_id,reversal_no,source_type,source_id,business_date,reason,created_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)",id,scope.tenantId(),scope.companyId(),numbers.next(scope,"RV",YearMonth.from(input.businessDate())),input.sourceType(),input.sourceId(),input.businessDate(),input.reason().trim(),scope.userId(),head.get("owner_user_id"),head.get("owner_department_id"));
-            return changed(scope,id,"create");
+            workflow.start(scope,"document_reversal",id,input.workflowAssignees());return changed(scope,id,"create");
         });
+    }
+    @Transactional(readOnly=true)
+    public Map<String,Object> workflowPreview(CompanyAccess scope,String type,long id,LocalDate businessDate) {
+        if(!scope.hasPermission("reversal:view")) throw new ApiException(403,"FORBIDDEN","没有发起冲销的权限");
+        date(businessDate);var source=sources.head(scope,type,id,false);sources.posted(source,type);
+        var result=new LinkedHashMap<String,Object>();result.put("createdBy",scope.userId());result.put("ownerDeptId",Objects.toString(source.get("owner_department_id"),"0"));result.put("sourceType",type);result.put("crossPeriod",!businessDate.toString().substring(0,7).equals(source.get("business_date").toString().substring(0,7)));
+        result.put("totalAmount","0");for(String key:List.of("total_amount","receivable_amount","payable_amount","amount","total_cost"))if(source.get(key)!=null){result.put("totalAmount",source.get(key));break;}return result;
     }
     public Map<String,Object> command(CompanyAccess scope,long id,String action,String key,ReversalModels.Version input) {
         var initial=find(scope,id,false);sources.head(scope,initial.get("source_type").toString(),id(initial,"source_id"),false);
         return execute(scope,action,key,List.of(id,input),200,()->{
+            workflow.guard(scope,"document_reversal",id,action);
             var snapshot=find(scope,id,false);String type=snapshot.get("source_type").toString();long source=id(snapshot,"source_id");
             long period=action.equals("post")?finance.period(scope,((java.sql.Date)snapshot.get("business_date")).toLocalDate()):0;
             var head=sources.head(scope,type,source,true);progress.lock(scope,type,source);
@@ -65,7 +76,7 @@ public class ReversalService {
         var result=row(before);result.put("documentNo",before.get("reversal_no"));result.put("sourceNo",sources.number(type,source));result.put("warehouseIds",sources.warehouses(source));
         var actions=new ArrayList<String>();
         if(before.get("status").equals("pending")&&id(before,"created_by")!=scope.userId()&&scope.hasPermission("reversal:approve")){actions.add("approve");actions.add("reject");}
-        if(before.get("status").equals("approved")&&scope.hasPermission("reversal:post"))actions.add("post");result.put("allowedActions",actions);return result;
+        if(before.get("status").equals("approved")&&scope.hasPermission("reversal:post"))actions.add("post");result.put("allowedActions",cn.erp.shared.WorkflowViews.actions(before,actions));cn.erp.shared.WorkflowViews.decorate(jdbc,scope,"document_reversal",id,result);return result;
     }
     @Transactional(readOnly=true)
     public Map<String,Object> list(CompanyAccess scope,String status,Long cursor,int limit) {

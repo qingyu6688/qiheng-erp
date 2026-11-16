@@ -18,6 +18,6 @@ final class CatalogVisibility {
                 value.categoryId(), value.itemType(), value.baseUnitId(),
                 value.skus() == null ? null : value.skus().stream().map(CatalogVisibility::withoutPurchasePrice).toList(),
                 value.productId(), value.spec(), value.defaultTaxRate(), null, value.salePrice(),
-                value.units(), value.barcodes(), value.allowedActions());
+                value.units(), value.barcodes(), value.allowedActions(),value.minSalePrice());
     }
 }
