@@ -134,6 +134,7 @@ public class ImportProcessor {
     }
     private CompanyAccess authorize(Map<String,Object> job) {
         var scope=access.current(number(job,"tenant_id"),number(job,"company_id"),number(job,"created_by"),jobs.snapshot(job.get("warehouse_snapshot")),job.get("job_type").toString(),ImportJobs.cost(job));
+        scope=jobs.organization(scope,job.get("org_scope_snapshot"));
         var options=json.readValue(job.get("options_json").toString(),ImportJobs.Options.class);
         if(options.warehouseId()!=null&&!scope.allowsWarehouse(options.warehouseId()))throw ImportAccess.forbidden();return scope;
     }

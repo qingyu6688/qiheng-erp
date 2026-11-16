@@ -32,9 +32,9 @@ public class ReversalService {
             finance.period(scope,input.businessDate());
             var head=sources.head(scope,input.sourceType(),input.sourceId(),true);sources.posted(head,input.sourceType());
             progress.lock(scope,input.sourceType(),input.sourceId());sources.dependencies(scope,input.sourceType(),input.sourceId());
-            if(!jdbc.queryForList("SELECT id FROM document_reversal WHERE tenant_id=? AND company_id=? AND source_type=? AND source_id=? AND status<>'rejected' FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),input.sourceType(),input.sourceId()).isEmpty())throw new ApiException(409,"STATE_CONFLICT","原单已有待处理或已完成的冲销单");
+            if(!jdbc.queryForList("SELECT id FROM document_reversal WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"document_reversal")+" AND source_type=? AND source_id=? AND status<>'rejected' FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),input.sourceType(),input.sourceId()).isEmpty())throw new ApiException(409,"STATE_CONFLICT","原单已有待处理或已完成的冲销单");
             long id=Ids.next();
-            jdbc.update("INSERT INTO document_reversal(id,tenant_id,company_id,reversal_no,source_type,source_id,business_date,reason,created_by) VALUES(?,?,?,?,?,?,?,?,?)",id,scope.tenantId(),scope.companyId(),numbers.next(scope,"RV",YearMonth.from(input.businessDate())),input.sourceType(),input.sourceId(),input.businessDate(),input.reason().trim(),scope.userId());
+            jdbc.update("INSERT INTO document_reversal(id,tenant_id,company_id,reversal_no,source_type,source_id,business_date,reason,created_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)",id,scope.tenantId(),scope.companyId(),numbers.next(scope,"RV",YearMonth.from(input.businessDate())),input.sourceType(),input.sourceId(),input.businessDate(),input.reason().trim(),scope.userId(),head.get("owner_user_id"),head.get("owner_department_id"));
             return changed(scope,id,"create");
         });
     }
@@ -87,7 +87,8 @@ public class ReversalService {
         var result=new LinkedHashMap<String,Object>();result.put("items",items);result.put("nextCursor",rows.size()>limit?items.getLast().get("id"):null);return result;
     }
     private Map<String,Object> find(CompanyAccess scope,long id,boolean lock) {
-        var rows=jdbc.queryForList("SELECT * FROM document_reversal WHERE tenant_id=? AND company_id=? AND id=?"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
+        cn.erp.shared.OrgOwnership.require(jdbc,scope,"document_reversal",id);
+        var rows=jdbc.queryForList("SELECT * FROM document_reversal WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"document_reversal")+" AND id=?"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
         if(rows.isEmpty())throw missing();return rows.getFirst();
     }
     private Map<String,Object> changed(CompanyAccess scope,long id,String action){var result=get(scope,id);audit.record(scope,"reversal."+action,"document_reversal",id,null,result);return result;}

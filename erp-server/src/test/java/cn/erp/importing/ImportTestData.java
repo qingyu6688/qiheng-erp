@@ -49,7 +49,7 @@ abstract class ImportTestData {
     @AfterEach void cleanup() {
         var keys=jdbc.queryForList("SELECT storage_key FROM attachment WHERE tenant_id=?",String.class,tenant);
         jdbc.update("DELETE FROM inbox_event WHERE event_id IN(SELECT id FROM outbox_event WHERE tenant_id=?)",tenant);
-        for(String table:List.of("import_job_target","import_job_error","import_job","attachment","outbox_event","ledger_balance","journal_line","journal","partner_open_item",
+        for(String table:List.of("org_role_data_scope_dept","org_role_data_scope","org_user_department","org_user_company","org_department","import_job_target","import_job_error","import_job","attachment","outbox_event","ledger_balance","journal_line","journal","partner_open_item",
                 "inventory_reservation_change","inventory_reservation","cost_adjustment","inventory_movement","inventory_balance","inventory_cost",
                 "stock_adjustment_line","stock_adjustment","audit_log","approval_record","idempotency_record","document_sequence",
                 "unit_conversion","sku","product","product_category","unit","partner_role","business_partner","sys_user_data_scope","warehouse","accounting_period",

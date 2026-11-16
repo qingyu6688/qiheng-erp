@@ -42,7 +42,7 @@ class ImportAccess {
         if(all)allowed.addAll(snapshot);
         allowed.retainAll(snapshot);
         allowed.retainAll(jdbc.queryForList("SELECT id FROM warehouse WHERE tenant_id=? AND company_id=? AND status='active'",Long.class,tenant,company));
-        var scope=new CompanyAccess(tenant,user,company,false,Set.copyOf(allowed),Set.copyOf(permissions));
+        var scope=new CompanyAccess(tenant,user,company,false,Set.copyOf(allowed),Set.copyOf(permissions),new cn.erp.identity.OrgScopeResolver(jdbc).resolve(tenant,company,user));
         permissions(scope,type,cost);return scope;
     }
     static ApiException forbidden(){return new ApiException(403,"FORBIDDEN","当前账号、公司、数据范围或导入权限已失效");}

@@ -16,7 +16,7 @@ public class OperationsService {
     public OperationsService(JdbcTemplate jdbc) {this.jdbc=jdbc;}
 
     public Map<String,Object> status(CompanyAccess actor) {
-        if(!actor.hasPermission("admin:outbox") || !actor.allWarehouses()) throw new ApiException(403,"FORBIDDEN","运维状态需要后台事件权限和整家公司数据范围");
+        if(!actor.hasPermission("admin:outbox") || !actor.allWarehouses() || !actor.orgScope().allDepartments()) throw new ApiException(403,"FORBIDDEN","运维状态需要后台事件权限和整家公司数据范围");
         var queues=new LinkedHashMap<String,Object>();
         for(String type:List.of("import","export")) {
             String table=type+"_job";

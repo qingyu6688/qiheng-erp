@@ -42,9 +42,11 @@ public class AccessService {
             ORDER BY row_kind, company_id, warehouse_key
             """.formatted(PASSWORD_REVISION, UserAccessMapper.ROLE_PERMISSIONS);
     private final JdbcTemplate jdbc;
+    private final OrgScopeResolver orgScopes;
 
-    AccessService(JdbcTemplate jdbc) {
+    AccessService(JdbcTemplate jdbc,OrgScopeResolver orgScopes) {
         this.jdbc = jdbc;
+        this.orgScopes=orgScopes;
     }
 
     /** 同一请求内复用校验结果，下一次请求重新检查账号、角色和数据范围。 */
@@ -66,7 +68,7 @@ public class AccessService {
         Set<Long> warehouses = new LinkedHashSet<>();
         company.warehouseIds().forEach(id -> warehouses.add(Long.valueOf(id)));
         return new CompanyAccess(actor.tenantId(), actor.userId(), Long.parseLong(company.id()),
-                company.allWarehouses(), warehouses, profile.permissions());
+                company.allWarehouses(), warehouses, profile.permissions(),orgScope(request,actor,Long.parseLong(company.id())));
     }
 
     /** 租户级资料沿用登录主体，权限仍在服务端逐次核对。 */
@@ -80,6 +82,12 @@ public class AccessService {
             throw new ApiException(403, "FORBIDDEN", "没有执行此操作的权限");
         }
         return new CompanyAccess(actor.tenantId(), actor.userId(), 0, true, Set.of(), profile.permissions());
+    }
+
+    private cn.erp.shared.OrgScope orgScope(HttpServletRequest request,SessionAccount actor,long company) {
+        String key=PROFILE+".org."+company;
+        if(request.getAttribute(key) instanceof cn.erp.shared.OrgScope scope) return scope;
+        var scope=orgScopes.resolve(actor.tenantId(),company,actor.userId());request.setAttribute(key,scope);return scope;
     }
 
     UserView current(HttpServletRequest request, SessionAccount actor) {

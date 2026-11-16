@@ -41,6 +41,7 @@ public class InvoiceService {
         if(sorted.stream().map(Line::receivableId).distinct().count()!=sorted.size()) {throw invalid("应收来源不能重复");}
         BigDecimal allocated=BigDecimal.ZERO,sourceTax=BigDecimal.ZERO;
         for(var line:sorted) {
+            cn.erp.shared.OrgOwnership.requireSource(jdbc,scope,"receivable",line.receivableId());
             BigDecimal part=number(line.amount(),true);
             var rows=jdbc.queryForList("SELECT customer_id,kind,amount,tax_amount,posting_action,source_type FROM receivable WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",scope.tenantId(),scope.companyId(),line.receivableId());
             if(rows.isEmpty()) {throw missing();}
@@ -65,8 +66,8 @@ public class InvoiceService {
         long id=Ids.next();
         jdbc.update("""
                 INSERT INTO invoice_registration(id,tenant_id,company_id,invoice_type,partner_id,invoice_no,invoice_date,
-                amount,tax_amount,tax_diff_amount,remark,created_by,updated_by) VALUES(?,?,?,'sales',?,?,?,?,?,?,?,?,?)
-                """,id,scope.tenantId(),scope.companyId(),input.partnerId(),input.invoiceNo(),input.invoiceDate(),amount,tax,tax.subtract(sourceTax),input.remark(),scope.userId(),scope.userId());
+                amount,tax_amount,tax_diff_amount,remark,created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,'sales',?,?,?,?,?,?,?,?,?,?,?)
+                """,id,scope.tenantId(),scope.companyId(),input.partnerId(),input.invoiceNo(),input.invoiceDate(),amount,tax,tax.subtract(sourceTax),input.remark(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
         for(var line:sorted) {jdbc.update("INSERT INTO invoice_registration_line(id,tenant_id,company_id,invoice_id,receivable_id,amount,created_by) VALUES(?,?,?,?,?,?,?)",Ids.next(),scope.tenantId(),scope.companyId(),id,line.receivableId(),number(line.amount(),true),scope.userId());}
         var result=get(scope,id);audit.record(scope,"invoice_registration.create","invoice_registration",id,null,result);return result;
     }
@@ -74,6 +75,7 @@ public class InvoiceService {
     @Transactional
     @SuppressWarnings({"unchecked","rawtypes"})
     public Map<String,Object> voidInvoice(CompanyAccess scope,long id,long version,String key) {
+        cn.erp.shared.OrgOwnership.require(jdbc,scope,"invoice_registration",id);
         return commands.execute(scope,"invoice_registration.void",key,List.of(id,version),200,()->{
             // 与创建共享先锁应收、再锁发票的顺序。
             var ids=jdbc.queryForList("SELECT receivable_id FROM invoice_registration_line WHERE tenant_id=? AND company_id=? AND invoice_id=? ORDER BY receivable_id",Long.class,scope.tenantId(),scope.companyId(),id);
@@ -93,7 +95,8 @@ public class InvoiceService {
     }
 
     public Map<String,Object> get(CompanyAccess scope,long id) {
-        var rows=jdbc.queryForList("SELECT * FROM invoice_registration WHERE tenant_id=? AND company_id=? AND id=?",scope.tenantId(),scope.companyId(),id);
+        cn.erp.shared.OrgOwnership.require(jdbc,scope,"invoice_registration",id);
+        var rows=jdbc.queryForList("SELECT * FROM invoice_registration WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"invoice_registration")+" AND id=?",scope.tenantId(),scope.companyId(),id);
         if(rows.isEmpty()) {throw missing();}
         var result=view(rows.getFirst());
         result.put("partnerName",jdbc.queryForObject("SELECT name FROM business_partner WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),rows.getFirst().get("partner_id")));
@@ -104,7 +107,7 @@ public class InvoiceService {
 
     public Map<String,Object> list(CompanyAccess scope,Long cursor,int limit) {
         if(limit<1||limit>200||cursor!=null&&cursor<1) {throw invalid("分页参数有误");}
-        var rows=jdbc.queryForList("SELECT id FROM invoice_registration WHERE tenant_id=? AND company_id=? AND id<? ORDER BY id DESC LIMIT ?",scope.tenantId(),scope.companyId(),cursor==null?Long.MAX_VALUE:cursor,limit+1);
+        var rows=jdbc.queryForList("SELECT id FROM invoice_registration WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"invoice_registration")+" AND id<? ORDER BY id DESC LIMIT ?",scope.tenantId(),scope.companyId(),cursor==null?Long.MAX_VALUE:cursor,limit+1);
         var items=rows.stream().limit(limit).map(row->get(scope,((Number)row.get("id")).longValue())).toList();
         var page=new LinkedHashMap<String,Object>();page.put("items",items);page.put("nextCursor",rows.size()>limit?items.getLast().get("id"):null);return page;
     }

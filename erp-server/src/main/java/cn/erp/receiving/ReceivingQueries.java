@@ -17,6 +17,7 @@ public class ReceivingQueries {
     static String source(boolean returning) {return returning?"receipt_line_id":"order_line_id";}
 
     Map<String,Object> header(CompanyAccess scope,boolean returning,long id,boolean lock) {
+        cn.erp.shared.OrgOwnership.require(jdbc,scope,table(returning),id);
         var rows=jdbc.queryForList("SELECT * FROM "+table(returning)+" WHERE tenant_id=? AND company_id=? AND id=?"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
         if(rows.isEmpty()||!scope.allowsWarehouse(id(rows.getFirst(),"warehouse_id"))) {throw missing();}return rows.getFirst();
     }
@@ -45,7 +46,7 @@ public class ReceivingQueries {
         validatePage(cursor,limit);
         if(status!=null&&!Set.of("draft","submitted","posted","voided","reversed").contains(status)) {throw invalid("单据状态无效");}
         var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),cursor==null?Long.MAX_VALUE:cursor));
-        String sql="SELECT h.id FROM "+table(returning)+" h WHERE h.tenant_id=? AND h.company_id=? AND h.id<?";
+        String sql="SELECT h.id FROM "+table(returning)+" h WHERE h.tenant_id=? AND h.company_id=? AND h.id<?"+cn.erp.shared.OrgOwnership.filter(scope,"h");
         if(supplier!=null) {sql+=" AND h.supplier_id=?";args.add(supplier);}
         if(status!=null) {sql+=" AND h.status=?";args.add(status);}
         sql+=warehouseFilter(scope,"h.",args);args.add(limit+1);
@@ -62,6 +63,7 @@ public class ReceivingQueries {
             JOIN sku s ON s.tenant_id=l.tenant_id AND s.id=l.sku_id JOIN unit u ON u.tenant_id=l.tenant_id AND u.id=l.unit_id
             WHERE l.tenant_id=? AND l.company_id=? AND l.id<? AND h.status='posted'
             """;
+        sql+=cn.erp.shared.OrgOwnership.filter(scope,"h");
         if(supplier!=null) {sql+=" AND h.supplier_id=?";args.add(supplier);}
         if(warehouse!=null) {sql+=" AND h.warehouse_id=?";args.add(warehouse);}
         if(only) {sql+=" AND l.base_qty-l.returned_base_qty-l.pending_return_base_qty>0";}

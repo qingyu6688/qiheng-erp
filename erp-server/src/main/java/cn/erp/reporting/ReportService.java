@@ -28,6 +28,7 @@ public class ReportService {
         var result=new LinkedHashMap<String,Object>();
         result.put("reportType",type.code());result.put("asOf",snapshot.asOf());
         result.put("dataSource",database.replicaEnabled()?"replica":"primary");
+        result.put("visibilityBasis",type==ReportType.INVENTORY_SUMMARY?"共享仓库实物快照，按公司和仓库范围查看":"当前公司、仓库与部门范围内的单据事实");
         result.put("statisticDate",LocalDate.now(ZoneId.of("Asia/Shanghai")).toString());
         result.put("items",snapshot.items().subList(offset,Math.min(offset+limit,snapshot.items().size())));
         result.put("nextCursor",offset+limit<snapshot.items().size()?Integer.toString(offset+limit):null);
@@ -45,7 +46,7 @@ public class ReportService {
         if(query.warehouseId()!=null && !actor.allowsWarehouse(query.warehouseId())) { throw new ApiException(404,"NOT_FOUND","仓库不存在或无权查看"); }
         var params=new HashMap<String,Object>();params.put("t",actor.tenantId());params.put("c",actor.companyId());
         params.put("f",query.dateFrom());params.put("d",query.dateTo());params.put("today",LocalDate.now(ZoneId.of("Asia/Shanghai")));
-        String sql="SELECT q.* FROM ("+ReportSql.query(type,Boolean.TRUE.equals(query.detail()))+") q WHERE 1=1";
+        String sql="SELECT q.* FROM ("+ReportSql.query(type,Boolean.TRUE.equals(query.detail()),actor)+") q WHERE 1=1";
         if(!type.companyWide()) {
             if(!actor.allWarehouses()) {
                 params.put("ws",actor.warehouseIds().isEmpty()?Set.of(-1L):actor.warehouseIds());sql+=" AND warehouse_id IN (:ws)";

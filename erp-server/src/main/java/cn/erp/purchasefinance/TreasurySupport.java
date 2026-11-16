@@ -16,6 +16,7 @@ class TreasurySupport {
     TreasurySupport(JdbcTemplate jdbc,ReferenceAvailability references) {this.jdbc=jdbc;this.references=references;}
 
     Map<String,Object> find(CompanyAccess scope,String table,long id,boolean lock) {
+        cn.erp.shared.OrgOwnership.require(jdbc,scope,table,id);
         if(!Set.of("payment","account_transfer").contains(table)) {throw invalid("资金资源类型无效");}
         var rows=jdbc.queryForList("SELECT * FROM "+table+" WHERE tenant_id=? AND company_id=? AND id=?"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
         if(rows.isEmpty()) {throw missing();}return rows.getFirst();

@@ -22,7 +22,7 @@ class ReconciliationController {
 
     private CompanyAccess scope(HttpServletRequest request,String permission) {
         var scope=access.requireCompany(request,permission);
-        if(!scope.allWarehouses()) {throw new ApiException(403,"FORBIDDEN","公司级对账需要整家公司数据范围");}
+        if(!scope.allWarehouses()||!scope.orgScope().allDepartments()) {throw new ApiException(403,"FORBIDDEN","公司级对账需要整家公司数据范围");}
         return scope;
     }
 

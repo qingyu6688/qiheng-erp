@@ -27,7 +27,7 @@ public class RefundService {
         if(!"draft".equals(refund.get("status"))) {throw AccountingAmounts.conflict("退款申请当前状态不能提交");}
         if(creditItemIds==null || creditItemIds.isEmpty() || creditItemIds.size()>200 || new HashSet<>(creditItemIds).size()!=creditItemIds.size()) {throw AccountingAmounts.invalid("请选择不重复的退款可用额度");}
         BigDecimal amount=AccountingAmounts.money((BigDecimal)refund.get("amount"));
-        var receipts=jdbc.queryForList("SELECT * FROM receipt WHERE tenant_id=? AND company_id=? AND id=? AND partner_id=? AND receipt_type='customer' AND status='confirmed' FOR UPDATE",
+        var receipts=jdbc.queryForList("SELECT * FROM receipt WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"receipt")+" AND id=? AND partner_id=? AND receipt_type='customer' AND status='confirmed' FOR UPDATE",
                 scope.tenantId(),scope.companyId(),refund.get("original_receipt_id"),refund.get("customer_id"));
         if(receipts.isEmpty()) {throw AccountingAmounts.missing();}
         if(jdbc.update("UPDATE receipt SET refund_pending_amount=refund_pending_amount+?,version=version+1 WHERE tenant_id=? AND company_id=? AND id=? AND amount-refunded_amount-refund_pending_amount>=?",
@@ -61,7 +61,7 @@ public class RefundService {
         var refund=request(scope,refundId);
         if("cancelled".equals(refund.get("status"))) {return;}
         if(!Set.of("pending_review","pending_payment").contains(refund.get("status"))) {throw AccountingAmounts.conflict("退款申请当前状态不能释放占用");}
-        jdbc.queryForObject("SELECT id FROM receipt WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),refund.get("original_receipt_id"));
+        lockReceipt(scope,refund.get("original_receipt_id"));
         lockAllocationItems(scope,refundId);
         var allocations=allocations(scope,refundId);
         for(long allocation:allocations) {settlement.release(scope,allocation);}
@@ -81,7 +81,7 @@ public class RefundService {
             return jdbc.queryForObject("SELECT id FROM journal WHERE tenant_id=? AND company_id=? AND source_type='refund_request' AND source_id=? AND posting_action='post' AND source_revision=0",Long.class,scope.tenantId(),scope.companyId(),refundId);
         }
         if(!"pending_payment".equals(refund.get("status"))) {throw AccountingAmounts.conflict("退款须先审核通过");}
-        jdbc.queryForObject("SELECT id FROM receipt WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),refund.get("original_receipt_id"));
+        lockReceipt(scope,refund.get("original_receipt_id"));
         lockAllocationItems(scope,refundId);
         var allocationIds=allocations(scope,refundId);
         BigDecimal reserved=jdbc.queryForObject("SELECT COALESCE(SUM(amount),0) FROM settlement_allocation WHERE tenant_id=? AND company_id=? AND trigger_type='refund_request' AND trigger_id=? AND status='reserved'",BigDecimal.class,scope.tenantId(),scope.companyId(),refundId);
@@ -110,8 +110,13 @@ public class RefundService {
         settlement.lockItems(scope,itemIds.stream().mapToLong(Long::longValue).toArray());
     }
 
+    private void lockReceipt(ActorScope scope,Object id) {
+        var rows=jdbc.queryForList("SELECT id FROM receipt WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"receipt")+" AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),id);
+        if(rows.isEmpty()) throw AccountingAmounts.missing();
+    }
+
     private Map<String,Object> request(ActorScope scope,long id) {
-        var rows=jdbc.queryForList("SELECT * FROM refund_request WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",scope.tenantId(),scope.companyId(),id);
+        var rows=jdbc.queryForList("SELECT * FROM refund_request WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"refund_request")+" AND id=? FOR UPDATE",scope.tenantId(),scope.companyId(),id);
         if(rows.isEmpty()) {throw AccountingAmounts.missing();}
         return rows.getFirst();
     }

@@ -62,6 +62,20 @@ class ReportIT {
         assertThatThrownBy(()->service.summary(denied,12)).isInstanceOfSatisfying(ApiException.class,error->assertThat(error.getStatus()).isEqualTo(403));
         assertThatThrownBy(()->service.summary(actor(),13)).isInstanceOf(ApiException.class);
     }
+    @Test void departmentRestrictionFiltersExistingFactsAndSeparatesTradeCache() {
+        var current=actor();
+        var restricted=new CompanyAccess(current.tenantId(),current.userId(),current.companyId(),true,Set.of(),permissions,cn.erp.shared.OrgScope.restricted(Set.of(),Set.of(),0));
+        for(var type:ReportType.values()) {
+            if(type==ReportType.INVENTORY_SUMMARY) {
+                assertThat(reports.snapshot(restricted,type,query()).summary()).isEqualTo(snapshot(type).summary());
+            } else {
+                assertThat(reports.snapshot(restricted,type,query()).items()).as(type.name()).isEmpty();
+            }
+        }
+        var service=trade("2026-11-06T01:00:00Z");
+        assertThat(service.summary(current,12).get("sales")).isEqualTo(Map.of("today","100.00","yesterday","-100.00","month","300.00","year","300.00"));
+        assertThat(service.summary(restricted,12).get("sales")).isEqualTo(Map.of("today","0.00","yesterday","0.00","month","0.00","year","0.00"));
+    }
     @Test void tradeDatesUseBeijingDayAndHandleNewYear() {
         jdbc.update("UPDATE shipment SET sign_date='2026-12-31' WHERE id=71501");
         var beforeMidnight=trade("2026-12-31T15:59:59Z").summary(actor(),1);

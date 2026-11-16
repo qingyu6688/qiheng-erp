@@ -53,9 +53,9 @@ public class ShipmentService {
             long id=Ids.next();
             jdbc.update("""
                     INSERT INTO shipment(id,tenant_id,company_id,shipment_no,customer_id,warehouse_id,
-                    business_date,delivery_method,remark,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                    business_date,delivery_method,remark,created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,id,scope.tenantId(),scope.companyId(),number,input.customerId(),input.warehouseId(),input.businessDate(),
-                    input.deliveryMethod()==null?"delivery":input.deliveryMethod(),input.remark(),scope.userId(),scope.userId());
+                    input.deliveryMethod()==null?"delivery":input.deliveryMethod(),input.remark(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             saveLines(scope,id,input);
             changed(scope,id,"create",null);
             return safe(scope,id);
@@ -329,7 +329,7 @@ public class ShipmentService {
                 SELECT l.*,h.customer_id,h.status AS order_status FROM sales_order_line l
                 JOIN sales_order h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.order_id
                 WHERE l.tenant_id=? AND l.company_id=? AND l.id=? AND l.is_deleted=0 AND h.is_deleted=0
-                """+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),line);
+                """+cn.erp.shared.OrgOwnership.filter(scope,"h")+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),line);
         if(rows.isEmpty()) {throw missing();}return rows.getFirst();
     }
 
@@ -351,7 +351,7 @@ public class ShipmentService {
     private void lockOrders(CompanyAccess scope,List<Long> lineIds) {
         var ids=new TreeSet<Long>();
         for(var row:sources(scope,lineIds,false).values()) {ids.add(id(row,"order_id"));}
-        for(long order:ids) {jdbc.queryForObject("SELECT id FROM sales_order WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),order);}
+        for(long order:ids) {if(jdbc.queryForList("SELECT id FROM sales_order WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"sales_order")+" AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),order).isEmpty()) throw missing();}
         sources(scope,lineIds,true);
     }
 
@@ -372,7 +372,7 @@ public class ShipmentService {
         var unique=new TreeSet<>(ids);if(unique.isEmpty()) {return Map.of();}
         var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId()));args.addAll(unique);
         var result=new HashMap<Long,Map<String,Object>>();
-        for(var row:jdbc.queryForList("SELECT l.*,h.customer_id,h.status AS order_status FROM sales_order_line l FORCE INDEX(uk_sales_order_line_scope) JOIN sales_order h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.order_id WHERE l.tenant_id=? AND l.company_id=? AND l.id IN ("+String.join(",",Collections.nCopies(unique.size(),"?"))+") AND l.is_deleted=0 AND h.is_deleted=0 ORDER BY l.id"+(lock?" FOR UPDATE OF l":""),args.toArray())) {result.put(id(row,"id"),row);}
+        for(var row:jdbc.queryForList("SELECT l.*,h.customer_id,h.status AS order_status FROM sales_order_line l FORCE INDEX(uk_sales_order_line_scope) JOIN sales_order h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.order_id WHERE l.tenant_id=? AND l.company_id=? AND l.id IN ("+String.join(",",Collections.nCopies(unique.size(),"?"))+") AND l.is_deleted=0 AND h.is_deleted=0"+cn.erp.shared.OrgOwnership.filter(scope,"h")+" ORDER BY l.id"+(lock?" FOR UPDATE OF l":""),args.toArray())) {result.put(id(row,"id"),row);}
         if(result.size()!=unique.size()) {throw missing();}return result;
     }
 
@@ -404,7 +404,7 @@ public class ShipmentService {
 
     private Map<String,Object> safe(CompanyAccess scope,long id) {
         var permissions=new HashSet<>(scope.permissions());permissions.remove("cost:view");
-        return queries.get(new CompanyAccess(scope.tenantId(),scope.userId(),scope.companyId(),scope.allWarehouses(),scope.warehouseIds(),permissions),id);
+        return queries.get(new CompanyAccess(scope.tenantId(),scope.userId(),scope.companyId(),scope.allWarehouses(),scope.warehouseIds(),permissions,scope.orgScope()),id);
     }
 
     @SuppressWarnings({"unchecked","rawtypes"})

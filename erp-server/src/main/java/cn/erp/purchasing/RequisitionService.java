@@ -21,7 +21,7 @@ public class RequisitionService {
     public Map<String,Object> create(CompanyAccess scope,String key,RequisitionModels.Input input) {
         return commands.execute(scope,"purchase_requisition.create",key,input,201,()->{
             date(input.businessDate());long id=Ids.next();String no=numbers.next(scope,"PR",YearMonth.from(input.businessDate()));
-            jdbc.update("INSERT INTO purchase_requisition(id,tenant_id,company_id,requisition_no,requester_id,business_date,remark,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?)",id,scope.tenantId(),scope.companyId(),no,scope.userId(),input.businessDate(),input.remark(),scope.userId(),scope.userId());
+            jdbc.update("INSERT INTO purchase_requisition(id,tenant_id,company_id,requisition_no,requester_id,business_date,remark,created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)",id,scope.tenantId(),scope.companyId(),no,scope.userId(),input.businessDate(),input.remark(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             write(scope,id,input);var result=get(scope,id);audit.record(scope,"purchase_requisition.create","purchase_requisition",id,null,result);return result;
         },(Class)Map.class);
     }
@@ -32,7 +32,7 @@ public class RequisitionService {
         var after=get(scope,id);audit.record(scope,"purchase_requisition.update","purchase_requisition",id,camel(before),after);return after;
     }
     public void delete(CompanyAccess scope,long id,long expected) {
-        var rows=jdbc.queryForList("SELECT * FROM purchase_requisition WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",scope.tenantId(),scope.companyId(),id);
+        var rows=jdbc.queryForList("SELECT * FROM purchase_requisition WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"purchase_requisition")+" AND id=? FOR UPDATE",scope.tenantId(),scope.companyId(),id);
         if(rows.isEmpty()) {throw missing();}var row=rows.getFirst();if(flag(row.get("is_deleted"))) {return;}version(expected,row);state(row,"draft");
         jdbc.update("UPDATE purchase_requisition SET is_deleted=1,version=version+1,updated_by=? WHERE id=?",scope.userId(),id);audit.record(scope,"purchase_requisition.delete","purchase_requisition",id,camel(row),null);
     }
@@ -66,7 +66,8 @@ public class RequisitionService {
         },(Class)Map.class);
     }
     public Map<String,Object> header(CompanyAccess scope,long id,boolean lock) {
-        var rows=jdbc.queryForList("SELECT * FROM purchase_requisition WHERE tenant_id=? AND company_id=? AND id=? AND is_deleted=0"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);if(rows.isEmpty()) {throw missing();}return rows.getFirst();
+        cn.erp.shared.OrgOwnership.require(jdbc,scope,"purchase_requisition",id);
+        var rows=jdbc.queryForList("SELECT * FROM purchase_requisition WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"purchase_requisition")+" AND id=? AND is_deleted=0"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);if(rows.isEmpty()) {throw missing();}return rows.getFirst();
     }
     public List<Map<String,Object>> lines(CompanyAccess scope,long id) {return jdbc.queryForList("SELECT * FROM purchase_requisition_line WHERE tenant_id=? AND company_id=? AND requisition_id=? ORDER BY line_no",scope.tenantId(),scope.companyId(),id);}
     public Map<String,Object> get(CompanyAccess scope,long id) {
@@ -76,12 +77,12 @@ public class RequisitionService {
     }
     public Map<String,Object> list(CompanyAccess scope,String status,Long cursor,int limit) {
         if(limit<1||limit>200||cursor!=null&&cursor<=0||status!=null&&!Set.of("draft","pending","approved","closed","cancelled").contains(status)) {throw invalid("请购查询条件无效");}
-        var rows=jdbc.queryForList("SELECT id FROM purchase_requisition WHERE tenant_id=? AND company_id=? AND is_deleted=0 AND id<? AND (? IS NULL OR status=?) ORDER BY id DESC LIMIT ?",scope.tenantId(),scope.companyId(),cursor==null?Long.MAX_VALUE:cursor,status,status,limit+1);
+        var rows=jdbc.queryForList("SELECT id FROM purchase_requisition WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"purchase_requisition")+" AND is_deleted=0 AND id<? AND (? IS NULL OR status=?) ORDER BY id DESC LIMIT ?",scope.tenantId(),scope.companyId(),cursor==null?Long.MAX_VALUE:cursor,status,status,limit+1);
         var items=rows.stream().limit(limit).map(row->get(scope,number(row,"id"))).toList();return page(items,rows.size()>limit?items.getLast().get("id").toString():null);
     }
     public Map<String,Object> candidates(CompanyAccess scope,boolean orderable,int limit) {
         if(limit<1||limit>200) {throw invalid("候选条数无效");}
-        var rows=jdbc.queryForList("SELECT l.*,h.requisition_no,s.name sku_name,u.name unit_name,l.base_qty-l.ordered_base_qty orderable_qty FROM purchase_requisition_line l JOIN purchase_requisition h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.requisition_id JOIN sku s ON s.tenant_id=l.tenant_id AND s.id=l.sku_id JOIN unit u ON u.tenant_id=l.tenant_id AND u.id=l.unit_id WHERE l.tenant_id=? AND l.company_id=? AND h.is_deleted=0 AND h.status='approved' AND (?=0 OR l.base_qty>l.ordered_base_qty) ORDER BY h.id DESC,l.line_no LIMIT ?",scope.tenantId(),scope.companyId(),orderable,limit);
+        var rows=jdbc.queryForList("SELECT l.*,h.requisition_no,s.name sku_name,u.name unit_name,l.base_qty-l.ordered_base_qty orderable_qty FROM purchase_requisition_line l JOIN purchase_requisition h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.requisition_id JOIN sku s ON s.tenant_id=l.tenant_id AND s.id=l.sku_id JOIN unit u ON u.tenant_id=l.tenant_id AND u.id=l.unit_id WHERE l.tenant_id=? AND l.company_id=? AND h.is_deleted=0 AND h.status='approved' AND (?=0 OR l.base_qty>l.ordered_base_qty)"+cn.erp.shared.OrgOwnership.filter(scope,"h")+" ORDER BY h.id DESC,l.line_no LIMIT ?",scope.tenantId(),scope.companyId(),orderable,limit);
         return page(rows.stream().map(PurchaseOrderQueries::camel).toList(),null);
     }
     private List<String> actions(CompanyAccess scope,Map<String,Object> row) {

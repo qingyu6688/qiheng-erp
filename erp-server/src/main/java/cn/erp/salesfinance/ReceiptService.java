@@ -40,8 +40,8 @@ public class ReceiptService {
                 LEFT JOIN business_partner p ON p.tenant_id=r.tenant_id AND p.id=r.partner_id
                 JOIN cash_account a ON a.tenant_id=r.tenant_id AND a.company_id=r.company_id AND a.id=r.cash_account_id
                 WHERE r.tenant_id=? AND r.company_id=? AND r.id<? AND (? IS NULL OR r.partner_id=?)
-                AND (? IS NULL OR r.status=?) ORDER BY r.id DESC LIMIT ?
-                """,scope.tenantId(),scope.companyId(),before,partnerId,partnerId,status,status,limit+1);
+                AND (? IS NULL OR r.status=?) %s ORDER BY r.id DESC LIMIT ?
+                """.formatted(cn.erp.shared.OrgOwnership.filter(scope,"r")),scope.tenantId(),scope.companyId(),before,partnerId,partnerId,status,status,limit+1);
         var result=page(rows,limit);
         @SuppressWarnings("unchecked") var items=(List<Map<String,Object>>)result.get("items");
         for(int i=0;i<items.size();i++) {items.get(i).put("allowedActions",actions(scope,rows.get(i)));}
@@ -77,10 +77,10 @@ public class ReceiptService {
             long id=Ids.next();String no=numbers.next(scope,"RC",YearMonth.from(input.businessDate()));
             jdbc.update("""
                     INSERT INTO receipt(id,tenant_id,company_id,receipt_no,receipt_type,partner_id,income_item_id,cash_account_id,
-                    amount,business_date,related_order_id,bank_serial_no,remark,created_by,updated_by)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    amount,business_date,related_order_id,bank_serial_no,remark,created_by,updated_by,owner_user_id,owner_department_id)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,id,scope.tenantId(),scope.companyId(),no,input.receiptType(),input.partnerId(),input.incomeItemId(),input.cashAccountId(),
-                    amount(input.amount()),input.businessDate(),input.relatedOrderId(),blank(input.bankSerialNo()),input.remark(),scope.userId(),scope.userId());
+                    amount(input.amount()),input.businessDate(),input.relatedOrderId(),blank(input.bankSerialNo()),input.remark(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             audit.record(scope,"receipt.create","receipt",id,null,Map.of("documentNo",no));
             return get(scope,id);
         });
@@ -123,7 +123,7 @@ public class ReceiptService {
         state(before,"pending_confirm");validateCurrent(scope,before);
         if(separateConfirmer(scope,before)) {throw new ApiException(422,"SAME_OPERATOR_NOT_ALLOWED","收款确认人不能是登记人");}
         if(before.get("related_order_id")!=null) {
-            jdbc.queryForObject("SELECT id FROM sales_order WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),before.get("related_order_id"));
+            if(jdbc.queryForList("SELECT id FROM sales_order WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"sales_order")+" AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),before.get("related_order_id")).isEmpty()) throw missing();
         }
         BigDecimal value=decimal(before,"amount");Long partner=before.get("partner_id")==null?null:id(before,"partner_id");
         String type=before.get("receipt_type").toString();

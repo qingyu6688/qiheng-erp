@@ -51,7 +51,7 @@ public class WorkbenchService {
                 WITH demand AS (SELECT l.warehouse_id,l.sku_id,SUM(l.base_qty) pending_demand_qty
                   FROM sales_order_line l JOIN sales_order h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.order_id
                   WHERE l.tenant_id=:tenant AND l.company_id=:company AND l.is_deleted=0 AND h.is_deleted=0 AND h.status='pending'
-                """+scope+"""
+                """+scope+cn.erp.shared.OrgOwnership.filter(actor,"h")+"""
                   GROUP BY l.warehouse_id,l.sku_id),b AS (SELECT warehouse_id,sku_id,SUM(on_hand_qty-reserved_qty-blocked_qty) available_qty
                   FROM inventory_balance WHERE tenant_id=:tenant AND company_id=:company GROUP BY warehouse_id,sku_id)
                 SELECT d.warehouse_id,d.sku_id,w.name warehouse_name,s.code sku_code,s.name sku_name,COALESCE(b.available_qty,0) available_qty,d.pending_demand_qty
@@ -66,7 +66,7 @@ public class WorkbenchService {
             var params=browser.params(actor);params.put("today",LocalDate.now(ZoneId.of("Asia/Shanghai")));
             result.put("periods",jdbc.queryForList("SELECT id,period,status,start_date,end_date FROM accounting_period WHERE tenant_id=:tenant AND company_id=:company AND start_date<=:today AND end_date>=:today",params).stream().map(FinanceSupport::row).toList());
         }
-        if(actor.hasPermission("audit:view")&&actor.allWarehouses()) {
+        if(actor.hasPermission("audit:view")&&actor.allWarehouses()&&actor.orgScope().allDepartments()) {
             var params=browser.params(actor);params.put("user",actor.userId());
             result.put("recentActions",jdbc.queryForList("SELECT action,object_type,object_id,created_at FROM audit_log WHERE tenant_id=:tenant AND company_id=:company AND operator_id=:user ORDER BY id DESC LIMIT 5",params).stream().map(FinanceSupport::row).toList());
         }

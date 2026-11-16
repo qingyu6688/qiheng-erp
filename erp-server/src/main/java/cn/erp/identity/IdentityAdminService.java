@@ -68,7 +68,7 @@ class IdentityAdminService {
     @Transactional
     UserView userCommand(CompanyAccess actor,long id,String action,String key,Version input) {
         return commands.execute(actor,"user."+action,key,List.of(id,input),200,()->{
-            int prior=lockAdministrators(actor);
+            var prior=lockAdministrators(actor);
             var before=user(actor,id,true);version(input.version(),before.version());
             String status = switch(action) {
                 case "disable" -> "disabled";
@@ -87,6 +87,7 @@ class IdentityAdminService {
     @Transactional
     UserView resetPassword(CompanyAccess actor,long id,String key,ResetPassword input) {
         CredentialsService.validateNewPassword(input.password());
+        lockAdministrators(actor);
         return commands.execute(actor,"user.reset_password",key,List.of(id,input),200,()->{
             var before=user(actor,id,true);version(input.version(),before.version());
             jdbc.update("""
@@ -100,7 +101,7 @@ class IdentityAdminService {
 
     @Transactional
     UserView assignRoles(CompanyAccess actor,long id,RoleAssignment input) {
-        int prior=lockAdministrators(actor);
+        var prior=lockAdministrators(actor);
         var before=user(actor,id,true);version(input.version(),before.version());
         var ids=new LinkedHashSet<>(input.roleIds());
         for(String roleId:ids) {
@@ -116,7 +117,7 @@ class IdentityAdminService {
 
     @Transactional
     UserView assignScopes(CompanyAccess actor,long id,ScopeAssignment input) {
-        int prior=lockAdministrators(actor);
+        var prior=lockAdministrators(actor);
         var before=user(actor,id,true);version(input.version(),before.version());
         var scopes=new LinkedHashSet<>(input.scopes());
         for(DataScope scope:scopes) validateScope(actor,scope);
@@ -162,7 +163,7 @@ class IdentityAdminService {
 
     @Transactional
     RoleView editRole(CompanyAccess actor,long id,RoleInput input) {
-        int prior=lockAdministrators(actor);
+        var prior=lockAdministrators(actor);
         var before=role(actor,id,true);version(input.version(),before.version());
         if(!actor.permissions().containsAll(before.permissionCodes())) throw forbidden("不能修改超出自己权限的角色");
         jdbc.update("UPDATE sys_role SET code=?,name=?,status=?,version=version+1,updated_by=? WHERE tenant_id=? AND id=?",
@@ -173,7 +174,7 @@ class IdentityAdminService {
 
     @Transactional
     RoleView assignPermissions(CompanyAccess actor,long id,PermissionAssignment input) {
-        int prior=lockAdministrators(actor);
+        var prior=lockAdministrators(actor);
         var before=role(actor,id,true);version(input.version(),before.version());
         var codes=new LinkedHashSet<>(input.permissionCodes());
         if(!actor.permissions().containsAll(codes)||!actor.permissions().containsAll(before.permissionCodes())) throw forbidden("只能配置自己拥有的权限");
@@ -230,9 +231,18 @@ class IdentityAdminService {
                 Long.class,actor.tenantId(),scope.companyId(),scope.warehouseId())==0) throw missing();
     }
 
-    private int lockAdministrators(CompanyAccess actor) {
+    private record AdministratorState(int total,Set<Long> companies) {}
+    private AdministratorState lockAdministrators(CompanyAccess actor) {
         jdbc.queryForObject("SELECT id FROM tenant WHERE id=? FOR UPDATE",Long.class,actor.tenantId());
-        return administrators(actor);
+        requireUnrestrictedAdministration(actor);
+        return new AdministratorState(administrators(actor),new OrgScopeResolver(jdbc).administrativeCompanies(actor.tenantId()));
+    }
+
+    private void requireUnrestrictedAdministration(CompanyAccess actor) {
+        var companies=jdbc.queryForList("SELECT DISTINCT s.company_id FROM sys_user_data_scope s JOIN company c ON c.tenant_id=s.tenant_id AND c.id=s.company_id AND c.status='active' WHERE s.tenant_id=? AND s.user_id=?",Long.class,actor.tenantId(),actor.userId());
+        var resolver=new OrgScopeResolver(jdbc);
+        if(companies.stream().anyMatch(company->!resolver.resolve(actor.tenantId(),company,actor.userId()).allDepartments()))
+            throw forbidden("用户角色、权限、数据范围及口令管理须由所授权公司均拥有全部部门范围的管理员处理");
     }
 
     private int administrators(CompanyAccess actor) {
@@ -241,8 +251,9 @@ class IdentityAdminService {
                 .filter(id -> jdbc.queryForObject("SELECT COUNT(*) FROM sys_user_data_scope WHERE tenant_id=? AND user_id=?",Long.class,actor.tenantId(),id)>0).count();
     }
 
-    private void ensureAdministrators(CompanyAccess actor,int before) {
-        if(before>0&&administrators(actor)==0) throw new ApiException(422,"DEPENDENCY_EXISTS","请保留至少一名有数据范围的有效管理员");
+    private void ensureAdministrators(CompanyAccess actor,AdministratorState before) {
+        if(before.total()>0&&administrators(actor)==0) throw new ApiException(422,"DEPENDENCY_EXISTS","请保留至少一名有数据范围的有效管理员");
+        if(!new OrgScopeResolver(jdbc).administrativeCompanies(actor.tenantId()).containsAll(before.companies())) throw new ApiException(422,"LAST_SCOPE_ADMIN","不能移除公司最后一位拥有全部部门范围的角色管理员");
     }
 
     private void touchUser(CompanyAccess actor,long id) {

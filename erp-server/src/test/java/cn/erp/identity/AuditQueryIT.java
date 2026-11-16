@@ -30,11 +30,20 @@ class AuditQueryIT {
         jdbc.update("INSERT INTO company(id,tenant_id,code,name) VALUES(?,?,'C','审计公司')",company,tenant);
         jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,?,'auditor','审计人员','unused-test-hash')",user,tenant);
         jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,company);
+        long role=Ids.next();
+        jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(?,?,'AUDITOR','审计角色')",role,tenant);
+        jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,user,role);
         jdbc.update("INSERT INTO audit_log(id,tenant_id,company_id,operator_id,action,object_type,object_id,request_id,before_data,after_data) VALUES(?,?,?,?,'shipment.sign','shipment',123,'request-1',?,?)",
                 visible,tenant,company,user,"{\"status\":\"posted\"}","{\"status\":\"signed\",\"costAmount\":\"12.34\",\"passwordHash\":\"私密密码\",\"nested\":[{\"mobile\":\"私密电话\",\"bankAccountNo\":\"私密账号\",\"qty\":\"9007199254740993\"}]}");
         actor=new CompanyAccess(tenant,user,0,true,Set.of(),Set.of("audit:view"));
     }
     AuditQueryService.Filter filter(String action,Long companyId) {return new AuditQueryService.Filter(action,null,null,null,companyId,null,null,null);}
+    @Test void departmentRestrictedAuditorCannotReadWholeDocumentSnapshots() {
+        long role=jdbc.queryForObject("SELECT role_id FROM sys_user_role WHERE tenant_id=? AND user_id=?",Long.class,tenant,user);
+        assertThat(service.list(actor,filter(null,null),null,20).items()).hasSize(1);
+        jdbc.update("INSERT INTO org_role_data_scope(tenant_id,company_id,role_id,scope_type) VALUES(?,?,?,'self')",tenant,company,role);
+        assertThat(service.list(actor,filter(null,null),null,20).items()).isEmpty();
+    }
     @Test void filtersAndPaginationKeepTenantAndFullCompanyScope() {
         jdbc.update("INSERT INTO audit_log(id,tenant_id,company_id,action,object_type) VALUES(?,?,?,'shipment.sign','shipment')",Ids.next(),tenant,Ids.next());
         jdbc.update("INSERT INTO audit_log(id,tenant_id,action,object_type) VALUES(?,?,'shipment.sign','shipment')",Ids.next(),Ids.next());

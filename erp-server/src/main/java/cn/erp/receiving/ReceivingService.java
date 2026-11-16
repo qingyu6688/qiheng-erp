@@ -57,8 +57,8 @@ public class ReceivingService {
     private Map<String,Object> create(CompanyAccess scope,boolean returning,long supplier,long warehouse,LocalDate date,String note,List<Line> lines) {
         validateHeader(scope,returning,supplier,warehouse,date,note);
         long id=Ids.next();String no=numbers.next(scope,returning?"PR":"GR",YearMonth.from(date));
-        jdbc.update("INSERT INTO "+table(returning)+"(id,tenant_id,company_id,"+(returning?"return_no":"receipt_no")+",supplier_id,warehouse_id,business_date,"+(returning?"reason":"remark")+",created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                id,scope.tenantId(),scope.companyId(),no,supplier,warehouse,date,note,scope.userId(),scope.userId());
+        jdbc.update("INSERT INTO "+table(returning)+"(id,tenant_id,company_id,"+(returning?"return_no":"receipt_no")+",supplier_id,warehouse_id,business_date,"+(returning?"reason":"remark")+",created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                id,scope.tenantId(),scope.companyId(),no,supplier,warehouse,date,note,scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
         writeLines(scope,returning,id,supplier,warehouse,date,lines);
         var result=safe(scope,returning,id);audit.record(scope,table(returning)+".create",table(returning),id,null,result);return result;
     }
@@ -108,8 +108,8 @@ public class ReceivingService {
             var original=originalSource(scope,returning,id(line,source(returning)),false);
             orderIds.add(id(original,"order_id"));if(returning) {receiptIds.add(id(original,"receipt_id"));}
         }
-        for(long id:receiptIds) {jdbc.queryForObject("SELECT id FROM goods_receipt WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),id);}
-        for(long id:orderIds) {jdbc.queryForObject("SELECT id FROM purchase_order WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),id);}
+        for(long id:receiptIds) {if(jdbc.queryForList("SELECT id FROM goods_receipt WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"goods_receipt")+" AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),id).isEmpty()) throw missing();}
+        for(long id:orderIds) {if(jdbc.queryForList("SELECT id FROM purchase_order WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"purchase_order")+" AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),id).isEmpty()) throw missing();}
         var orderLines=new TreeSet<Long>();
         for(var line:lines) {var original=originalSource(scope,returning,id(line,source(returning)),false);orderLines.add(returning?id(original,"order_line_id"):id(original,"id"));}
         for(long id:orderLines) {jdbc.queryForObject("SELECT id FROM purchase_order_line WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),id);}
@@ -127,7 +127,7 @@ public class ReceivingService {
             JOIN purchase_order h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.order_id
             WHERE l.tenant_id=? AND l.company_id=? AND l.id=? AND l.is_deleted=0 AND h.is_deleted=0
             """;
-        var rows=jdbc.queryForList(sql+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
+        var rows=jdbc.queryForList(sql+cn.erp.shared.OrgOwnership.filter(scope,"h")+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
         if(rows.isEmpty()) {throw missing();}
         var row=rows.getFirst();if(row.get("warehouse_id")!=null&&!scope.allowsWarehouse(id(row,"warehouse_id"))) {throw missing();}return row;
     }
@@ -263,6 +263,6 @@ public class ReceivingService {
             ledger.post(scope,new LedgerService.Posting(type,id,revision++,period,day,entries.subList(start,end)));start=end;
         }
     }
-    private Map<String,Object> safe(CompanyAccess scope,boolean returning,long id) {var permissions=new HashSet<>(scope.permissions());permissions.remove("cost:view");return queries.get(new CompanyAccess(scope.tenantId(),scope.userId(),scope.companyId(),scope.allWarehouses(),scope.warehouseIds(),permissions),returning,id);}
+    private Map<String,Object> safe(CompanyAccess scope,boolean returning,long id) {var permissions=new HashSet<>(scope.permissions());permissions.remove("cost:view");return queries.get(new CompanyAccess(scope.tenantId(),scope.userId(),scope.companyId(),scope.allWarehouses(),scope.warehouseIds(),permissions,scope.orgScope()),returning,id);}
     @SuppressWarnings({"unchecked","rawtypes"}) private Map<String,Object> execute(CompanyAccess scope,boolean returning,String action,String key,Object payload,int status,java.util.function.Supplier<Map<String,Object>> work) {return commands.execute(scope,table(returning)+"."+action,key,payload,status,work,(Class)Map.class);}
 }

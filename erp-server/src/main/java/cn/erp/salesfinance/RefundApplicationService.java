@@ -39,8 +39,8 @@ public class RefundApplicationService {
                 JOIN business_partner p ON p.tenant_id=r.tenant_id AND p.id=r.customer_id
                 JOIN cash_account a ON a.tenant_id=r.tenant_id AND a.company_id=r.company_id AND a.id=r.cash_account_id
                 WHERE r.tenant_id=? AND r.company_id=? AND r.id<? AND (? IS NULL OR r.customer_id=?) AND (? IS NULL OR r.status=?)
-                ORDER BY r.id DESC LIMIT ?
-                """,scope.tenantId(),scope.companyId(),before,customerId,customerId,status,status,limit+1);
+                %s ORDER BY r.id DESC LIMIT ?
+                """.formatted(cn.erp.shared.OrgOwnership.filter(scope,"r")),scope.tenantId(),scope.companyId(),before,customerId,customerId,status,status,limit+1);
         var result=page(rows,limit);
         @SuppressWarnings("unchecked") var items=(List<Map<String,Object>>)result.get("items");
         for(int i=0;i<items.size();i++) {items.get(i).put("allowedActions",actions(scope,rows.get(i)));}
@@ -84,9 +84,9 @@ public class RefundApplicationService {
             long id=Ids.next();String no=numbers.next(scope,"RF",YearMonth.from(input.businessDate()));
             jdbc.update("""
                     INSERT INTO refund_request(id,tenant_id,company_id,refund_no,customer_id,original_receipt_id,cash_account_id,amount,business_date,
-                    request_key,reason,credit_item_ids,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    request_key,reason,credit_item_ids,created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,id,scope.tenantId(),scope.companyId(),no,input.customerId(),input.originalReceiptId(),input.cashAccountId(),amount(input.amount()),
-                    input.businessDate(),UUID.randomUUID().toString(),input.reason(),json.writeValueAsString(input.creditItemIds()),scope.userId(),scope.userId());
+                    input.businessDate(),UUID.randomUUID().toString(),input.reason(),json.writeValueAsString(input.creditItemIds()),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             audit.record(scope,"refund_request.create","refund_request",id,null,Map.of("documentNo",no));return get(scope,id);
         });
     }
@@ -156,6 +156,7 @@ public class RefundApplicationService {
     }
 
     private void validate(CompanyAccess scope,FinanceModels.Refund input) {
+        cn.erp.shared.OrgOwnership.require(jdbc,scope,"receipt",input.originalReceiptId());
         date(input.businessDate());amount(input.amount());references.requirePartner(scope,input.customerId(),"customer");references.requireCashAccount(scope,input.cashAccountId());
         if(jdbc.queryForObject("SELECT COUNT(*) FROM receipt WHERE tenant_id=? AND company_id=? AND id=? AND partner_id=? AND receipt_type='customer' AND status='confirmed'",
                 Long.class,scope.tenantId(),scope.companyId(),input.originalReceiptId(),input.customerId())!=1) {throw missing();}
@@ -168,8 +169,8 @@ public class RefundApplicationService {
                   AND i.item_type='receipt' AND r.id=i.source_id
                 WHERE i.tenant_id=? AND i.company_id=? AND i.partner_id=? AND i.direction='C' AND i.open_amount>0
                   AND (i.item_type='receivable' OR (i.item_type='receipt' AND r.receipt_type='customer' AND r.status='confirmed'))
-                ORDER BY i.aging_date,i.id LIMIT 200
-                """,Long.class,scope.tenantId(),scope.companyId(),customer);
+                AND %s ORDER BY i.aging_date,i.id LIMIT 200
+                """.formatted(cn.erp.shared.OrgOwnership.itemCondition(scope,"i")),Long.class,scope.tenantId(),scope.companyId(),customer);
     }
 
     private Set<Long> affectedOrders(CompanyAccess scope,Map<String,Object> refund) {
@@ -179,13 +180,16 @@ public class RefundApplicationService {
                 SELECT DISTINCT o.order_id FROM sales_return h JOIN sales_return_line r ON r.tenant_id=h.tenant_id AND r.company_id=h.company_id AND r.return_id=h.id
                 JOIN shipment_line l ON l.tenant_id=r.tenant_id AND l.company_id=r.company_id AND l.id=r.shipment_line_id
                 JOIN sales_order_line o ON o.tenant_id=l.tenant_id AND o.company_id=l.company_id AND o.id=l.order_line_id
-                WHERE h.tenant_id=? AND h.company_id=? AND h.customer_id=?
-                """,Long.class,scope.tenantId(),scope.companyId(),refund.get("customer_id")));
+                WHERE h.tenant_id=? AND h.company_id=? AND h.customer_id=? %s
+                """.formatted(cn.erp.shared.OrgOwnership.filter(scope,"h")),Long.class,scope.tenantId(),scope.companyId(),refund.get("customer_id")));
         ids.addAll(jdbc.queryForList("SELECT related_order_id FROM receipt WHERE tenant_id=? AND company_id=? AND id=? AND related_order_id IS NOT NULL",Long.class,scope.tenantId(),scope.companyId(),refund.get("original_receipt_id")));
         return ids;
     }
     private void lockOrders(CompanyAccess scope,Set<Long> ids) {
-        for(long id:ids) {jdbc.queryForObject("SELECT id FROM sales_order WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),id);}
+        for(long id:ids) {
+            cn.erp.shared.OrgOwnership.require(jdbc,scope,"sales_order",id);
+            jdbc.queryForObject("SELECT id FROM sales_order WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),id);
+        }
     }
 
     private List<Long> readIds(Object data) {

@@ -46,7 +46,7 @@ public class SalesReturnService {
                 JOIN warehouse w ON w.tenant_id=r.tenant_id AND w.company_id=r.company_id AND w.id=r.warehouse_id
                 WHERE r.tenant_id=? AND r.company_id=? AND r.id<? AND (? IS NULL OR r.customer_id=?)
                 AND (? IS NULL OR r.status=?) AND
-                """+warehouseFilter(scope)+" ORDER BY r.id DESC LIMIT ?",scope.tenantId(),scope.companyId(),before,customer,customer,status,status,limit+1);
+                """+warehouseFilter(scope)+cn.erp.shared.OrgOwnership.filter(scope,"r")+" ORDER BY r.id DESC LIMIT ?",scope.tenantId(),scope.companyId(),before,customer,customer,status,status,limit+1);
         var result=page(rows,limit);
         @SuppressWarnings("unchecked") var items=(List<Map<String,Object>>)result.get("items");
         for(int i=0;i<items.size();i++) {items.get(i).put("allowedActions",actions(scope,rows.get(i)));}
@@ -60,6 +60,7 @@ public class SalesReturnService {
     }
 
     private Map<String,Object> header(CompanyAccess scope,long id,boolean lock) {
+        cn.erp.shared.OrgOwnership.require(jdbc,scope,"sales_return",id);
         var row=support.find(scope,"sales_return",id,lock);
         if(!scope.allowsWarehouse(id(row,"warehouse_id"))) {throw missing();}
         return row;
@@ -99,8 +100,8 @@ public class SalesReturnService {
         return execute(scope,"sales_return.create",key,input,201,()->{
             validateHeader(scope,input);
             long id=Ids.next();String no=numbers.next(scope,"SR",YearMonth.from(input.businessDate()));
-            jdbc.update("INSERT INTO sales_return(id,tenant_id,company_id,return_no,customer_id,warehouse_id,business_date,reason,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                    id,scope.tenantId(),scope.companyId(),no,input.customerId(),input.warehouseId(),input.businessDate(),input.reason(),scope.userId(),scope.userId());
+            jdbc.update("INSERT INTO sales_return(id,tenant_id,company_id,return_no,customer_id,warehouse_id,business_date,reason,created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                    id,scope.tenantId(),scope.companyId(),no,input.customerId(),input.warehouseId(),input.businessDate(),input.reason(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             saveLines(scope,id,input);
             audit.record(scope,"sales_return.create","sales_return",id,null,Map.of("documentNo",no));return safe(get(scope,id));
         });
@@ -129,7 +130,7 @@ public class SalesReturnService {
                 FROM shipment_line l JOIN shipment h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.shipment_id
                 JOIN sales_order_line o ON o.tenant_id=l.tenant_id AND o.company_id=l.company_id AND o.id=l.order_line_id
                 WHERE l.tenant_id=? AND l.company_id=? AND l.id=?
-                """+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
+                """+cn.erp.shared.OrgOwnership.filter(scope,"h")+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
         if(rows.isEmpty()||!scope.allowsWarehouse(id(rows.getFirst(),"warehouse_id"))) {throw missing();}
         var row=rows.getFirst();
         if(!Set.of("signed","signed_with_diff").contains(row.get("shipment_status"))) {throw new ApiException(409,"STATE_CONFLICT","只有已签收的发货行可以退货");}

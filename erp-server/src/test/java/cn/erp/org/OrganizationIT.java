@@ -32,6 +32,9 @@ class OrganizationIT {
         jdbc.update("INSERT INTO tenant(id,code,name) VALUES(?,?,'组织测试企业')",tenant,"O"+tenant);
         jdbc.update("INSERT INTO company(id,tenant_id,code,name) VALUES(?,?,'A','甲公司'),(?,?,'B','乙公司')",company,tenant,otherCompany,tenant);
         jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,?,'member','任职人员','不可用于登录的测试散列')",user,tenant);
+        long role=Ids.next();
+        jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(?,?,'ORG','组织管理员')",role,tenant);
+        jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,user,role);
         for(long id:List.of(company,otherCompany)) jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,id);
         var permissions=Set.of("org_department:view","org_department:create","org_department:update","org_post:view","org_post:create","org_post:update","user:view","user:update");
         actor=new CompanyAccess(tenant,user,company,true,Set.of(),permissions);

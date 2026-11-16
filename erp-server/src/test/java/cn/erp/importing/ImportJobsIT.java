@@ -18,6 +18,22 @@ import static org.assertj.core.api.Assertions.*;
 class ImportJobsIT extends ImportTestData {
     @Autowired OpeningService opening;
     @Autowired ReconciliationChecks checks;
+    @Test void departmentImportCannotWriteNewPrimaryDepartmentOutsideInitialScopeAfterExpansion() {
+        long a=cn.erp.shared.Ids.next(),b=cn.erp.shared.Ids.next();
+        for(long department:List.of(a,b)) jdbc.update("INSERT INTO org_department(id,tenant_id,company_id,code,name,path,depth) VALUES(?,?,?,?,?,?,1)",department,tenant,company,"D"+department,"导入部门","/"+department+"/");
+        jdbc.update("INSERT INTO org_user_company(tenant_id,company_id,user_id) VALUES(?,?,?)",tenant,company,user);
+        jdbc.update("INSERT INTO org_user_department(tenant_id,company_id,user_id,department_id,is_primary) VALUES(?,?,?,?,1)",tenant,company,user,a);
+        jdbc.update("INSERT INTO org_role_data_scope(tenant_id,company_id,role_id,scope_type) VALUES(?,?,?,'dept')",tenant,company,role);
+        maker=new CompanyAccess(tenant,user,company,false,maker.warehouseIds(),maker.permissions(),new cn.erp.identity.OrgScopeResolver(jdbc).resolve(tenant,company,user));
+        long job=id(create("opening_stock","SKU,件,1,10,第一行\r\nSKU,件,2,20,第二行"));
+        processor.processNext(1);assertThat(count("stock_adjustment")).isEqualTo(1);
+        jdbc.update("UPDATE org_user_department SET department_id=? WHERE tenant_id=? AND company_id=? AND user_id=?",b,tenant,company,user);
+        jdbc.update("UPDATE org_role_data_scope SET scope_type='all' WHERE tenant_id=? AND company_id=? AND role_id=?",tenant,company,role);
+        expireLease(job);processor.processNext();
+        assertThat(jobs.get(maker,job)).containsEntry("status","partial").containsEntry("successRows",1).containsEntry("failedRows",1);
+        assertThat(count("stock_adjustment")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT owner_department_id FROM stock_adjustment WHERE tenant_id=?",Long.class,tenant)).isEqualTo(a);
+    }
     @Test void skuPartialRetainsOnlyValidRowsAndUsesExistingProductAndBaseUnit() {
         long job=id(create("sku","PRODUCT,NEW,新SKU,规格,0.13,12.25,18,active\r\nMISSING,BAD,错误SKU,,0.13,,18,active\r\nPRODUCT,EXCESS,错误精度,,0.1234567,,18,active"));
         assertThat(processor.processNext()).isTrue();

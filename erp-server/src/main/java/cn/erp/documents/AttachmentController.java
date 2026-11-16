@@ -98,7 +98,8 @@ public class AttachmentController {
                 return name.equalsIgnoreCase("X-Company-Id") ? Long.toString(companyId) : super.getHeader(name);
             }
             @Override public Object getAttribute(String name) {
-                return name.equals(AccessService.class.getName() + ".profile") ? null : super.getAttribute(name);
+                String profile=AccessService.class.getName()+".profile";
+                return name.equals(profile)||name.startsWith(profile+".org.") ? null : super.getAttribute(name);
             }
         };
     }

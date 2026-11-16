@@ -15,7 +15,8 @@ public class ShipmentQueries {
     public ShipmentQueries(JdbcTemplate jdbc) {this.jdbc=jdbc;}
 
     public Map<String,Object> header(CompanyAccess scope,long id,boolean lock) {
-        var rows=jdbc.queryForList("SELECT * FROM shipment WHERE tenant_id=? AND company_id=? AND id=?"+(lock?" FOR UPDATE":""),
+        cn.erp.shared.OrgOwnership.require(jdbc,scope,"shipment",id);
+        var rows=jdbc.queryForList("SELECT * FROM shipment WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"shipment")+" AND id=?"+(lock?" FOR UPDATE":""),
                 scope.tenantId(),scope.companyId(),id);
         if(rows.isEmpty() || !scope.allowsWarehouse(id(rows.getFirst(),"warehouse_id"))) {throw missing();}
         return rows.getFirst();
@@ -76,8 +77,8 @@ public class ShipmentQueries {
                 JOIN partner_open_item c ON c.tenant_id=a.tenant_id AND c.company_id=a.company_id AND c.id=a.credit_item_id AND c.item_type='receipt'
                 JOIN receipt r ON r.tenant_id=c.tenant_id AND r.company_id=c.company_id AND r.id=c.source_id
                 WHERE a.tenant_id=? AND a.company_id=? AND a.allocation_type='auto_order' AND ar.source_id=?
-                  AND ar.source_type IN ('shipment_line','sales_order_fee') ORDER BY a.id
-                """,scope.tenantId(),scope.companyId(),id).stream().map(row->{var allocation=new LinkedHashMap<String,Object>();put(allocation,row,"allocation_id","receipt_no","amount");return allocation;}).toList());
+                  AND ar.source_type IN ('shipment_line','sales_order_fee') %s ORDER BY a.id
+                """.formatted(cn.erp.shared.OrgOwnership.filter(scope,"r")),scope.tenantId(),scope.companyId(),id).stream().map(row->{var allocation=new LinkedHashMap<String,Object>();put(allocation,row,"allocation_id","receipt_no","amount");return allocation;}).toList());
         result.put("allowedActions",actions(scope,header.get("status").toString()));
         return result;
     }
@@ -99,7 +100,7 @@ public class ShipmentQueries {
     public Map<String,Object> list(CompanyAccess scope,String status,boolean overdue,Long customer,String cursor,int limit) {
         long before=cursor(cursor,limit);
         if(status!=null && !Set.of("draft","submitted","posted","signed","signed_with_diff","voided","reversed").contains(status)) {throw invalid("发货状态无效");}
-        String sql="SELECT id,warehouse_id FROM shipment WHERE tenant_id=? AND company_id=? AND id<?";
+        String sql="SELECT id,warehouse_id FROM shipment WHERE tenant_id=? AND company_id=? AND id<?"+cn.erp.shared.OrgOwnership.filter(scope,"shipment");
         var params=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),before));
         if(status!=null) {sql+=" AND status=?";params.add(status);}
         if(customer!=null) {sql+=" AND customer_id=?";params.add(customer);}
@@ -121,6 +122,7 @@ public class ShipmentQueries {
                 SELECT l.id,h.warehouse_id FROM shipment_line l JOIN shipment h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.shipment_id
                 WHERE l.tenant_id=? AND l.company_id=? AND l.id<? AND h.status IN ('signed','signed_with_diff')
                 """;
+        sql+=cn.erp.shared.OrgOwnership.filter(scope,"h");
         var params=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),before));
         if(customer!=null) {sql+=" AND h.customer_id=?";params.add(customer);}
         if(onlyReturnable) {sql+=" AND l.signed_base_qty-l.returned_base_qty-l.pending_return_base_qty>0";}

@@ -40,8 +40,8 @@ public class SalesFinanceQueries {
                 LEFT JOIN sku s ON s.tenant_id=r.tenant_id AND s.id=COALESCE(sl.sku_id,rl.sku_id)
                 WHERE r.tenant_id=? AND r.company_id=? AND r.id<? AND (? IS NULL OR r.customer_id=?)
                     AND r.posting_action='post' AND r.source_type<>'document_reversal' AND NOT EXISTS(SELECT 1 FROM receivable reversed WHERE reversed.tenant_id=r.tenant_id AND reversed.company_id=r.company_id AND reversed.reverses_receivable_id=r.id)
-                    AND (?=0 OR i.open_amount>0) ORDER BY r.id DESC LIMIT ?
-                """,scope.tenantId(),scope.companyId(),before,customer,customer,openOnly,limit+1),limit);
+                    AND (?=0 OR i.open_amount>0) AND %s ORDER BY r.id DESC LIMIT ?
+                """.formatted(cn.erp.shared.OrgOwnership.sourceCondition(scope,"r.source_type","r.source_id")),scope.tenantId(),scope.companyId(),before,customer,customer,openOnly,limit+1),limit);
     }
 
     public Map<String,Object> payables(CompanyAccess scope,Long supplier,boolean openOnly,Long cursor,int limit) {
@@ -61,8 +61,8 @@ public class SalesFinanceQueries {
                 LEFT JOIN opening_entry oe ON oe.tenant_id=a.tenant_id AND oe.company_id=a.company_id
                     AND a.source_type='opening_entry' AND oe.id=a.source_id
                 WHERE a.tenant_id=? AND a.company_id=? AND a.id<? AND (? IS NULL OR a.supplier_id=?)
-                    AND (?=0 OR i.open_amount>0) ORDER BY a.id DESC LIMIT ?
-                """,scope.tenantId(),scope.companyId(),before,supplier,supplier,openOnly,limit+1),limit);
+                    AND (?=0 OR i.open_amount>0) AND %s ORDER BY a.id DESC LIMIT ?
+                """.formatted(cn.erp.shared.OrgOwnership.sourceCondition(scope,"a.source_type","a.source_id")),scope.tenantId(),scope.companyId(),before,supplier,supplier,openOnly,limit+1),limit);
     }
 
     public Map<String,Object> openItems(CompanyAccess scope,Long partner,String side,boolean openOnly,Long cursor,int limit) {
@@ -88,8 +88,8 @@ public class SalesFinanceQueries {
                 WHERE i.tenant_id=? AND i.company_id=? AND i.id<? AND (? IS NULL OR i.partner_id=?)
                     AND (?=0 OR i.open_amount>0) AND (f.id IS NULL OR f.status NOT IN('draft','cancelled'))
                     AND (CASE WHEN i.item_type IN('payable','payment') OR r.receipt_type='supplier_refund' THEN 'ap' ELSE 'ar' END)=?
-                ORDER BY i.id DESC LIMIT ?
-                """,scope.tenantId(),scope.companyId(),before,partner,partner,openOnly,side,limit+1),limit);
+                AND %s ORDER BY i.id DESC LIMIT ?
+                """.formatted(cn.erp.shared.OrgOwnership.itemCondition(scope,"i")),scope.tenantId(),scope.companyId(),before,partner,partner,openOnly,side,limit+1),limit);
     }
 
     public Map<String,Object> allocations(CompanyAccess scope,Long partner,Long cursor,int limit) {
@@ -97,8 +97,8 @@ public class SalesFinanceQueries {
         var rows=jdbc.queryForList("""
                 SELECT a.*,p.name partner_name FROM settlement_allocation a JOIN business_partner p ON p.tenant_id=a.tenant_id AND p.id=a.partner_id
                 WHERE a.tenant_id=? AND a.company_id=? AND a.id<? AND (? IS NULL OR a.partner_id=?)
-                ORDER BY a.id DESC LIMIT ?
-                """,scope.tenantId(),scope.companyId(),before,partner,partner,limit+1);
+                AND %s ORDER BY a.id DESC LIMIT ?
+                """.formatted("EXISTS(SELECT 1 FROM partner_open_item oi WHERE oi.tenant_id=a.tenant_id AND oi.company_id=a.company_id AND oi.id=a.debit_item_id AND "+cn.erp.shared.OrgOwnership.itemCondition(scope,"oi")+") AND EXISTS(SELECT 1 FROM partner_open_item oi WHERE oi.tenant_id=a.tenant_id AND oi.company_id=a.company_id AND oi.id=a.credit_item_id AND "+cn.erp.shared.OrgOwnership.itemCondition(scope,"oi")+")"),scope.tenantId(),scope.companyId(),before,partner,partner,limit+1);
         var result=page(rows,limit);
         @SuppressWarnings("unchecked") var items=(List<Map<String,Object>>)result.get("items");
         items.forEach(item->actions(scope,item));return result;
@@ -154,6 +154,7 @@ public class SalesFinanceQueries {
     }
 
     private Map<String,Object> item(CompanyAccess scope,long id) {
+        cn.erp.shared.OrgOwnership.requireItem(jdbc,scope,id);
         var items=jdbc.queryForList("SELECT * FROM partner_open_item WHERE tenant_id=? AND company_id=? AND id=?",scope.tenantId(),scope.companyId(),id);
         if(items.isEmpty()) {throw missing();}return items.getFirst();
     }
@@ -176,7 +177,10 @@ public class SalesFinanceQueries {
         return result;
     }
     private void lockOrders(CompanyAccess scope,Set<Long> ids) {
-        for(long id:ids) {jdbc.queryForObject("SELECT id FROM sales_order WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),id);}
+        for(long id:ids) {
+            OrgOwnership.require(jdbc,scope,"sales_order",id);
+            jdbc.queryForObject("SELECT id FROM sales_order WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),id);
+        }
     }
     private Set<Long> purchaseIds(CompanyAccess scope,Collection<Long> items) {
         var result=new TreeSet<Long>();
@@ -196,7 +200,10 @@ public class SalesFinanceQueries {
         return result;
     }
     private void lockPurchaseOrders(CompanyAccess scope,Set<Long> ids) {
-        for(long id:ids) {jdbc.queryForObject("SELECT id FROM purchase_order WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),id);}
+        for(long id:ids) {
+            OrgOwnership.require(jdbc,scope,"purchase_order",id);
+            jdbc.queryForObject("SELECT id FROM purchase_order WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),id);
+        }
     }
     @SuppressWarnings({"unchecked","rawtypes"})
     private Map<String,Object> execute(CompanyAccess scope,String operation,String key,Object payload,java.util.function.Supplier<Map<String,Object>> work) {

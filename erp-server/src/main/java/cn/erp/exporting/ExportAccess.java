@@ -11,12 +11,13 @@ import org.springframework.stereotype.Component;
 public class ExportAccess {
     private final JdbcTemplate jdbc;
     public ExportAccess(JdbcTemplate jdbc) { this.jdbc=jdbc; }
-    public record Scope(boolean allWarehouses,Set<Long> warehouseIds,boolean cost) {
-        public Scope { warehouseIds=Set.copyOf(warehouseIds); }
+    public record Scope(boolean allWarehouses,Set<Long> warehouseIds,boolean cost,cn.erp.shared.OrgScope organization) {
+        public Scope { warehouseIds=Set.copyOf(warehouseIds);if(organization==null) organization=cn.erp.shared.OrgScope.all(); }
+        public Scope(boolean allWarehouses,Set<Long> warehouseIds,boolean cost) {this(allWarehouses,warehouseIds,cost,cn.erp.shared.OrgScope.all());}
     }
     public Scope capture(CompanyAccess actor) {
         Set<Long> warehouses=actor.allWarehouses()?new HashSet<>(jdbc.queryForList("SELECT id FROM warehouse WHERE tenant_id=? AND company_id=?",Long.class,actor.tenantId(),actor.companyId())):actor.warehouseIds();
-        return new Scope(actor.allWarehouses(),warehouses,actor.hasPermission("cost:view"));
+        return new Scope(actor.allWarehouses(),warehouses,actor.hasPermission("cost:view"),actor.orgScope());
     }
     public CompanyAccess current(long tenant,long company,long user) {
         Long count=jdbc.queryForObject("""
@@ -33,7 +34,7 @@ public class ExportAccess {
             JOIN sys_role_permission rp ON rp.tenant_id=r.tenant_id AND rp.role_id=r.id JOIN sys_permission p ON p.id=rp.permission_id
             WHERE ur.tenant_id=? AND ur.user_id=?
             """,String.class,tenant,user);
-        return new CompanyAccess(tenant,user,company,all,warehouses,new HashSet<>(permissions));
+        return new CompanyAccess(tenant,user,company,all,warehouses,new HashSet<>(permissions),new cn.erp.identity.OrgScopeResolver(jdbc).resolve(tenant,company,user));
     }
     public CompanyAccess intersect(CompanyAccess current,Scope initial,ReportType type) {
         type.authorize(current,true);
@@ -43,11 +44,11 @@ public class ExportAccess {
         var permissions=new HashSet<>(current.permissions());
         if(!initial.cost()) { permissions.remove("cost:view"); }
         if(type.costBearing() && initial.cost() && !current.hasPermission("cost:view")) { throw new ApiException(403,"FORBIDDEN","成本权限已变更，请恢复权限后重新导出"); }
-        return new CompanyAccess(current.tenantId(),current.userId(),current.companyId(),type.companyWide(),warehouses,permissions);
+        return new CompanyAccess(current.tenantId(),current.userId(),current.companyId(),type.companyWide(),warehouses,permissions,current.orgScope().intersect(initial.organization()));
     }
     public void covers(CompanyAccess current,Scope result,ReportType type) {
         type.authorize(current,true);
-        if(type.companyWide() && !current.allWarehouses() || !current.allWarehouses() && !current.warehouseIds().containsAll(result.warehouseIds()) || result.cost() && !current.hasPermission("cost:view")) {
+        if(!current.orgScope().covers(result.organization()) || type.companyWide() && !current.allWarehouses() || !current.allWarehouses() && !current.warehouseIds().containsAll(result.warehouseIds()) || result.cost() && !current.hasPermission("cost:view")) {
             throw new ApiException(403,"FORBIDDEN","权限或仓库范围已收窄，不能下载历史导出文件");
         }
     }

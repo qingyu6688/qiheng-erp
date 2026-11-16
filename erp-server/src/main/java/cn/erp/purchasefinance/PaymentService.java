@@ -34,8 +34,8 @@ public class PaymentService {
         long before=cursor(cursor,limit);validateStatus(status);
         var rows=jdbc.queryForList("""
             SELECT p.* FROM payment p WHERE tenant_id=? AND company_id=? AND id<? AND (? IS NULL OR partner_id=?)
-              AND (? IS NULL OR status=?) ORDER BY id DESC LIMIT ?
-            """,scope.tenantId(),scope.companyId(),before,partner,partner,status,status,limit+1);
+              AND (? IS NULL OR status=?) %s ORDER BY id DESC LIMIT ?
+            """.formatted(cn.erp.shared.OrgOwnership.filter(scope,"p")),scope.tenantId(),scope.companyId(),before,partner,partner,status,status,limit+1);
         var result=page(rows,limit);
         @SuppressWarnings("unchecked") var items=(List<Map<String,Object>>)result.get("items");
         for(int index=0;index<items.size();index++) {decorate(scope,rows.get(index),items.get(index));}
@@ -52,9 +52,9 @@ public class PaymentService {
         return execute(scope,"create",key,input,201,()->{
             validate(scope,input);long id=Ids.next();String no=numbers.next(scope,"PY",YearMonth.from(input.businessDate()));
             jdbc.update("""
-                INSERT INTO payment(id,tenant_id,company_id,payment_no,payment_type,partner_id,expense_item_id,cash_account_id,amount,business_date,related_order_id,bank_serial_no,remark,created_by,updated_by)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """,id,scope.tenantId(),scope.companyId(),no,input.paymentType(),input.partnerId(),input.expenseItemId(),input.cashAccountId(),amount(input.amount()),input.businessDate(),input.relatedOrderId(),TreasurySupport.blank(input.bankSerialNo()),input.remark(),scope.userId(),scope.userId());
+                INSERT INTO payment(id,tenant_id,company_id,payment_no,payment_type,partner_id,expense_item_id,cash_account_id,amount,business_date,related_order_id,bank_serial_no,remark,created_by,updated_by,owner_user_id,owner_department_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,id,scope.tenantId(),scope.companyId(),no,input.paymentType(),input.partnerId(),input.expenseItemId(),input.cashAccountId(),amount(input.amount()),input.businessDate(),input.relatedOrderId(),TreasurySupport.blank(input.bankSerialNo()),input.remark(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             audit.record(scope,"payment.create","payment",id,null,Map.of("documentNo",no));return get(scope,id);
         });
     }

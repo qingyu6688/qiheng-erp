@@ -23,7 +23,7 @@ class SalesOrderWriter {
         var fees=input.fees()==null?List.<PricingModels.Fee>of():input.fees().stream().map(f->new PricingModels.Fee(f.feeType(),f.bearer(),f.amount(),f.taxRate())).toList();
         // 订单修改权限包含对已有订单重算价格，接口入口仍校验实际操作权限。
         var permissions=new HashSet<>(scope.permissions());permissions.add("sales_order:create");
-        var pricingScope=new CompanyAccess(scope.tenantId(),scope.userId(),scope.companyId(),scope.allWarehouses(),scope.warehouseIds(),permissions);
+        var pricingScope=new CompanyAccess(scope.tenantId(),scope.userId(),scope.companyId(),scope.allWarehouses(),scope.warehouseIds(),permissions,scope.orgScope());
         return pricing.preview(pricingScope,new PricingModels.PreviewRequest("sales_order",input.customerId(),null,input.priceTaxInclusive(),input.orderDiscountAmount(),lines,fees));
     }
 

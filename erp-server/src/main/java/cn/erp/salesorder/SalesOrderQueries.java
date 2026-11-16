@@ -18,13 +18,15 @@ public class SalesOrderQueries {
     public SalesOrderQueries(JdbcTemplate jdbc) {this.jdbc=jdbc;}
 
     public Map<String,Object> header(CompanyAccess scope,long id,boolean lock) {
-        var rows=jdbc.queryForList("SELECT * FROM sales_order WHERE tenant_id=? AND company_id=? AND id=? AND is_deleted=0"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
+        cn.erp.shared.OrgOwnership.require(jdbc,scope,"sales_order",id);
+        var rows=jdbc.queryForList("SELECT * FROM sales_order WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"sales_order")+" AND id=? AND is_deleted=0"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
         if(rows.isEmpty()) {throw missing();}
         visible(scope,id);
         return rows.getFirst();
     }
 
     public void visible(CompanyAccess scope,long id) {
+        cn.erp.shared.OrgOwnership.require(jdbc,scope,"sales_order",id);
         if(scope.allWarehouses()) {return;}
         var warehouses=jdbc.queryForList("SELECT warehouse_id FROM sales_order_line WHERE tenant_id=? AND company_id=? AND order_id=? AND is_deleted=0",Long.class,scope.tenantId(),scope.companyId(),id);
         if(warehouses.isEmpty() || warehouses.stream().anyMatch(w->w==null || !scope.allowsWarehouse(w))) {throw missing();}
@@ -96,7 +98,7 @@ public class SalesOrderQueries {
             filter+=" AND NOT EXISTS(SELECT 1 FROM sales_order_line l WHERE l.order_id=sales_order.id AND l.is_deleted=0 AND (l.warehouse_id IS NULL OR l.warehouse_id NOT IN ("+marks+")))";
             args.addAll(scope.warehouseIds());
         }
-        args.add(limit+1);
+        filter+=cn.erp.shared.OrgOwnership.filter(scope,"sales_order");args.add(limit+1);
         var rows=jdbc.queryForList("SELECT * FROM sales_order"+filter+" ORDER BY id DESC LIMIT ?",args.toArray());
         var customers=ScopedReferences.load(jdbc,scope,"business_partner",rows.stream().limit(limit).map(row->number(row,"customer_id")).toList());
         var items=rows.stream().limit(limit).map(row->{var item=camel(row);item.put("documentNo",row.get("order_no"));item.put("customer",ScopedReferences.get(customers,number(row,"customer_id")));item.put("allowedActions",actions(scope,row));return item;}).toList();
@@ -125,7 +127,7 @@ public class SalesOrderQueries {
     @Transactional
     public void refreshProgress(CompanyAccess scope,long orderId) {
         // 履约入口已逐仓校验；跨仓订单允许各仓人员更新共享进度。
-        var heads=jdbc.queryForList("SELECT * FROM sales_order WHERE tenant_id=? AND company_id=? AND id=? AND is_deleted=0 FOR UPDATE",scope.tenantId(),scope.companyId(),orderId);
+        var heads=jdbc.queryForList("SELECT * FROM sales_order WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"sales_order")+" AND id=? AND is_deleted=0 FOR UPDATE",scope.tenantId(),scope.companyId(),orderId);
         if(heads.isEmpty()) {throw missing();}
         var row=heads.getFirst();
         var total=jdbc.queryForMap("""

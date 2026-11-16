@@ -37,9 +37,9 @@ public class StockCountService {
         return execute(scope,"create",key,input,201,()->{
             validate(scope,input);long id=Ids.next();
             jdbc.update("""
-                INSERT INTO stock_count(id,tenant_id,company_id,count_no,warehouse_id,count_mode,business_date,remark,created_by,updated_by)
-                VALUES(?,?,?,?,?,'watermark',?,?,?,?)
-                """,id,scope.tenantId(),scope.companyId(),numbers.next(scope,"SC",YearMonth.from(input.businessDate())),input.warehouseId(),input.businessDate(),input.remark(),scope.userId(),scope.userId());
+                INSERT INTO stock_count(id,tenant_id,company_id,count_no,warehouse_id,count_mode,business_date,remark,created_by,updated_by,owner_user_id,owner_department_id)
+                VALUES(?,?,?,?,?,'watermark',?,?,?,?,?,?)
+                """,id,scope.tenantId(),scope.companyId(),numbers.next(scope,"SC",YearMonth.from(input.businessDate())),input.warehouseId(),input.businessDate(),input.remark(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             writeLines(scope,id,input.lines());return changed(scope,id,"create");
         });
     }
@@ -152,7 +152,7 @@ public class StockCountService {
     @Transactional(readOnly=true)
     public Map<String,Object> list(CompanyAccess scope,String status,Long cursor,int limit) {
         long before=cursor(cursor,limit);if(status!=null&&!Set.of("draft","counting","submitted","approved","posted","voided").contains(status))throw invalid("盘点状态无效");
-        String sql="SELECT id FROM stock_count WHERE tenant_id=? AND company_id=? AND id<?";var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),before));
+        String sql="SELECT id FROM stock_count WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"stock_count")+" AND id<?";var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),before));
         if(status!=null){sql+=" AND status=?";args.add(status);}
         if(!scope.allWarehouses()) {
             if(scope.warehouseIds().isEmpty())return page(List.of(),limit);
@@ -177,7 +177,8 @@ public class StockCountService {
         if(units.isEmpty())throw missing();catalog.requireActiveSku(scope,sku,units.getFirst());return units.getFirst();
     }
     private Map<String,Object> find(CompanyAccess scope,long id,boolean lock) {
-        var rows=jdbc.queryForList("SELECT * FROM stock_count WHERE tenant_id=? AND company_id=? AND id=?"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
+        cn.erp.shared.OrgOwnership.require(jdbc,scope,"stock_count",id);
+        var rows=jdbc.queryForList("SELECT * FROM stock_count WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"stock_count")+" AND id=?"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
         if(rows.isEmpty()||!scope.allowsWarehouse(id(rows.getFirst(),"warehouse_id")))throw missing();return rows.getFirst();
     }
     private List<Map<String,Object>> lines(CompanyAccess scope,long id,boolean lock) {return jdbc.queryForList("SELECT * FROM stock_count_line WHERE tenant_id=? AND company_id=? AND count_id=? ORDER BY sku_id,id"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);}
@@ -195,7 +196,7 @@ public class StockCountService {
     private void add(CompanyAccess scope,List<String> actions,String action){if(scope.hasPermission("stock_count:"+action))actions.add(action);}
     private Map<String,Object> changed(CompanyAccess scope,long id,String action) {
         var permissions=new HashSet<>(scope.permissions());permissions.remove("cost:view");
-        var result=get(new CompanyAccess(scope.tenantId(),scope.userId(),scope.companyId(),scope.allWarehouses(),scope.warehouseIds(),permissions),id);
+        var result=get(new CompanyAccess(scope.tenantId(),scope.userId(),scope.companyId(),scope.allWarehouses(),scope.warehouseIds(),permissions,scope.orgScope()),id);
         audit.record(scope,"stock_count."+action,"stock_count",id,null,result);return result;
     }
     @SuppressWarnings({"rawtypes","unchecked"})

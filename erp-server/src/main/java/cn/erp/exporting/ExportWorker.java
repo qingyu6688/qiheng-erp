@@ -43,7 +43,7 @@ public class ExportWorker {
             files.put(key,bytes,"text/csv");
             var warehouses=new java.util.HashSet<>(actor.warehouseIds());
             if(job.query().warehouseId()!=null) { warehouses.retainAll(java.util.Set.of(job.query().warehouseId())); }
-            var resultScope=new ExportAccess.Scope(actor.allWarehouses(),warehouses,job.type().costBearing() && actor.hasPermission("cost:view"));
+            var resultScope=new ExportAccess.Scope(actor.allWarehouses(),warehouses,job.type().costBearing() && actor.hasPermission("cost:view"),actor.orgScope());
             if(!jobs.complete(job,resultScope,key,checksum(bytes),bytes.length,snapshot.items().size(),snapshot.asOf())) { compensation.discard(key); }
         } catch(RuntimeException error) {
             if(key!=null) { compensation.discard(key); }

@@ -40,9 +40,11 @@ public class FinanceSupport {
     }
 
     public Map<String,Object> find(CompanyAccess scope,String table,long id,boolean lock) {
+        if(cn.erp.shared.OrgOwnership.TABLES.contains(table)) cn.erp.shared.OrgOwnership.require(jdbc,scope,table,id);
         if(!Set.of("receipt","refund_request","sales_return","settlement_allocation").contains(table)) {throw invalid("资源类型无效");}
         var rows=jdbc.queryForList("SELECT * FROM "+table+" WHERE tenant_id=? AND company_id=? AND id=?"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
         if(rows.isEmpty()) {throw missing();}
+        if(table.equals("settlement_allocation")) cn.erp.shared.OrgOwnership.requireAllocation(jdbc,scope,id);
         return rows.getFirst();
     }
 
