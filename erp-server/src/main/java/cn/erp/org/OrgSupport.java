@@ -28,6 +28,8 @@ class OrgSupport {
         if (jdbc.queryForList("SELECT id FROM tenant WHERE id=? AND status='active' FOR UPDATE",Long.class,actor.tenantId()).isEmpty()) throw missing();
         if (actor.companyId()!=0) {
             if (jdbc.queryForList("SELECT id FROM company WHERE tenant_id=? AND id=? AND status='active' FOR UPDATE",Long.class,actor.tenantId(),actor.companyId()).isEmpty()) throw missing();
+            if (!new cn.erp.identity.OrgScopeResolver(jdbc).resolve(actor.tenantId(),actor.companyId(),actor.userId()).allDepartments())
+                throw new ApiException(403,"FORBIDDEN","组织任职及部门维护须由当前公司拥有全部部门范围的管理员处理");
         }
     }
     void user(CompanyAccess actor,long userId,boolean active) {

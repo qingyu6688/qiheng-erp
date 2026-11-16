@@ -9,6 +9,7 @@ import DataFields from './DataFields.vue'
 import RecordFrame from './RecordFrame.vue'
 import PermissionMatrix from './PermissionMatrix.vue'
 import UserOrganizationEditor from './org/UserOrganizationEditor.vue'
+import RoleDataScopeEditor from './org/RoleDataScopeEditor.vue'
 
 const policyHelp = [
   '按新增业务单据冻结税身份，修改不回写已过账单据。',
@@ -471,6 +472,12 @@ function createContact(): void {
         >
       </template>
       <template v-if="resource === 'roles'">
+        <RoleDataScopeEditor
+          :role-id="row.id"
+          @dirty="organizationDirty = $event"
+          @pending="organizationBusy = $event"
+          @saved="emit('saved')"
+        />
         <PermissionMatrix v-model="permissionCodes" :permissions="permissions" :disabled="busy" />
         <el-button type="primary" :loading="busy" @click="save('permissions')">保存权限</el-button>
       </template>

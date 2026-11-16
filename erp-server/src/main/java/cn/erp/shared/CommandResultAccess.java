@@ -5,7 +5,7 @@ import java.util.Map;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
-/** 幂等结果同样遵守当前仓库范围，避免授权收窄后从历史响应读取单据。 */
+/** 幂等结果同样遵守当前仓库与部门范围，避免授权收窄后从历史响应读取单据。 */
 @Component
 public class CommandResultAccess {
     private final JdbcTemplate jdbc;
@@ -13,12 +13,19 @@ public class CommandResultAccess {
 
     public void verify(ActorScope actor,String operation,Object response) {
         if(!(actor instanceof WarehouseScope scope) || !(response instanceof Map<?,?> row)) {return;}
+        if(operation.equals("role.assign_data_scope")&&!OrgOwnership.scope(actor).allDepartments()) throw new ApiException(403,"FORBIDDEN","没有查看部门范围管理结果的权限");
+        String document=operation.startsWith("reversal.")?"document_reversal":operation.substring(0,operation.indexOf('.'));
+        if(OrgOwnership.TABLES.contains(document)&&row.get("id")!=null) OrgOwnership.require(jdbc,actor,document,row.get("id"));
+        if(operation.startsWith("settlement.")) {
+            if(row.get("id")!=null) OrgOwnership.requireAllocation(jdbc,actor,row.get("id"));
+            if(row.get("items") instanceof List<?> values) for(Object value:values) if(value instanceof Map<?,?> item && item.get("id")!=null) OrgOwnership.requireAllocation(jdbc,actor,item.get("id"));
+        }
         if(operation.equals("user.assign_organization")) {
             Long count=jdbc.queryForObject("SELECT COUNT(*) FROM sys_user_data_scope WHERE tenant_id=? AND company_id=? AND user_id=?",Long.class,scope.tenantId(),scope.companyId(),row.get("userId"));
             if(count==null || count==0) throw missing();
             return;
         }
-        if(java.util.Set.of("period.close","period.reopen","outbox.replay").contains(operation)&&!scope.allWarehouses()) {throw new ApiException(403,"FORBIDDEN","操作结果需要整家公司数据范围");}
+        if(java.util.Set.of("period.close","period.reopen","outbox.replay","reconciliation.run").contains(operation)&&(!scope.allWarehouses()||!OrgOwnership.scope(actor).allDepartments())) {throw new ApiException(403,"FORBIDDEN","操作结果需要整家公司数据范围");}
         if(operation.startsWith("reversal.")) {
             String type=String.valueOf(row.get("sourceType"));
             if(!(actor instanceof PermissionScope permissions)||!permissions.hasPermission(type+":view")) {throw new ApiException(403,"FORBIDDEN","没有查看冲销来源单据的权限");}

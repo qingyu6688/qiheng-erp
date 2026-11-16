@@ -342,6 +342,7 @@ onBeforeUnmount(() => {
       </div>
       <el-button native-type="submit" :loading="loading">查询</el-button>
     </form>
+    <p v-if="result?.visibilityBasis" class="muted">{{ result.visibilityBasis }}</p>
     <p v-if="result" class="muted">
       数据时间 {{ formatDateTime(result.asOf)
       }}<template v-if="result.dataSource === 'replica'"> · 只读备库</template><template v-if="result.statisticDate"> · 统计日 {{ result.statisticDate }}</template>

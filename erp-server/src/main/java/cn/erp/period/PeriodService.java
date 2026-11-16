@@ -120,5 +120,5 @@ public class PeriodService {
     private List<Map<String,Object>> lockPeriods(CompanyAccess scope) {return jdbc.queryForList("SELECT * FROM accounting_period WHERE tenant_id=? AND company_id=? ORDER BY period FOR UPDATE",scope.tenantId(),scope.companyId());}
     private Map<String,Object> find(CompanyAccess scope,long id) {var rows=jdbc.queryForList("SELECT * FROM accounting_period WHERE tenant_id=? AND company_id=? AND id=?",scope.tenantId(),scope.companyId(),id);if(rows.isEmpty()) {throw missing();}return rows.getFirst();}
     private Map<String,Object> view(Map<String,Object> row) {return cn.erp.salesfinance.FinanceSupport.row(row);}
-    private void companyScope(CompanyAccess scope) {if(!scope.allWarehouses()) {throw new ApiException(403,"FORBIDDEN","关账和重开期间需要整家公司数据范围");}}
+    private void companyScope(CompanyAccess scope) {if(!scope.allWarehouses()||!scope.orgScope().allDepartments()) {throw new ApiException(403,"FORBIDDEN","关账和重开期间需要整家公司数据范围");}}
 }

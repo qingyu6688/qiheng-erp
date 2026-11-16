@@ -11,11 +11,18 @@ import static cn.erp.org.OrgModels.*;
 @RestController
 @RequestMapping("/api/v1")
 class OrgController {
+    private final RoleDataScopeService roleScopes;
     private final AccessService access;
     private final DepartmentService departments;
     private final PostService posts;
     private final UserOrganizationService users;
-    OrgController(AccessService access,DepartmentService departments,PostService posts,UserOrganizationService users) {this.access=access;this.departments=departments;this.posts=posts;this.users=users;}
+    OrgController(AccessService access,DepartmentService departments,PostService posts,UserOrganizationService users,RoleDataScopeService roleScopes) {this.access=access;this.departments=departments;this.posts=posts;this.users=users;this.roleScopes=roleScopes;}
+    @GetMapping("/org/roles/{id}/data-scope")
+    ApiResponse<?> roleScope(HttpServletRequest request,@PathVariable long id) {return ApiResponse.success(roleScopes.get(access.requireCompany(request,null),id));}
+    @PutMapping("/org/roles/{id}/data-scope")
+    ApiResponse<?> saveRoleScope(HttpServletRequest request,@PathVariable long id,@RequestHeader(value="Idempotency-Key",required=false) String key,@Valid @RequestBody RoleDataScopeService.Input input) {
+        return ApiResponse.success(roleScopes.save(access.requireCompany(request,"role:assign_permission"),id,key,input));
+    }
     @GetMapping("/org/departments/tree")
     ApiResponse<?> tree(HttpServletRequest request) {return ApiResponse.success(departments.tree(access.requireCompany(request,"org_department:view")));}
     @GetMapping("/org/departments/{id}")

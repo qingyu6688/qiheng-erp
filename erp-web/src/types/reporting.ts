@@ -23,6 +23,7 @@ export interface ReportResult {
   reportType: string
   asOf: string
   dataSource?: 'primary' | 'replica'
+  visibilityBasis?: string
   statisticDate?: string
   rowCount?: number
   items: Record<string, unknown>[]

@@ -23,8 +23,8 @@ class ReversalSourceQueries {
         if(warehouse&&!scope.allWarehouses()&&scope.warehouseIds().isEmpty()) {return page(List.of(),limit);}
         String number=NUMBERS.get(sourceType),states=sourceType.equals("shipment")?"'posted','signed','signed_with_diff'":Set.of("receipt","payment","account_transfer").contains(sourceType)?"'confirmed'":"'posted'";
         var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),before,keyword));
-        String filter="";
-        if(warehouse&&!scope.allWarehouses()) {filter=" AND d.warehouse_id IN ("+String.join(",",Collections.nCopies(scope.warehouseIds().size(),"?"))+")";args.addAll(scope.warehouseIds());}
+        String filter=cn.erp.shared.OrgOwnership.filter(scope,"d");
+        if(warehouse&&!scope.allWarehouses()) {filter+=" AND d.warehouse_id IN ("+String.join(",",Collections.nCopies(scope.warehouseIds().size(),"?"))+")";args.addAll(scope.warehouseIds());}
         args.add(limit+1);
         return page(jdbc.queryForList("SELECT d.id,d."+number+" document_no,d.business_date,d.status FROM "+sourceType+" d WHERE d.tenant_id=? AND d.company_id=? AND d.id<? AND LOCATE(?,d."+number+")>0 AND d.status IN ("+states+")"+filter+
             " AND NOT EXISTS(SELECT 1 FROM document_reversal r WHERE r.tenant_id=d.tenant_id AND r.company_id=d.company_id AND r.source_type='"+sourceType+"' AND r.source_id=d.id AND r.status<>'rejected') ORDER BY d.id DESC LIMIT ?",args.toArray()),limit);

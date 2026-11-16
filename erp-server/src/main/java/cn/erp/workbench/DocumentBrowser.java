@@ -92,7 +92,7 @@ public class DocumentBrowser {
         if(filter.keyword()!=null&&filter.keyword().length()>100)throw invalid("单号筛选最多100个字符");
         if(filter.dateFrom()!=null&&filter.dateTo()!=null&&filter.dateFrom().isAfter(filter.dateTo()))throw invalid("开始日期不能晚于结束日期");
         if(filter.partnerId()!=null&&filter.partnerId()<=0||filter.warehouseId()!=null&&filter.warehouseId()<=0)throw invalid("筛选对象编号无效");
-        String sql="h.tenant_id=:tenant AND h.company_id=:company"+(spec.deleted()?" AND h.is_deleted=0":"");
+        String sql="h.tenant_id=:tenant AND h.company_id=:company"+cn.erp.shared.OrgOwnership.filter(actor,"h")+(spec.deleted()?" AND h.is_deleted=0":"");
         if(filter.keyword()!=null&&!filter.keyword().isBlank()) {sql+=" AND (LOCATE(:keyword,h."+spec.number()+")>0 OR LOCATE(:keyword,COALESCE(h."+spec.textColumn()+",''))>0)";params.put("keyword",filter.keyword());}
         if(filter.dateFrom()!=null) {sql+=" AND h."+spec.date()+">=:from";params.put("from",filter.dateFrom());}
         if(filter.dateTo()!=null) {sql+=" AND h."+spec.date()+"<=:to";params.put("to",filter.dateTo());}

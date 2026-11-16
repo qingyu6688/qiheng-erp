@@ -21,7 +21,7 @@ public class ReconciliationService {
 
     @Transactional
     public Map<String,Object> request(CompanyAccess scope,String type,Long period) {
-        if(!scope.allWarehouses()) {throw new ApiException(403,"FORBIDDEN","公司级对账需要整家公司数据范围");}
+        if(!scope.allWarehouses()||!scope.orgScope().allDepartments()) {throw new ApiException(403,"FORBIDDEN","公司级对账需要整家公司数据范围");}
         if(!ReconciliationChecks.TYPES.contains(type)) {throw new ApiException(400,"VALIDATION_FAILED","对账类型无效");}
         if(period!=null && jdbc.queryForObject("SELECT COUNT(*) FROM accounting_period WHERE tenant_id=? AND company_id=? AND id=?",Long.class,scope.tenantId(),scope.companyId(),period)==0) {
             throw new ApiException(404,"NOT_FOUND","会计期间不存在或无权查看");
@@ -50,7 +50,7 @@ public class ReconciliationService {
                         JOIN sys_role_permission rp ON rp.tenant_id=r.tenant_id AND rp.role_id=r.id JOIN sys_permission p ON p.id=rp.permission_id
                         WHERE ur.tenant_id=u.tenant_id AND ur.user_id=u.id AND p.code='reconciliation:run')
                     """,Long.class,company,tenant,user);
-            if(authorized==null || authorized==0) {
+            if(authorized==null || authorized==0 || !new cn.erp.identity.OrgScopeResolver(jdbc).resolve(tenant,company,user).allDepartments()) {
                 markError(tenant,id,"发起人的权限或公司范围已变更");return;
             }
         }
@@ -73,6 +73,7 @@ public class ReconciliationService {
     }
 
     public Map<String,Object> get(CompanyAccess scope,long id) {
+        requireCompanyScope(scope);
         var rows=jdbc.queryForList("SELECT id,check_type,status,diff_count,started_at,finished_at,error_message FROM reconciliation_run WHERE tenant_id=? AND company_id=? AND id=?",
                 scope.tenantId(),scope.companyId(),id);
         if(rows.isEmpty()) {throw new ApiException(404,"NOT_FOUND","任务不存在或无权查看");}
@@ -80,6 +81,7 @@ public class ReconciliationService {
     }
 
     public Map<String,Object> list(CompanyAccess scope,Long cursor,int limit) {
+        requireCompanyScope(scope);
         if(limit<1 || limit>200 || cursor!=null && cursor<=0) {throw new ApiException(400,"VALIDATION_FAILED","分页条件无效");}
         var rows=jdbc.queryForList("SELECT id,check_type,status,diff_count,started_at,finished_at,error_message FROM reconciliation_run WHERE tenant_id=? AND company_id=? AND id<? ORDER BY id DESC LIMIT ?",
                 scope.tenantId(),scope.companyId(),cursor==null?Long.MAX_VALUE:cursor,limit+1);
@@ -94,6 +96,10 @@ public class ReconciliationService {
                 scope.tenantId(),scope.companyId(),id,cursor==null?Long.MAX_VALUE:cursor,limit+1);
         var items=rows.stream().limit(limit).map(ReconciliationService::row).toList();
         var result=new LinkedHashMap<String,Object>();result.put("items",items);result.put("nextCursor",rows.size()>limit?items.getLast().get("id"):null);return result;
+    }
+
+    private static void requireCompanyScope(CompanyAccess scope) {
+        if(!scope.allWarehouses()||!scope.orgScope().allDepartments()) {throw new ApiException(403,"FORBIDDEN","公司级对账需要整家公司数据范围");}
     }
 
     private static Map<String,Object> row(Map<String,Object> input) {

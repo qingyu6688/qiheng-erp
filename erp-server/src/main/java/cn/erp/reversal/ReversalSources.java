@@ -14,6 +14,7 @@ class ReversalSources {
     ReversalSources(JdbcTemplate jdbc){this.jdbc=jdbc;}
     Map<String,Object> head(CompanyAccess scope,String type,long source,boolean lock) {
         if(!TYPES.contains(type))throw invalid("该类型不支持冲销");
+        cn.erp.shared.OrgOwnership.require(jdbc,scope,type,source);
         if(!scope.hasPermission(type+":view"))throw new ApiException(403,"FORBIDDEN","没有查看来源单据的权限");
         var rows=jdbc.queryForList("SELECT * FROM "+type+" WHERE tenant_id=? AND company_id=? AND id=?"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),source);
         if(rows.isEmpty())throw missing();
@@ -56,23 +57,31 @@ class ReversalSources {
         var found=new ArrayList<Map<String,Object>>();
         if(type.equals("shipment"))children(scope,found,"sales_return","return_no","sales_return_line","return_id","shipment_line","shipment_id","shipment_line_id",source);
         if(type.equals("goods_receipt"))children(scope,found,"purchase_return","return_no","purchase_return_line","return_id","goods_receipt_line","receipt_id","receipt_line_id",source);
-        if(type.equals("receipt"))for(var row:jdbc.queryForList("SELECT id,refund_no document_no FROM refund_request WHERE tenant_id=? AND company_id=? AND original_receipt_id=? AND status<>'cancelled' ORDER BY id FOR SHARE",scope.tenantId(),scope.companyId(),source))found.add(dependency("refund_request",row,"退款引用了本收款单"));
+        if(type.equals("receipt"))for(var row:jdbc.queryForList("SELECT id,refund_no document_no FROM refund_request WHERE tenant_id=? AND company_id=? AND original_receipt_id=? AND status<>'cancelled' ORDER BY id FOR SHARE",scope.tenantId(),scope.companyId(),source))found.add(dependency(scope,"refund_request",row,"退款引用了本收款单"));
         for(String fact:List.of("receivable","payable"))for(var row:facts(scope,type,source,fact,true)) {
             if(decimal(row,"invoiced_amount").signum()>0) {
                 var invoices=jdbc.queryForList("SELECT h.id,h.invoice_no document_no FROM invoice_registration h JOIN invoice_registration_line l ON l.tenant_id=h.tenant_id AND l.company_id=h.company_id AND l.invoice_id=h.id WHERE h.tenant_id=? AND h.company_id=? AND l."+(fact.equals("receivable")?"receivable_id":"payable_id")+"=? AND h.status='registered' ORDER BY h.id FOR SHARE",scope.tenantId(),scope.companyId(),row.get("id"));
-                for(var invoice:invoices)found.add(dependency("invoice_registration",invoice,"来源往来已登记开票，请先作废开票登记"));
+                for(var invoice:invoices)found.add(dependency(scope,"invoice_registration",invoice,"来源往来已登记开票，请先作废开票登记"));
             }
         }
         for(var item:items(scope,type,source,true)) {
-            for(var row:jdbc.queryForList("SELECT id FROM settlement_allocation WHERE tenant_id=? AND company_id=? AND (debit_item_id=? OR credit_item_id=?) AND status IN ('active','reserved') ORDER BY id FOR UPDATE",scope.tenantId(),scope.companyId(),item.get("id"),item.get("id")))found.add(dependency("settlement_allocation",row,"本单的未清项已被核销或退款占用"));
+            for(var row:jdbc.queryForList("SELECT id FROM settlement_allocation WHERE tenant_id=? AND company_id=? AND (debit_item_id=? OR credit_item_id=?) AND status IN ('active','reserved') ORDER BY id FOR UPDATE",scope.tenantId(),scope.companyId(),item.get("id"),item.get("id")))found.add(dependency(scope,"settlement_allocation",row,"本单的未清项已被核销或退款占用"));
         }
         if(!found.isEmpty())throw new ApiException(422,"DEPENDENCY_EXISTS","存在下游单据，请先处理",found);
     }
     private void children(CompanyAccess scope,List<Map<String,Object>> result,String child,String number,String lines,String headId,String original,String originalHead,String sourceKey,long source) {
         String sql="SELECT DISTINCT h.id,h."+number+" document_no FROM "+child+" h JOIN "+lines+" l ON l.tenant_id=h.tenant_id AND l.company_id=h.company_id AND l."+headId+"=h.id JOIN "+original+" o ON o.tenant_id=l.tenant_id AND o.company_id=l.company_id AND o.id=l."+sourceKey+" WHERE h.tenant_id=? AND h.company_id=? AND o."+originalHead+"=? AND h.status NOT IN ('voided','reversed') ORDER BY h.id FOR SHARE";
-        for(var row:jdbc.queryForList(sql,scope.tenantId(),scope.companyId(),source))result.add(dependency(child,row,"退货引用了本单，请先处理退货单"));
+        for(var row:jdbc.queryForList(sql,scope.tenantId(),scope.companyId(),source))result.add(dependency(scope,child,row,"退货引用了本单，请先处理退货单"));
     }
-    private Map<String,Object> dependency(String type,Map<String,Object> row,String relation) {
+    private Map<String,Object> dependency(CompanyAccess scope,String type,Map<String,Object> row,String relation) {
+        try {
+            if(type.equals("settlement_allocation")) cn.erp.shared.OrgOwnership.requireAllocation(jdbc,scope,row.get("id"));
+            else cn.erp.shared.OrgOwnership.require(jdbc,scope,type,row.get("id"));
+        } catch(ApiException denied) {
+            if(denied.getStatus()!=404) throw denied;
+            // 仍阻止破坏下游事实，但不在依赖错误中暴露范围外单号和标识。
+            return Map.of("documentType",type,"relation","存在范围外的下游引用，请联系有权限的人员处理");
+        }
         var result=new LinkedHashMap<String,Object>();result.put("documentType",type);result.put("documentId",row.get("id").toString());result.put("documentNo",row.get("document_no"));result.put("relation",relation);return result;
     }
 }

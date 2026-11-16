@@ -48,7 +48,7 @@ class OutboxController {
     }
     private cn.erp.identity.CompanyAccess company(HttpServletRequest req) {
         var actor=access.requireCompany(req,"admin:outbox");
-        if(!actor.allWarehouses()) throw new ApiException(403,"FORBIDDEN","后台事件管理需要整家公司数据范围");
+        if(!actor.allWarehouses()||!actor.orgScope().allDepartments()) throw new ApiException(403,"FORBIDDEN","后台事件管理需要整家公司数据范围");
         return actor;
     }
     private String visible() {return "((e.aggregate_type='journal' AND EXISTS(SELECT 1 FROM journal j WHERE j.tenant_id=e.tenant_id AND j.id=e.aggregate_id AND j.company_id=?)) OR (e.aggregate_type='reconciliation' AND EXISTS(SELECT 1 FROM reconciliation_run r WHERE r.tenant_id=e.tenant_id AND r.id=e.aggregate_id AND r.company_id=?)))";}

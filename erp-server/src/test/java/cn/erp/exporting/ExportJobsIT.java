@@ -54,6 +54,15 @@ class ExportJobsIT {
         assertThatThrownBy(()->jobs.get(new CompanyAccess(70101,999,70201,true,Set.of(),permissions),id)).isInstanceOf(ApiException.class);
         assertThatThrownBy(()->jobs.get(new CompanyAccess(70101,USER,70202,true,Set.of(),permissions),id)).isInstanceOf(ApiException.class);
     }
+    @Test void departmentSnapshotSurvivesWorkerExpansionAndDownloadRejectsRevocation() {
+        var limited=new CompanyAccess(70101,USER,70201,true,Set.of(),permissions,cn.erp.shared.OrgScope.restricted(Set.of(101L),Set.of(),101));
+        long id=create(limited);assertThat(worker.runOne()).isTrue();
+        assertThat(jobs.download(limited,id).bytes()).isNotEmpty();
+        jdbc.update("INSERT INTO org_role_data_scope(tenant_id,company_id,role_id,scope_type) VALUES(70101,70201,?,'self')",ROLE);
+        assertThatThrownBy(()->jobs.download(scope(true,Set.of(),permissions),id)).isInstanceOfSatisfying(ApiException.class,error->assertThat(error.getStatus()).isEqualTo(403));
+        jdbc.update("UPDATE org_role_data_scope SET scope_type='all' WHERE tenant_id=70101 AND company_id=70201 AND role_id=?",ROLE);
+        assertThat(jobs.download(limited,id).bytes()).isNotEmpty();
+    }
     @Test void initialScopeAndCostPermissionAreFrozenDespiteSubsequentExpansion() {
         var withoutCost=new HashSet<>(permissions);withoutCost.remove("cost:view");
         var limited=scope(false,Set.of(70301L),withoutCost);long id=create(limited);

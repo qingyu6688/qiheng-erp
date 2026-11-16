@@ -25,8 +25,24 @@ import static org.assertj.core.api.Assertions.*;
 @ActiveProfiles("test")
 class ReversalIT extends ReversalTestData {
     @Autowired PlatformTransactionManager transactions;
+    @Autowired ReversalSources sources;
+    @Test void departmentHiddenDependenciesBlockReversalWithoutExposingIdentifiers() {
+        stock("10","100");long source=shipment(order("2",false),"2","2"),ar=fact("receivable",source);
+        var invoice=invoices.create(maker,key(),invoice(ar,"40"));
+        jdbc.update("UPDATE shipment SET owner_department_id=101,owner_user_id=? WHERE id=?",maker.userId(),source);
+        jdbc.update("UPDATE invoice_registration SET owner_department_id=102,owner_user_id=? WHERE id=?",reviewer.userId(),id(invoice));
+        var limited=new CompanyAccess(tenant,maker.userId(),company,true,Set.of(),maker.permissions(),cn.erp.shared.OrgScope.restricted(Set.of(101L),Set.of(),101));
+        assertThatThrownBy(()->sources.dependencies(limited,"shipment",source)).isInstanceOfSatisfying(cn.erp.shared.ApiException.class,error->{
+            assertThat(error.getErrorCode()).isEqualTo("DEPENDENCY_EXISTS");
+            assertThat(error.getDetails().toString()).contains("范围外的下游引用").doesNotContain(invoice.get("id").toString(),"documentId","documentNo");
+        });
+    }
     @Test void stockAdjustmentReversalRetainsBothFactsAndRestoresZeroInventory() {
-        long source=stock("10","100");reverse("stock_adjustment",source);
+        long source=stock("10","100");
+        jdbc.update("UPDATE stock_adjustment SET owner_department_id=101,owner_user_id=? WHERE id=?",reviewer.userId(),source);
+        reverse("stock_adjustment",source);
+        assertThat(jdbc.queryForObject("SELECT owner_department_id FROM document_reversal WHERE tenant_id=? AND source_id=?",Long.class,tenant,source)).isEqualTo(101L);
+        assertThat(jdbc.queryForObject("SELECT owner_user_id FROM document_reversal WHERE tenant_id=? AND source_id=?",Long.class,tenant,source)).isEqualTo(reviewer.userId());
         assertThat(inventory.balance(maker,new InventoryModels.Key(warehouse,sku)).onHand()).isEqualByComparingTo("0");
         assertThat(inventory.balance(maker,new InventoryModels.Key(warehouse,sku)).cost()).isEqualByComparingTo("0");
         assertThat(count("inventory_movement")).isEqualTo(2);assertThat(count("journal")).isEqualTo(2);

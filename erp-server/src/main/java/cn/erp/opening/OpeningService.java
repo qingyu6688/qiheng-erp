@@ -53,8 +53,8 @@ public class OpeningService {
     public Map<String,Object> createStock(CompanyAccess scope,String key,Stock input) {
         return execute(scope,"stock_adjustment.create",key,input,201,()->{
             validateStock(scope,input);long id=Ids.next();
-            jdbc.update("INSERT INTO stock_adjustment(id,tenant_id,company_id,adjust_no,warehouse_id,adjust_type,reason,business_date,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                id,scope.tenantId(),scope.companyId(),numbers.next(scope,"SA",YearMonth.from(input.businessDate())),input.warehouseId(),adjustType(input),input.reason(),input.businessDate(),scope.userId(),scope.userId());
+            jdbc.update("INSERT INTO stock_adjustment(id,tenant_id,company_id,adjust_no,warehouse_id,adjust_type,reason,business_date,created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                id,scope.tenantId(),scope.companyId(),numbers.next(scope,"SA",YearMonth.from(input.businessDate())),input.warehouseId(),adjustType(input),input.reason(),input.businessDate(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             writeLines(scope,id,input.lines());return changed(scope,true,id,"create",null);
         });
     }
@@ -70,10 +70,10 @@ public class OpeningService {
         return execute(scope,"opening_entry.create",key,input,201,()->{
             validateEntry(scope,input);long id=Ids.next();
             jdbc.update("""
-                INSERT INTO opening_entry(id,tenant_id,company_id,entry_no,entry_type,partner_id,cash_account_id,direction,amount,business_date,remark,created_by,updated_by)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                INSERT INTO opening_entry(id,tenant_id,company_id,entry_no,entry_type,partner_id,cash_account_id,direction,amount,business_date,remark,created_by,updated_by,owner_user_id,owner_department_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,id,scope.tenantId(),scope.companyId(),numbers.next(scope,"OE",YearMonth.from(input.businessDate())),input.entryType(),input.partnerId(),input.cashAccountId(),
-                input.direction(),amount(input.amount()),input.businessDate(),input.remark(),scope.userId(),scope.userId());
+                input.direction(),amount(input.amount()),input.businessDate(),input.remark(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             return changed(scope,false,id,"create",null);
         });
     }
@@ -184,7 +184,7 @@ public class OpeningService {
     }
     public Map<String,Object> list(CompanyAccess scope,boolean stock,String status,String adjustType,Long cursor,int limit) {
         long before=cursor(cursor,limit);if(status!=null&&!Set.of("draft","pending","approved","posted","voided","reversed").contains(status))throw invalid("单据状态无效");
-        String sql="SELECT id FROM "+table(stock)+" WHERE tenant_id=? AND company_id=? AND id<?";
+        String sql="SELECT id FROM "+table(stock)+" WHERE tenant_id=? AND company_id=? AND id<?"+cn.erp.shared.OrgOwnership.filter(scope,table(stock));
         var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),before));
         if(status!=null){sql+=" AND status=?";args.add(status);}
         if(adjustType!=null){if(!stock||!Set.of("opening","gain","loss","block","unblock","scrap").contains(adjustType))throw invalid("库存调整类型无效");sql+=" AND adjust_type=?";args.add(adjustType);}
@@ -227,6 +227,7 @@ public class OpeningService {
         }
     }
     private Map<String,Object> find(CompanyAccess scope,boolean stock,long id,boolean lock) {
+        cn.erp.shared.OrgOwnership.require(jdbc,scope,table(stock),id);
         var rows=jdbc.queryForList("SELECT * FROM "+table(stock)+" WHERE tenant_id=? AND company_id=? AND id=?"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
         if(rows.isEmpty()||stock&&!scope.allowsWarehouse(id(rows.getFirst(),"warehouse_id")))throw missing();return rows.getFirst();
     }
@@ -237,7 +238,7 @@ public class OpeningService {
     private void updateState(CompanyAccess scope,String table,long id,String state) {jdbc.update("UPDATE "+table+" SET status=?,version=version+1,updated_by=? WHERE id=?",state,scope.userId(),id);}
     private Map<String,Object> changed(CompanyAccess scope,boolean stock,long id,String action,Object before) {
         var permissions=new HashSet<>(scope.permissions());permissions.remove("cost:view");
-        var result=get(new CompanyAccess(scope.tenantId(),scope.userId(),scope.companyId(),scope.allWarehouses(),scope.warehouseIds(),permissions),stock,id);
+        var result=get(new CompanyAccess(scope.tenantId(),scope.userId(),scope.companyId(),scope.allWarehouses(),scope.warehouseIds(),permissions,scope.orgScope()),stock,id);
         audit.record(scope,resource(stock)+"."+action,resource(stock),id,null,result);return result;
     }
     @SuppressWarnings({"rawtypes","unchecked"})

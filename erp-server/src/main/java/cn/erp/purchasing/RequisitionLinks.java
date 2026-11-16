@@ -34,7 +34,10 @@ class RequisitionLinks {
         var ids=new TreeSet<Long>();ids.addAll(previous.keySet());ids.addAll(selected.keySet());
         var heads=new TreeSet<Long>();
         for(long id:ids) {var rows=jdbc.queryForList("SELECT requisition_id FROM purchase_requisition_line WHERE tenant_id=? AND company_id=? AND id=?",Long.class,scope.tenantId(),scope.companyId(),id);if(rows.isEmpty()) {throw missing();}heads.add(rows.getFirst());}
-        for(long head:heads) {jdbc.queryForObject("SELECT id FROM purchase_requisition WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),head);}
+        for(long head:heads) {
+            cn.erp.shared.OrgOwnership.require(jdbc,scope,"purchase_requisition",head);
+            jdbc.queryForObject("SELECT id FROM purchase_requisition WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),head);
+        }
         for(long id:ids) {
             var row=jdbc.queryForMap("SELECT l.*,h.status,h.is_deleted FROM purchase_requisition_line l JOIN purchase_requisition h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.requisition_id WHERE l.tenant_id=? AND l.company_id=? AND l.id=? FOR UPDATE",scope.tenantId(),scope.companyId(),id);
             BigDecimal before=previous.getOrDefault(id,BigDecimal.ZERO),after=selected.getOrDefault(id,BigDecimal.ZERO),delta=after.subtract(before);

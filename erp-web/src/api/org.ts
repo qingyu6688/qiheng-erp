@@ -5,8 +5,28 @@ import type {
   Department,
   DepartmentInput,
   OrgUser,
+  RoleDataScope,
   UserOrganization,
 } from '../types/org'
+
+export function roleDataScope(id: string, signal?: AbortSignal): Promise<RoleDataScope> {
+  return request({ method: 'GET', url: '/org/roles/' + id + '/data-scope', signal }, true)
+}
+export function saveRoleDataScope(
+  id: string,
+  body: Pick<RoleDataScope, 'scopeType' | 'departmentIds' | 'version'>,
+  key: string,
+): Promise<RoleDataScope> {
+  return request(
+    {
+      method: 'PUT',
+      url: '/org/roles/' + id + '/data-scope',
+      data: body,
+      headers: { 'Idempotency-Key': key },
+    },
+    true,
+  )
+}
 
 export function departments(signal?: AbortSignal): Promise<Department[]> {
   return request({ method: 'GET', url: '/org/departments/tree', signal }, true)

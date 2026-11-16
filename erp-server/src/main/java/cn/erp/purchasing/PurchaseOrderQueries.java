@@ -16,13 +16,15 @@ public class PurchaseOrderQueries {
     public PurchaseOrderQueries(JdbcTemplate jdbc) {this.jdbc=jdbc;}
 
     public Map<String,Object> header(CompanyAccess scope,long id,boolean lock) {
-        var rows=jdbc.queryForList("SELECT * FROM purchase_order WHERE tenant_id=? AND company_id=? AND id=? AND is_deleted=0"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
+        cn.erp.shared.OrgOwnership.require(jdbc,scope,"purchase_order",id);
+        var rows=jdbc.queryForList("SELECT * FROM purchase_order WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"purchase_order")+" AND id=? AND is_deleted=0"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);
         if(rows.isEmpty()) {throw missing();}
         visible(scope,id);
         return rows.getFirst();
     }
 
     public void visible(CompanyAccess scope,long id) {
+        cn.erp.shared.OrgOwnership.require(jdbc,scope,"purchase_order",id);
         if(scope.allWarehouses()) {return;}
         var warehouses=jdbc.queryForList("SELECT warehouse_id FROM purchase_order_line WHERE tenant_id=? AND company_id=? AND order_id=? AND is_deleted=0",Long.class,scope.tenantId(),scope.companyId(),id);
         if(warehouses.isEmpty() || warehouses.stream().anyMatch(w->w==null || !scope.allowsWarehouse(w))) {throw missing();}
@@ -79,7 +81,7 @@ public class PurchaseOrderQueries {
             filter+=" AND NOT EXISTS(SELECT 1 FROM purchase_order_line l WHERE l.order_id=purchase_order.id AND l.is_deleted=0 AND (l.warehouse_id IS NULL OR l.warehouse_id NOT IN ("+marks+")))";
             args.addAll(scope.warehouseIds());
         }
-        args.add(limit+1);
+        filter+=cn.erp.shared.OrgOwnership.filter(scope,"purchase_order");args.add(limit+1);
         var rows=jdbc.queryForList("SELECT * FROM purchase_order"+filter+" ORDER BY id DESC LIMIT ?",args.toArray());
         var suppliers=cn.erp.shared.ScopedReferences.load(jdbc,scope,"business_partner",rows.stream().limit(limit).map(row->number(row,"supplier_id")).toList());
         var items=rows.stream().limit(limit).map(row->{var item=camel(row);item.put("documentNo",row.get("order_no"));item.put("supplier",cn.erp.shared.ScopedReferences.get(suppliers,number(row,"supplier_id")));item.put("allowedActions",actions(scope,row));return item;}).toList();
@@ -107,7 +109,7 @@ public class PurchaseOrderQueries {
 
     @Transactional
     public void refreshProgress(CompanyAccess scope,long orderId) {
-        var heads=jdbc.queryForList("SELECT * FROM purchase_order WHERE tenant_id=? AND company_id=? AND id=? AND is_deleted=0 FOR UPDATE",scope.tenantId(),scope.companyId(),orderId);
+        var heads=jdbc.queryForList("SELECT * FROM purchase_order WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"purchase_order")+" AND id=? AND is_deleted=0 FOR UPDATE",scope.tenantId(),scope.companyId(),orderId);
         if(heads.isEmpty()) {throw missing();}
         var total=jdbc.queryForMap("SELECT COALESCE(SUM(GREATEST(base_qty-closed_base_qty,0)),0) needed,COALESCE(SUM(received_base_qty),0) received,COALESCE(SUM(returned_base_qty),0) returned FROM purchase_order_line WHERE tenant_id=? AND company_id=? AND order_id=? AND is_deleted=0",scope.tenantId(),scope.companyId(),orderId);
         BigDecimal needed=decimal(total,"needed"),received=decimal(total,"received"),returned=decimal(total,"returned");
@@ -139,7 +141,7 @@ public class PurchaseOrderQueries {
             if(scope.warehouseIds().isEmpty()) {return page(List.of(),null);}
             filter+=" AND l.warehouse_id IN("+String.join(",",Collections.nCopies(scope.warehouseIds().size(),"?"))+")";args.addAll(scope.warehouseIds());
         }
-        args.add(limit);
+        filter+=cn.erp.shared.OrgOwnership.filter(scope,"h");args.add(limit);
         var rows=jdbc.queryForList("""
             SELECT l.id,l.order_id,h.order_no,h.supplier_id,l.sku_id,s.name sku_name,l.warehouse_id,l.unit_id,u.name unit_name,l.unit_rate,l.base_qty,
               l.receive_limit_base_qty,l.received_base_qty,l.pending_receive_base_qty,

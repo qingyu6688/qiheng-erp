@@ -24,7 +24,7 @@ public class SalesInventoryQueries {
             if(scope.warehouseIds().isEmpty()) {return page(List.of(),null);}
             filter+=" AND l.warehouse_id IN ("+String.join(",",Collections.nCopies(scope.warehouseIds().size(),"?"))+")";args.addAll(scope.warehouseIds());
         }
-        args.add(limit);
+        filter+=cn.erp.shared.OrgOwnership.filter(scope,"h");args.add(limit);
         var rows=jdbc.queryForList("""
             SELECT l.id,l.order_id,h.order_no,h.customer_id,l.sku_id,l.warehouse_id,l.unit_id,l.unit_rate,l.qty,l.base_qty,
             s.code sku_code,s.name sku_name,u.name unit_name,
@@ -49,7 +49,7 @@ public class SalesInventoryQueries {
         }
         if(shortageOnly)filter+=" AND v.pending_demand_qty>v.available_qty";
         if(hideZero)filter+=" AND (v.on_hand_qty<>0 OR v.reserved_qty<>0 OR v.blocked_qty<>0 OR v.pending_demand_qty<>0)";
-        String base=BALANCES+" FROM v JOIN warehouse w ON w.id=v.warehouse_id AND w.tenant_id=:t JOIN sku s ON s.id=v.sku_id AND s.tenant_id=:t";
+        String base=BALANCES.formatted(cn.erp.shared.OrgOwnership.filter(scope,"h"))+" FROM v JOIN warehouse w ON w.id=v.warehouse_id AND w.tenant_id=:t JOIN sku s ON s.id=v.sku_id AND s.tenant_id=:t";
         var named=new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(jdbc);
         var rawSummary=named.queryForMap(base.replace("SELECT v.*,w.code warehouse_code,w.name warehouse_name,s.code sku_code,s.name sku_name", "SELECT COALESCE(SUM(v.cost_amount),0) cost_amount,COALESCE(SUM(v.blocked_qty),0) blocked_qty,COUNT(DISTINCT IF(v.pending_demand_qty>v.available_qty,v.sku_id,NULL)) shortage_count")+filter,args);
         var summary=camel(rawSummary);if(!scope.permissions().contains("cost:view"))summary.remove("costAmount");
@@ -57,6 +57,7 @@ public class SalesInventoryQueries {
             String unsigned="SELECT COUNT(DISTINCT h.id) unreceived_count,COALESCE(SUM(l.cost_amount-COALESCE(l.signed_cost_amount,0)-IF(l.diff_disposition IN ('returned','lost'),COALESCE(l.diff_cost_amount,0),0)),0) unreceived_cost_amount FROM shipment_line l JOIN shipment h ON h.id=l.shipment_id AND h.tenant_id=l.tenant_id AND h.company_id=l.company_id JOIN sku s ON s.id=l.sku_id WHERE h.tenant_id=:t AND h.company_id=:c AND h.status IN ('posted','signed','signed_with_diff') AND l.base_qty-l.signed_base_qty-IF(l.diff_disposition IN ('returned','lost'),l.diff_base_qty,0)>0 AND (LOCATE(:k,s.code)>0 OR LOCATE(:k,s.name)>0 OR EXISTS(SELECT 1 FROM sku_barcode bc WHERE bc.tenant_id=:t AND bc.sku_id=s.id AND bc.barcode=:k))";
             if(warehouse!=null)unsigned+=" AND h.warehouse_id=:w";
             if(!scope.allWarehouses())unsigned+=" AND h.warehouse_id IN (:warehouses)";
+            unsigned+=cn.erp.shared.OrgOwnership.filter(scope,"h");
             summary.putAll(camel(named.queryForMap(unsigned,args)));if(!scope.permissions().contains("cost:view"))summary.remove("unreceivedCostAmount");
         }
         String pageFilter=filter;
@@ -75,7 +76,7 @@ public class SalesInventoryQueries {
           FROM inventory_balance WHERE tenant_id=:t AND company_id=:c GROUP BY warehouse_id,sku_id),
         demand AS (SELECT l.warehouse_id,l.sku_id,SUM(l.base_qty) pending_demand_qty FROM sales_order_line l
           JOIN sales_order h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.order_id
-          WHERE l.tenant_id=:t AND l.company_id=:c AND l.is_deleted=0 AND h.is_deleted=0 AND h.status='pending' AND l.warehouse_id IS NOT NULL GROUP BY l.warehouse_id,l.sku_id),
+          WHERE l.tenant_id=:t AND l.company_id=:c AND l.is_deleted=0 AND h.is_deleted=0 AND h.status='pending' AND l.warehouse_id IS NOT NULL %s GROUP BY l.warehouse_id,l.sku_id),
         k AS (SELECT warehouse_id,sku_id FROM balances UNION SELECT warehouse_id,sku_id FROM demand UNION SELECT warehouse_id,sku_id FROM inventory_cost WHERE tenant_id=:t AND company_id=:c),
         v AS (SELECT k.warehouse_id,k.sku_id,COALESCE(b.on_hand_qty,0) on_hand_qty,COALESCE(b.reserved_qty,0) reserved_qty,COALESCE(b.blocked_qty,0) blocked_qty,
           COALESCE(b.on_hand_qty,0)-COALESCE(b.reserved_qty,0)-COALESCE(b.blocked_qty,0) available_qty,COALESCE(d.pending_demand_qty,0) pending_demand_qty,

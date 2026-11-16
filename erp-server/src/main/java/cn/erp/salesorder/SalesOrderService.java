@@ -49,8 +49,8 @@ public class SalesOrderService {
         return execute(scope,"create",key,input,201,()->{
             var preview=writer.price(scope,input);
             long id=Ids.next();String no=numbers.next(scope,"SO",YearMonth.from(input.businessDate()));
-            jdbc.update("INSERT INTO sales_order(id,tenant_id,company_id,order_no,customer_id,business_date,price_tax_inclusive,created_by,updated_by) VALUES(?,?,?,?,?,?,1,?,?)",
-                    id,scope.tenantId(),scope.companyId(),no,identifier(input.customerId()),input.businessDate(),scope.userId(),scope.userId());
+            jdbc.update("INSERT INTO sales_order(id,tenant_id,company_id,order_no,customer_id,business_date,price_tax_inclusive,created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,1,?,?,?,?)",
+                    id,scope.tenantId(),scope.companyId(),no,identifier(input.customerId()),input.businessDate(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             writer.writeNew(scope,id,input,preview);
             var result=queries.get(scope,id);
             audit.record(scope,"sales_order.create","sales_order",id,null,result);
@@ -66,7 +66,7 @@ public class SalesOrderService {
     }
 
     public void delete(CompanyAccess scope,long id,long expectedVersion) {
-        var rows=jdbc.queryForList("SELECT * FROM sales_order WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",scope.tenantId(),scope.companyId(),id);
+        var rows=jdbc.queryForList("SELECT * FROM sales_order WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"sales_order")+" AND id=? FOR UPDATE",scope.tenantId(),scope.companyId(),id);
         if(rows.isEmpty()) {throw missing();}
         var before=rows.getFirst();
         if(flag(before.get("is_deleted"))) {return;}

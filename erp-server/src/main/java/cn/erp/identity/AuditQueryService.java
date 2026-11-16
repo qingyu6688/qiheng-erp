@@ -22,6 +22,10 @@ class AuditQueryService {
         if(limit<1||limit>200) throw invalid("查询条数为 1 到 200");
         var args=new ArrayList<Object>(List.of(actor.tenantId(),cursor(cursor),actor.userId()));
         var sql=new StringBuilder("SELECT a.*,u.display_name AS operator_name,c.name AS company_name FROM audit_log a LEFT JOIN sys_user u ON u.tenant_id=a.tenant_id AND u.id=a.operator_id LEFT JOIN company c ON c.tenant_id=a.tenant_id AND c.id=a.company_id WHERE a.tenant_id=? AND a.id<? AND (a.company_id IS NULL OR EXISTS(SELECT 1 FROM sys_user_data_scope s WHERE s.tenant_id=a.tenant_id AND s.company_id=a.company_id AND s.user_id=? AND s.scope_type='company'))");
+        var companies=jdbc.queryForList("SELECT DISTINCT company_id FROM sys_user_data_scope WHERE tenant_id=? AND user_id=?",Long.class,actor.tenantId(),actor.userId());
+        var restricted=new ArrayList<Long>();var resolver=new OrgScopeResolver(jdbc);
+        for(long company:companies) if(!resolver.resolve(actor.tenantId(),company,actor.userId()).allDepartments()) restricted.add(company);
+        if(!restricted.isEmpty()) {sql.append(" AND (a.company_id IS NULL OR a.company_id NOT IN ("+String.join(",",Collections.nCopies(restricted.size(),"?"))+"))");args.addAll(restricted);}
         add(sql,args,"a.action",text(filter.action(),64));add(sql,args,"a.object_type",text(filter.entityType(),32));
         add(sql,args,"a.object_id",positive(filter.entityId()));add(sql,args,"a.operator_id",positive(filter.operatorId()));
         add(sql,args,"a.company_id",positive(filter.companyId()));add(sql,args,"a.request_id",text(filter.requestId(),64));

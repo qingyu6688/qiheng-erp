@@ -28,6 +28,7 @@ const input = defineComponent({
     '<input :value="modelValue" :disabled="disabled" @input="$emit(\'update:modelValue\', $event.target.value)" />',
 })
 const stubs = {
+  RoleDataScopeEditor: true,
   ElInput: input,
   ElSelect: { props: ['disabled'], template: '<select :disabled="disabled"><slot /></select>' },
   ElOption: { props: ['value', 'label'], template: '<option :value="value">{{ label }}</option>' },

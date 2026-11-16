@@ -159,6 +159,7 @@ public class SettlementService {
     }
 
     Map<Long,Map<String,Object>> lockItems(ActorScope scope,long... ids) {
+        for(long item:ids) cn.erp.shared.OrgOwnership.requireItem(jdbc,scope,item);
         var result=new LinkedHashMap<Long,Map<String,Object>>();
         // 未清项可跨不同来源类型，保留完整主键逐点锁，不能为了批量化锁入其他往来或公司。
         Arrays.stream(ids).sorted().distinct().forEach(id->{

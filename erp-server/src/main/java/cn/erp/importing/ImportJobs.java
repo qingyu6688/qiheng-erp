@@ -67,9 +67,9 @@ public class ImportJobs {
                         jdbc.update("INSERT INTO attachment(id,tenant_id,company_id,owner_type,owner_id,storage_key,file_name,content_type,size_bytes,sha256,created_by) VALUES(?,?,?,'import_job',?,?,?,?,?,?,?)",
                                 attachment,scope.tenantId(),scope.companyId(),jobId,storageKey,"import.csv","text/csv",bytes.length,sha,scope.userId());
                         jdbc.update("""
-                                INSERT INTO import_job(id,tenant_id,company_id,job_type,attachment_id,total_rows,created_by,file_fingerprint,options_json,warehouse_snapshot,requires_cost)
-                                VALUES(?,?,?,?,?,?,?,?,?,?,?)
-                                """,jobId,scope.tenantId(),scope.companyId(),type,attachment,rows.size(),scope.userId(),fingerprint,json.writeValueAsString(options),json.writeValueAsString(snapshot.stream().sorted().map(Object::toString).toList()),cost);
+                                INSERT INTO import_job(id,tenant_id,company_id,job_type,attachment_id,total_rows,created_by,file_fingerprint,options_json,warehouse_snapshot,requires_cost,org_scope_snapshot)
+                                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                                """,jobId,scope.tenantId(),scope.companyId(),type,attachment,rows.size(),scope.userId(),fingerprint,json.writeValueAsString(options),json.writeValueAsString(snapshot.stream().sorted().map(Object::toString).toList()),cost,json.writeValueAsString(scope.orgScope()));
                         audit.record(scope,"import_job.create","import_job",jobId,null,Map.of("jobType",type,"totalRows",rows.size()));
                         objects.associated(storageKey);
                         return Map.of("id",Long.toString(jobId),"jobType",type,"status","pending","totalRows",rows.size(),"successRows",0,"failedRows",0);
@@ -157,6 +157,11 @@ public class ImportJobs {
         var row=rows.getFirst();var current=access.current(scope.tenantId(),scope.companyId(),scope.userId(),snapshot(row.get("warehouse_snapshot")),row.get("job_type").toString(),cost(row));
         var options=json.readValue(row.get("options_json").toString(),Options.class);
         if(options.warehouseId()!=null&&!current.allowsWarehouse(options.warehouseId()))throw ImportAccess.forbidden();
+    }
+    CompanyAccess organization(CompanyAccess actor,Object snapshot) {
+        if(snapshot==null) return actor;
+        var initial=json.readValue(snapshot.toString(),cn.erp.shared.OrgScope.class);
+        return new CompanyAccess(actor.tenantId(),actor.userId(),actor.companyId(),actor.allWarehouses(),actor.warehouseIds(),actor.permissions(),actor.orgScope().intersect(initial));
     }
     Set<Long> snapshot(Object value) {
         if(value==null)return Set.of();var result=new HashSet<Long>();

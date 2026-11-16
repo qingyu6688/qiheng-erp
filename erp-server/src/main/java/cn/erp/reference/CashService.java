@@ -39,6 +39,7 @@ class CashService {
     }
 
     private void visible(CompanyAccess scope,Map<String,Object> row) {
+        if(!scope.orgScope().allDepartments()) row.remove("balance");
         if (!scope.hasPermission("cash_account_no:view") && row.get("accountNo")!=null) {
             String raw=row.get("accountNo").toString();
             row.put("accountNo","****"+raw.substring(Math.max(0,raw.length()-4)));

@@ -99,7 +99,7 @@ public class TradeSummaryService {
         var parameters=new HashMap<String,Object>();
         parameters.put("t",actor.tenantId());parameters.put("c",actor.companyId());
         parameters.put("f",from);parameters.put("d",to);
-        String sql="SELECT business_date,SUM(amount) amount FROM ("+ReportSql.query(type,true)+") facts WHERE 1=1";
+        String sql="SELECT business_date,SUM(amount) amount FROM ("+ReportSql.query(type,true,actor)+") facts WHERE 1=1";
         if (!actor.allWarehouses()) {
             parameters.put("warehouses",actor.warehouseIds().isEmpty()?List.of(-1L):actor.warehouseIds());
             sql+=" AND warehouse_id IN (:warehouses)";
@@ -123,7 +123,7 @@ public class TradeSummaryService {
 
     private String scopeKey(CompanyAccess actor,int months,LocalDate today,boolean sales,boolean purchase) {
         String scope=actor.tenantId()+"|"+actor.companyId()+"|"+actor.userId()+"|"+actor.allWarehouses()+"|"
-                +actor.warehouseIds().stream().sorted().toList()+"|"+months+"|"+today+"|"+sales+"|"+purchase;
+                +actor.warehouseIds().stream().sorted().toList()+"|"+actor.orgScope().signature()+"|"+months+"|"+today+"|"+sales+"|"+purchase;
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(scope.getBytes(StandardCharsets.UTF_8))); }
         catch (NoSuchAlgorithmException failure) { throw new IllegalStateException("无法计算工作台范围摘要",failure); }
     }

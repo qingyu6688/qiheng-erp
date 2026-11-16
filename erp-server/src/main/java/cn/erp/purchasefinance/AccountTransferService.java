@@ -28,7 +28,7 @@ public class AccountTransferService {
     public Map<String,Object> list(CompanyAccess scope,String status,Long cursor,int limit) {
         long before=cursor(cursor,limit);
         if(status!=null&&!Set.of("draft","pending_confirm","confirmed","reversed").contains(status)) {throw invalid("转账状态无效");}
-        var rows=jdbc.queryForList("SELECT * FROM account_transfer WHERE tenant_id=? AND company_id=? AND id<? AND (? IS NULL OR status=?) ORDER BY id DESC LIMIT ?",scope.tenantId(),scope.companyId(),before,status,status,limit+1);
+        var rows=jdbc.queryForList("SELECT * FROM account_transfer WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"account_transfer")+" AND id<? AND (? IS NULL OR status=?) ORDER BY id DESC LIMIT ?",scope.tenantId(),scope.companyId(),before,status,status,limit+1);
         var result=page(rows,limit);
         @SuppressWarnings("unchecked") var items=(List<Map<String,Object>>)result.get("items");
         for(int index=0;index<items.size();index++) {decorate(scope,rows.get(index),items.get(index));}return result;
@@ -43,9 +43,9 @@ public class AccountTransferService {
         return execute(scope,"create",key,input,201,()->{
             validate(scope,input);long id=Ids.next();String no=numbers.next(scope,"AT",YearMonth.from(input.businessDate()));
             jdbc.update("""
-                INSERT INTO account_transfer(id,tenant_id,company_id,transfer_no,from_account_id,to_account_id,amount,fee_amount,business_date,remark,created_by,updated_by)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
-                """,id,scope.tenantId(),scope.companyId(),no,input.fromAccountId(),input.toAccountId(),amount(input.amount()),TreasurySupport.fee(input.feeAmount()),input.businessDate(),input.remark(),scope.userId(),scope.userId());
+                INSERT INTO account_transfer(id,tenant_id,company_id,transfer_no,from_account_id,to_account_id,amount,fee_amount,business_date,remark,created_by,updated_by,owner_user_id,owner_department_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,id,scope.tenantId(),scope.companyId(),no,input.fromAccountId(),input.toAccountId(),amount(input.amount()),TreasurySupport.fee(input.feeAmount()),input.businessDate(),input.remark(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             audit.record(scope,"account_transfer.create","account_transfer",id,null,Map.of("documentNo",no));return get(scope,id);
         });
     }
