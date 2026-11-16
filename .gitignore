@@ -12,5 +12,6 @@
 .vscode/
 *.iml
 *.log
+**/logs/
 *.tsbuildinfo
 __pycache__/

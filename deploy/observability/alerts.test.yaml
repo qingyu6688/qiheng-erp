@@ -1,0 +1,60 @@
+rule_files:
+  - alerts.yaml
+evaluation_interval: 1m
+tests:
+  - name: Outbox 积压触发并在恢复后解除
+    interval: 1m
+    input_series:
+      - series: erp_queue_oldest_seconds{job="erp",instance="test-api",queue="outbox"}
+        values: '600 600 600 600 0 0'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: ErpOutboxBacklog
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: ErpOutboxBacklog
+        exp_alerts:
+          - exp_labels:
+              job: erp
+              instance: test-api
+              queue: outbox
+              severity: warning
+            exp_annotations:
+              summary: Outbox 最旧待处理事件超过五分钟
+      - eval_time: 5m
+        alertname: ErpOutboxBacklog
+        exp_alerts: []
+  - name: 备份失败及正常状态
+    interval: 1m
+    input_series:
+      - series: erp_backup_last_attempt_success{job="node",instance="test-node"}
+        values: '0 0 0 1 1'
+      - series: erp_backup_in_progress{job="node",instance="test-node"}
+        values: '0+0x4'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: ErpBackupFailed
+        exp_alerts:
+          - exp_labels:
+              job: node
+              instance: test-node
+              severity: critical
+            exp_annotations:
+              summary: 最近备份失败或已运行超过一小时
+      - eval_time: 4m
+        alertname: ErpBackupFailed
+        exp_alerts: []
+  - name: 正常队列保持静默
+    interval: 1m
+    input_series:
+      - series: erp_queue_oldest_seconds{job="erp",instance="test-api",queue="outbox"}
+        values: '0+0x10'
+      - series: erp_queue_jobs{job="erp",instance="test-api",queue="import",status="failed"}
+        values: '0+0x10'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ErpOutboxBacklog
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: ErpQueueFailures
+        exp_alerts: []

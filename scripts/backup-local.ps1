@@ -5,6 +5,7 @@ param(
     [Parameter(Mandatory)][string]$ObjectRoot,
     [Parameter(Mandatory)][string]$OutputDirectory,
     [Parameter(Mandatory)][switch]$SourceStopped,
+    [string]$MetricsDirectory,
     [string]$MySqlDirectory = 'D:\mysql-8.0.46-winx64\bin'
 )
 $ErrorActionPreference = 'Stop'
@@ -26,7 +27,34 @@ $mysql = Join-Path $MySqlDirectory 'mysql.exe'
 $dump = Join-Path $MySqlDirectory 'mysqldump.exe'
 $previousPassword = $env:MYSQL_PWD
 $lock = $null
+$attemptedAt = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$previousSuccess = 0L
+if ($MetricsDirectory) {
+    $metricsRoot = (Resolve-Path -LiteralPath $MetricsDirectory).Path
+    $metricsPath = Join-Path $metricsRoot 'erp-backup.prom'
+    if (Test-Path -LiteralPath $metricsPath) {
+        foreach ($metricLine in [IO.File]::ReadAllLines($metricsPath)) {
+            if ($metricLine -match '^erp_backup_last_success_timestamp_seconds ([0-9]+)$') { $previousSuccess = [long]$matches[1] }
+        }
+    }
+}
+function Write-BackupMetrics([bool]$Succeeded, [bool]$InProgress) {
+    if (!$MetricsDirectory) { return }
+    $lastSuccess = if ($Succeeded) { [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() } else { $previousSuccess }
+    $successValue = if ($Succeeded) { 1 } else { 0 }
+    $progressValue = if ($InProgress) { 1 } else { 0 }
+    $content = @(
+        "erp_backup_last_attempt_timestamp_seconds $attemptedAt"
+        "erp_backup_last_success_timestamp_seconds $lastSuccess"
+        "erp_backup_last_attempt_success $successValue"
+        "erp_backup_in_progress $progressValue"
+    ) -join "`n"
+    $temporary = $metricsPath + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
+    [IO.File]::WriteAllText($temporary, $content + "`n", [Text.UTF8Encoding]::new($false))
+    [IO.File]::Move($temporary, $metricsPath, $true)
+}
 try {
+    Write-BackupMetrics $false $true
     $env:MYSQL_PWD = $settings.DB_PASSWORD
     $connection = @('--no-defaults', ('--host=' + $settings.DB_HOST), ('--port=' + $settings.DB_PORT), ('--user=' + $settings.DB_USER), '--default-character-set=utf8mb4')
     $version = & $mysql @connection --batch --skip-column-names '--execute=SELECT VERSION();'
@@ -60,7 +88,13 @@ try {
         sourceStopped = $true; globalReadLock = $true; objects = $hashes
     }
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $output 'manifest.json') -Encoding utf8NoBOM
+    Write-BackupMetrics $true $false
     '完整数据库和对象仓已在冻结窗口备份，摘要清单已保存。'
+} catch {
+    $backupFailure = $_
+    try { Write-BackupMetrics $false $false }
+    catch { Write-Warning '备份失败状态写入失败，请同时检查 textfile 目录权限。' }
+    throw $backupFailure
 } finally {
     if ($lock -and !$lock.HasExited) { $lock.Kill(); $lock.WaitForExit() }
     if ($lock) { $lock.Dispose() }

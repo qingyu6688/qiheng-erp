@@ -37,7 +37,10 @@ Copy-Item -LiteralPath $jar -Destination (Join-Path $stage 'erp-server.jar')
 Copy-Item -LiteralPath $dist -Destination (Join-Path $stage 'web') -Recurse
 New-Item -ItemType Directory -Path (Join-Path $stage 'deploy'),(Join-Path $stage 'scripts'),(Join-Path $stage 'docs') | Out-Null
 foreach($file in Get-ChildItem -LiteralPath (Join-Path $root 'deploy') -File){if($file.Name -eq '.env' -or $file.Extension -in '.pem','.key','.crt'){throw '部署模板目录含私有配置或证书，拒绝打包。'};if($file.Name -ne '.gitignore'){Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $stage 'deploy')}}
+$monitoringTemplates = Join-Path $root 'deploy/observability'
+Copy-Item -LiteralPath $monitoringTemplates -Destination (Join-Path $stage 'deploy/observability') -Recurse
 foreach($file in Get-ChildItem -LiteralPath (Join-Path $root 'scripts') -Filter '*.ps1' -File){Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $stage 'scripts')}
+Copy-Item -LiteralPath (Join-Path $root 'scripts/verify-observability.py') -Destination (Join-Path $stage 'scripts')
 $javaDirectory=Join-Path $root 'scripts/java'
 if(Test-Path -LiteralPath $javaDirectory -PathType Container){
  New-Item -ItemType Directory -Path (Join-Path $stage 'scripts/java') | Out-Null
@@ -47,7 +50,7 @@ $documents=@(
  '运维手册.md','部署说明.md','用户使用手册.md','测试报告.md','容量测试报告.md',
  '接口设计.md','数据库设计.md','开发计划.md','优化文档.md','项目总结.md','环境检查.md',
  '更新日志.md','上线准备清单.md','本机期初导入与业务试运行报告.md','多方式登录配置.md',
- '企业级演进规划.md','UI设计规范.md'
+ '企业级演进规划.md','UI设计规范.md','可观测性设计.md'
 )
 foreach($name in $documents) {
  Copy-Item -LiteralPath (Join-Path $root ('docs/'+$name)) -Destination (Join-Path $stage 'docs')

@@ -78,6 +78,8 @@ npm --prefix erp-web run build
 - 开发参考见[接口设计](docs/接口设计.md)和[数据库设计](docs/数据库设计.md)。
 - 部署和运营见[运维手册](docs/运维手册.md)和[多方式登录配置](docs/多方式登录配置.md)。
 
+M10 已开始接入运行监控。独立管理端口提供 Prometheus 指标，外置 OpenTelemetry Java Agent 采集链路，部署模板包含 Grafana 看板、Tempo、Loki、Alloy 和 Alertmanager。Windows 可运行本机链路和 Outbox 告警演练，配置、命令与验证范围见[运维手册](docs/运维手册.md#m10-运行监控)。
+
 ### 许可
 
 柒衡 ERP 项目代码采用 [GNU Affero 通用公共许可证第 3 版](LICENSE)，SPDX 标识为 `AGPL-3.0-only`。第三方依赖适用各自的许可条款。
@@ -157,6 +159,8 @@ Once a Playwright browser is available, run `pwsh -NoProfile -File ./scripts/pro
 
 - For development, see the [API design](docs/接口设计.md) and [database design](docs/数据库设计.md) in Chinese.
 - For deployment and operations, see the [operations manual](docs/运维手册.md) and [sign-in configuration guide](docs/多方式登录配置.md) in Chinese.
+
+M10 adds operational monitoring through a separate Prometheus management endpoint and an external OpenTelemetry Java Agent. Deployment templates include a Grafana dashboard, Tempo, Loki, Alloy, and Alertmanager. A Windows drill verifies traces and Outbox alert delivery. Configuration, commands, and validation scope are documented in the [operations manual (Chinese)](docs/运维手册.md#m10-运行监控).
 
 ### License
 

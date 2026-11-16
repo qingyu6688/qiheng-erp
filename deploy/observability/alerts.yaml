@@ -1,0 +1,73 @@
+groups:
+  - name: erp
+    rules:
+      - alert: ErpInstanceDown
+        expr: up{job="erp"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: ERP 实例指标无法抓取
+      - alert: ErpHttpErrorRate
+        expr: sum by (instance) (rate(http_server_requests_seconds_count{job="erp",role="api",status=~"5.."}[5m])) / clamp_min(sum by (instance) (rate(http_server_requests_seconds_count{job="erp",role="api"}[5m])), 0.001) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 业务接口五分钟错误率超过百分之一
+      - alert: ErpHttpP95
+        expr: histogram_quantile(0.95, sum by (instance, le) (rate(http_server_requests_seconds_bucket{job="erp",role="api",uri!~"/actuator/.*"}[5m]))) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 业务接口 P95 延迟持续超过 500 毫秒
+      - alert: ErpDatabasePoolWaiting
+        expr: hikaricp_connections_pending{job="erp"} > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 数据库连接池持续出现等待
+      - alert: ErpOutboxBacklog
+        expr: erp_queue_oldest_seconds{job="erp",queue="outbox"} > 300
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Outbox 最旧待处理事件超过五分钟
+      - alert: ErpQueueFailures
+        expr: erp_queue_jobs{job="erp",status="failed"} > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 后台存在失败任务或死信
+      - alert: ErpQueueCollectionStale
+        expr: erp_queue_collection_success{job="erp"} == 0 or time() - erp_queue_collection_timestamp_seconds{job="erp"} > 120
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 后台队列指标采集失败或已过期
+      - alert: ErpDiskSpaceLow
+        expr: disk_free_bytes{job="erp"} / clamp_min(disk_total_bytes{job="erp"}, 1) < 0.15 or node_filesystem_avail_bytes{job="node",fstype!~"tmpfs|overlay|squashfs"} / clamp_min(node_filesystem_size_bytes{job="node",fstype!~"tmpfs|overlay|squashfs"}, 1) < 0.15
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 应用或宿主机磁盘可用空间不足百分之十五
+      - alert: ErpBackupFailed
+        expr: (erp_backup_last_attempt_success{job="node"} == 0 and erp_backup_in_progress{job="node"} == 0) or (erp_backup_in_progress{job="node"} == 1 and time() - erp_backup_last_attempt_timestamp_seconds{job="node"} > 3600)
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 最近备份失败或已运行超过一小时
+      - alert: ErpBackupOverdue
+        expr: time() - erp_backup_last_success_timestamp_seconds{job="node"} > 93600 or absent(erp_backup_last_success_timestamp_seconds{job="node"})
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: 完整备份已超过二十六小时或尚无备份指标

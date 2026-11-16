@@ -1,0 +1,6 @@
+apiVersion: 1
+providers:
+  - name: 柒衡 ERP
+    type: file
+    options:
+      path: /etc/grafana/erp-dashboards

@@ -1,0 +1,26 @@
+spring:
+  autoconfigure:
+    # 统一由 Agent 采集 Lettuce 链路，避免内置 Observation 覆盖 Agent 的 tracing。
+    exclude: org.springframework.boot.data.redis.autoconfigure.observation.LettuceObservationAutoConfiguration
+management:
+  server:
+    address: ${ERP_MANAGEMENT_ADDRESS:127.0.0.1}
+    port: ${ERP_MANAGEMENT_PORT:9091}
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      role: ${ERP_SERVICE_ROLE:api}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      minimum-expected-value:
+        http.server.requests: 1ms
+      maximum-expected-value:
+        http.server.requests: 10s
+erp:
+  observability:
+    enabled: true
