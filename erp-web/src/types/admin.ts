@@ -17,11 +17,23 @@ export interface SelectOption {
 export interface FormField {
   key: string
   label: string
-  kind?: 'text' | 'password' | 'select' | 'multiple' | 'boolean' | 'number' | 'date'
+  kind?:
+    | 'text'
+    | 'password'
+    | 'select'
+    | 'multiple'
+    | 'boolean'
+    | 'number'
+    | 'date'
+    | 'area'
+    | 'dict'
+    | 'textarea'
+    | 'tags'
   required?: boolean
   max?: number
   options?: SelectOption[]
   source?: string
+  dictionary?: string
   sourcePermission?: string
   createOnly?: boolean
   readonlyOnEdit?: boolean

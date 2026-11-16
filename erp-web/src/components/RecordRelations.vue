@@ -112,12 +112,14 @@ const allContactFields: FormField[] = [
   { key: 'name', label: '姓名', required: true, max: 50 },
   { key: 'mobile', label: '手机号码', max: 32 },
   { key: 'email', label: '邮箱', max: 100 },
+  { key: 'areaId', label: '省市区', kind: 'area' },
   { key: 'address', label: '地址', max: 200 },
   { key: 'isDefault', label: '默认联系人', kind: 'boolean' },
 ]
 const contactFields = computed(() =>
   allContactFields.filter(
-    (field) => !['mobile', 'address'].includes(field.key) || session.can('partner_contact:view'),
+    (field) =>
+      !['mobile', 'address', 'areaId'].includes(field.key) || session.can('partner_contact:view'),
   ),
 )
 

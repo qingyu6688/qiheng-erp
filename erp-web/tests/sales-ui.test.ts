@@ -41,6 +41,8 @@ const option = defineComponent({
 })
 const button = defineComponent({ template: '<button><slot/></button>' })
 const stubs = {
+  BusinessUserSelect: true,
+  AreaCascader: true,
   DocumentFilesPanel: true,
   ElDialog: dialog,
   ElInput: input,

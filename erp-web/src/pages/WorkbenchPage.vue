@@ -70,7 +70,12 @@ watch(
   },
   { immediate: true },
 )
+function messagesChanged(): void {
+  void load()
+}
+window.addEventListener('erp:messages-changed', messagesChanged)
 onScopeDispose(() => {
+  window.removeEventListener('erp:messages-changed', messagesChanged)
   ++revision
   controller.abort()
 })
@@ -99,7 +104,9 @@ onScopeDispose(() => {
     </div>
   </div>
   <el-alert v-if="error" :title="error" type="error" :closable="false" />
-  <WorkbenchTradeSummary v-if="session.can('report:sales_summary') || session.can('report:purchase_summary')" />
+  <WorkbenchTradeSummary
+    v-if="session.can('report:sales_summary') || session.can('report:purchase_summary')"
+  />
   <p v-if="!session.company" class="panel workbench-message">
     当前账户没有可访问的公司，请联系管理员配置数据范围。
   </p>

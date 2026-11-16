@@ -349,3 +349,17 @@
     width: min(40vw, 158px);
   }
 }
+
+.notice-content {
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.message-category {
+  width: 200px;
+  max-width: 100%;
+}
+.safe-stack {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}

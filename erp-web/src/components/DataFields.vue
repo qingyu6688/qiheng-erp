@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { FormField, SelectOption } from '../types/admin'
+import AreaCascader from './AreaCascader.vue'
+import DictionarySelect from './DictionarySelect.vue'
 
 defineProps<{
   fields: FormField[]
@@ -26,11 +28,37 @@ function selection(value: unknown): string | string[] {
       :for="'field-' + field.key"
       :required="field.required"
     >
+      <AreaCascader
+        v-if="field.kind === 'area'"
+        :model-value="text(values[field.key])"
+        :label="field.label"
+        :disabled="disabled || (editing && field.readonlyOnEdit)"
+        @update:model-value="emit('change', field.key, $event)"
+      />
+      <DictionarySelect
+        v-else-if="field.kind === 'dict'"
+        :type="field.dictionary ?? ''"
+        :model-value="text(values[field.key])"
+        :label="field.label"
+        :disabled="disabled || (editing && field.readonlyOnEdit)"
+        @update:model-value="emit('change', field.key, $event)"
+      />
+      <el-select
+        v-else-if="field.kind === 'tags'"
+        :model-value="selection(values[field.key])"
+        multiple
+        filterable
+        allow-create
+        default-first-option
+        :aria-label="field.label"
+        :disabled="disabled || (editing && field.readonlyOnEdit)"
+        @update:model-value="emit('change', field.key, $event)"
+      />
       <el-switch
-        v-if="field.kind === 'boolean'"
+        v-else-if="field.kind === 'boolean'"
         :id="'field-' + field.key"
         :model-value="Boolean(values[field.key])"
-        :disabled="disabled"
+        :disabled="disabled || (editing && field.readonlyOnEdit)"
         @update:model-value="emit('change', field.key, $event)"
       />
       <el-select
@@ -56,14 +84,22 @@ function selection(value: unknown): string | string[] {
         :model-value="Number(values[field.key] || 0)"
         :min="0"
         :max="field.max"
-        :disabled="disabled"
+        :disabled="disabled || (editing && field.readonlyOnEdit)"
         @update:model-value="emit('change', field.key, $event ?? 0)"
       />
       <el-input
         v-else
         :id="'field-' + field.key"
         :model-value="text(values[field.key])"
-        :type="field.kind === 'password' ? 'password' : field.kind === 'date' ? 'date' : 'text'"
+        :type="
+          field.kind === 'password'
+            ? 'password'
+            : field.kind === 'date'
+              ? 'date'
+              : field.kind === 'textarea'
+                ? 'textarea'
+                : 'text'
+        "
         :maxlength="field.max"
         :show-password="field.kind === 'password'"
         :disabled="disabled || (editing && field.readonlyOnEdit)"
