@@ -28,6 +28,8 @@ M11 的 Y-01 增加公司部门树、企业共享岗位及按公司保存的用�
 
 M11 的 Y-02 继续增加按公司配置的五种角色部门范围，与现有公司、仓库及操作权限取交集。17类单据冻结归属，列表计数、报表、打印附件、旧命令结果及后台文件任务统一校验；撤权在下一请求生效。库存当前余额仍为授权仓库的共享实物快照，报表说明与范围内事实的区别。本轮新增V37，仍未发布，配置步骤和验收见[用户手册](docs/用户使用手册.md#m11-部门数据范围未发布)及[Y-02本机验收报告](docs/M11部门数据范围本机验收报告.md)。
 
+M11 前半的其余功能继续加入业务员归属及报表汇总、数据字典、官方省市区、公告与消息中心、短信邮件模板及日志、企业微信机器人、在线会话强退、系统参数、定时任务和API日志。工作台待办与消息中心共用权限过滤，WebSocket通过Redis跨实例广播摘要。本轮追加V38—V43，仍未正式发布；配置及权限详见[M11使用说明](docs/M11组织消息与运维使用说明.md)，测试与升级证据见[本机验收报告](docs/M11组织消息与运维本机验收报告.md)。
+
 前端使用 Vue 3、TypeScript、Vite 和 Element Plus。后端使用 Java 21、Spring Boot 和 Maven，提供 REST API。MySQL 8.0.46 保存业务数据，Flyway 负责数据库迁移，Redis 保存会话。后台 Worker 处理导入、导出等异步任务，生产附件和文件任务使用私有 S3 兼容对象仓。
 
 | 路径 | 内容 |
@@ -115,6 +117,8 @@ An opening-stock CSV import creates drafts for review and posting before the bal
 The unreleased M11 Y-01 work adds company department trees, tenant-wide job definitions, and company-specific user assignments. Primary departments and organization versions remain independent between companies. Assignments do not grant business access; revoking company access also clears its assignments and department leaders. Deployment includes migration V36. See the [user guide (Chinese)](docs/用户使用手册.md) and [M11 local acceptance report (Chinese)](docs/M11部门岗位本机验收报告.md).
 
 The unreleased M11 Y-02 work adds five company-specific department scopes for roles, intersected with company, warehouse, and operation permissions. Ownership is frozen on 17 document types. Lists, totals, reports, printing, attachments, saved command results, and background file jobs enforce the scope; revocations apply on the next request. Current inventory remains a shared snapshot of authorized warehouses, with report labels distinguishing it from scoped document facts. Migration V37 is required. See the [configuration guide (Chinese)](docs/用户使用手册.md) and [Y-02 local acceptance report (Chinese)](docs/M11部门数据范围本机验收报告.md).
+
+The rest of the unreleased M11 organization and messaging work adds sales/buyer ownership and reporting, data dictionaries, official administrative areas, notices and inboxes, SMS/email templates and delivery logs, a WeCom bot, session revocation, system settings, managed jobs, and API logs. Workbench todos use the permission-checked inbox; WebSocket summaries are broadcast through Redis across API instances. Migrations V38–V43 are required. See the [configuration and operations guide (Chinese)](docs/M11组织消息与运维使用说明.md) and [local acceptance report (Chinese)](docs/M11组织消息与运维本机验收报告.md). This remains a local candidate increment, not a published 1.2.0 release.
 
 The web app uses Vue 3, TypeScript, Vite, and Element Plus. The REST API uses Java 21, Spring Boot, and Maven. MySQL 8.0.46 stores business data, Flyway manages schema migrations, and Redis stores sessions. A worker runs background jobs such as imports and exports. Production file jobs and attachments use private S3-compatible storage.
 
