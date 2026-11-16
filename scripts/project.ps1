@@ -45,11 +45,12 @@ if ($Action -in 'web','e2e','e2e-web') {
     } finally { Pop-Location }
     exit $status
 }
-if (!(Test-Path -LiteralPath (Join-Path $env:JAVA_HOME 'bin/javac.exe'))) { throw '请在 .env 中配置 JDK 21 的 JAVA_HOME。' }
+$javaCompiler = if ([IO.Path]::DirectorySeparatorChar -eq '\') { 'bin/javac.exe' } else { 'bin/javac' }
+if (!(Test-Path -LiteralPath (Join-Path $env:JAVA_HOME $javaCompiler))) { throw '请在 .env 中配置 JDK 21 的 JAVA_HOME。' }
 if ($Action -in 'e2e-api','verify' -and (!$env:TEST_DB_NAME -or $env:TEST_DB_NAME -eq $env:DB_NAME -or $env:TEST_DB_NAME -notmatch '^erp_test(?:_[a-z0-9]+)*$')) {
     throw '测试库必须独立于开发库，名称使用 erp_test 或 erp_test_环境名。'
 }
-$env:Path = "$env:JAVA_HOME\bin;$env:Path"
+$env:Path = (Join-Path $env:JAVA_HOME 'bin') + [IO.Path]::PathSeparator + $env:Path
 Push-Location (Join-Path $projectRoot 'erp-server')
 try {
     if ($Action -eq 'e2e-api') {
