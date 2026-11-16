@@ -47,6 +47,16 @@ export interface DepartmentInput {
   sortNo: number
   version?: number
 }
+export type DepartmentScopeType = 'all' | 'dept' | 'dept_and_children' | 'self' | 'custom'
+export interface RoleDataScope {
+  roleId: string
+  companyId: string
+  scopeType: DepartmentScopeType
+  departmentIds: string[]
+  version: number
+  departments: Department[]
+  editable: boolean
+}
 export function departmentTree(rows: Department[]): DepartmentNode[] {
   const nodes = new Map(rows.map((row) => [row.id, { ...row, children: [] } as DepartmentNode]))
   const roots: DepartmentNode[] = []

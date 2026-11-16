@@ -21,6 +21,15 @@ test('Y-01 部门岗位维护、按公司任职及停用保护', async ({ page }
   await page.getByRole('button', { name: '新建部门', exact: true }).click()
   await page.locator('#department-code').fill('D' + suffix)
   await page.locator('#department-name').fill(name)
+  await page
+    .locator('.el-select')
+    .filter({ has: page.locator('#department-parent') })
+    .click()
+  await page
+    .locator('.el-select-dropdown:visible .el-tree-node__content')
+    .filter({ hasText: '顶级部门' })
+    .first()
+    .click()
   await page.getByRole('button', { name: '保存部门', exact: true }).click()
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
   await page.getByRole('tab', { name: '岗位', exact: true }).click()
@@ -104,6 +113,7 @@ test('Y-01 部门岗位维护、按公司任职及停用保护', async ({ page }
   await expect(assignment.getByText('当前公司的部门与岗位已保存')).toBeVisible()
   await page.locator('.company-select').click()
   await page.getByRole('option', { name: originalCompany, exact: true }).click()
+  await page.getByRole('treeitem', { name, exact: true }).click()
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
   await page
     .locator('.el-select')
