@@ -5,11 +5,16 @@ import cn.erp.identity.CompanyAccess;
 import cn.erp.shared.ApiException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.*;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.jdbc.*;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,8 +27,48 @@ import static org.assertj.core.api.Assertions.*;
 class ReportIT {
     @Autowired JdbcTemplate jdbc;
     @Autowired ReportService reports;
+    @Autowired ReportReadDatabase database;
+    @Autowired StringRedisTemplate redis;
+    @Autowired ObjectMapper json;
     private static final LocalDate FROM=LocalDate.of(2026,11,2),TO=LocalDate.of(2026,11,15);
     private final Set<String> permissions=new HashSet<>();
+    private TradeSummaryService trade(String time) {
+        return new TradeSummaryService(database,redis,json,"test:trade:"+UUID.randomUUID(),Clock.fixed(Instant.parse(time),ZoneOffset.UTC));
+    }
+    @Test void tradeSummaryMatchesReportsAndFillsTwelveMonths() {
+        var result=trade("2026-11-06T01:00:00Z").summary(actor(),12);
+        assertThat(result).containsEntry("dataSource","primary").containsKeys("asOf","sales","purchase");
+        assertThat(result.get("sales")).isEqualTo(Map.of("today","100.00","yesterday","-100.00","month","300.00","year","300.00"));
+        assertThat(result.get("purchase")).isEqualTo(Map.of("today","0.00","yesterday","-200.00","month","800.00","year","800.00"));
+        @SuppressWarnings("unchecked") var trend=(List<Map<String,Object>>)result.get("trend");
+        assertThat(trend).hasSize(12);
+        assertThat(trend.getFirst()).containsEntry("month","2025-12").containsEntry("sales","0.00");
+        assertThat(trend.getLast()).containsEntry("month","2026-11").containsEntry("sales","300.00").containsEntry("purchase","800.00");
+        assertThat(result.get("sales")).isInstanceOfSatisfying(Map.class,amounts->
+                assertThat(amounts.get("month")).isEqualTo(reports.snapshot(actor(),ReportType.SALES_SUMMARY,new ReportQuery(FROM,TO,null,null,null,null,false)).summary().get("amount")));
+    }
+    @Test void tradeCacheSeparatesWarehouseCompanyAndRevokedPermissions() {
+        var service=trade("2026-11-06T01:00:00Z");
+        var first=service.summary(actor(),12);
+        jdbc.update("UPDATE shipment_line SET receivable_amount=900,untaxed_amount=870 WHERE id=71601");
+        assertThat(service.summary(actor(),12)).containsEntry("sales",first.get("sales"));
+        var restricted=new CompanyAccess(actor().tenantId(),actor().userId(),actor().companyId(),false,Set.of(),permissions);
+        assertThat(service.summary(restricted,12).get("sales")).isEqualTo(Map.of("today","0.00","yesterday","0.00","month","0.00","year","0.00"));
+        var onlySales=new CompanyAccess(actor().tenantId(),actor().userId(),actor().companyId(),true,Set.of(),Set.of("report:sales_summary"));
+        assertThat(service.summary(onlySales,12)).doesNotContainKey("purchase");
+        assertThat(service.summary(new CompanyAccess(actor().tenantId(),actor().userId(),70202,true,Set.of(),permissions),12).get("sales"))
+                .isEqualTo(Map.of("today","0.00","yesterday","0.00","month","0.00","year","0.00"));
+        var denied=new CompanyAccess(actor().tenantId(),actor().userId(),actor().companyId(),true,Set.of(),Set.of());
+        assertThatThrownBy(()->service.summary(denied,12)).isInstanceOfSatisfying(ApiException.class,error->assertThat(error.getStatus()).isEqualTo(403));
+        assertThatThrownBy(()->service.summary(actor(),13)).isInstanceOf(ApiException.class);
+    }
+    @Test void tradeDatesUseBeijingDayAndHandleNewYear() {
+        jdbc.update("UPDATE shipment SET sign_date='2026-12-31' WHERE id=71501");
+        var beforeMidnight=trade("2026-12-31T15:59:59Z").summary(actor(),1);
+        assertThat(beforeMidnight.get("sales")).isEqualTo(Map.of("today","300.00","yesterday","0.00","month","300.00","year","300.00"));
+        var afterMidnight=trade("2026-12-31T16:00:00Z").summary(actor(),12);
+        assertThat(afterMidnight.get("sales")).isEqualTo(Map.of("today","0.00","yesterday","300.00","month","0.00","year","0.00"));
+    }
     @BeforeEach void facts() {
         for(var type:ReportType.values()) { permissions.add(type.permission());permissions.add(type.exportPermission()); }permissions.add("cost:view");
         jdbc.update("UPDATE inventory_movement SET movement_type='opening_in',on_hand_delta=10,blocked_delta=1,cost_delta=100,business_date='2026-11-01' WHERE id=72301");

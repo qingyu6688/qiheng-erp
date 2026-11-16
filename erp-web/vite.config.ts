@@ -19,6 +19,8 @@ export default defineConfig(({ command }) => ({
       output: {
         onlyExplicitManualChunks: true,
         manualChunks(id: string): string | undefined {
+          if (id.includes('node_modules/echarts/')) return 'echarts'
+          if (id.includes('node_modules/zrender/')) return 'chart-renderer'
           if (id.includes('node_modules/@element-plus')) return 'element-icons'
           if (id.includes('node_modules/element-plus')) return 'element'
           if (/node_modules\/(?:@vue|vue|vue-router|pinia)\//.test(id)) return 'vue'

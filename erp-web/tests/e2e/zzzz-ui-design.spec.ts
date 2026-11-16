@@ -2,6 +2,9 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test'
 import { env } from 'node:process'
 
 async function verifyWorkspaceNavigation(page: Page, testInfo: TestInfo): Promise<void> {
+  await expect(page.locator('[data-trade="sales"]')).toBeVisible()
+  await expect(page.locator('[data-trade="purchase"]')).toBeVisible()
+  await expect(page.getByRole('img', { name: '近十二个月销售确认金额与采购收货金额折线图' })).toBeVisible()
   await expect(page.locator('.workbench-stat').first()).toBeVisible()
   await page.screenshot({
     path: testInfo.outputPath('art-workbench.png'),

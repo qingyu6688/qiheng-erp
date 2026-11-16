@@ -21,6 +21,7 @@ import { isCancelled, messageOf } from '../api/http'
 import { useSessionStore } from '../stores/session'
 import { formatMoney, formatQuantity, formatRelativeTime, formatDateTime } from '../utils/format'
 import { documentLink } from '../types/reporting'
+import WorkbenchTradeSummary from '../components/WorkbenchTradeSummary.vue'
 
 const metricIcons: Record<string, typeof Tickets> = {
   'sales-orders': Tickets,
@@ -98,6 +99,7 @@ onScopeDispose(() => {
     </div>
   </div>
   <el-alert v-if="error" :title="error" type="error" :closable="false" />
+  <WorkbenchTradeSummary v-if="session.can('report:sales_summary') || session.can('report:purchase_summary')" />
   <p v-if="!session.company" class="panel workbench-message">
     当前账户没有可访问的公司，请联系管理员配置数据范围。
   </p>

@@ -2,6 +2,7 @@ package cn.erp.workbench;
 
 import cn.erp.identity.AccessService;
 import cn.erp.shared.ApiResponse;
+import cn.erp.reporting.TradeSummaryService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.LocalDate;
 import org.springframework.web.bind.annotation.*;
@@ -12,7 +13,8 @@ class WorkbenchController {
     private final AccessService access;
     private final DocumentBrowser browser;
     private final WorkbenchService workbench;
-    WorkbenchController(AccessService access,DocumentBrowser browser,WorkbenchService workbench) {this.access=access;this.browser=browser;this.workbench=workbench;}
+    private final TradeSummaryService trade;
+    WorkbenchController(AccessService access,DocumentBrowser browser,WorkbenchService workbench,TradeSummaryService trade) {this.access=access;this.browser=browser;this.workbench=workbench;this.trade=trade;}
     @GetMapping("/document-browser/{kind}")
     ApiResponse<?> list(HttpServletRequest request,@PathVariable String kind,@RequestParam(required=false) String keyword,@RequestParam(required=false) String status,
             @RequestParam(required=false) Long partnerId,@RequestParam(required=false) Long warehouseId,@RequestParam(required=false) LocalDate dateFrom,
@@ -22,4 +24,8 @@ class WorkbenchController {
     }
     @GetMapping("/workbench/summary")
     ApiResponse<?> summary(HttpServletRequest request) {return ApiResponse.success(workbench.summary(access.requireCompany(request,null)));}
+    @GetMapping("/workbench/trade-summary")
+    ApiResponse<?> tradeSummary(HttpServletRequest request,@RequestParam(defaultValue="12") int months) {
+        return ApiResponse.success(trade.summary(access.requireCompany(request,null),months));
+    }
 }
