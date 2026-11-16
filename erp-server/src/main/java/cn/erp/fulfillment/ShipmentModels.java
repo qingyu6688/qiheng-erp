@@ -14,7 +14,9 @@ public final class ShipmentModels {
         @Pattern(regexp="delivery|pickup",message="交货方式无效") String deliveryMethod,
         @Size(max=500,message="备注最多500字") String remark,
         @NotEmpty(message="请至少选择一条订单行") @Size(max=500,message="发货明细最多500行") List<@NotNull @Valid InputLine> lines,
-        Long version) {}
+        Long version, @Positive(message="业务员编号无效") Long salesUserId) {
+        public Input(Long customerId,Long warehouseId,LocalDate businessDate,String deliveryMethod,String remark,List<InputLine> lines,Long version) {this(customerId,warehouseId,businessDate,deliveryMethod,remark,lines,version,null);}
+    }
     public record InputLine(@NotNull(message="请选择订单行") @Positive(message="订单行编号无效") Long orderLineId,
         @NotNull(message="请选择单位") @Positive(message="单位编号无效") Long unitId,
         @NotBlank(message="请输入发货数量") String qty) {}

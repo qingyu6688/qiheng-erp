@@ -10,40 +10,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-@Transactional(readOnly=true)
+@Transactional
 public class WorkbenchService {
     private final DocumentBrowser browser;
+    private final cn.erp.shared.TodoInbox inbox;
     private final DocumentAccess documents;
     private final NamedParameterJdbcTemplate jdbc;
-    public WorkbenchService(DocumentBrowser browser,DocumentAccess documents,NamedParameterJdbcTemplate jdbc) {this.browser=browser;this.documents=documents;this.jdbc=jdbc;}
+    public WorkbenchService(DocumentBrowser browser,DocumentAccess documents,NamedParameterJdbcTemplate jdbc,cn.erp.shared.TodoInbox inbox) {this.browser=browser;this.documents=documents;this.jdbc=jdbc;this.inbox=inbox;}
     public Map<String,Object> summary(CompanyAccess actor) {
         var result=new LinkedHashMap<String,Object>();var blocks=new ArrayList<Map<String,Object>>();var todos=new ArrayList<Map<String,Object>>();
-        for(var task:List.of(new Task("sales-orders","sales_order:approve","pending","待审核销售订单","approve"),
-                new Task("purchase-orders","purchase_order:approve","pending","待审核采购订单","approve"),
-                new Task("purchase-requisitions","purchase_requisition:approve","pending","待审核请购","approve"),
-                new Task("shipments","shipment:sign","posted","签收超期","sign"),
-                new Task("receipts","receipt:confirm","pending_confirm","待确认收款","confirm"),
-                new Task("payments","payment:confirm","pending_confirm","待确认付款","confirm"),
-                new Task("refund-requests","refund_request:approve","pending_review","待审核退款","approve"))) {
-            if(!actor.hasPermission(task.permission())||!actor.hasPermission(browser.permission(task.kind())))continue;
-            var spec=browser.spec(task.kind());var params=browser.params(actor);params.put("user",actor.userId());params.put("state",task.state());
-            var filter=new DocumentBrowser.Filter(null,null,null,null,null,null,null,null,task.kind().equals("shipments"));
-            String where=browser.where(actor,spec,filter,params)+" AND h.status=:state";
-            if(task.action().equals("approve")&&!task.kind().equals("refund-requests"))where+=" AND (h.created_by IS NULL OR h.created_by<>:user OR EXISTS(SELECT 1 FROM company_policy p WHERE p.tenant_id=h.tenant_id AND p.company_id=h.company_id AND p.separate_order_approver=0))";
-            if(task.action().equals("confirm"))where+=" AND (h.created_by IS NULL OR h.created_by<>:user OR EXISTS(SELECT 1 FROM company_policy p WHERE p.tenant_id=h.tenant_id AND p.company_id=h.company_id AND p.separate_receipt_confirmer=0))";
-            if(task.kind().equals("refund-requests"))where+=" AND h.created_by<>:user";
-            long count=jdbc.queryForObject("SELECT COUNT(*) FROM "+spec.type()+" h WHERE "+where,params,Long.class);
-            String url="/"+task.kind()+"?status="+task.state()+(task.kind().equals("shipments")?"&signOverdue=true":"");
-            blocks.add(Map.of("key",task.kind(),"label",task.label(),"count",count,"url",url));
-            for(long id:jdbc.queryForList("SELECT h.id FROM "+spec.type()+" h WHERE "+where+" ORDER BY h.id DESC LIMIT 10",params,Long.class)) {
-                var document=documents.view(actor,spec.type(),id);
-                if(!(document.get("allowedActions") instanceof List<?> actions)||!actions.contains(task.action()))continue;
-                var todo=new LinkedHashMap<String,Object>();todo.put("id",Long.toString(id));todo.put("label",task.label());todo.put("documentNo",document.get("documentNo"));todo.put("businessDate",document.get("businessDate"));
-                todo.put("partnerName",partnerName(document));
-                todo.put("amount",document.getOrDefault("totalAmount",document.getOrDefault("receivableAmount",document.getOrDefault("payableAmount",document.get("amount")))));todo.put("url","/"+task.kind()+"/"+id);todos.add(todo);
-            }
-        }
-        result.put("blocks",blocks);result.put("todos",todos.stream().limit(10).toList());
+        var messages=inbox.summary(actor);
+        if(messages.get("blocks") instanceof List<?> values) for(Object value:values) if(value instanceof Map<?,?> row) {var block=new LinkedHashMap<String,Object>();row.forEach((key,item)->block.put(key.toString(),item));blocks.add(block);}
+        result.put("blocks",blocks);result.put("todos",messages.get("todos"));
         if(actor.hasPermission("inventory:view")) {
             var params=browser.params(actor);
             String scope=actor.allWarehouses()?"":" AND l.warehouse_id IN (:warehouses)";
@@ -71,11 +49,5 @@ public class WorkbenchService {
             result.put("recentActions",jdbc.queryForList("SELECT action,object_type,object_id,created_at FROM audit_log WHERE tenant_id=:tenant AND company_id=:company AND operator_id=:user ORDER BY id DESC LIMIT 5",params).stream().map(FinanceSupport::row).toList());
         }
         result.put("asOf",Instant.now().toString());return result;
-    }
-    private record Task(String kind,String permission,String state,String label,String action) {}
-    private Object partnerName(Map<String,Object> document) {
-        for(String key:List.of("customerName","supplierName","partnerName"))if(document.get(key)!=null)return document.get(key);
-        for(String key:List.of("customer","supplier"))if(document.get(key) instanceof Map<?,?> party&&party.get("name")!=null)return party.get("name");
-        return null;
     }
 }

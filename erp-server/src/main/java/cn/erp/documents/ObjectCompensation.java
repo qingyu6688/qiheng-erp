@@ -41,8 +41,9 @@ public class ObjectCompensation {
         }
     }
 
-    public void retry() {
-        var candidates = jdbc.queryForList("SELECT id,storage_key FROM object_cleanup WHERE created_at<DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 1 HOUR) ORDER BY id LIMIT 100");
+    public void retry() {retry(null);}
+    public void retry(Long tenant) {
+        var candidates = jdbc.queryForList("SELECT id,storage_key FROM object_cleanup WHERE (? IS NULL OR storage_key LIKE CONCAT(?,'/%')) AND created_at<DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 1 HOUR) ORDER BY id LIMIT 100",tenant,tenant);
         for (var row : candidates) {
             String key = row.get("storage_key").toString();
             Integer linked = jdbc.queryForObject("SELECT COUNT(*) FROM attachment WHERE storage_key=? AND status='active'", Integer.class, key);
@@ -53,6 +54,6 @@ public class ObjectCompensation {
             jdbc.update("UPDATE object_cleanup SET attempts=attempts+1 WHERE id=?", row.get("id"));
             discard(key);
         }
-        jdbc.update("DELETE FROM file_ticket WHERE expires_at<UTC_TIMESTAMP(3)");
+        jdbc.update("DELETE FROM file_ticket WHERE (? IS NULL OR tenant_id=?) AND expires_at<UTC_TIMESTAMP(3)",tenant,tenant);
     }
 }

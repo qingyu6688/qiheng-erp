@@ -53,7 +53,7 @@ class OutboxIT {
         return new TransactionTemplate(manager).execute(status->events.publish(tenant,"test",Ids.next(),0,type,Map.of("value","测试数据")));
     }
     private OutboxService.Event claim(long id) {
-        return events.claim(100).stream().filter(e->e.id()==id).findFirst().orElseThrow();
+        return events.claim(100,tenant).stream().filter(e->e.id()==id).findFirst().orElseThrow();
     }
     private long effects(long id) {return jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND object_id=?",Long.class,tenant,id);}
 
@@ -87,7 +87,7 @@ class OutboxIT {
             events.failed(event);
             assertThat(jdbc.queryForObject("SELECT status FROM outbox_event WHERE id=?",String.class,id)).isEqualTo(i<5?"pending":"dead");
             if(i<5) {
-                assertThat(events.claim(100)).noneMatch(item->item.id()==id);
+                assertThat(events.claim(100,tenant)).noneMatch(item->item.id()==id);
                 jdbc.update("UPDATE outbox_event SET next_attempt_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 1 SECOND) WHERE id=?",id);
             }
         }
@@ -120,6 +120,14 @@ class OutboxIT {
     }
 
     record Scope(long tenantId,long userId,long companyId) implements ActorScope {}
+
+    @Test void tenantWorkerDoesNotClaimAnotherTenantsPendingEvent() {
+        long other=Ids.next();long foreign=new TransactionTemplate(manager).execute(status->events.publish(other,"test",Ids.next(),0,"test.effect",Map.of("value","另一企业")));
+        try {
+            long own=publish("test.effect");assertThat(events.claim(100,tenant)).extracting(OutboxService.Event::id).containsExactly(own);
+            assertThat(jdbc.queryForObject("SELECT status FROM outbox_event WHERE id=?",String.class,foreign)).isEqualTo("pending");
+        } finally {jdbc.update("DELETE FROM outbox_event WHERE id=?",foreign);}
+    }
 
     @Test void canonicalRequestHashesIgnoreObjectPropertyOrder() {
         String key=UUID.randomUUID().toString();

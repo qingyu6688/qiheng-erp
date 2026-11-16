@@ -10,7 +10,9 @@ public final class TreasuryModels {
         Long partnerId,Long expenseItemId,@NotNull(message="请选择付款账户") Long cashAccountId,
         @NotBlank(message="请输入付款金额") String amount,@NotNull(message="请选择业务日期") LocalDate businessDate,
         Long relatedOrderId,@Size(max=64,message="银行流水号最多64字") String bankSerialNo,
-        @Size(max=200,message="备注最多200字") String remark,Long version) {}
+        @Size(max=200,message="备注最多200字") String remark,Long version, @Positive(message="业务员编号无效") Long buyerUserId) {
+        public Payment(String paymentType,Long partnerId,Long expenseItemId,Long cashAccountId,String amount,LocalDate businessDate,Long relatedOrderId,String bankSerialNo,String remark,Long version) {this(paymentType,partnerId,expenseItemId,cashAccountId,amount,businessDate,relatedOrderId,bankSerialNo,remark,version,null);}
+    }
     public record Transfer(
         @NotNull(message="请选择转出账户") Long fromAccountId,@NotNull(message="请选择转入账户") Long toAccountId,
         @NotBlank(message="请输入转账金额") String amount,String feeAmount,

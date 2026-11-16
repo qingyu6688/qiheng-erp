@@ -36,7 +36,7 @@ public class ReceivingQueries {
             if(!scope.hasPermission("cost:view")) {hideCost(row);}return row;
         }).toList());
         if(!scope.hasPermission("cost:view")) {hideCost(result);}
-        result.put("allowedActions",actions(scope,returning,header.get("status").toString()));return result;
+        result.put("allowedActions",actions(scope,returning,header.get("status").toString()));cn.erp.shared.BusinessPeople.enrich(jdbc,scope,result);return result;
     }
     private List<String> actions(CompanyAccess scope,boolean returning,String status) {
         var names=status.equals("draft")?List.of("update","submit"):status.equals("submitted")?List.of("void","post"):List.<String>of();

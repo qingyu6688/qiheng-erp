@@ -37,15 +37,17 @@ class AlternativeLoginController {
     private final LoginCodeDelivery delivery;
     private final LoginCodeDispatch dispatch;
     private final AuthSessions sessions;
+    private final LoginAudit audit;
 
     AlternativeLoginController(LoginSettingsService settings, LoginIdentities identities, LoginCodeTokens codes,
-                               LoginCodeDelivery delivery, LoginCodeDispatch dispatch, AuthSessions sessions) {
+                               LoginCodeDelivery delivery, LoginCodeDispatch dispatch, AuthSessions sessions,LoginAudit audit) {
         this.settings = settings;
         this.identities = identities;
         this.codes = codes;
         this.delivery = delivery;
         this.dispatch = dispatch;
         this.sessions = sessions;
+        this.audit=audit;
     }
 
     @GetMapping(AUTH + "/methods")
@@ -74,9 +76,11 @@ class AlternativeLoginController {
     @PostMapping(value=AUTH + "/code/login", consumes=MediaType.APPLICATION_JSON_VALUE)
     ApiResponse<AccessService.UserView> login(@Valid @RequestBody LoginCode input, HttpServletRequest request,
                                              HttpServletResponse response) {
+        request.setAttribute("erp.login.method",input.method());request.setAttribute("erp.login.tenant",input.tenantCode());
         String destination = normalize(input.method(), input.destination());
         long tenantId = tenantId(input.tenantCode());
         var provider = provider(tenantId, input.method());
+        audit.attemptBinding(request,tenantId,input.method(),destination);
         codes.limitVerification(request.getRemoteAddr(), tenantId, input.method(), destination);
         var target = identities.target(tenantId, input.method(), destination);
         if (target == null || !codes.consume(loginScope(tenantId, input.method(), destination, target, provider), input.code())) {

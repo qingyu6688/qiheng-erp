@@ -41,7 +41,7 @@ public class PaymentService {
         for(int index=0;index<items.size();index++) {decorate(scope,rows.get(index),items.get(index));}
         return result;
     }
-    public Map<String,Object> get(CompanyAccess scope,long id) {var raw=support.find(scope,"payment",id,false);var result=row(raw);decorate(scope,raw,result);return result;}
+    public Map<String,Object> get(CompanyAccess scope,long id) {var raw=support.find(scope,"payment",id,false);var result=row(raw);decorate(scope,raw,result);cn.erp.shared.BusinessPeople.enrich(jdbc,scope,result);return result;}
     private void decorate(CompanyAccess scope,Map<String,Object> raw,Map<String,Object> result) {
         result.put("documentNo",raw.get("payment_no"));result.put("cashAccountName",support.accountName(scope,raw.get("cash_account_id")));
         result.put("partnerName",raw.get("partner_id")==null?null:jdbc.queryForObject("SELECT name FROM business_partner WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),raw.get("partner_id")));
@@ -55,6 +55,7 @@ public class PaymentService {
                 INSERT INTO payment(id,tenant_id,company_id,payment_no,payment_type,partner_id,expense_item_id,cash_account_id,amount,business_date,related_order_id,bank_serial_no,remark,created_by,updated_by,owner_user_id,owner_department_id)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,id,scope.tenantId(),scope.companyId(),no,input.paymentType(),input.partnerId(),input.expenseItemId(),input.cashAccountId(),amount(input.amount()),input.businessDate(),input.relatedOrderId(),TreasurySupport.blank(input.bankSerialNo()),input.remark(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
+            cn.erp.shared.BusinessPeople.assign(jdbc,scope,"payment",id,input.buyerUserId());
             audit.record(scope,"payment.create","payment",id,null,Map.of("documentNo",no));return get(scope,id);
         });
     }
@@ -65,6 +66,7 @@ public class PaymentService {
             UPDATE payment SET payment_type=?,partner_id=?,expense_item_id=?,cash_account_id=?,amount=?,business_date=?,related_order_id=?,bank_serial_no=?,remark=?,version=version+1,updated_by=?
             WHERE tenant_id=? AND company_id=? AND id=?
             """,input.paymentType(),input.partnerId(),input.expenseItemId(),input.cashAccountId(),amount(input.amount()),input.businessDate(),input.relatedOrderId(),TreasurySupport.blank(input.bankSerialNo()),input.remark(),scope.userId(),scope.tenantId(),scope.companyId(),id);
+        cn.erp.shared.BusinessPeople.assign(jdbc,scope,"payment",id,input.buyerUserId());
         audit.record(scope,"payment.update","payment",id,null,Map.of("version",input.version()+1));return get(scope,id);
     }
     @Transactional

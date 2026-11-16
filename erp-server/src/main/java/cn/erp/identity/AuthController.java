@@ -35,6 +35,7 @@ class AuthController {
     @PostMapping(value = "/login", consumes = MediaType.APPLICATION_JSON_VALUE)
     ApiResponse<AccessService.UserView> login(@Valid @RequestBody Login body, HttpServletRequest req,
                                               HttpServletResponse res) {
+        req.setAttribute("erp.login.method","password");req.setAttribute("erp.login.tenant",body.tenantCode());req.setAttribute("erp.login.username",body.username());
         try {
             limiter.check(req.getRemoteAddr(), body.tenantCode(), body.username());
         } catch (ApiException ex) {
@@ -43,7 +44,9 @@ class AuthController {
             }
             throw ex;
         }
-        var actor = credentials.authenticate(body.tenantCode(), body.username(), body.password());
+        SessionAccount actor;
+        try {actor=credentials.authenticate(body.tenantCode(),body.username(),body.password());}
+        catch(ApiException error) {req.setAttribute("erp.login.result",error.getErrorCode().equals("ACCOUNT_LOCKED")?"locked":"failed");throw error;}
         return ApiResponse.success(sessions.open(actor, req, res));
     }
 

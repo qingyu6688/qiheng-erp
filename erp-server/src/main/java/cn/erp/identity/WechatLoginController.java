@@ -62,10 +62,11 @@ class WechatLoginController {
     private final StringRedisTemplate redis;
     private final ObjectMapper json;
     private final String keyPrefix;
+    private final LoginAudit audit;
 
     WechatLoginController(LoginSettingsService settings, LoginIdentities identities, AuthSessions sessions,
                           AccessService access, LoginLimiter limiter, WechatOAuthClient oauth,
-                          StringRedisTemplate redis, ObjectMapper json,
+                          StringRedisTemplate redis, ObjectMapper json,LoginAudit audit,
                           @Value("${spring.session.redis.namespace:erp:session:prod}") String namespace) {
         this.settings = settings;
         this.identities = identities;
@@ -75,6 +76,7 @@ class WechatLoginController {
         this.oauth = oauth;
         this.redis = redis;
         this.json = json;
+        this.audit=audit;
         this.keyPrefix = namespace + ":wechat-state:";
     }
 
@@ -99,6 +101,7 @@ class WechatLoginController {
         try {
             Attempt attempt = take(request, state);
             if (attempt == null) return redirect(page, "error");
+            request.setAttribute("erp.login.tenantId",attempt.tenantId());request.setAttribute("erp.login.binding",attempt.binding());
             if (attempt.binding()) page = BINDING_PAGE;
             if (code == null || code.isBlank() || code.length() > 512 || code.chars().anyMatch(Character::isISOControl)) {
                 return redirect(page, "error");
@@ -112,6 +115,7 @@ class WechatLoginController {
                 identities.bind(actor, METHOD, subject);
                 return redirect(page, "bound");
             }
+            audit.attemptBinding(request,attempt.tenantId(),METHOD,subject);
             sessions.open(identities.authenticate(attempt.tenantId(), METHOD, subject), request, response);
             return redirect(page, "success");
         } catch (ApiException failure) {

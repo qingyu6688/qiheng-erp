@@ -43,30 +43,31 @@ public class ReceivingService {
     }
     private record Line(long sourceId,long unitId,String qty) {}
     public Map<String,Object> createReceipt(CompanyAccess scope,String key,ReceivingModels.ReceiptInput input) {
-        return execute(scope,false,"create",key,input,201,()->create(scope,false,input.supplierId(),input.warehouseId(),input.businessDate(),input.remark(),input.lines().stream().map(l->new Line(l.orderLineId(),l.unitId(),l.qty())).toList()));
+        return execute(scope,false,"create",key,input,201,()->create(scope,false,input.supplierId(),input.warehouseId(),input.businessDate(),input.remark(),input.lines().stream().map(l->new Line(l.orderLineId(),l.unitId(),l.qty())).toList(),input.buyerUserId()));
     }
     public Map<String,Object> createReturn(CompanyAccess scope,String key,ReceivingModels.ReturnInput input) {
-        return execute(scope,true,"create",key,input,201,()->create(scope,true,input.supplierId(),input.warehouseId(),input.businessDate(),input.reason(),input.lines().stream().map(l->new Line(l.receiptLineId(),l.unitId(),l.qty())).toList()));
+        return execute(scope,true,"create",key,input,201,()->create(scope,true,input.supplierId(),input.warehouseId(),input.businessDate(),input.reason(),input.lines().stream().map(l->new Line(l.receiptLineId(),l.unitId(),l.qty())).toList(),input.buyerUserId()));
     }
     public Map<String,Object> updateReceipt(CompanyAccess scope,long id,ReceivingModels.ReceiptInput input) {
-        return update(scope,false,id,input.version(),input.supplierId(),input.warehouseId(),input.businessDate(),input.remark(),input.lines().stream().map(l->new Line(l.orderLineId(),l.unitId(),l.qty())).toList());
+        return update(scope,false,id,input.version(),input.supplierId(),input.warehouseId(),input.businessDate(),input.remark(),input.lines().stream().map(l->new Line(l.orderLineId(),l.unitId(),l.qty())).toList(),input.buyerUserId());
     }
     public Map<String,Object> updateReturn(CompanyAccess scope,long id,ReceivingModels.ReturnInput input) {
-        return update(scope,true,id,input.version(),input.supplierId(),input.warehouseId(),input.businessDate(),input.reason(),input.lines().stream().map(l->new Line(l.receiptLineId(),l.unitId(),l.qty())).toList());
+        return update(scope,true,id,input.version(),input.supplierId(),input.warehouseId(),input.businessDate(),input.reason(),input.lines().stream().map(l->new Line(l.receiptLineId(),l.unitId(),l.qty())).toList(),input.buyerUserId());
     }
-    private Map<String,Object> create(CompanyAccess scope,boolean returning,long supplier,long warehouse,LocalDate date,String note,List<Line> lines) {
+    private Map<String,Object> create(CompanyAccess scope,boolean returning,long supplier,long warehouse,LocalDate date,String note,List<Line> lines,Long buyerUserId) {
         validateHeader(scope,returning,supplier,warehouse,date,note);
         long id=Ids.next();String no=numbers.next(scope,returning?"PR":"GR",YearMonth.from(date));
         jdbc.update("INSERT INTO "+table(returning)+"(id,tenant_id,company_id,"+(returning?"return_no":"receipt_no")+",supplier_id,warehouse_id,business_date,"+(returning?"reason":"remark")+",created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 id,scope.tenantId(),scope.companyId(),no,supplier,warehouse,date,note,scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
         writeLines(scope,returning,id,supplier,warehouse,date,lines);
+        cn.erp.shared.BusinessPeople.assign(jdbc,scope,table(returning),id,buyerUserId);
         var result=safe(scope,returning,id);audit.record(scope,table(returning)+".create",table(returning),id,null,result);return result;
     }
-    private Map<String,Object> update(CompanyAccess scope,boolean returning,long id,Long expected,long supplier,long warehouse,LocalDate date,String note,List<Line> lines) {
+    private Map<String,Object> update(CompanyAccess scope,boolean returning,long id,Long expected,long supplier,long warehouse,LocalDate date,String note,List<Line> lines,Long buyerUserId) {
         var before=queries.header(scope,returning,id,true);version(expected,before);state(before,"draft");validateHeader(scope,returning,supplier,warehouse,date,note);
         jdbc.update("UPDATE "+table(returning)+" SET supplier_id=?,warehouse_id=?,business_date=?,"+(returning?"reason":"remark")+"=?,version=version+1,updated_by=? WHERE id=?",supplier,warehouse,date,note,scope.userId(),id);
         jdbc.update("DELETE FROM "+table(returning)+"_line WHERE tenant_id=? AND company_id=? AND "+parent(returning)+"=?",scope.tenantId(),scope.companyId(),id);
-        writeLines(scope,returning,id,supplier,warehouse,date,lines);audit.record(scope,table(returning)+".update",table(returning),id,null,Map.of("version",expected+1));return queries.get(scope,returning,id);
+        writeLines(scope,returning,id,supplier,warehouse,date,lines);cn.erp.shared.BusinessPeople.assign(jdbc,scope,table(returning),id,buyerUserId);audit.record(scope,table(returning)+".update",table(returning),id,null,Map.of("version",expected+1));return queries.get(scope,returning,id);
     }
     private void validateHeader(CompanyAccess scope,boolean returning,long supplier,long warehouse,LocalDate date,String note) {
         date(date);references.requirePartner(scope,supplier,"supplier");

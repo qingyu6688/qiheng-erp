@@ -15,7 +15,9 @@ public final class PurchaseOrderModels {
         @NotEmpty(message="请填写商品明细") @Size(max=500,message="明细最多500行") List<@NotNull(message="商品行不能为空") @Valid Line> lines,
         @Size(max=50,message="费用最多50行") List<@NotNull(message="费用行不能为空") @Valid Fee> fees,
         @Size(max=500,message="备注最多500字") String remark, Long version,
-        @Size(max=200,message="原因最多200字") String reason) {}
+        @Size(max=200,message="原因最多200字") String reason, @Positive(message="业务员编号无效") Long buyerUserId) {
+        public Input(String supplierId,LocalDate businessDate,LocalDate deliveryDate,Boolean priceTaxInclusive,String orderDiscountAmount,List<Line> lines,List<Fee> fees,String remark,Long version,String reason) {this(supplierId,businessDate,deliveryDate,priceTaxInclusive,orderDiscountAmount,lines,fees,remark,version,reason,null);}
+    }
     public record Line(String id, String requisitionLineId,
         @NotBlank(message="请选择商品") String skuId, String warehouseId,
         @NotBlank(message="请选择单位") String unitId,

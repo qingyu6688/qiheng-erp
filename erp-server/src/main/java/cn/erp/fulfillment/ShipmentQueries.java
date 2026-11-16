@@ -61,7 +61,7 @@ public class ShipmentQueries {
     public Map<String,Object> get(CompanyAccess scope,long id) {
         var header=header(scope,id,false);
         var result=new LinkedHashMap<String,Object>();
-        put(result,header,"id","customer_id","warehouse_id","delivery_method","business_date","status","version","remark","sign_date",
+        put(result,header,"id","customer_id","warehouse_id","delivery_method","business_date","status","version","remark","sign_date","sales_user_id",
                 "receivable_amount","untaxed_amount","tax_amount");
         result.put("documentNo",header.get("shipment_no"));
         result.put("customerName",jdbc.queryForObject("SELECT name FROM business_partner WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),header.get("customer_id")));
@@ -80,7 +80,7 @@ public class ShipmentQueries {
                   AND ar.source_type IN ('shipment_line','sales_order_fee') %s ORDER BY a.id
                 """.formatted(cn.erp.shared.OrgOwnership.filter(scope,"r")),scope.tenantId(),scope.companyId(),id).stream().map(row->{var allocation=new LinkedHashMap<String,Object>();put(allocation,row,"allocation_id","receipt_no","amount");return allocation;}).toList());
         result.put("allowedActions",actions(scope,header.get("status").toString()));
-        return result;
+        cn.erp.shared.BusinessPeople.enrich(jdbc,scope,result);return result;
     }
 
     private Map<String,Object> lineView(CompanyAccess scope,Map<String,Object> row) {

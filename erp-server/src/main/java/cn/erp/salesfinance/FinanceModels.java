@@ -14,13 +14,17 @@ public final class FinanceModels {
         @NotBlank(message="请输入收款金额") String amount,
         @NotNull(message="请选择业务日期") LocalDate businessDate,
         Long relatedOrderId, @Size(max=64,message="银行流水号最多64字") String bankSerialNo,
-        @Size(max=200,message="备注最多200字") String remark, Long version) {}
+        @Size(max=200,message="备注最多200字") String remark, Long version, @Positive(message="业务员编号无效") Long salesUserId) {
+        public Receipt(String receiptType,Long partnerId,Long incomeItemId,Long cashAccountId,String amount,LocalDate businessDate,Long relatedOrderId,String bankSerialNo,String remark,Long version) {this(receiptType,partnerId,incomeItemId,cashAccountId,amount,businessDate,relatedOrderId,bankSerialNo,remark,version,null);}
+    }
     public record Version(@NotNull(message="请提供版本号") @PositiveOrZero(message="版本号不能为负") Long version,
                           LocalDate businessDate,@Size(max=200,message="原因最多200字") String reason) {}
     public record ReturnInput(
         @NotNull(message="请选择客户") Long customerId,@NotNull(message="请选择退回仓库") Long warehouseId,
         @NotNull(message="请选择业务日期") LocalDate businessDate,@NotBlank(message="请填写退货原因") @Size(max=200,message="原因最多200字") String reason,
-        @NotEmpty(message="请填写退货明细") @Size(max=500,message="最多500行") List<@NotNull @Valid ReturnLine> lines,Long version) {}
+        @NotEmpty(message="请填写退货明细") @Size(max=500,message="最多500行") List<@NotNull @Valid ReturnLine> lines,Long version, @Positive(message="业务员编号无效") Long salesUserId) {
+        public ReturnInput(Long customerId,Long warehouseId,LocalDate businessDate,String reason,List<ReturnLine> lines,Long version) {this(customerId,warehouseId,businessDate,reason,lines,version,null);}
+    }
     public record ReturnLine(@NotNull(message="请选择原发货行") Long shipmentLineId,@NotNull(message="请选择退货单位") Long unitId,
         @NotBlank(message="请输入退货数量") String qty,
         @NotNull(message="请选择质检结果") @Pattern(regexp="pending|passed|failed",message="质检结果无效") String qualityResult) {}

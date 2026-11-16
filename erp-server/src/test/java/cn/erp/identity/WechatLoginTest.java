@@ -41,7 +41,7 @@ class WechatLoginTest {
     private final LoginSettingsService.Provider provider = new LoginSettingsService.Provider(
             Map.of("appId", APP_ID, "callbackUrl", CALLBACK), "服务端密钥", 2L);
     private final WechatLoginController controller = new WechatLoginController(settings, identities, sessions,
-            access, mock(LoginLimiter.class), oauth, redis, json, "erp:session:wechat-test");
+            access, mock(LoginLimiter.class), oauth, redis, json, mock(LoginAudit.class), "erp:session:wechat-test");
 
     @BeforeEach
     @SuppressWarnings("unchecked")

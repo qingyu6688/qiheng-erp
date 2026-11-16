@@ -117,6 +117,7 @@ public class PurchaseOrderService {
         queries.header(scope,id,false);
         return execute(scope,"change",key,List.of(id,input),200,()->{
             var before=queries.header(scope,id,true);version(input.version(),before);state(before,"approved","closed");reason(input.reason());
+            BusinessPeople.assign(jdbc,scope,"purchase_order",id,input.buyerUserId());
             var rows=queries.lines(scope,id,true);var preview=writer.price(scope,input);
             if(number(before,"supplier_id")!=identifier(input.supplierId())||flag(before.get("price_tax_inclusive"))!=preview.priceTaxInclusive()) {
                 throw new ApiException(422,"CHANGE_NOT_ALLOWED","审批后的订单不能更换供应商或含税价格口径");
