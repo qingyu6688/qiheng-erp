@@ -19,6 +19,8 @@ const actions = [
 ]
 const resourceNames: Record<string, string> = {
   company: '公司',
+  org_department: '部门',
+  org_post: '岗位',
   company_policy: '公司业务参数',
   user: '用户',
   role: '角色',

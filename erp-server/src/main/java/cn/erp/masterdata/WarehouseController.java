@@ -100,6 +100,10 @@ class WarehouseController {
                 case "user.enable", "user.disable", "user.unlock" -> "user:update";
                 case "user.reset_password" -> "user:reset_password";
                 case "role.create" -> "role:create";
+                case "org_department.create", "org_post.create" -> operation.replace('.', ':');
+                case "org_department.update", "org_department.move", "org_department.enable", "org_department.disable" -> "org_department:update";
+                case "org_post.update", "org_post.enable", "org_post.disable" -> "org_post:update";
+                case "user.assign_organization" -> "user:update";
                 case "receipt.withdraw" -> "receipt:return";
                 case "purchase_requisition.create", "purchase_requisition.submit", "purchase_requisition.withdraw", "purchase_requisition.approve", "purchase_requisition.reject", "purchase_requisition.close", "purchase_requisition.cancel",
                      "purchase_order.create", "purchase_order.submit", "purchase_order.withdraw", "purchase_order.approve", "purchase_order.reject", "purchase_order.revoke_approval", "purchase_order.close_lines", "purchase_order.cancel", "purchase_order.change", "purchase_order.change_approve", "purchase_order.change_reject",
@@ -120,7 +124,7 @@ class WarehouseController {
                 default -> throw new ApiException(404, "NOT_FOUND", "未找到该操作结果");
             };
             var scope = operation.startsWith("cash_account.") || operation.startsWith("period.") || operation.equals("reconciliation.run")
-                    || operation.equals("outbox.replay")
+                    || operation.equals("outbox.replay") || operation.startsWith("org_department.") || operation.equals("user.assign_organization")
                     || operation.matches("(?:sales_order|shipment|receipt|sales_return|refund_request|settlement|invoice_registration)\\..+")
                     || operation.matches("(?:purchase_requisition|purchase_order|goods_receipt|purchase_return|payment|account_transfer|stock_adjustment|opening_entry|stock_transfer|stock_count|reversal)\\..+")
                     ? access.requireCompany(request, permission) : access.requireTenant(request, permission);

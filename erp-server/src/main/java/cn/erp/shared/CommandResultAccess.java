@@ -13,6 +13,11 @@ public class CommandResultAccess {
 
     public void verify(ActorScope actor,String operation,Object response) {
         if(!(actor instanceof WarehouseScope scope) || !(response instanceof Map<?,?> row)) {return;}
+        if(operation.equals("user.assign_organization")) {
+            Long count=jdbc.queryForObject("SELECT COUNT(*) FROM sys_user_data_scope WHERE tenant_id=? AND company_id=? AND user_id=?",Long.class,scope.tenantId(),scope.companyId(),row.get("userId"));
+            if(count==null || count==0) throw missing();
+            return;
+        }
         if(java.util.Set.of("period.close","period.reopen","outbox.replay").contains(operation)&&!scope.allWarehouses()) {throw new ApiException(403,"FORBIDDEN","操作结果需要整家公司数据范围");}
         if(operation.startsWith("reversal.")) {
             String type=String.valueOf(row.get("sourceType"));
