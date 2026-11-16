@@ -58,6 +58,9 @@ onMounted(async()=>{
     partners.value=await allRecords('partners')
     if(hasWarehouse.value) warehouses.value=await allRecords('warehouses',true)
     if(['receipts','refund-requests'].includes(props.kind)) accounts.value=await allRecords('cash-accounts',true)
+    if(props.kind==='receipts' && !props.original && !form.cashAccountId) {
+      form.cashAccountId=accounts.value.find(account=>account.status==='active' && account.defaultForReceipt===true)?.id ?? ''
+    }
     if(props.kind==='receipts') {
       if(session.can('sales_order:view'))orders.value=await allRecords('sales-orders',true)
       if(session.can('income_expense_item:view'))income.value=await allRecords('income-expense-items')

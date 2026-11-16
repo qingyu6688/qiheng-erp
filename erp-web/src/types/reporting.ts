@@ -22,6 +22,7 @@ export const reportLabels: Record<string, string> = {
 export interface ReportResult {
   reportType: string
   asOf: string
+  dataSource?: 'primary' | 'replica'
   statisticDate?: string
   rowCount?: number
   items: Record<string, unknown>[]

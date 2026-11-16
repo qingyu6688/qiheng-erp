@@ -8,22 +8,26 @@ import java.time.*;
 import java.util.*;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.*;
 
 @Service
 public class ReportService {
     public static final int MAX_ROWS=50_000;
     private final NamedParameterJdbcTemplate jdbc;
-    public ReportService(NamedParameterJdbcTemplate jdbc) { this.jdbc=jdbc; }
+    private final ReportReadDatabase database;
+    public ReportService(ReportReadDatabase database) { this.database=database;this.jdbc=database.jdbc(); }
 
-    @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
     public Map<String,Object> page(CompanyAccess actor,ReportType type,ReportQuery query,Long cursor,int limit) {
+        return database.read(()->pageInside(actor,type,query,cursor,limit));
+    }
+
+    private Map<String,Object> pageInside(CompanyAccess actor,ReportType type,ReportQuery query,Long cursor,int limit) {
         if(limit<1 || limit>200 || cursor!=null && (cursor<0 || cursor>MAX_ROWS)) { throw invalid("报表分页条件无效"); }
         var snapshot=snapshot(actor,type,query);
         int offset=cursor==null?0:cursor.intValue();
         if(offset>snapshot.items().size()) { throw invalid("报表分页位置已失效，请重新查询"); }
         var result=new LinkedHashMap<String,Object>();
         result.put("reportType",type.code());result.put("asOf",snapshot.asOf());
+        result.put("dataSource",database.replicaEnabled()?"replica":"primary");
         result.put("statisticDate",LocalDate.now(ZoneId.of("Asia/Shanghai")).toString());
         result.put("items",snapshot.items().subList(offset,Math.min(offset+limit,snapshot.items().size())));
         result.put("nextCursor",offset+limit<snapshot.items().size()?Integer.toString(offset+limit):null);
@@ -32,8 +36,11 @@ public class ReportService {
 
     public record Snapshot(String asOf,List<Map<String,Object>> items,Map<String,Object> summary) {}
 
-    @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
     public Snapshot snapshot(CompanyAccess actor,ReportType type,ReportQuery input) {
+        return database.read(()->snapshotInside(actor,type,input));
+    }
+
+    private Snapshot snapshotInside(CompanyAccess actor,ReportType type,ReportQuery input) {
         type.authorize(actor,false);var query=input.normalized();
         if(query.warehouseId()!=null && !actor.allowsWarehouse(query.warehouseId())) { throw new ApiException(404,"NOT_FOUND","仓库不存在或无权查看"); }
         var params=new HashMap<String,Object>();params.put("t",actor.tenantId());params.put("c",actor.companyId());
@@ -72,7 +79,7 @@ public class ReportService {
         }+" LIMIT "+(MAX_ROWS+1);
         var raw=jdbc.queryForList(sql,params);
         if(raw.size()>MAX_ROWS) { throw invalid("报表超过50000行，请缩小日期或筛选范围后重试"); }
-        var asOf=Instant.now().toString();
+        var asOf=database.asOf();
         if(type==ReportType.PARTNER_STATEMENT || type==ReportType.CASH_JOURNAL) { raw=balances(raw,query,type); }
         names(actor,raw);
         documentNumbers(actor,raw);

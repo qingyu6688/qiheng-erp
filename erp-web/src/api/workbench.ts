@@ -26,3 +26,22 @@ export interface WorkbenchSummary {
 export function workbenchSummary(signal?: AbortSignal): Promise<WorkbenchSummary> {
   return request({ method: 'GET', url: '/workbench/summary', signal }, true)
 }
+
+export interface TradeAmounts {
+  today: string
+  yesterday: string
+  month: string
+  year: string
+}
+
+export interface TradeSummary {
+  asOf: string
+  dataSource: 'primary' | 'replica'
+  sales?: TradeAmounts
+  purchase?: TradeAmounts
+  trend: { month: string; sales?: string; purchase?: string }[]
+}
+
+export function tradeSummary(signal?: AbortSignal): Promise<TradeSummary> {
+  return request({ method: 'GET', url: '/workbench/trade-summary', params: { months: 12 }, signal }, true)
+}

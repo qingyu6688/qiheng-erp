@@ -119,6 +119,16 @@ class ReferenceController {
         return ApiResponse.success(result);
     }
 
+    @PostMapping("/cash-accounts/{id}/set-default")
+    ApiResponse<Map<String,Object>> defaultAccount(HttpServletRequest req,@PathVariable long id,
+            @RequestHeader(value="Idempotency-Key",required=false) String key,@Valid @RequestBody CashModels.DefaultAccount input) {
+        var scope=access.requireCompany(req,"cash_account:update");
+        return ApiResponse.success(command(scope,"cash_account.set_default",key,List.of(id,input),200,()->{
+            var result=new java.util.LinkedHashMap<>(accounts.setDefault(scope,id,input));
+            result.remove("accountNo");return result;
+        }));
+    }
+
     @GetMapping("/income-expense-items")
     ApiResponse<Map<String,Object>> items(HttpServletRequest req,@RequestParam(defaultValue="") String keyword,
             @RequestParam(required=false) String cursor,@RequestParam(defaultValue="20") int limit) {

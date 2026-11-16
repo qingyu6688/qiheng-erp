@@ -173,6 +173,19 @@ async function relationsSaved(): Promise<void> {
     if (!isCancelled(cause)) error.value = messageOf(cause)
   }
 }
+async function setDefaultAccount(row: DataRow, purpose: 'receipt' | 'payment'): Promise<void> {
+  panelBusy.value = true
+  error.value = ''
+  try {
+    await writeRecord('cash-accounts/' + row.id + '/set-default', { purpose, version: row.version }, 'POST', true, newIdempotencyKey())
+    notice.value = purpose === 'receipt' ? '默认收款账户已设置' : '默认付款账户已设置'
+    await load()
+  } catch (cause: unknown) {
+    if (!isCancelled(cause)) error.value = messageOf(cause)
+  } finally {
+    panelBusy.value = false
+  }
+}
 function statusChange(row: DataRow): void {
   statusRow.value = row
   statusKey.value = newIdempotencyKey()
@@ -298,6 +311,13 @@ onScopeDispose(() => {
             ></template
           >
         </el-table-column>
+        <el-table-column v-if="resource === 'cash-accounts'" label="默认用途" min-width="160">
+          <template #default="{ row }">
+            <el-tag v-if="row.defaultForReceipt" size="small">默认收款</el-tag>
+            <el-tag v-if="row.defaultForPayment" size="small" type="success">默认付款</el-tag>
+            <span v-if="!row.defaultForReceipt && !row.defaultForPayment">—</span>
+          </template>
+        </el-table-column>
         <el-table-column v-if="resource !== 'audit-logs'" label="操作" min-width="180">
           <template #default="{ row }"
             ><PeriodActions
@@ -307,6 +327,10 @@ onScopeDispose(() => {
             />
             <div v-else class="row-actions">
               <button v-if="canEdit(row)" class="text-link" @click="edit(row)">编辑</button>
+              <template v-if="resource === 'cash-accounts' && row.status === 'active' && canEdit(row)">
+                <button v-if="!row.defaultForReceipt" class="text-link" :disabled="panelBusy" @click="setDefaultAccount(row, 'receipt')">设为默认收款</button>
+                <button v-if="!row.defaultForPayment" class="text-link" :disabled="panelBusy" @click="setDefaultAccount(row, 'payment')">设为默认付款</button>
+              </template>
               <button
                 v-if="
                   spec.enable &&

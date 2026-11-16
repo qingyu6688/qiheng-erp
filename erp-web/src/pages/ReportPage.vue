@@ -344,7 +344,7 @@ onBeforeUnmount(() => {
     </form>
     <p v-if="result" class="muted">
       数据时间 {{ formatDateTime(result.asOf)
-      }}<template v-if="result.statisticDate"> · 统计日 {{ result.statisticDate }}</template>
+      }}<template v-if="result.dataSource === 'replica'"> · 只读备库</template><template v-if="result.statisticDate"> · 统计日 {{ result.statisticDate }}</template>
     </p>
     <dl v-if="result?.summary" class="report-summary">
       <template v-for="(value, field) in result.summary" :key="field"
