@@ -35,6 +35,7 @@ public final class ExportCsv {
             case PARTNER_STATEMENT -> add(columns,"partnerName","往来单位","businessDate","业务日期","sourceNo","来源单号","accountCode","科目","direction","方向","debitAmount","借方发生额","creditAmount","贷方发生额","openingBalance","期初余额","runningBalance","本行余额");
             case CASH_JOURNAL -> add(columns,"cashAccountName","资金账户","businessDate","业务日期","sourceNo","来源单号","receiptAmount","收入","paymentAmount","支出","openingBalance","期初余额","runningBalance","本行余额");
         }
+        if(Set.of(ReportType.RECEIVABLE_AGING,ReportType.PAYABLE_AGING).contains(type)&&!rows.isEmpty()&&rows.getFirst().get("agingLabels") instanceof Map<?,?> labels) {columns.keySet().removeIf(field->field.startsWith("age"));columns.put("businessUserName","业务员");columns.put("departmentName","部门");labels.forEach((field,label)->{String key=field.toString().replace("aging_","aging");columns.put(key,label.toString());});}
         if(!cost) { columns.keySet().removeIf(field->field.toLowerCase(Locale.ROOT).contains("cost") || field.equals("grossMargin")); }
         return write(rows,columns,json);
     }

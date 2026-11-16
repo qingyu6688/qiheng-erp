@@ -11,6 +11,10 @@ import org.springframework.transaction.annotation.Propagation;
 
 @Service
 public class ReconciliationService {
+    private static boolean financialAllowed(CompanyAccess actor) {
+        try {FinancialScope.require(actor,"gl_ledger:view");return true;}
+        catch(ApiException denied) {if(denied.getStatus()==403)return false;throw denied;}
+    }
     private final JdbcTemplate jdbc;
     private final ReconciliationChecks checks;
     private final OutboxService events;
@@ -19,9 +23,14 @@ public class ReconciliationService {
         this.jdbc=jdbc;this.checks=checks;this.events=events;
     }
 
+    private cn.erp.identity.AccessService access;
+    @org.springframework.beans.factory.annotation.Autowired
+    void access(cn.erp.identity.AccessService access) {this.access=access;}
+
     @Transactional
     public Map<String,Object> request(CompanyAccess scope,String type,Long period) {
         if(!scope.allWarehouses()||!scope.orgScope().allDepartments()) {throw new ApiException(403,"FORBIDDEN","公司级对账需要整家公司数据范围");}
+        if(type!=null&&type.startsWith("gl_"))FinancialScope.require(scope,"gl_ledger:view");
         if(!ReconciliationChecks.TYPES.contains(type)) {throw new ApiException(400,"VALIDATION_FAILED","对账类型无效");}
         if(period!=null && jdbc.queryForObject("SELECT COUNT(*) FROM accounting_period WHERE tenant_id=? AND company_id=? AND id=?",Long.class,scope.tenantId(),scope.companyId(),period)==0) {
             throw new ApiException(404,"NOT_FOUND","会计期间不存在或无权查看");
@@ -55,6 +64,8 @@ public class ReconciliationService {
             }
         }
         var scope=new CompanyAccess(tenant,user,company,true,Set.of(),Set.of());
+        if(run.get("check_type").toString().startsWith("gl_")) {scope=access==null?null:access.forUser(tenant,user,company);if(scope==null||!financialAllowed(scope)) {markError(tenant,id,"发起人的财务权限或完整数据范围已变更");return;}}
+
         Long period=run.get("period_id")==null?null:((Number)run.get("period_id")).longValue();
         var diffs=checks.check(scope,run.get("check_type").toString(),period);
         for(var diff:diffs) {
@@ -77,13 +88,14 @@ public class ReconciliationService {
         var rows=jdbc.queryForList("SELECT id,check_type,status,diff_count,started_at,finished_at,error_message FROM reconciliation_run WHERE tenant_id=? AND company_id=? AND id=?",
                 scope.tenantId(),scope.companyId(),id);
         if(rows.isEmpty()) {throw new ApiException(404,"NOT_FOUND","任务不存在或无权查看");}
+        if(rows.getFirst().get("check_type").toString().startsWith("gl_"))FinancialScope.require(scope,"gl_ledger:view");
         return row(rows.getFirst());
     }
 
     public Map<String,Object> list(CompanyAccess scope,Long cursor,int limit) {
         requireCompanyScope(scope);
         if(limit<1 || limit>200 || cursor!=null && cursor<=0) {throw new ApiException(400,"VALIDATION_FAILED","分页条件无效");}
-        var rows=jdbc.queryForList("SELECT id,check_type,status,diff_count,started_at,finished_at,error_message FROM reconciliation_run WHERE tenant_id=? AND company_id=? AND id<? ORDER BY id DESC LIMIT ?",
+        var rows=jdbc.queryForList("SELECT id,check_type,status,diff_count,started_at,finished_at,error_message FROM reconciliation_run WHERE tenant_id=? AND company_id=? AND id<? "+(financialAllowed(scope)?"":"AND check_type NOT IN('gl_trial','gl_operational') ")+" ORDER BY id DESC LIMIT ?",
                 scope.tenantId(),scope.companyId(),cursor==null?Long.MAX_VALUE:cursor,limit+1);
         var items=rows.stream().limit(limit).map(ReconciliationService::row).toList();
         var result=new LinkedHashMap<String,Object>();result.put("items",items);result.put("nextCursor",rows.size()>limit?items.getLast().get("id"):null);return result;

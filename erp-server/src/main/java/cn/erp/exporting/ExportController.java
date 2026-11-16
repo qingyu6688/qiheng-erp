@@ -20,7 +20,7 @@ class ExportController {
     ExportController(AccessService access,ExportJobs jobs,FileTickets tickets) { this.access=access;this.jobs=jobs;this.tickets=tickets; }
     @PostMapping
     ResponseEntity<?> create(HttpServletRequest request,@RequestHeader(value="Idempotency-Key",required=false) String key,@RequestBody ExportJobs.Input input) {
-        var type=ReportType.parse(input.exportType());var actor=access.requireCompany(request,type.exportPermission());
+        var actor=access.requireCompany(request,FinancialExportPort.supports(input.exportType())?"gl_export:create":ReportType.parse(input.exportType()).exportPermission());
         return ResponseEntity.accepted().body(new ApiResponse<>(202,"导出任务已提交",jobs.create(actor,key,input),RequestIds.current(),null,null));
     }
     @GetMapping
@@ -39,7 +39,7 @@ class ExportController {
     ResponseEntity<byte[]> download(HttpServletRequest request,@PathVariable long id,@RequestParam(required=false) String ticket) {
         var actor=access.requireCompany(request,null);tickets.verify(actor,"export_job",id,ticket);jobs.ready(actor,id);
         var result=jobs.download(actor,id);
-        return ResponseEntity.ok().contentType(new MediaType("text","csv",StandardCharsets.UTF_8))
+        return ResponseEntity.ok().contentType(MediaType.parseMediaType(result.contentType()))
                 .header(HttpHeaders.CONTENT_DISPOSITION,ContentDisposition.attachment().filename(result.fileName(),StandardCharsets.UTF_8).build().toString())
                 .header(HttpHeaders.CACHE_CONTROL,"private, no-store").header("X-Content-Type-Options","nosniff").body(result.bytes());
     }

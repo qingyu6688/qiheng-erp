@@ -22,6 +22,9 @@ import static cn.erp.inventory.InventoryModels.*;
 @Service
 @Transactional
 public class ShipmentService {
+    private CreditPort credit=new CreditPort() {};
+    @org.springframework.beans.factory.annotation.Autowired
+    void credit(CreditPort credit) {this.credit=credit;}
     private final JdbcTemplate jdbc;
     private final ShipmentQueries queries;
     private final InventoryService inventory;
@@ -82,7 +85,9 @@ public class ShipmentService {
         return command(scope,"submit",key,List.of(id,version),200,()->{
             var snapshot=queries.header(scope,id,false);
             period(scope,date(snapshot,"business_date"));
+            credit.lock(scope,id(snapshot,"customer_id"));
             var before=queries.header(scope,id,true);version(version,before);
+            if(id(snapshot,"customer_id")!=id(before,"customer_id"))throw invalid("客户已变化，请刷新后重试");credit.shipment(scope,id(before,"customer_id"));
             if(!"draft".equals(before.get("status"))) {throw state();}
             var lines=lockLines(scope,id);
             var sources=sources(scope,lines.stream().map(line->id(line,"order_line_id")).toList(),true);
@@ -95,7 +100,7 @@ public class ShipmentService {
             }
             occupancy.occupyAll(scope,occupied);
             jdbc.update("UPDATE shipment SET status='submitted',submitted_at=UTC_TIMESTAMP(3),version=version+1,updated_by=? WHERE id=?",scope.userId(),id);
-            changed(scope,id,"submit",before);return safe(scope,id);
+            changed(scope,id,"submit",before);var result=new LinkedHashMap<String,Object>(safe(scope,id));result.put("warnings",credit.warnings(scope,id(before,"customer_id")));return result;
         });
     }
 
@@ -116,7 +121,9 @@ public class ShipmentService {
         return command(scope,"post",key,List.of(id,expectedVersion),200,()->{
             var snapshot=queries.header(scope,id,false);
             long period=period(scope,date(snapshot,"business_date"));
+            credit.lock(scope,id(snapshot,"customer_id"));
             var before=queries.header(scope,id,true);version(expectedVersion,before);
+            if(id(snapshot,"customer_id")!=id(before,"customer_id"))throw invalid("客户已变化，请刷新后重试");credit.shipment(scope,id(before,"customer_id"));
             if(!"submitted".equals(before.get("status"))) {throw state();}
             var lines=lockLines(scope,id);
             var activeReservations=new HashMap<Long,Long>();
@@ -152,7 +159,7 @@ public class ShipmentService {
                 var signed=lines.stream().map(line->new ShipmentModels.SignedLine(id(line,"id"),decimal(line,"base_qty").toPlainString())).toList();
                 signInternal(scope,id,new ShipmentModels.Signed(expectedVersion+1,date(before,"business_date"),signed,List.of()));
             }
-            changed(scope,id,"post",before);return safe(scope,id);
+            changed(scope,id,"post",before);var result=new LinkedHashMap<String,Object>(safe(scope,id));result.put("warnings",credit.warnings(scope,id(before,"customer_id")));return result;
         });
     }
 

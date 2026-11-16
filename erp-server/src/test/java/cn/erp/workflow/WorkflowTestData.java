@@ -360,6 +360,7 @@ final class WorkflowTestData {
                         "inventory_reservation",
                         "inventory_movement",
                         "cost_adjustment",
+                        "ar_collection_followup","ar_collection_plan","ar_bad_debt","credit_increase","ar_credit_limit","ar_customer_lock","ar_aging_config",
                         "journal_line",
                         "journal",
                         "ledger_balance",

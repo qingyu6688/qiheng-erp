@@ -26,9 +26,15 @@ public class WorkflowRuntime implements WorkflowPort {
         this.assignees = assignees;
     }
 
+    private CreditPort credit=new CreditPort() {};
+    @org.springframework.beans.factory.annotation.Autowired
+    void credit(CreditPort credit) {this.credit=credit;}
+
     @Override
     public void start(ActorScope scope, String type, long id, Map<String, List<Long>> selections) {
         var actor = (CompanyAccess) scope;
+        var creditInfo=type.equals("sales_order")?credit.inspect(actor,id):Map.<String,Object>of();
+        boolean needsCredit=Boolean.TRUE.equals(creditInfo.get("overCreditLimit"))&&"approval".equals(creditInfo.get("creditPolicy"));
         if (!SimpleModel.TYPES.contains(type)) throw SimpleModel.invalid("工作流业务类型无效");
         if (state.jdbc.queryForObject(
                         "SELECT COUNT(*) FROM wf_business_binding WHERE tenant_id=? AND company_id"
@@ -38,6 +44,7 @@ public class WorkflowRuntime implements WorkflowPort {
                         actor.companyId(),
                         type)
                 == 0) {
+            if(needsCredit)throw new ApiException(422,"CREDIT_APPROVAL_REQUIRED","超额或超期须配置人工信用审批，当前没有匹配流程");
             if (type.equals("sales_order")
                     && state.jdbc.queryForObject(
                                     "SELECT COUNT(*) FROM sales_order_line l JOIN company_policy p"
@@ -67,6 +74,7 @@ public class WorkflowRuntime implements WorkflowPort {
                 Boolean.TRUE.equals(summary.get("belowMinPrice"))
                         && "approval".equals(summary.get("belowMinPricePolicy"));
         if (binding == null) {
+            if(needsCredit)throw new ApiException(422,"CREDIT_APPROVAL_REQUIRED","当前没有匹配的人工信用审批流程");
             if (needsPrice)
                 throw new ApiException(
                         422, "PRICE_APPROVAL_REQUIRED", "低于最低售价须配置并完成人工价格审批，当前没有匹配的流程");
@@ -103,6 +111,7 @@ public class WorkflowRuntime implements WorkflowPort {
             throw SimpleModel.invalid("自选人员内容无效或包含非自选节点");
         if (needsPrice && !pricePath(root, summary))
             throw new ApiException(422, "PRICE_APPROVAL_REQUIRED", "当前可达流程路径没有人工价格审批节点，请调整流程");
+        if(needsCredit&&!reviewPath(root,summary,true))throw new ApiException(422,"CREDIT_APPROVAL_REQUIRED","当前可达流程路径没有人工信用审批节点");
         long instance = Ids.next();
         var departments =
                 state.jdbc.queryForList(
@@ -249,6 +258,7 @@ public class WorkflowRuntime implements WorkflowPort {
                 timeout == null ? null : timeout.repeat() == null ? 12 : timeout.repeat(),
                 timeout == null ? null : timeout.hours(),
                 timeout == null ? null : timeout.hours());
+        state.jdbc.update("UPDATE wf_task_ext SET credit_approval=? WHERE tenant_id=? AND id=?",Boolean.TRUE.equals(node.creditApproval()),tenant,id);
         state.jdbc.update(
                 "UPDATE wf_instance SET flowable_instance_id=COALESCE(flowable_instance_id,?) WHERE"
                     + " tenant_id=? AND id=?",
@@ -290,6 +300,7 @@ public class WorkflowRuntime implements WorkflowPort {
                         instance.get("approval_epoch"));
         CompanyAccess reviewer = null;
         boolean price = false;
+        boolean creditApproved=false;
         Map<String, Object> current = null;
         for (var task : approvals) {
             var actor =
@@ -300,13 +311,14 @@ public class WorkflowRuntime implements WorkflowPort {
                             type,
                             business,
                             true,
-                            false);
+                            false,number(task.get("credit_approval"))==1);
             if (actor == null)
                 throw new ApiException(422, "WORKFLOW_REVIEW_INVALID", "已有人工审批人的权限或任职已失效，请退回重审");
             if (reviewer == null) {
                 reviewer = actor;
                 current = state.documents.snapshot(actor, type, business);
             }
+            if(number(task.get("credit_approval"))==1&&WorkflowDocuments.creditEligible(actor)&&Objects.equals(task.get("credit_fingerprint"),current.get("creditFingerprint")))creditApproved=true;
             if (Boolean.TRUE.equals(task.get("price_approval"))
                     || number(task.get("price_approval")) == 1) {
                 if (actor.hasPermission("sales_order:price_approve")
@@ -322,7 +334,7 @@ public class WorkflowRuntime implements WorkflowPort {
                         reviewer,
                         type,
                         business,
-                        price ? Objects.toString(current.get("priceFingerprint"), null) : null)) {
+                        price ? Objects.toString(current.get("priceFingerprint"), null) : null,creditApproved?Objects.toString(current.get("creditFingerprint"),null):null)) {
             state.documents
                     .handler(type)
                     .decide(reviewer, business, "approved", "工作流人工审批通过", "wf-" + id + "-approved");
@@ -381,11 +393,12 @@ public class WorkflowRuntime implements WorkflowPort {
         state.signal(instance);
     }
 
-    static boolean pricePath(SimpleModel.Node node, Map<String, Object> summary) {
+    static boolean pricePath(SimpleModel.Node node,Map<String,Object> summary) {return reviewPath(node,summary,false);}
+    static boolean reviewPath(SimpleModel.Node node, Map<String, Object> summary,boolean credit) {
         if (node == null) return false;
-        if (Boolean.TRUE.equals(node.priceApproval())) return true;
+        if (Boolean.TRUE.equals(credit?node.creditApproval():node.priceApproval())) return true;
         if (node.type().equals("parallel_branch")
-                && node.branches().stream().anyMatch(b -> pricePath(b.child(), summary)))
+                && node.branches().stream().anyMatch(b -> reviewPath(b.child(), summary,credit)))
             return true;
         if (node.type().equals("condition_branch")) {
             var selected =
@@ -404,9 +417,9 @@ public class WorkflowRuntime implements WorkflowPort {
                                                                             b.defaultBranch()))
                                                     .findFirst()
                                                     .orElseThrow());
-            if (pricePath(selected.child(), summary)) return true;
+            if (reviewPath(selected.child(), summary,credit)) return true;
         }
-        return pricePath(node.child(), summary);
+        return reviewPath(node.child(), summary,credit);
     }
 
     public void autoRejected(DelegateExecution execution) {

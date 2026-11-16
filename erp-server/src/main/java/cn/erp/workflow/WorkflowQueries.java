@@ -192,6 +192,8 @@ public class WorkflowQueries {
         result.remove("selections");
         var summary = state.summary(instance);
         summary.remove("priceFingerprint");
+        summary.remove("creditFingerprint");
+        if(!WorkflowDocuments.creditVisible(actor)) {summary.remove("creditExposure");summary.remove("creditLimit");summary.remove("creditOverdueDays");}
         summary.remove("belowMinPriceLineIds");
         if (!actor.hasPermission("cost:view")
                 && (instance.get("business_type").equals("stock_adjustment")
@@ -321,7 +323,7 @@ public class WorkflowQueries {
                                         type,
                                         id,
                                         node.type().equals("approver"),
-                                        Boolean.TRUE.equals(node.priceApproval()))));
+                                        Boolean.TRUE.equals(node.priceApproval()),Boolean.TRUE.equals(node.creditApproval()))));
         return Map.of("nodes", options);
     }
 

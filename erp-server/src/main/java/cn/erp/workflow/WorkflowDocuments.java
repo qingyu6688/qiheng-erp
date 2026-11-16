@@ -32,7 +32,7 @@ public class WorkflowDocuments {
     }
 
     public static String permission(String type, String action) {
-        return (type.equals("document_reversal") ? "reversal" : type) + ":" + action;
+        return (type.equals("document_reversal") ? "reversal" : type.equals("credit_increase") ? "credit_limit" : type) + ":" + action;
     }
 
     public Map<String, Object> snapshot(CompanyAccess actor, String type, long id) {
@@ -48,11 +48,13 @@ public class WorkflowDocuments {
             String type,
             long id,
             boolean review,
-            boolean priceApproval) {
+            boolean priceApproval) {return eligible(tenant,company,user,type,id,review,priceApproval,false);}
+    public CompanyAccess eligible(long tenant,long company,long user,String type,long id,boolean review,boolean priceApproval,boolean creditApproval) {
         var actor = access.forUser(tenant, user, company);
         if (actor == null
                 || review && !actor.hasPermission(permission(type, "approve"))
                 || priceApproval && !actor.hasPermission("sales_order:price_approve")) return null;
+        if(creditApproval&&!creditEligible(actor))return null;
         try {
             var source = snapshot(actor, type, id);
             if (review
@@ -103,6 +105,9 @@ public class WorkflowDocuments {
                         company);
         return rules.isEmpty() || rules.getFirst() != 0;
     }
+
+    public static boolean creditVisible(ActorScope actor) {try {FinancialScope.require(actor,"credit_limit:view");return true;}catch(ApiException denied) {if(denied.getStatus()==403)return false;throw denied;}}
+    public static boolean creditEligible(ActorScope actor) {try {FinancialScope.require(actor,"credit_limit:approve");FinancialScope.require(actor,"credit_limit:view");return true;}catch(ApiException denied) {if(denied.getStatus()==403)return false;throw denied;}}
 
     public boolean visible(CompanyAccess actor, Map<String, Object> instance) {
         try {

@@ -106,7 +106,7 @@ public class WorkflowTasks {
                         type,
                         number(instance.get("business_id")),
                         task.get("node_kind").equals("approver"),
-                        number(task.get("price_approval")) == 1)
+                        number(task.get("price_approval")) == 1,number(task.get("credit_approval"))==1)
                 == null)
             throw new ApiException(403, "WORKFLOW_TASK_NOT_ALLOWED", "当前权限、任职或经办复核规则不允许处理此任务");
     }
@@ -134,6 +134,7 @@ public class WorkflowTasks {
                         actor,
                         instance.get("business_type").toString(),
                         number(instance.get("business_id")));
+        if(number(task.get("credit_approval"))==1)state.jdbc.update("UPDATE wf_task_ext SET credit_fingerprint=? WHERE tenant_id=? AND id=?",Objects.toString(current.get("creditFingerprint"),null),actor.tenantId(),id);
         String fingerprint =
                 number(task.get("price_approval")) == 1
                         ? Objects.toString(current.get("priceFingerprint"), null)
@@ -207,7 +208,7 @@ public class WorkflowTasks {
                         instance.get("business_type").toString(),
                         number(instance.get("business_id")),
                         task.get("node_kind").equals("approver"),
-                        number(task.get("price_approval")) == 1)
+                        number(task.get("price_approval")) == 1,number(task.get("credit_approval"))==1)
                 == null)
             throw new ApiException(422, "WORKFLOW_APPROVER_UNAVAILABLE", "原处理人已失去权限，请流程管理员处理");
         engine.getTaskService().resolveTask(task.get("flowable_task_id").toString());
@@ -395,6 +396,7 @@ public class WorkflowTasks {
                     position,
                     instance.get("approval_epoch"),
                     parent.get("price_approval"));
+            state.jdbc.update("UPDATE wf_task_ext SET credit_approval=? WHERE tenant_id=? AND id=?",parent.get("credit_approval"),actor.tenantId(),id);
             state.assigned(instance, Map.of("id", id, "assignee_id", user, "version", 0));
         }
         state.jdbc.update(
@@ -484,7 +486,7 @@ public class WorkflowTasks {
                         instance.get("business_type").toString(),
                         number(instance.get("business_id")),
                         task.get("node_kind").equals("approver"),
-                        number(task.get("price_approval")) == 1)
+                        number(task.get("price_approval")) == 1,number(task.get("credit_approval"))==1)
                 == null)
             throw new ApiException(422, "WORKFLOW_APPROVER_UNAVAILABLE", "目标人员没有来源单据权限或不符合复核分离规则");
     }

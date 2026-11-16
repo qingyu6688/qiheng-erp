@@ -20,7 +20,7 @@ public class SettlementService {
                            BigDecimal amount,LocalDate agingDate) {
         public OpenItem {
             amount=AccountingAmounts.money(amount);
-            if(itemType==null || !Set.of("receivable","payable","receipt","payment","refund_request").contains(itemType) || sourceId<=0 || partnerId<=0 || direction==null || !Set.of("D","C").contains(direction) || agingDate==null) {throw AccountingAmounts.invalid("未清项来源或方向无效");}
+            if(itemType==null || !Set.of("receivable","payable","receipt","payment","refund_request","bad_debt").contains(itemType) || sourceId<=0 || partnerId<=0 || direction==null || !Set.of("D","C").contains(direction) || agingDate==null) {throw AccountingAmounts.invalid("未清项来源或方向无效");}
         }
     }
 
@@ -85,7 +85,7 @@ public class SettlementService {
 
     public long allocate(ActorScope scope,long debitItemId,long creditItemId,BigDecimal amount,
                          String type,String triggerType,Long triggerId) {
-        if(type==null || !Set.of("manual","auto_order","reversal").contains(type)) {throw AccountingAmounts.invalid("核销方式无效");}
+        if(type==null || !Set.of("manual","auto_order","reversal","bad_debt_write_off").contains(type)) {throw AccountingAmounts.invalid("核销方式无效");}
         return allocateInternal(scope,debitItemId,creditItemId,amount,type,triggerType,triggerId,"active");
     }
 
@@ -100,6 +100,11 @@ public class SettlementService {
         var debit=items.get(debitId);var credit=items.get(creditId);
         if(!"D".equals(debit.get("direction")) || !"C".equals(credit.get("direction")) || !debit.get("partner_id").equals(credit.get("partner_id")) || !debit.get("currency").equals(credit.get("currency")) || !side(scope,debit).equals(side(scope,credit))) {
             throw new ApiException(422,"SETTLEMENT_NOT_ALLOWED","核销双方须同公司、同往来、同币种、同往来侧且一借一贷");
+        }
+        if(type.equals("bad_debt_write_off")) {
+            if(!"ar_bad_debt".equals(triggerType)||triggerId==null||!"bad_debt".equals(credit.get("item_type"))||!credit.get("source_id").toString().equals(triggerId.toString()))throw AccountingAmounts.invalid("坏账核销必须绑定相应认定申请");
+            var facts=jdbc.queryForList("SELECT * FROM ar_bad_debt WHERE tenant_id=? AND company_id=? AND id=? AND status='posted' AND kind='write_off'",scope.tenantId(),scope.companyId(),triggerId);
+            if(facts.isEmpty()||((Number)facts.getFirst().get("open_item_id")).longValue()!=debitId||((BigDecimal)facts.getFirst().get("amount")).compareTo(amount)!=0)throw AccountingAmounts.invalid("坏账核销与认定申请不一致");
         }
         for(long id:new TreeSet<>(List.of(debitId,creditId))) {
             if(jdbc.update("UPDATE partner_open_item SET open_amount=open_amount-?,version=version+1 WHERE tenant_id=? AND company_id=? AND id=? AND open_amount>=?",amount,scope.tenantId(),scope.companyId(),id,amount)!=1) {throw new ApiException(422,"SETTLEMENT_AMOUNT_EXCEEDED","核销金额超过剩余额");}
@@ -127,7 +132,7 @@ public class SettlementService {
         var row=jdbc.queryForMap("SELECT * FROM settlement_allocation WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",scope.tenantId(),scope.companyId(),id);
         if(next.equals(row.get("status"))) {return;}
         if(!expected.equals(row.get("status"))) {throw AccountingAmounts.conflict("该核销记录不能执行此操作");}
-        if(next.equals("revoked") && Set.of("refund","reversal").contains(row.get("allocation_type"))) {throw AccountingAmounts.conflict("退款及冲销的核销不能单独撤销");}
+        if(next.equals("revoked") && Set.of("refund","reversal","bad_debt_write_off").contains(row.get("allocation_type"))) {throw AccountingAmounts.conflict("退款及冲销的核销不能单独撤销");}
         long debit=((Number)row.get("debit_item_id")).longValue(),credit=((Number)row.get("credit_item_id")).longValue();
         BigDecimal amount=(BigDecimal)row.get("amount");
         for(long item:new TreeSet<>(List.of(debit,credit))) {
@@ -207,8 +212,8 @@ public class SettlementService {
     }
 
     private void validateSource(ActorScope scope,OpenItem input) {
-        String partner=switch(input.itemType()) {case "receivable","refund_request" -> "customer_id";case "payable" -> "supplier_id";default -> "partner_id";};
-        var rows=jdbc.queryForList("SELECT * FROM "+input.itemType()+" WHERE tenant_id=? AND company_id=? AND id=?",scope.tenantId(),scope.companyId(),input.sourceId());
+        String partner=switch(input.itemType()) {case "receivable","refund_request","bad_debt" -> "customer_id";case "payable" -> "supplier_id";default -> "partner_id";};
+        var rows=jdbc.queryForList("SELECT * FROM "+(input.itemType().equals("bad_debt")?"ar_bad_debt":input.itemType())+" WHERE tenant_id=? AND company_id=? AND id=?",scope.tenantId(),scope.companyId(),input.sourceId());
         if(rows.isEmpty()) {throw AccountingAmounts.missing();}
         var row=rows.getFirst();
         if(!((java.sql.Date)row.get("business_date")).toLocalDate().equals(input.agingDate())) {throw AccountingAmounts.invalid("未清项账龄日期须与来源业务日期一致");}
@@ -216,9 +221,10 @@ public class SettlementService {
         String direction=switch(input.itemType()) {
             case "receivable" -> "charge".equals(row.get("kind"))?"D":"C";
             case "payable" -> "charge".equals(row.get("kind"))?"C":"D";
-            case "receipt" -> "C";
+            case "receipt","bad_debt" -> "C";
             default -> "D";
         };
+        if(input.itemType().equals("bad_debt")&&(!"posted".equals(row.get("status"))||!"write_off".equals(row.get("kind"))))throw AccountingAmounts.invalid("坏账核销须已通过独立复核并记账");
         if(!input.direction().equals(direction)) {throw AccountingAmounts.invalid("未清项方向与来源不符");}
         if(Set.of("receipt","payment").contains(input.itemType()) && !"confirmed".equals(row.get("status"))) {throw AccountingAmounts.conflict("收付款确认后才能生成未清项");}
         if(input.itemType().equals("refund_request") && !Set.of("draft","pending_review").contains(row.get("status"))) {throw AccountingAmounts.conflict("退款当前状态不能新建占用未清项");}

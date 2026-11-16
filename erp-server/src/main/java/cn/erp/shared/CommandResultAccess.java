@@ -13,6 +13,20 @@ public class CommandResultAccess {
 
     public void verify(ActorScope actor,String operation,Object response) {
         if(!(actor instanceof WarehouseScope scope) || !(response instanceof Map<?,?> row)) {return;}
+        if(operation.startsWith("credit_limit.")||operation.startsWith("credit_increase.")||operation.startsWith("bad_debt.")||operation.startsWith("aging_config.")) {
+            String action=operation.substring(operation.indexOf('.')+1);String permission=operation.startsWith("bad_debt.")?(java.util.Set.of("approve","reject").contains(action)?"bad_debt:approve":"bad_debt:edit"):operation.startsWith("aging_config.")?"aging_config:edit":java.util.Set.of("approve","reject").contains(action)||action.equals("cancel")&&row.get("approvedBy")!=null?"credit_limit:approve":"credit_limit:edit";
+            FinancialScope.require(actor,permission);return;
+        }
+        if(operation.startsWith("collection.")) {
+            if(!(actor instanceof PermissionScope permissions)||!permissions.hasPermission("collection:edit")||!scope.allWarehouses())throw new ApiException(403,"FORBIDDEN","无权读取催收操作结果");
+            if(row.get("id")!=null) {var plans=jdbc.queryForList("SELECT open_item_id FROM ar_collection_plan WHERE tenant_id=? AND company_id=? AND id=?",actor.tenantId(),actor.companyId(),row.get("id"));if(plans.isEmpty())throw missing();OrgOwnership.requireItem(jdbc,actor,plans.getFirst().get("open_item_id"));}return;
+        }
+        if(java.util.Set.of("period.close","period.reopen").contains(operation)&&jdbc.queryForObject("SELECT COUNT(*) FROM gl_account_book WHERE tenant_id=? AND company_id=? AND status='active'",Long.class,actor.tenantId(),actor.companyId())>0)FinancialScope.require(actor,"gl_closing:"+operation.substring(operation.indexOf('.')+1));
+        if(operation.equals("reconciliation.run")&&row.get("id")!=null) {var runs=jdbc.queryForList("SELECT check_type FROM reconciliation_run WHERE tenant_id=? AND company_id=? AND id=?",actor.tenantId(),actor.companyId(),row.get("id"));if(runs.isEmpty())throw missing();if(runs.getFirst().get("check_type").toString().startsWith("gl_"))FinancialScope.require(actor,"gl_ledger:view");}
+        if(operation.equals("export.create")&&row.get("taskId")!=null) {
+            var exports=jdbc.queryForList("SELECT export_type FROM export_job WHERE tenant_id=? AND company_id=? AND id=? AND created_by=?",actor.tenantId(),actor.companyId(),row.get("taskId"),actor.userId());if(exports.isEmpty())throw missing();String type=exports.getFirst().get("export_type").toString();if(FinancialExportPort.supports(type)) {FinancialScope.require(actor,"gl_export:create");FinancialScope.require(actor,type.equals("gl-vouchers")?"gl_voucher:view":java.util.Set.of("gl-balance_sheet","gl-income_statement","gl-cash_flow").contains(type)?"gl_report:view":"gl_ledger:view");return;}
+        }
+        if(operation.startsWith("gl_")) {String resource=operation.substring(0,operation.indexOf('.'));String action=operation.substring(operation.indexOf('.')+1);String permission=switch(resource) {case "gl_config"->action.equals("confirm")?"gl_config:confirm":"gl_config:edit";case "gl_opening"->action.equals("save")?"gl_opening:edit":"gl_opening:activate";case "gl_voucher"->switch(action) {case "save","submit","withdraw","delete","organize"->"gl_voucher:edit";case "approve","reject"->"gl_voucher:approve";case "reverse"->"gl_voucher:reverse";default->"gl_voucher:post";};default->"gl_sync:run";};FinancialScope.require(actor,permission);return;}
         if(operation.equals("role.assign_data_scope")&&!OrgOwnership.scope(actor).allDepartments()) throw new ApiException(403,"FORBIDDEN","没有查看部门范围管理结果的权限");
         String document=operation.startsWith("reversal.")?"document_reversal":operation.substring(0,operation.indexOf('.'));
         if(OrgOwnership.TABLES.contains(document)&&row.get("id")!=null) OrgOwnership.require(jdbc,actor,document,row.get("id"));
