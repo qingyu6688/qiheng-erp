@@ -13,7 +13,8 @@ class CashService {
     private final JdbcTemplate jdbc;
     private final AuditService audit;
     private static final String SELECT = """
-            SELECT a.id,a.code,a.name,a.account_type,a.bank_name,a.account_no,a.currency,a.status,a.version,b.balance
+            SELECT a.id,a.code,a.name,a.account_type,a.bank_name,a.account_no,a.currency,a.status,a.version,b.balance,
+                   a.default_for_receipt,a.default_for_payment
             FROM cash_account a JOIN cash_account_balance b ON b.tenant_id=a.tenant_id
               AND b.company_id=a.company_id AND b.cash_account_id=a.id
             """;
@@ -79,9 +80,37 @@ class CashService {
     @Transactional
     Map<String,Object> status(CompanyAccess scope,long id,String action,long version) {
         var before=get(scope,id,true);ReferenceRows.version(version,before);
-        jdbc.update("UPDATE cash_account SET status=?,version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?",
-                ReferenceRows.status(action),scope.userId(),scope.tenantId(),scope.companyId(),id);
+        String nextStatus=ReferenceRows.status(action);
+        jdbc.update("""
+                UPDATE cash_account SET status=?,default_for_receipt=IF(?='disabled',0,default_for_receipt),
+                    default_for_payment=IF(?='disabled',0,default_for_payment),version=version+1,updated_by=?
+                WHERE tenant_id=? AND company_id=? AND id=?
+                """,nextStatus,nextStatus,nextStatus,scope.userId(),scope.tenantId(),scope.companyId(),id);
         return changed(scope,id,"cash_account."+action,before);
+    }
+
+    @Transactional
+    Map<String,Object> setDefault(CompanyAccess scope,long id,CashModels.DefaultAccount input) {
+        if (!scope.hasPermission("cash_account:update")) {
+            throw new ApiException(403,"FORBIDDEN","没有设置默认账户的权限");
+        }
+        String column = switch (input.purpose()) {
+            case "receipt" -> "default_for_receipt";
+            case "payment" -> "default_for_payment";
+            default -> throw new ApiException(400,"VALIDATION_FAILED","默认用途无效");
+        };
+        ReferenceRows.one(jdbc.queryForList("SELECT id FROM company WHERE tenant_id=? AND id=? FOR UPDATE",
+                scope.tenantId(),scope.companyId()));
+        var before=get(scope,id,true);
+        ReferenceRows.version(input.version(),before);
+        if (!"active".equals(before.get("status"))) {
+            throw new ApiException(422,"MASTER_DATA_DISABLED","请先启用结算账户");
+        }
+        jdbc.update("UPDATE cash_account SET "+column+"=0,version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND "+column+"=1 AND id<>?",
+                scope.userId(),scope.tenantId(),scope.companyId(),id);
+        jdbc.update("UPDATE cash_account SET "+column+"=1,version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?",
+                scope.userId(),scope.tenantId(),scope.companyId(),id);
+        return changed(scope,id,"cash_account.set_default",before);
     }
 
     private Map<String,Object> changed(CompanyAccess scope,long id,String action,Map<String,Object> before) {

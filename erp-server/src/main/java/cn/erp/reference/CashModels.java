@@ -16,4 +16,7 @@ final class CashModels {
         @NotNull(message="请选择收支类型") @Pattern(regexp="income|expense",message="收支类型无效") String itemType,
         @Pattern(regexp="active|disabled",message="状态无效") String status, Long version) {}
     record Period(@NotBlank(message="请选择期间") @Pattern(regexp="[0-9]{6}",message="期间格式应为年月，如202611") String period) {}
+    record DefaultAccount(
+        @NotNull(message="请选择默认用途") @Pattern(regexp="receipt|payment",message="默认用途无效") String purpose,
+        @NotNull(message="请提供账户版本") Long version) {}
 }

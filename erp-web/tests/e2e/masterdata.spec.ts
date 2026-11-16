@@ -3,6 +3,7 @@ import { env } from 'node:process'
 import type { Page } from '@playwright/test'
 
 async function choose(page: Page, field: string, label: string): Promise<void> {
+  await expect(page.locator('#field-' + field)).toBeEnabled()
   await page
     .locator('.el-select')
     .filter({ has: page.locator('#field-' + field) })
@@ -113,6 +114,10 @@ test('维护基础资料、商品单位条码和角色权限', async ({ page }, 
   const cash = page.getByRole('row').filter({ hasText: '银行' + suffix })
   await expect(cash).toBeVisible()
   await expect(cash).toContainText('0.00')
+  await cash.getByRole('button', { name: '设为默认收款', exact: true }).click()
+  await expect(cash.getByText('默认收款', { exact: true })).toBeVisible()
+  await cash.getByRole('button', { name: '设为默认付款', exact: true }).click()
+  await expect(cash.getByText('默认付款', { exact: true })).toBeVisible()
 
   await page.goto('/accounting-periods')
   await page.getByRole('button', { name: '开启会计期间' }).click()

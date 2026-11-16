@@ -355,6 +355,8 @@ onMounted(async () => {
     if (['payments', 'account-transfers', 'opening-entries'].includes(props.kind))
       accounts.value = await allRecords('cash-accounts', true)
     if (props.kind === 'payments') {
+      if (!props.original && !form.cashAccountId)
+        form.cashAccountId = accounts.value.find(account => account.status === 'active' && account.defaultForPayment === true)?.id ?? ''
       if (session.can('purchase_order:view'))
         orders.value = await allRecords('purchase-orders', true)
       if (session.can('income_expense_item:view'))

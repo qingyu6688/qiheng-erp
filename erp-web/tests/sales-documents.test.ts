@@ -112,6 +112,22 @@ it('新建收款超时后查原操作结果，未找到时沿用原键重试', a
   wrapper.unmount()
 })
 
+it('新建收款带出默认账户，已有草稿保留原账户', async () => {
+  vi.mocked(admin.allRecords).mockImplementation(async path => path === 'cash-accounts'
+    ? [{ id: '50', name: '原银行', status: 'active' }, { id: '51', name: '默认银行', status: 'active', defaultForReceipt: true }]
+    : [])
+  const fresh = mount(DocumentEditor, { props: { kind: 'receipts' }, global: { stubs } })
+  await flushPromises()
+  await click(fresh, '保存单据')
+  expect(api.saveDocument).toHaveBeenLastCalledWith('receipts', expect.objectContaining({ cashAccountId: '51' }), undefined, expect.any(String))
+  fresh.unmount()
+  const draft = mount(DocumentEditor, { props: { kind: 'receipts', original: receipt }, global: { stubs } })
+  await flushPromises()
+  await click(draft, '保存单据')
+  expect(api.saveDocument).toHaveBeenLastCalledWith('receipts', expect.objectContaining({ cashAccountId: '50' }), '10', undefined)
+  draft.unmount()
+})
+
 it('编辑超时保留版本并提示刷新核对，避免误查新建结果', async () => {
   vi.mocked(api.saveDocument).mockRejectedValue(new ApiError(0, 'NETWORK_ERROR', '网络超时'))
   const wrapper = mount(DocumentEditor, { props: { kind: 'receipts', original: receipt }, global: { stubs } })

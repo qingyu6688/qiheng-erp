@@ -130,6 +130,35 @@ beforeEach(() => {
   })
 })
 describe('采购和请购界面契约', () => {
+  it('新建付款带出默认付款账户，编辑草稿保留原账户', async () => {
+    vi.mocked(admin.allRecords).mockImplementation(async path => path === 'cash-accounts'
+      ? [{ id: '50', name: '银行甲', status: 'active' }, { id: '51', name: '银行乙', status: 'active', defaultForPayment: true }]
+      : [])
+    const fresh = mount(ProcurementEditor, { props: { kind: 'payments' }, global: { stubs } })
+    await flushPromises()
+    expect((fresh.get('#purchase-account').element as HTMLSelectElement).value).toBe('51')
+    fresh.unmount()
+    const original: ProcurementDocument = { id: '10', status: 'draft', version: 1, allowedActions: [], cashAccountId: '50' }
+    const draft = mount(ProcurementEditor, { props: { kind: 'payments', original }, global: { stubs } })
+    await flushPromises()
+    expect((draft.get('#purchase-account').element as HTMLSelectElement).value).toBe('50')
+    draft.unmount()
+  })
+  it('新建付款带出默认付款账户，编辑时保留原选择', async () => {
+    vi.mocked(admin.allRecords).mockImplementation(async path => path === 'cash-accounts'
+      ? [{ id: '50', name: '现金', status: 'active' }, { id: '51', name: '付款银行', status: 'active', defaultForPayment: true }]
+      : [])
+    const wrapper = mount(ProcurementEditor, { props: { kind: 'payments' }, global: { stubs } })
+    await flushPromises()
+    expect((wrapper.get('#purchase-account').element as HTMLSelectElement).value).toBe('51')
+    wrapper.unmount()
+    const draft = mount(ProcurementEditor, {
+      props: { kind: 'payments', original: { id: '9', status: 'draft', version: 1, allowedActions: [], cashAccountId: '50' } }, global: { stubs },
+    })
+    await flushPromises()
+    expect((draft.get('#purchase-account').element as HTMLSelectElement).value).toBe('50')
+    draft.unmount()
+  })
   it('从请购箱单位选行后保留来源单位，采购金额由服务端试算', async () => {
     const wrapper = mount(ProcurementEditor, {
       props: { kind: 'purchase-orders', original: order },
