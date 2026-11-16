@@ -1,6 +1,7 @@
 package cn.erp.capacity;
 
 import cn.erp.identity.CompanyAccess;
+import com.zaxxer.hikari.HikariDataSource;
 import java.sql.Date;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -48,8 +49,26 @@ public class CapacityDiagnostics {
         var counts=new LinkedHashMap<String,Object>();
         for(String table:List.of("sales_order","sales_order_line","purchase_order","purchase_order_line","inventory_balance","journal"))counts.put(table,jdbc.queryForObject("SELECT COUNT(*) FROM "+table+" WHERE tenant_id=? AND company_id=?",Long.class,tenant,company));
         counts.put("sku",jdbc.queryForObject("SELECT COUNT(*) FROM sku WHERE tenant_id=?",Long.class,tenant));
-        return Map.of("databaseVersion",Objects.requireNonNull(jdbc.queryForObject("SELECT VERSION()",String.class)),"counts",counts,"plans",plans,"httpConnector",connector(),
+        return Map.of("databaseVersion",Objects.requireNonNull(jdbc.queryForObject("SELECT VERSION()",String.class)),"counts",counts,"plans",plans,"httpConnector",connector(),"connectionPool",pool(),
+            "databaseConnections",jdbc.queryForMap("SELECT @@max_connections AS max_connections,@@innodb_buffer_pool_size AS buffer_pool_bytes,@@performance_schema AS performance_schema"),
             "instanceStatus",jdbc.queryForList("SHOW GLOBAL STATUS WHERE Variable_name IN ('Threads_running','Questions','Slow_queries','Innodb_row_lock_waits','Innodb_row_lock_time','Created_tmp_disk_tables')"));
+    }
+    private Map<String,Object> pool() {
+        if (!(jdbc.getDataSource() instanceof HikariDataSource source)) {
+            throw new IllegalStateException("容量诊断需要实际 Hikari 数据源");
+        }
+        var result = new LinkedHashMap<String,Object>();
+        result.put("maximumPoolSize", source.getMaximumPoolSize());
+        result.put("minimumIdle", source.getMinimumIdle());
+        result.put("connectionTimeoutMillis", source.getConnectionTimeout());
+        for (String name : List.of("cachePrepStmts", "prepStmtCacheSize", "prepStmtCacheSqlLimit")) {
+            result.put(name, source.getDataSourceProperties().getProperty(name, "驱动默认值"));
+        }
+        var pool = source.getHikariPoolMXBean();
+        result.put("activeConnections", pool.getActiveConnections());
+        result.put("idleConnections", pool.getIdleConnections());
+        result.put("awaitingConnections", pool.getThreadsAwaitingConnection());
+        return result;
     }
     private Map<String,Object> connector() {
         if(!(web.getWebServer() instanceof TomcatWebServer server)||!(server.getTomcat().getConnector().getProtocolHandler() instanceof AbstractProtocol<?> protocol))throw new IllegalStateException("容量诊断需要实际Tomcat连接器");

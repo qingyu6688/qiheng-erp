@@ -114,6 +114,12 @@ class IdentityIT {
         assertEquals(Long.toString(firstWarehouse), restricted.get("warehouseIds").get(0).asString());
         assertEquals(Long.toString(secondWarehouse), restricted.get("warehouseIds").get(1).asString());
 
+        // 重复执行同一查询后撤权，验证驱动缓存继续读取本次请求的授权状态。
+        for (int attempt = 0; attempt < 10; attempt++) {
+            var repeated = request("GET", "/auth/me", null, false, 200).get("data");
+            assertEquals("warehouse:view", repeated.get("permissions").get(0).asString());
+            assertEquals(2, repeated.get("companies").size());
+        }
         jdbc.update("UPDATE sys_role SET status = 'disabled' WHERE id = ?", roleId);
         jdbc.update("UPDATE company SET status = 'disabled' WHERE id = ?", companyId);
         profile = request("GET", "/auth/me", null, false, 200).get("data");

@@ -13,6 +13,11 @@ spring:
     password: ${DB_PASSWORD}
     hikari:
       transaction-isolation: TRANSACTION_REPEATABLE_READ
+      data-source-properties:
+        # 缓存重复 SQL 的驱动解析结果，权限和业务数据仍逐次查询。
+        cachePrepStmts: true
+        prepStmtCacheSize: 128
+        prepStmtCacheSqlLimit: 8192
   data:
     redis:
       host: ${REDIS_HOST:127.0.0.1}
@@ -24,6 +29,8 @@ spring:
     timeout: 30m
     redis:
       namespace: erp:session:${APP_ENV:prod}
+      flush-mode: on_save
+      save-mode: on_set_attribute
   flyway:
     clean-disabled: true
     user: ${DB_MIGRATION_USER:}
