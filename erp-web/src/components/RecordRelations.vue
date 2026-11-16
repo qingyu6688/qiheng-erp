@@ -8,6 +8,7 @@ import type { DataRow, FormField, SelectOption } from '../types/admin'
 import DataFields from './DataFields.vue'
 import RecordFrame from './RecordFrame.vue'
 import PermissionMatrix from './PermissionMatrix.vue'
+import UserOrganizationEditor from './org/UserOrganizationEditor.vue'
 
 const policyHelp = [
   '按新增业务单据冻结税身份，修改不回写已过账单据。',
@@ -27,6 +28,8 @@ const emit = defineEmits<{
 const session = useSessionStore()
 const current = ref(props.row)
 const busy = ref(false)
+const organizationDirty = ref(false),
+  organizationBusy = ref(false)
 const error = ref('')
 const notice = ref('')
 const items = ref<DataRow[]>([])
@@ -60,7 +63,7 @@ function sectionDirty(action: string): boolean {
   return initialized && JSON.stringify(sectionValues()[action]) !== baselines[action]
 }
 function updateDirty(): void {
-  emit('dirty', Object.keys(baselines).some(sectionDirty))
+  emit('dirty', organizationDirty.value || Object.keys(baselines).some(sectionDirty))
 }
 function markClean(action?: string): void {
   const values = sectionValues(),
@@ -72,7 +75,12 @@ function markClean(action?: string): void {
   updateDirty()
 }
 watch(sectionValues, updateDirty, { deep: true, flush: 'sync' })
-watch(busy, (value) => emit('pending', value), { flush: 'sync' })
+watch(organizationDirty, updateDirty, { flush: 'sync' })
+watch(
+  () => busy.value || organizationBusy.value,
+  (value) => emit('pending', value),
+  { flush: 'sync' },
+)
 const title = computed(
   () =>
     ({
@@ -388,6 +396,14 @@ function createContact(): void {
         >
       </template>
       <template v-if="resource === 'users'">
+        <section v-if="session.can('user:update') && session.companyId" class="relation-section">
+          <UserOrganizationEditor
+            :user-id="row.id"
+            @dirty="organizationDirty = $event"
+            @pending="organizationBusy = $event"
+            @saved="emit('saved')"
+          />
+        </section>
         <section v-if="session.can('user:assign_role')" class="relation-section">
           <h2>角色</h2>
           <el-select v-model="roleIds" multiple filterable aria-label="用户角色"
@@ -511,9 +527,7 @@ function createContact(): void {
               ></el-table-column
             >
           </el-table>
-          <el-button
-            v-if="session.can('partner_contact:create')"
-            @click="createContact"
+          <el-button v-if="session.can('partner_contact:create')" @click="createContact"
             >新建联系人</el-button
           >
         </div>

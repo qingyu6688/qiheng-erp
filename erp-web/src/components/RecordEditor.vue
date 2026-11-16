@@ -80,7 +80,7 @@ async function save(): Promise<void> {
       body,
       props.row ? 'PUT' : 'POST',
       props.spec.company,
-      props.row ? undefined : key,
+      props.row && !props.spec.idempotentUpdate ? undefined : key,
     )
     markClean()
     emit('saved')
@@ -88,7 +88,9 @@ async function save(): Promise<void> {
     if (isCancelled(cause)) return
     if (cause instanceof ApiError) {
       conflict.value = cause.code === 'VERSION_CONFLICT'
-      uncertain.value = !props.row && (cause.status === 0 || cause.code === 'REQUEST_IN_PROGRESS')
+      uncertain.value =
+        (!props.row || Boolean(props.spec.idempotentUpdate)) &&
+        (cause.status === 0 || cause.code === 'REQUEST_IN_PROGRESS')
     }
     error.value = messageOf(cause)
   } finally {
@@ -99,7 +101,10 @@ async function save(): Promise<void> {
 async function checkResult(): Promise<void> {
   busy.value = true
   try {
-    const operation = props.spec.createOperation ?? props.spec.permission + '.create'
+    const operation =
+      props.row && props.spec.idempotentUpdate
+        ? props.spec.permission + '.update'
+        : (props.spec.createOperation ?? props.spec.permission + '.create')
     const result = await record(
       'command-results?operation=' + operation + '&key=' + key,
       props.spec.company,

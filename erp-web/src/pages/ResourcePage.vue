@@ -177,7 +177,13 @@ async function setDefaultAccount(row: DataRow, purpose: 'receipt' | 'payment'): 
   panelBusy.value = true
   error.value = ''
   try {
-    await writeRecord('cash-accounts/' + row.id + '/set-default', { purpose, version: row.version }, 'POST', true, newIdempotencyKey())
+    await writeRecord(
+      'cash-accounts/' + row.id + '/set-default',
+      { purpose, version: row.version },
+      'POST',
+      true,
+      newIdempotencyKey(),
+    )
     notice.value = purpose === 'receipt' ? '默认收款账户已设置' : '默认付款账户已设置'
     await load()
   } catch (cause: unknown) {
@@ -218,7 +224,9 @@ function hasRelations(row: DataRow): boolean {
   return (
     (props.resource === 'companies' && session.can('company_policy:view')) ||
     (props.resource === 'users' &&
-      ['user:assign_role', 'user:assign_scope', 'user:reset_password'].some(session.can)) ||
+      ['user:assign_role', 'user:assign_scope', 'user:reset_password', 'user:update'].some(
+        session.can,
+      )) ||
     (props.resource === 'roles' && session.can('role:assign_permission')) ||
     (props.resource === 'partners' && session.can('partner:view')) ||
     (props.resource === 'skus' && session.can('sku:update') && row.status === 'active')
@@ -327,9 +335,25 @@ onScopeDispose(() => {
             />
             <div v-else class="row-actions">
               <button v-if="canEdit(row)" class="text-link" @click="edit(row)">编辑</button>
-              <template v-if="resource === 'cash-accounts' && row.status === 'active' && canEdit(row)">
-                <button v-if="!row.defaultForReceipt" class="text-link" :disabled="panelBusy" @click="setDefaultAccount(row, 'receipt')">设为默认收款</button>
-                <button v-if="!row.defaultForPayment" class="text-link" :disabled="panelBusy" @click="setDefaultAccount(row, 'payment')">设为默认付款</button>
+              <template
+                v-if="resource === 'cash-accounts' && row.status === 'active' && canEdit(row)"
+              >
+                <button
+                  v-if="!row.defaultForReceipt"
+                  class="text-link"
+                  :disabled="panelBusy"
+                  @click="setDefaultAccount(row, 'receipt')"
+                >
+                  设为默认收款
+                </button>
+                <button
+                  v-if="!row.defaultForPayment"
+                  class="text-link"
+                  :disabled="panelBusy"
+                  @click="setDefaultAccount(row, 'payment')"
+                >
+                  设为默认付款
+                </button>
               </template>
               <button
                 v-if="

@@ -39,6 +39,7 @@ export interface ResourceSpec {
   detail?: boolean
   enable?: boolean
   createOperation?: string
+  idempotentUpdate?: boolean
   fields: FormField[]
   columns: { key: string; label: string }[]
 }

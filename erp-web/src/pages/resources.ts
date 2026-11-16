@@ -20,6 +20,26 @@ const baseColumns = [
 ]
 
 export const resourceSpecs: Record<string, ResourceSpec> = {
+  'org/posts': {
+    path: 'org/posts',
+    title: '岗位管理',
+    singular: '岗位',
+    permission: 'org_post',
+    detail: true,
+    enable: true,
+    createOperation: 'org_post.create',
+    idempotentUpdate: true,
+    fields: [
+      { ...code },
+      name,
+      { key: 'sortNo', label: '排序', kind: 'number', initial: 0, max: 1000000 },
+    ],
+    columns: [
+      ...baseColumns,
+      { key: 'sortNo', label: '排序' },
+      { key: 'memberCount', label: '任职人数' },
+    ],
+  },
   companies: {
     path: 'companies',
     title: '公司管理',

@@ -154,6 +154,7 @@ export const router = createRouter({
           meta: { title: '打印预览', company: true, documentPrint: true },
         },
         ...Object.values(resourceSpecs)
+          .filter((spec) => spec.path !== 'org/posts')
           .filter((spec) => !['audit-logs', 'accounting-periods'].includes(spec.path))
           .map((spec) => ({
             path: spec.path,
@@ -166,6 +167,12 @@ export const router = createRouter({
               title: spec.title,
             },
           })),
+        {
+          path: 'organization',
+          name: 'organization',
+          component: () => import('../pages/org/OrganizationPage.vue'),
+          meta: { title: '部门与岗位', anyPermissions: ['org_department:view', 'org_post:view'] },
+        },
         {
           path: 'warehouses',
           name: 'warehouses',

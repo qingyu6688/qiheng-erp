@@ -135,6 +135,7 @@ const definitions = [
     icon: Setting,
     items: [
       { path: 'companies', title: '公司与参数', permission: 'company:view' },
+      { path: 'organization', title: '部门与岗位', any: ['org_department:view', 'org_post:view'] },
       { path: 'users', title: '用户与角色', any: ['user:view', 'role:view'] },
       { path: 'login-settings', title: '登录方式设置', permission: 'tenant:login_settings' },
       { path: 'audit-logs', title: '操作审计', any: ['audit:view', 'admin:outbox'] },
