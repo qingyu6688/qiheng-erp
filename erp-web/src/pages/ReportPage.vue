@@ -63,34 +63,69 @@ const commercialSummary = computed(
   () => ['sales-summary', 'purchase-summary'].includes(props.type) && !detail.value,
 )
 const commercialPeople = computed(() =>
-  ['sales-summary', 'purchase-summary', 'gross-margin'].includes(props.type),
+  [
+    'sales-summary',
+    'purchase-summary',
+    'gross-margin',
+    'receivable-aging',
+    'payable-aging',
+  ].includes(props.type),
 )
+const agingReport = computed(() => ['receivable-aging', 'payable-aging'].includes(props.type))
+const agingBounds = computed<number[]>(() => {
+  const value = result.value?.summary.agingBounds
+  return Array.isArray(value) && value.every((v) => typeof v === 'number')
+    ? value
+    : [30, 60, 90, 180]
+})
+function columnLabel(field: string): string {
+  if (field.startsWith('aging') && /^aging[0-9]+$/.test(field)) {
+    const index = Number(field.slice(5)),
+      lower = index === 0 ? 0 : agingBounds.value[index - 1]! + 1,
+      upper = agingBounds.value[index]
+    return upper === undefined ? lower + '天及以上' : lower + '—' + upper + '天'
+  }
+  return reportLabels[field] || (field === 'departmentName' ? '部门' : field)
+}
 const columns = computed(() =>
-  (commercialPeople.value && groupBy.value === 'business_user' && !detail.value
+  (agingReport.value
     ? [
-        'businessUserName',
-        'qty',
-        'amount',
-        'untaxedAmount',
-        'taxAmount',
-        'costAmount',
-        ...(props.type === 'gross-margin' ? ['grossMargin'] : []),
+        groupBy.value === 'business_user'
+          ? 'businessUserName'
+          : groupBy.value === 'department'
+            ? 'departmentName'
+            : 'partnerName',
+        ...(groupBy.value === 'standard'
+          ? ['businessUserName', 'departmentName', 'sourceNo', 'agingDate']
+          : []),
+        'openAmount',
+        ...Array.from({ length: agingBounds.value.length + 1 }, (_, i) => 'aging' + i),
       ]
-    : detail.value && props.type === 'inventory-flow'
+    : commercialPeople.value && groupBy.value === 'business_user' && !detail.value
       ? [
-          'businessDate',
-          'warehouseName',
-          'skuCode',
-          'skuName',
-          'sourceNo',
+          'businessUserName',
           'qty',
-          'blockedQty',
+          'amount',
+          'untaxedAmount',
+          'taxAmount',
           'costAmount',
-          'postingAction',
+          ...(props.type === 'gross-margin' ? ['grossMargin'] : []),
         ]
-      : detail.value
-        ? ['sourceNo', ...spec.value.fields]
-        : spec.value.fields
+      : detail.value && props.type === 'inventory-flow'
+        ? [
+            'businessDate',
+            'warehouseName',
+            'skuCode',
+            'skuName',
+            'sourceNo',
+            'qty',
+            'blockedQty',
+            'costAmount',
+            'postingAction',
+          ]
+        : detail.value
+          ? ['sourceNo', ...spec.value.fields]
+          : spec.value.fields
   ).filter(
     (field) =>
       (!detail.value || field !== 'sourceCount') &&
@@ -219,7 +254,9 @@ async function initialize(): Promise<void> {
   cashAccountId.value = ''
   businessUserId.value =
     typeof route.query.businessUserId === 'string' ? route.query.businessUserId : ''
-  groupBy.value = route.query.groupBy === 'business_user' ? 'business_user' : 'standard'
+  groupBy.value = ['business_user', 'department'].includes(String(route.query.groupBy))
+    ? String(route.query.groupBy)
+    : 'standard'
   const local = reportToday()
   dateFrom.value =
     typeof route.query.dateFrom === 'string' ? route.query.dateFrom : local.slice(0, 8) + '01'
@@ -308,9 +345,12 @@ onBeforeUnmount(() => {
         <div v-if="!detail" class="filter-field">
           <label>汇总方式</label
           ><el-select v-model="groupBy" aria-label="汇总方式"
-            ><el-option value="standard" label="按往来与商品" /><el-option
-              value="business_user"
-              label="按业务员"
+            ><el-option
+              value="standard"
+              :label="agingReport ? '按未清项' : '按往来与商品'" /><el-option
+              v-if="agingReport"
+              value="department"
+              label="按部门" /><el-option value="business_user" label="按业务员"
           /></el-select></div
       ></template>
       <template v-if="!spec.snapshot"
@@ -397,7 +437,7 @@ onBeforeUnmount(() => {
       ><el-table-column
         v-for="field in columns"
         :key="field"
-        :label="reportLabels[field] ?? field"
+        :label="columnLabel(field)"
         min-width="140"
         ><template #default="{ row }"
           ><router-link

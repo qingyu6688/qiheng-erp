@@ -290,6 +290,12 @@ function timeout(patch: Partial<NonNullable<WorkflowNode['timeout']>>): void {
           @update:model-value="(value: unknown) => update({ priceApproval: Boolean(value) })"
           >人工最低售价审批（处理人须有价格审批权限）</el-checkbox
         >
+        <el-checkbox
+          v-if="node.type === 'approver' && businessType === 'sales_order'"
+          :model-value="node.creditApproval"
+          @update:model-value="(value: unknown) => update({ creditApproval: Boolean(value) })"
+          >人工信用审批（处理人须有信用审批权及完整财务范围）</el-checkbox
+        >
         <el-form-item label="超时规则"
           ><el-switch
             :model-value="Boolean(node.timeout)"

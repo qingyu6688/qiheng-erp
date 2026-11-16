@@ -1,5 +1,10 @@
 export type WorkflowBusinessType =
-  'sales_order' | 'purchase_order' | 'refund_request' | 'document_reversal' | 'stock_adjustment'
+  | 'sales_order'
+  | 'purchase_order'
+  | 'refund_request'
+  | 'document_reversal'
+  | 'stock_adjustment'
+  | 'credit_increase'
 export type NodeType =
   'start' | 'approver' | 'handler' | 'copy' | 'condition_branch' | 'parallel_branch'
 export type AssigneeStrategy =
@@ -42,6 +47,7 @@ export interface WorkflowNode {
   }
   branches?: { name: string; condition?: Condition; default?: boolean; child?: WorkflowNode }[]
   child?: WorkflowNode
+  creditApproval?: boolean
   priceApproval?: boolean
 }
 export interface Choice {
@@ -220,6 +226,7 @@ export const businessLabels: Record<WorkflowBusinessType, string> = {
   refund_request: '退款申请',
   document_reversal: '冲销申请',
   stock_adjustment: '库存调整',
+  credit_increase: '临时信用额度调增',
 }
 export const workflowStatus: Record<string, string> = {
   running: '审批中',
@@ -266,6 +273,9 @@ export const fieldLabels: Record<string, string> = {
   totalAmount: '单据金额',
   discountRate: '折后比例（%，100为原价）',
   belowMinPrice: '是否低于最低售价',
+  overCreditLimit: '是否超额或超期',
+  creditExposure: '当前信用占用',
+  creditLimit: '有效信用额度',
   ownerDeptId: '冻结归属部门',
   customerId: '客户编号',
   supplierId: '供应商编号',
@@ -284,4 +294,5 @@ export const businessRoutes: Record<WorkflowBusinessType, string> = {
   refund_request: 'refund-requests',
   document_reversal: 'document-reversals',
   stock_adjustment: 'stock-adjustments',
+  credit_increase: 'ar/credit',
 }

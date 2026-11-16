@@ -14,6 +14,12 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', name: 'login', component: LoginPage },
+    {
+      path: '/gl/print',
+      name: 'gl-print',
+      component: () => import('../pages/gl/GlPrintPage.vue'),
+      meta: { company: true, permission: 'gl_print:view', title: '财务打印' },
+    },
     { path: '/401', name: 'expired', component: StatusPage, props: { status: 401 } },
     { path: '/403', name: 'forbidden', component: StatusPage, props: { status: 403 } },
     {
@@ -26,6 +32,51 @@ export const router = createRouter({
       path: '/',
       component: () => import('../components/AppShell.vue'),
       children: [
+        ...[
+          ['credit', 'credit', 'credit_limit:view', '客户信用'],
+          ['aging', 'aging', 'credit_limit:view', '账龄配置'],
+          ['collections', 'collections', 'collection:view', '催收计划'],
+          ['bad-debt', 'bad-debt', 'bad_debt:view', '坏账处理'],
+        ].map(([path, kind, permission, title]) => ({
+          path: 'ar/' + path,
+          name: 'ar-' + path,
+          component: () => import('../pages/gl/ArPage.vue'),
+          props: { kind },
+          meta: { company: true, permission, title },
+        })),
+        ...[
+          ['book', 'GlBookPage', 'gl_config:view', '账套与期初'],
+          ['config', 'GlConfigPage', 'gl_config:view', '财务基础配置'],
+          ['vouchers', 'GlVouchersPage', 'gl_voucher:view', '总账凭证'],
+          ['ledgers', 'GlLedgersPage', 'gl_ledger:view', '财务账簿'],
+          ['reports', 'GlReportsPage', 'gl_report:view', '财务报表'],
+          ['closing', 'GlClosingPage', 'gl_closing:close', '财务结账'],
+        ].map(([path, page, permission, title]) => ({
+          path: 'gl/' + path,
+          name: 'gl-' + path,
+          component: () => import(`../pages/gl/${page}.vue`),
+          meta: { company: true, permission, title },
+        })),
+        {
+          path: 'ar/credit/:id',
+          name: 'ar-credit-detail',
+          component: () => import('../pages/gl/ArPage.vue'),
+          props: { kind: 'credit' },
+          meta: { company: true, permission: 'credit_limit:view', title: '临时信用额度调增' },
+        },
+        {
+          path: 'gl/vouchers/new',
+          name: 'gl-voucher-new',
+          component: () => import('../pages/gl/GlVoucherEditPage.vue'),
+          meta: { company: true, permission: 'gl_voucher:edit', title: '新增手工凭证' },
+        },
+        {
+          path: 'gl/vouchers/:id',
+          name: 'gl-voucher-detail',
+          component: () => import('../pages/gl/GlVoucherEditPage.vue'),
+          meta: { company: true, permission: 'gl_voucher:view', title: '凭证详情' },
+        },
+
         ...[
           ['dict-types', 'dict:view', '数据字典'],
           ['dict-items', 'dict:view', '字典项'],
@@ -168,6 +219,7 @@ export const router = createRouter({
             title: '导入与导出',
             anyPermissions: [
               ...importSpecs.map((spec) => 'import:' + spec.type),
+              'gl_export:create',
               ...reportSpecs.map((spec) => reportPermission(spec.type, 'export')),
             ],
           },
