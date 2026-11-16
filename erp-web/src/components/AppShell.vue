@@ -48,6 +48,19 @@ interface NavigationItem {
 }
 const definitions = [
   {
+    title: '审批中心',
+    icon: Tickets,
+    items: [
+      { path: 'workflow/todo', title: '待我审批' },
+      { path: 'workflow/done', title: '我的已办' },
+      { path: 'workflow/mine', title: '我的申请' },
+      { path: 'workflow/copies', title: '抄送我的' },
+      { path: 'workflow/all', title: '全部流程', permission: 'workflow_instance:view_all' },
+      { path: 'workflow/models', title: '流程模型与绑定', permission: 'workflow_model:view' },
+    ],
+  },
+
+  {
     title: '销售',
     icon: Tickets,
     items: [
@@ -161,7 +174,11 @@ const groups = computed(() =>
           ...group,
           items: (group.items as NavigationItem[])
             .filter((item) =>
-              item.permission ? session.can(item.permission) : item.any?.some(session.can),
+              item.permission
+                ? session.can(item.permission)
+                : item.any
+                  ? item.any.some(session.can)
+                  : true,
             )
             .map((item) => ({
               ...item,

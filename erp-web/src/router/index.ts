@@ -198,6 +198,33 @@ export const router = createRouter({
               title: spec.title,
             },
           })),
+        ...(['todo', 'done', 'mine', 'copies', 'all'] as const).map((kind) => ({
+          path: 'workflow/' + kind,
+          component: () => import('../pages/workflow/WorkflowCenterPage.vue'),
+          props: { kind },
+          meta: {
+            title: {
+              todo: '待我审批',
+              done: '我的已办',
+              mine: '我的申请',
+              copies: '抄送我的',
+              all: '全部流程',
+            }[kind],
+            company: true,
+            ...(kind === 'all' ? { permission: 'workflow_instance:view_all' } : {}),
+          },
+        })),
+        {
+          path: 'workflow/instances/:id',
+          component: () => import('../pages/workflow/WorkflowCenterPage.vue'),
+          props: { kind: 'todo' },
+          meta: { title: '审批详情', company: true },
+        },
+        {
+          path: 'workflow/models',
+          component: () => import('../pages/workflow/WorkflowModelsPage.vue'),
+          meta: { title: '流程模型与绑定', company: true, permission: 'workflow_model:view' },
+        },
         {
           path: 'organization',
           name: 'organization',

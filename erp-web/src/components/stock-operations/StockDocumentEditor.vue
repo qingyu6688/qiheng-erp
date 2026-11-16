@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import WorkflowStarterSelector from '../workflow/WorkflowStarterSelector.vue'
+import type { WorkflowSelections } from '../../types/workflow'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { allRecords, record } from '../../api/admin'
 import { reversalSources, saveStock, stockResult } from '../../api/stock-operations'
@@ -24,6 +26,7 @@ const sources = ref<ReversalSource[]>([]), chosenSource = ref<ReversalSource>(),
 const sourceOptions = computed(() => chosenSource.value && !sources.value.some(item => item.id === chosenSource.value?.id) ? [chosenSource.value, ...sources.value] : sources.value)
 const loading = ref(true), busy = ref(false), uncertain = ref(false), refreshRequired = ref(false), retryOriginal = ref(false), error = ref('')
 const dependencies = ref<unknown>()
+const selections = ref<WorkflowSelections>({}), workflowReady = ref(false)
 const key = newIdempotencyKey()
 let sourceRevision = 0
 let submitted: Record<string, unknown> | undefined
@@ -54,12 +57,12 @@ function selectSource(): void { chosenSource.value = sources.value.find(item => 
 watch(() => form.sourceType, () => { form.sourceId = ''; chosenSource.value = undefined; sources.value = []; sourceNext.value = null; keyword.value = ''; searchSources() })
 function payload(): Record<string, unknown> {
   const common = { businessDate: form.businessDate, version: props.original?.version }
-  if (reversal.value) return { ...common, sourceType: form.sourceType, sourceId: form.sourceId, reason: form.reason }
+  if (reversal.value) return { ...common, sourceType: form.sourceType, sourceId: form.sourceId, reason: form.reason, ...(Object.keys(selections.value).length ? { workflowAssignees: selections.value } : {}) }
   if (transfer.value) return { ...common, fromWarehouseId: form.fromWarehouseId, toWarehouseId: form.toWarehouseId, remark: form.remark, lines: lines.value.map(line => ({ skuId: line.skuId, unitId: line.unitId, qty: line.qty })) }
   return { ...common, warehouseId: form.warehouseId, countMode: 'watermark', remark: form.remark, lines: lines.value.map(line => ({ skuId: line.skuId })) }
 }
 async function save(): Promise<void> {
-  if (busy.value || uncertain.value || refreshRequired.value) return
+  if (busy.value || uncertain.value || refreshRequired.value || reversal.value && (!form.sourceId || !workflowReady.value)) return
   busy.value = true; error.value = ''; dependencies.value = undefined; submitted ??= payload()
   try { emit('saved', await saveStock(props.kind, submitted, props.original?.id, props.original ? undefined : key)) }
   catch (cause: unknown) {
@@ -114,6 +117,7 @@ onUnmounted(() => { sourceRevision++ })
         <el-form-item v-if="reversal" label="原单类型" for="stock-source-type"><el-select id="stock-source-type" v-model="form.sourceType"><el-option v-for="item in sourceTypes" :key="item.value" :value="item.value" :label="item.label" /></el-select></el-form-item>
       </div>
       <template v-if="reversal">
+        <WorkflowStarterSelector v-if="form.sourceId && form.businessDate" v-model="selections" business-type="document_reversal" :preview="{ sourceType: form.sourceType, sourceId: form.sourceId, businessDate: form.businessDate }" :disabled="busy || uncertain || retryOriginal" @ready="workflowReady = $event" />
         <p v-if="!sourceTypes.length">没有可查看的原单类型，请联系管理员分配原单查看权限。</p>
         <div class="filters"><el-input v-model="keyword" aria-label="冲销来源单号" placeholder="按原单号查找" /><el-button :loading="sourceBusy" @click="searchSources">查找原单</el-button></div>
         <el-form-item label="原单据" for="stock-source"><el-select id="stock-source" v-model="form.sourceId" :loading="sourceBusy" filterable placeholder="请选择已过账原单" @change="selectSource"><el-option v-for="item in sourceOptions" :key="item.id" :value="item.id" :label="item.documentNo + ' · ' + (item.businessDate ?? '')" /></el-select></el-form-item>
@@ -133,6 +137,6 @@ onUnmounted(() => { sourceRevision++ })
         <el-form-item label="备注" for="stock-remark"><el-input id="stock-remark" v-model="form.remark" type="textarea" maxlength="500" /></el-form-item>
       </template></el-form>
     </fieldset>
-    <template #footer><el-button :disabled="busy" @click="emit('close')">关闭</el-button><el-button v-if="uncertain" :loading="busy" type="primary" @click="verify">查询结果</el-button><el-button v-else :loading="busy" :disabled="loading || refreshRequired" type="primary" @click="save">保存{{ spec.singular }}</el-button></template>
+    <template #footer><el-button :disabled="busy" @click="emit('close')">关闭</el-button><el-button v-if="uncertain" :loading="busy" type="primary" @click="verify">查询结果</el-button><el-button v-else :loading="busy" :disabled="loading || refreshRequired || reversal && (!form.sourceId || !workflowReady)" type="primary" @click="save">保存{{ spec.singular }}</el-button></template>
   </el-dialog>
 </template>
