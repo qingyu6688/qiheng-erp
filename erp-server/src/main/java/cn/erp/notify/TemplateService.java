@@ -23,7 +23,7 @@ public class TemplateService {
         PlatformAccess.lock(jdbc,actor,id==null?"notify_template:create":"notify_template:update");
         if(input.title().chars().anyMatch(Character::isISOControl)) throw invalid("模板标题不能含换行或控制字符");
         if(input.params().stream().anyMatch(p->p==null||!p.matches("[a-z][a-zA-Z0-9_]{0,31}"))||new HashSet<>(input.params()).size()!=input.params().size()) throw invalid("参数白名单格式有误或重复");
-        var supported=Map.of("business.todo",Set.of("title"),"file.import.finished",Set.of(),"file.export.finished",Set.of(),"notice.published",Set.of("title"),"system.alert",Set.of("message"));
+        var supported=Map.of("business.todo",Set.of("title"),"file.import.finished",Set.of(),"file.export.finished",Set.of(),"notice.published",Set.of("title"),"system.alert",Set.of("message"),"workflow.todo",Set.of("title"),"workflow.remind",Set.of("title"),"workflow.copy",Set.of("title"),"workflow.done",Set.of("title"));
         if(supported.containsKey(input.code())&&!supported.get(input.code()).containsAll(input.params())) throw invalid("该系统消息仅支持规定的变量，请使用标题title或提醒message等对应参数");
         for(String text:List.of(input.title(),input.content())) {var matcher=VARIABLE.matcher(text);while(matcher.find()) if(!input.params().contains(matcher.group(1))) throw invalid("模板变量必须在白名单中声明");if(text.replaceAll(VARIABLE.pattern(),"").contains("{")||text.replaceAll(VARIABLE.pattern(),"").contains("}")) throw invalid("模板只支持简单的{变量}，不能使用表达式");}
         if(input.channel().equals("sms")&&(input.smsTemplateId()==null||!input.smsTemplateId().matches("SMS_[A-Za-z0-9]{1,60}"))) throw invalid("短信模板须填写已审核的SMS模板编号");

@@ -16,6 +16,9 @@ import static cn.erp.salesfinance.FinanceSupport.*;
 @Service
 @Transactional(readOnly=true)
 public class RefundApplicationService {
+    private cn.erp.shared.WorkflowPort workflow;
+    @org.springframework.beans.factory.annotation.Autowired
+    void workflow(cn.erp.shared.WorkflowPort workflow) {this.workflow=workflow;}
     private final JdbcTemplate jdbc;
     private final FinanceSupport support;
     private final DocumentNumbers numbers;
@@ -54,7 +57,7 @@ public class RefundApplicationService {
         result.put("documentNo",raw.get("refund_no"));
         result.put("customerName",jdbc.queryForObject("SELECT name FROM business_partner WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),raw.get("customer_id")));
         result.put("cashAccountName",jdbc.queryForObject("SELECT name FROM cash_account WHERE tenant_id=? AND company_id=? AND id=?",String.class,scope.tenantId(),scope.companyId(),raw.get("cash_account_id")));
-        result.put("allowedActions",actions(scope,raw));return result;
+        result.put("allowedActions",actions(scope,raw));cn.erp.shared.WorkflowViews.decorate(jdbc,scope,"refund_request",id,result);return result;
     }
 
     private List<String> actions(CompanyAccess scope,Map<String,Object> raw) {
@@ -74,7 +77,7 @@ public class RefundApplicationService {
             if(scope.hasPermission("refund_request:register_paid")) {actions.add("register-paid");}
             if(scope.hasPermission("refund_request:cancel")) {actions.add("cancel");}
         }
-        return actions;
+        return cn.erp.shared.WorkflowViews.actions(raw,actions);
     }
 
     @Transactional
@@ -113,6 +116,7 @@ public class RefundApplicationService {
     @Transactional
     public Map<String,Object> command(CompanyAccess scope,long id,String action,String key,FinanceModels.Version input) {
         return execute(scope,"refund_request."+action,key,List.of(id,input),200,()->{
+            workflow.guard(scope,"refund_request",id,action);
             var snapshot=support.find(scope,"refund_request",id,false);
             if(Set.of("submit","approve").contains(action)) {support.period(scope,((java.sql.Date)snapshot.get("business_date")).toLocalDate());}
             var before=support.find(scope,"refund_request",id,true);version(before,input.version());
@@ -137,6 +141,7 @@ public class RefundApplicationService {
                 case "cancel" -> {state(before,"pending_payment");refunds.release(scope,id);}
                 default -> throw invalid("退款操作无效");
             }
+            if(action.equals("submit")) workflow.start(scope,"refund_request",id,input.workflowAssignees());
             for(long order:affected) {orders.refreshProgress(scope,order);}
             audit.record(scope,"refund_request."+action,"refund_request",id,null,Map.of("status",get(scope,id).get("status")));return get(scope,id);
         });

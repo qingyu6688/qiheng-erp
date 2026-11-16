@@ -11,6 +11,7 @@ export interface StockLine {
   baseUnitName?: string; bookQty?: string; countedQty?: string; diffQty?: string; inputUnitCost?: string; unitCost?: string; costAmount?: string
 }
 export interface StockDocument {
+  workflowInstanceId?: string; workflowStatus?: string
   id: string; documentNo: string; businessDate: string; status: string; version: number; allowedActions: string[]
   warehouseId?: string; warehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; fromWarehouseName?: string; toWarehouseName?: string
   remark?: string; reason?: string; snapshotAt?: string; snapshotMovementId?: string; countMode?: string

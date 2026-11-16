@@ -205,11 +205,13 @@ export const resourceSpecs: Record<string, ResourceSpec> = {
       { key: 'defaultTaxRate', label: '默认税率', initial: '0.130000' },
       { key: 'purchasePrice', label: '采购价', initial: '', permission: 'cost:view' },
       { key: 'salePrice', label: '销售价', initial: '' },
+      { key: 'minSalePrice', label: '最低售价（含税基本单位，0 不控制）', initial: '0' },
     ],
     columns: [
       ...baseColumns,
       { key: 'spec', label: '规格' },
       { key: 'salePrice', label: '销售价' },
+      { key: 'minSalePrice', label: '最低售价' },
     ],
   },
   'cash-accounts': {

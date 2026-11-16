@@ -30,6 +30,8 @@ M11 的 Y-02 继续增加按公司配置的五种角色部门范围，与现有�
 
 M11 前半的其余功能继续加入业务员归属及报表汇总、数据字典、官方省市区、公告与消息中心、短信邮件模板及日志、企业微信机器人、在线会话强退、系统参数、定时任务和API日志。工作台待办与消息中心共用权限过滤，WebSocket通过Redis跨实例广播摘要。本轮追加V38—V43，仍未正式发布；配置及权限详见[M11使用说明](docs/M11组织消息与运维使用说明.md)，测试与升级证据见[本机验收报告](docs/M11组织消息与运维本机验收报告.md)。
 
+M11 后半加入 Flowable 8.0.0 工作流：SIMPLE设计发布、组织选人、会签/或签/依次、分支、转委加减签、超时提醒和个人审批中心，接入销售/采购订单、退款、冲销及库存调整；X-03最低售价支持提示、人工价格审批或禁止。先通过真实同库事务门槛，保持原状态及服务端硬规则；未匹配流程保留原单级审批。追加V44—V46，目标1.3.0未发布；见[工作流使用说明](docs/M11工作流使用说明.md)和[详细设计](docs/详细设计/02-工作流.md)。
+
 前端使用 Vue 3、TypeScript、Vite 和 Element Plus。后端使用 Java 21、Spring Boot 和 Maven，提供 REST API。MySQL 8.0.46 保存业务数据，Flyway 负责数据库迁移，Redis 保存会话。后台 Worker 处理导入、导出等异步任务，生产附件和文件任务使用私有 S3 兼容对象仓。
 
 | 路径 | 内容 |
@@ -95,6 +97,8 @@ M10 已开始接入运行监控。独立管理端口提供 Prometheus 指标，�
 ## English
 
 Qiheng ERP is an inventory and business finance system for trading and warehouse teams. Purchasing, sales, warehouse, and finance staff work with the same transactions to track order fulfillment, inventory costs, receivables, payables, and account balances.
+
+M11 workflow work adds Flowable 8.0.0 with a SIMPLE designer, immutable model releases, organization-based assignees, countersign/any-one/sequential review, conditional/parallel branches, transfer/delegation/additional signers, timeout reminders, and a personal approval center. Five existing document types retain their business states and server-side rules. Minimum sale prices support warnings, mandatory manual price approval, or blocking. Real database transaction tests gate the synchronous integration; V44–V46 are pending-release migrations. Target 1.3.0 is not released. See the [workflow guide (Chinese)](docs/M11工作流使用说明.md) and [implementation design (Chinese)](docs/详细设计/02-工作流.md).
 
 ### Business modules
 

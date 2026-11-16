@@ -13,6 +13,10 @@ import type { SalesDocument } from '../src/types/sales'
 
 vi.mock('../src/api/sales')
 vi.mock('../src/api/admin')
+vi.mock('../src/api/workflow', () => ({
+  workflowStartOptions: vi.fn(async () => ({ nodes: [] })),
+  workflowReversalStartOptions: vi.fn(async () => ({ nodes: [] })),
+}))
 vi.mock('../src/api/document-browser')
 vi.mock('../src/stores/session', () => ({ useSessionStore: () => ({ can: () => true }) }))
 vi.mock('vue-router', () => ({

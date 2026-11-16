@@ -80,11 +80,11 @@ class CatalogService {
         active(scope,"product_category",Long.parseLong(product.categoryId()));
         active(scope,"unit",Long.parseLong(product.baseUnitId()));
         jdbc.update("""
-                INSERT INTO sku(id,tenant_id,product_id,code,name,spec,default_tax_rate,purchase_price,sale_price,status,created_by,updated_by)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                INSERT INTO sku(id,tenant_id,product_id,code,name,spec,default_tax_rate,purchase_price,sale_price,status,created_by,updated_by,min_sale_price)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,id,scope.tenantId(),v.productId(),v.code().trim(),v.name().trim(),v.spec(),
                 v.defaultTaxRate()==null?"0.130000":v.defaultTaxRate(),v.purchasePrice(),v.salePrice(),
-                status(v.status()),scope.userId(),scope.userId());
+                status(v.status()),scope.userId(),scope.userId(),v.minSalePrice()==null?"0":v.minSalePrice());
         jdbc.update("""
                 INSERT INTO unit_conversion(id,tenant_id,sku_id,unit_id,rate_to_base,is_base,created_by,updated_by)
                 VALUES(?,?,?,?,1,1,?,?)
@@ -153,10 +153,10 @@ class CatalogService {
         var product=active(scope,"product",v.productId());
         active(scope,"product_category",Long.parseLong(product.categoryId()));
         jdbc.update("""
-                UPDATE sku SET code=?,name=?,spec=?,default_tax_rate=?,purchase_price=COALESCE(?,purchase_price),sale_price=?,status=?,
+                UPDATE sku SET code=?,name=?,spec=?,default_tax_rate=?,purchase_price=COALESCE(?,purchase_price),sale_price=?,status=?,min_sale_price=COALESCE(?,min_sale_price),
                 version=version+1,updated_by=? WHERE tenant_id=? AND id=? AND version=?
                 """,v.code().trim(),v.name().trim(),v.spec(),v.defaultTaxRate()==null?"0.130000":v.defaultTaxRate(),
-                v.purchasePrice(),v.salePrice(),status(v.status()),scope.userId(),scope.tenantId(),id,v.version());
+                v.purchasePrice(),v.salePrice(),status(v.status()),v.minSalePrice(),scope.userId(),scope.tenantId(),id,v.version());
     }
 
     @Transactional

@@ -22,14 +22,17 @@ final class AdminModels {
                        String status,long version,List<String> allowedActions) {}
 
     record PolicyInput(@Pattern(regexp="general|small",message="请选择纳税人身份") @NotNull(message="请选择纳税人身份") String taxpayerType,
-                       @Min(value=1,message="有效期至少 1 天") @Max(value=365,message="有效期最多 365 天") int reservationValidDays,
-                       @Min(value=0,message="宽限期不能为负") @Max(value=90,message="宽限期最多 90 天") int reservationGraceDays,
-                       @NotNull(message="请输入超收容差") @DecimalMax(value="10.00",message="超收容差最多 10%") @Pattern(regexp="(?:[0-9]|10)(?:\\.[0-9]{1,2})?",message="容差为 0 到 10 的两位小数") String overReceiptPct,
+                       @Min(value=1,message="有效期至少1天") @Max(value=365,message="有效期最多365天") int reservationValidDays,
+                       @Min(value=0,message="宽限期不能为负") @Max(value=90,message="宽限期最多90天") int reservationGraceDays,
+                       @NotNull(message="请输入超收容差") @DecimalMax(value="10.00",message="超收容差最多10%") @Pattern(regexp="(?:[0-9]|10)(?:\\.[0-9]{1,2})?",message="容差为0到10的两位小数") String overReceiptPct,
                        @NotNull(message="请选择审批经办分离规则") Boolean separateOrderApprover,@NotNull(message="请选择收付经办分离规则") Boolean separateReceiptConfirmer,
-                       @NotNull(message="请提供版本号") @PositiveOrZero(message="版本号不能为负") Long version) {}
-
-    record PolicyView(String taxpayerType,int reservationValidDays,int reservationGraceDays,String overReceiptPct,
-                      @NotNull(message="请选择审批经办分离规则") Boolean separateOrderApprover,@NotNull(message="请选择收付经办分离规则") Boolean separateReceiptConfirmer,long version) {}
+                       @NotNull(message="请提供版本号") @PositiveOrZero(message="版本号不能为负") Long version,
+                       @Pattern(regexp="warn|approval|block",message="最低售价控制方式无效") String belowMinPricePolicy) {
+        public PolicyInput(String taxpayerType,int reservationValidDays,int reservationGraceDays,String overReceiptPct,Boolean separateOrderApprover,Boolean separateReceiptConfirmer,Long version) {this(taxpayerType,reservationValidDays,reservationGraceDays,overReceiptPct,separateOrderApprover,separateReceiptConfirmer,version,null);}
+    }
+    record PolicyView(String taxpayerType,int reservationValidDays,int reservationGraceDays,String overReceiptPct,Boolean separateOrderApprover,Boolean separateReceiptConfirmer,long version,String belowMinPricePolicy) {
+        public PolicyView(String taxpayerType,int reservationValidDays,int reservationGraceDays,String overReceiptPct,Boolean separateOrderApprover,Boolean separateReceiptConfirmer,long version) {this(taxpayerType,reservationValidDays,reservationGraceDays,overReceiptPct,separateOrderApprover,separateReceiptConfirmer,version,"warn");}
+    }
 
     record UserInput(@NotBlank(message="请输入用户名") @Pattern(regexp="[A-Za-z0-9_.-]{1,64}",message="用户名限 64 位字母、数字、点、短横线和下划线") String username,
                      @NotBlank(message="请输入姓名") @Size(max=64,message="姓名最多 64 字") String displayName,

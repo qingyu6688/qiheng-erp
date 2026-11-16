@@ -125,7 +125,7 @@ class CatalogQueries {
                 category?rs.getString("parent_id"):null,category?rs.getInt("sort_no"):null,null,
                 product?rs.getString("category_id"):null,product?rs.getString("item_type"):null,product?rs.getString("base_unit_id"):null,null,
                 sku?rs.getString("product_id"):null,sku?rs.getString("spec"):null,sku?rs.getBigDecimal("default_tax_rate").toPlainString():null,
-                sku && scope.hasPermission("cost:view")?decimal(rs,"purchase_price"):null,sku?decimal(rs,"sale_price"):null,null,null,actions);
+                sku && scope.hasPermission("cost:view")?decimal(rs,"purchase_price"):null,sku?decimal(rs,"sale_price"):null,null,null,actions,sku?decimal(rs,"min_sale_price"):null);
     }
 
     private static String decimal(ResultSet rs,String column) throws SQLException {
@@ -136,13 +136,13 @@ class CatalogQueries {
     private static CatalogModels.Detail withChildren(CatalogModels.Detail v,List<CatalogModels.Detail> children,List<CatalogModels.Detail> skus) {
         return new CatalogModels.Detail(v.id(),v.code(),v.name(),v.status(),v.version(),v.parentId(),v.sortNo(),children,
                 v.categoryId(),v.itemType(),v.baseUnitId(),skus,v.productId(),v.spec(),v.defaultTaxRate(),v.purchasePrice(),v.salePrice(),
-                v.units(),v.barcodes(),v.allowedActions());
+                v.units(),v.barcodes(),v.allowedActions(),v.minSalePrice());
     }
 
     private static CatalogModels.Detail copySku(CatalogModels.Detail v,List<CatalogModels.UnitView> units,List<CatalogModels.BarcodeView> barcodes) {
         return new CatalogModels.Detail(v.id(),v.code(),v.name(),v.status(),v.version(),v.parentId(),v.sortNo(),v.children(),
                 v.categoryId(),v.itemType(),v.baseUnitId(),v.skus(),v.productId(),v.spec(),v.defaultTaxRate(),v.purchasePrice(),v.salePrice(),
-                units,barcodes,v.allowedActions());
+                units,barcodes,v.allowedActions(),v.minSalePrice());
     }
 
     static String table(String kind) {

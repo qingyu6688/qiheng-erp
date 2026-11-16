@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import WorkflowStarterSelector from '../components/workflow/WorkflowStarterSelector.vue'
+import type { WorkflowSelections } from '../types/workflow'
+
+import WorkflowProgressPanel from '../components/workflow/WorkflowProgressPanel.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { procurementDocument, procurementCommand } from '../api/procurement'
@@ -28,6 +32,14 @@ const value = ref<ProcurementDocument>(),
   uncertain = ref(false),
   conflict = ref(false)
 const closeRows = ref<{ lineId: string; name: string; qty: string; remaining: string }[]>([])
+const selections = ref<WorkflowSelections>({}),
+  workflowReady = ref(false)
+const workflowSubmit = computed(
+  () =>
+    action.value === 'submit' &&
+    (props.kind === 'purchase-orders' || props.kind === 'stock-adjustments'),
+)
+let submittedPayload: Record<string, unknown> | undefined
 let key = newIdempotencyKey()
 function label(name: string): string {
   return procurementAction(props.kind, name) || actionLabels[name] || name
@@ -61,6 +73,9 @@ function choose(name: string): void {
   action.value = name.replaceAll('-', '_')
   key = newIdempotencyKey()
   reason.value = ''
+  selections.value = {}
+  workflowReady.value = false
+  submittedPayload = undefined
   uncertain.value = false
   conflict.value = false
   closeRows.value = (value.value?.lines ?? []).map((l) => ({
@@ -81,7 +96,7 @@ async function saved(): Promise<void> {
   await load()
 }
 async function command(): Promise<void> {
-  if (!value.value || busy.value) return
+  if (!value.value || busy.value || (workflowSubmit.value && !workflowReady.value)) return
   busy.value = true
   error.value = ''
   try {
@@ -101,7 +116,10 @@ async function command(): Promise<void> {
         props.kind,
         value.value.id,
         action.value,
-        {
+        (submittedPayload ??= {
+          ...(workflowSubmit.value && Object.keys(selections.value).length
+            ? { workflowAssignees: selections.value }
+            : {}),
           version: value.value.version,
           reason: reason.value || undefined,
           comment: reason.value || undefined,
@@ -111,7 +129,7 @@ async function command(): Promise<void> {
                   .filter((r) => r.qty !== '' && !/^0+(?:\.0+)?$/.test(r.qty))
                   .map((r) => ({ lineId: r.lineId, closeQty: r.qty }))
               : undefined,
-        },
+        }),
         key,
       )
     const deleted = action.value === 'delete'
@@ -125,6 +143,7 @@ async function command(): Promise<void> {
         uncertain.value = cause.status === 0 || cause.code === 'REQUEST_IN_PROGRESS'
         conflict.value = cause.code === 'VERSION_CONFLICT'
       }
+      if (!uncertain.value) submittedPayload = undefined
     }
   } finally {
     busy.value = false
@@ -256,6 +275,25 @@ onMounted(load)
       >
     </section></template
   >
+  <WorkflowProgressPanel
+    v-if="
+      value &&
+      (kind === 'purchase-orders'
+        ? 'purchase_order'
+        : kind === 'stock-adjustments'
+          ? 'stock_adjustment'
+          : undefined)
+    "
+    :business-type="
+      (kind === 'purchase-orders'
+        ? 'purchase_order'
+        : kind === 'stock-adjustments'
+          ? 'stock_adjustment'
+          : undefined)!
+    "
+    :business-id="value.id"
+    :instance-id="value.workflowInstanceId"
+  />
   <DocumentFilesPanel v-if="value" :owner-type="spec.permission" :owner-id="value.id" />
   <ProcurementEditor
     v-if="(editing || changing) && value"
@@ -272,7 +310,15 @@ onMounted(load)
     :close-on-click-modal="false"
     :show-close="!busy"
     @close="action = ''"
-    ><fieldset class="form-fieldset" :disabled="busy || uncertain || conflict">
+    ><WorkflowStarterSelector
+      v-if="workflowSubmit && value"
+      v-model="selections"
+      :business-type="kind === 'purchase-orders' ? 'purchase_order' : 'stock_adjustment'"
+      :business-id="value.id"
+      :disabled="busy || uncertain"
+      @ready="workflowReady = $event"
+    />
+    <fieldset class="form-fieldset" :disabled="busy || uncertain || conflict">
       <p>{{ value?.documentNo }}</p>
       <template v-if="action === 'close_lines'"
         ><p>关闭数量按基础单位填写。</p>
@@ -301,9 +347,14 @@ onMounted(load)
     <template #footer
       ><el-button :disabled="busy" @click="action = ''">关闭</el-button
       ><el-button v-if="uncertain" type="primary" @click="verify">查询结果</el-button
-      ><el-button v-else type="primary" :loading="busy" :disabled="conflict" @click="command">{{
-        confirmationLabel()
-      }}</el-button></template
+      ><el-button
+        v-else
+        type="primary"
+        :loading="busy"
+        :disabled="conflict || (workflowSubmit && !workflowReady)"
+        @click="command"
+        >{{ confirmationLabel() }}</el-button
+      ></template
     ></el-dialog
   >
 </template>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import WorkflowProgressPanel from '../components/workflow/WorkflowProgressPanel.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { document, candidates, financeWrite, commandResult } from '../api/sales'
@@ -322,6 +323,31 @@ function closeEditor(): void {
       >
     </section>
   </template>
+  <el-alert
+    v-if="kind === 'sales-orders' && value?.lines?.some((line) => line.belowMinPrice)"
+    title="此单含低于最低售价的商品，请核对折扣及价格审批要求。"
+    type="warning"
+    :closable="false"
+  />
+  <WorkflowProgressPanel
+    v-if="
+      value &&
+      (kind === 'sales-orders'
+        ? 'sales_order'
+        : kind === 'refund-requests'
+          ? 'refund_request'
+          : undefined)
+    "
+    :business-type="
+      (kind === 'sales-orders'
+        ? 'sales_order'
+        : kind === 'refund-requests'
+          ? 'refund_request'
+          : undefined)!
+    "
+    :business-id="value.id"
+    :instance-id="value.workflowInstanceId"
+  />
   <DocumentFilesPanel
     v-if="value"
     :key="value.version"

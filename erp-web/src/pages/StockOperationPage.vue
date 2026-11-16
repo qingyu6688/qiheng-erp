@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import WorkflowProgressPanel from '../components/workflow/WorkflowProgressPanel.vue'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { stockDocument } from '../api/stock-operations'
@@ -193,6 +194,12 @@ function closeAction(): void {
       >
     </section>
   </template>
+  <WorkflowProgressPanel
+    v-if="value && (kind === 'document-reversals' ? 'document_reversal' : undefined)"
+    :business-type="(kind === 'document-reversals' ? 'document_reversal' : undefined)!"
+    :business-id="value.id"
+    :instance-id="value.workflowInstanceId"
+  />
   <DocumentFilesPanel
     v-if="detailId && value"
     :owner-type="documentType(spec.permission)"

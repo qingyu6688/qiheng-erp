@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import WorkflowStarterSelector from '../workflow/WorkflowStarterSelector.vue'
+import type { WorkflowSelections, WorkflowBusinessType } from '../../types/workflow'
+
 import { computed, ref } from 'vue'
 import { commandResult, document as getDocument, salesCommand } from '../../api/sales'
 import { ApiError, isCancelled, messageOf, newIdempotencyKey } from '../../api/http'
@@ -8,6 +11,17 @@ import { quantityDifference } from '../../types/document-ui'
 import { formatQuantity } from '../../utils/format'
 import ReceiptAttachmentPicker from './ReceiptAttachmentPicker.vue'
 const props = defineProps<{ kind: SalesKind; document: SalesDocument; action: string }>()
+const workflowType = computed<WorkflowBusinessType | undefined>(() =>
+  props.action === 'submit'
+    ? props.kind === 'sales-orders'
+      ? 'sales_order'
+      : props.kind === 'refund-requests'
+        ? 'refund_request'
+        : undefined
+    : undefined,
+)
+const selections = ref<WorkflowSelections>({}),
+  workflowReady = ref(false)
 const emit = defineEmits<{ close: []; saved: [warnings?: { message: string }[]] }>()
 const action = computed(() => props.action.replaceAll('-', '_'))
 const label = computed(
@@ -42,7 +56,12 @@ const operation = computed(() => {
   return resource + '.' + name
 })
 function body(): Record<string, unknown> {
-  const value: Record<string, unknown> = { version: props.document.version }
+  const value: Record<string, unknown> = {
+    version: props.document.version,
+    ...(workflowType.value && Object.keys(selections.value).length
+      ? { workflowAssignees: selections.value }
+      : {}),
+  }
   if (reason.value) {
     value.reason = reason.value
     value.comment = reason.value
@@ -70,7 +89,7 @@ function body(): Record<string, unknown> {
   return value
 }
 async function submit(): Promise<void> {
-  if (busy.value || attachmentBusy.value) return
+  if (busy.value || attachmentBusy.value || (workflowType.value && !workflowReady.value)) return
   busy.value = true
   error.value = ''
   submittedPayload ??= body()
@@ -132,6 +151,14 @@ async function verify(): Promise<void> {
     @close="emit('close')"
   >
     <fieldset class="form-fieldset" :disabled="busy || uncertain || conflict || retryOriginal">
+      <WorkflowStarterSelector
+        v-if="workflowType"
+        v-model="selections"
+        :business-type="workflowType"
+        :business-id="document.id"
+        :disabled="busy || uncertain || retryOriginal"
+        @ready="workflowReady = $event"
+      />
       <p>单据 {{ document.documentNo ?? document.invoiceNo ?? document.id }}</p>
       <el-form label-position="top">
         <el-form-item
@@ -181,8 +208,9 @@ async function verify(): Promise<void> {
         </template>
         <template v-if="action === 'resolve_diff'"
           ><div v-for="row in rows.filter((r) => r.pending)" :key="row.id" class="relation-row">
-            <span>{{ row.name }}</span
-            ><el-select v-model="row.disposition" aria-label="差异处理方式"
+            <span>{{ row.name }}</span><el-select
+              v-model="row.disposition"
+              aria-label="差异处理方式"
               ><el-option label="拒收退回（冻结待检）" value="returned" /><el-option
                 label="运输损失"
                 value="lost"
@@ -217,7 +245,7 @@ async function verify(): Promise<void> {
       ><el-button
         v-else
         type="primary"
-        :disabled="conflict || attachmentBusy"
+        :disabled="conflict || attachmentBusy || Boolean(workflowType && !workflowReady)"
         :loading="busy"
         @click="submit"
         >确认{{ label }}</el-button

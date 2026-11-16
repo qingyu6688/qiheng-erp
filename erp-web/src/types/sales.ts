@@ -40,6 +40,8 @@ export interface SalesLine {
   shipmentLineId?: string
   unitRate?: string
   qty?: string
+  belowMinPrice?: boolean | number
+  minSalePriceSnapshot?: string
   baseQty?: string
   unitPrice?: string
   lineDiscountAmount?: string
@@ -66,6 +68,8 @@ export interface SalesLine {
   [key: string]: unknown
 }
 export interface SalesDocument {
+  workflowInstanceId?: string
+  workflowStatus?: string
   salesUserId?: string
   salesUserName?: string
   buyerUserId?: string

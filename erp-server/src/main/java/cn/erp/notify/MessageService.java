@@ -18,6 +18,25 @@ import static cn.erp.notify.NoticeService.*;
 @Service
 @Transactional
 public class MessageService implements TodoInbox {
+    private cn.erp.workflow.WorkflowQueries workflows;
+    @org.springframework.beans.factory.annotation.Autowired
+    void workflows(cn.erp.workflow.WorkflowQueries workflows) {this.workflows=workflows;}
+    @org.springframework.context.event.EventListener
+    public void workflow(WorkflowNotice event) {
+        outbox.publish(event.tenantId(),"workflow_notice",Ids.next(),0,"notify.workflow",Map.of("companyId",event.companyId(),"userId",event.userId(),"instanceId",event.instanceId(),"taskId",event.taskId()==null?0:event.taskId(),"kind",event.kind(),"eventKey",event.eventKey()));
+        events.publishEvent(new UserSignal(event.tenantId(),event.userId(),"message.changed",Map.of("category","workflow")));
+    }
+    public void materialize(WorkflowNotice event) {
+        var actor=new CompanyAccess(event.tenantId(),event.userId(),event.companyId(),true,Set.of(),Set.of());
+        jdbc.queryForList("SELECT id FROM sys_user WHERE tenant_id=? AND id=? FOR UPDATE",Long.class,event.tenantId(),event.userId());
+        if(event.kind().equals("copy_read")) {jdbc.update("UPDATE notify_message SET read_at=COALESCE(read_at,UTC_TIMESTAMP(3)) WHERE tenant_id=? AND user_id=? AND source_type='wf_copy' AND source_id=?",event.tenantId(),event.userId(),event.instanceId());events.publishEvent(new UserSignal(event.tenantId(),event.userId(),"message.read",Map.of()));return;}
+        String title=switch(event.kind()) {case "todo"->"新的审批待办";case "remind"->"审批待办超时提醒";case "copy"->"收到流程抄送";default->"申请流程已结束";};
+        String category=event.kind().equals("todo")?"todo":event.kind().equals("remind")?"alert":"system";
+        String source=event.taskId()!=null?"wf_task_ext":event.kind().equals("copy")?"wf_copy":"wf_instance";long sourceId=event.taskId()!=null?event.taskId():event.kind().equals("copy")?Long.parseLong(event.eventKey().substring("wf:copy:".length())):event.instanceId();
+        long version=0;if(event.taskId()!=null) {var rows=jdbc.queryForList("SELECT version FROM wf_task_ext WHERE tenant_id=? AND company_id=? AND id=? AND assignee_id=? AND status='pending'",Long.class,event.tenantId(),event.companyId(),event.taskId(),event.userId());if(rows.isEmpty())return;version=rows.getFirst();}
+        String key=event.kind().equals("todo")?"wf:task:"+event.taskId()+":v"+version:event.eventKey();
+        create(actor,"workflow."+event.kind(),title,"请进入审批中心查看，来源权限会重新校验。","/workflow/instances/"+event.instanceId(),category,source,sourceId,null,null,key,version);
+    }
     private final JdbcTemplate jdbc;private final NamedParameterJdbcTemplate named;private final TodoQueries todos;private final NotificationAccess visibility;private final OutboxService outbox;private final ApplicationEventPublisher events;private final AccessService access;private final TemplateService templates;
     private final TransactionTemplate refreshTransaction;
     public MessageService(JdbcTemplate jdbc,NamedParameterJdbcTemplate named,TodoQueries todos,NotificationAccess visibility,OutboxService outbox,ApplicationEventPublisher events,AccessService access,TemplateService templates,PlatformTransactionManager transactions) {this.jdbc=jdbc;this.named=named;this.todos=todos;this.visibility=visibility;this.outbox=outbox;this.events=events;this.access=access;this.templates=templates;refreshTransaction=new TransactionTemplate(transactions);refreshTransaction.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);}
@@ -26,6 +45,11 @@ public class MessageService implements TodoInbox {
         // 铃铛、工作台和收件箱会同时补齐消息，先锁收件人，避免空范围更新与去重插入互相死锁。
         jdbc.queryForList("SELECT id FROM sys_user WHERE tenant_id=? AND id=? FOR UPDATE",Long.class,actor.tenantId(),actor.userId());
         var existing=new HashSet<>(jdbc.queryForList("SELECT event_key FROM notify_message WHERE tenant_id=? AND company_id=? AND user_id=?",String.class,actor.tenantId(),actor.companyId(),actor.userId()));
+        for(var task:jdbc.queryForList("SELECT t.id,t.instance_id,t.version FROM wf_task_ext t JOIN wf_instance i ON i.tenant_id=t.tenant_id AND i.id=t.instance_id WHERE t.tenant_id=? AND t.company_id=? AND t.assignee_id=? AND t.status='pending' AND i.status='running'",actor.tenantId(),actor.companyId(),actor.userId())) {
+            String key="wf:task:"+task.get("id")+":v"+task.get("version");if(!existing.contains(key)) create(actor,"workflow.todo","新的审批待办","请进入审批中心查看并处理。","/workflow/instances/"+task.get("instance_id"),"todo","wf_task_ext",((Number)task.get("id")).longValue(),null,null,key,((Number)task.get("version")).longValue());
+        }
+        for(var copy:jdbc.queryForList("SELECT id,instance_id,read_at FROM wf_copy WHERE tenant_id=? AND company_id=? AND user_id=?",actor.tenantId(),actor.companyId(),actor.userId())) {String key="wf:copy:"+copy.get("id");if(!existing.contains(key)) {create(actor,"workflow.copy","收到流程抄送","请到审批中心查看。","/workflow/instances/"+copy.get("instance_id"),"system","wf_copy",((Number)copy.get("id")).longValue(),null,null,key,0);if(copy.get("read_at")!=null) jdbc.update("UPDATE notify_message SET read_at=? WHERE tenant_id=? AND company_id=? AND user_id=? AND event_key=?",copy.get("read_at"),actor.tenantId(),actor.companyId(),actor.userId(),key);}}
+        for(long instance:jdbc.queryForList("SELECT id FROM wf_instance WHERE tenant_id=? AND company_id=? AND starter_id=? AND status<>'running' AND ended_at>DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 180 DAY)",Long.class,actor.tenantId(),actor.companyId(),actor.userId())) {String key="wf:finish:"+instance;if(!existing.contains(key)) create(actor,"workflow.done","申请流程已结束","请到我的申请查看处理结果。","/workflow/instances/"+instance,"system","wf_instance",instance,null,null,key,0);}
         for(var query:todos.eligible(actor)) for(var candidate:named.queryForList("SELECT h.id,h.version FROM "+query.type()+" h WHERE "+query.where(),query.params())) {
             long id=((Number)candidate.get("id")).longValue(),version=((Number)candidate.get("version")).longValue();
             String key="todo:"+query.type()+":"+id+":"+query.task().action()+":v"+version;
@@ -60,9 +84,10 @@ public class MessageService implements TodoInbox {
     public Map<String,Object> counts(CompanyAccess actor) {sync(actor);var filter=visibility.visible(actor);var result=new LinkedHashMap<String,Object>();long total=0;for(var row:named.queryForList("SELECT m.category,COUNT(*) amount FROM notify_message m WHERE "+filter.where()+" AND m.read_at IS NULL GROUP BY m.category",filter.params())) {long count=((Number)row.get("amount")).longValue();result.put(row.get("category").toString(),count);total+=count;}result.put("total",total);return result;}
     public Map<String,Object> read(CompanyAccess actor,long id) {
         var filter=visibility.visible(actor);var params=new HashMap<>(filter.params());params.put("id",id);
-        var rows=named.queryForList("SELECT m.id,m.notice_id FROM notify_message m WHERE "+filter.where()+" AND m.id=:id",params);if(rows.isEmpty()) throw new ApiException(404,"NOT_FOUND","消息不存在或无权查看");
+        var rows=named.queryForList("SELECT m.id,m.notice_id,m.source_type,m.source_id FROM notify_message m WHERE "+filter.where()+" AND m.id=:id",params);if(rows.isEmpty()) throw new ApiException(404,"NOT_FOUND","消息不存在或无权查看");
         jdbc.update("UPDATE notify_message SET read_at=COALESCE(read_at,UTC_TIMESTAMP(3)) WHERE tenant_id=? AND user_id=? AND id=?",actor.tenantId(),actor.userId(),id);
         if(rows.getFirst().get("notice_id")!=null) jdbc.update("INSERT IGNORE INTO sys_notice_read(tenant_id,notice_id,user_id) VALUES(?,?,?)",actor.tenantId(),rows.getFirst().get("notice_id"),actor.userId());
+        if("wf_copy".equals(rows.getFirst().get("source_type"))) jdbc.update("UPDATE wf_copy SET read_at=COALESCE(read_at,UTC_TIMESTAMP(3)) WHERE tenant_id=? AND company_id=? AND user_id=? AND id=?",actor.tenantId(),actor.companyId(),actor.userId(),rows.getFirst().get("source_id"));
         events.publishEvent(new UserSignal(actor.tenantId(),actor.userId(),"message.read",Map.of("messageId",Long.toString(id))));return Map.of("id",Long.toString(id),"read",true);
     }
     public Map<String,Object> notice(CompanyAccess actor,long id) {
@@ -85,7 +110,9 @@ public class MessageService implements TodoInbox {
             for(var row:named.queryForList("SELECT m.id,m.source_id FROM notify_message m WHERE "+where+" ORDER BY m.id DESC LIMIT 10",params)) {
                 var detail=todos.detail(actor,query,((Number)row.get("source_id")).longValue());if(detail!=null) {detail.put("messageId",row.get("id").toString());items.add(detail);}
             }
-        }return Map.of("blocks",blocks,"todos",items.stream().limit(10).toList());
+        }
+        var flow=workflows.workbench(actor);if(((Number)flow.get("count")).longValue()>0) {blocks.add(Map.of("key","workflow","label","流程审批待办","count",flow.get("count"),"url","/workflow/todo"));if(flow.get("items") instanceof List<?> rows) for(Object row:rows) if(row instanceof Map<?,?> values) {var todo=new LinkedHashMap<String,Object>();values.forEach((key,value)->todo.put(key.toString(),value));items.addFirst(todo);}}
+        return Map.of("blocks",blocks,"todos",items.stream().limit(10).toList());
     }
     /** 后台每次只处理一个企业，授权变化在实际派发及读取时再次检查。 */
     @Transactional(propagation=Propagation.NOT_SUPPORTED)

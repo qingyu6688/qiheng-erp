@@ -18,6 +18,7 @@ const policyHelp = [
   '仅影响之后审批的采购订单，原可收上限不变。',
   '启用后制单人与审核人须为不同用户。',
   '启用后登记人与收付款确认人须为不同用户。',
+  '按折后含税基本单位价格判断；需要审批时必须绑定含价格审批节点的流程。',
 ]
 const props = defineProps<{ resource: string; row: DataRow; inline?: boolean }>()
 const emit = defineEmits<{
@@ -107,6 +108,16 @@ const policyFields: FormField[] = [
   { key: 'overReceiptPct', label: '采购超收容差（百分比）' },
   { key: 'separateOrderApprover', label: '订单审批经办复核分离', kind: 'boolean' },
   { key: 'separateReceiptConfirmer', label: '收付款确认经办复核分离', kind: 'boolean' },
+  {
+    key: 'belowMinPricePolicy',
+    label: '低于最低售价',
+    kind: 'select',
+    options: [
+      { value: 'warn', label: '提示' },
+      { value: 'approval', label: '需要价格审批' },
+      { value: 'block', label: '禁止' },
+    ],
+  },
 ]
 const allContactFields: FormField[] = [
   { key: 'name', label: '姓名', required: true, max: 50 },
