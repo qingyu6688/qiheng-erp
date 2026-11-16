@@ -40,6 +40,22 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+      - name: 配置 CI 依赖镜像
+        shell: pwsh
+        run: |
+          $mavenSettingsPath = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.m2/settings.xml'
+          @'
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+            <mirrors>
+              <mirror>
+                <id>google-maven-central</id>
+                <name>Google 托管的 Maven Central 镜像</name>
+                <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+                <mirrorOf>central</mirrorOf>
+              </mirror>
+            </mirrors>
+          </settings>
+          '@ | Set-Content -LiteralPath $mavenSettingsPath -Encoding utf8NoBOM
       - name: 准备 Node.js
         uses: actions/setup-node@v4
         with:
