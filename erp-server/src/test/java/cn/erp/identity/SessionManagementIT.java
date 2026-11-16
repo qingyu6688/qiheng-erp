@@ -30,7 +30,7 @@ class SessionManagementIT {
         for(long permission:jdbc.queryForList("SELECT id FROM sys_permission",Long.class)) jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) VALUES(?,?,?,?)",Ids.next(),tenant,role,permission);
     }
     @AfterEach void cleanup() {
-        logs.flush();for(String table:List.of("notify_message","sys_notice_read","sys_notice_target","sys_notice","outbox_event","audit_log","idempotency_record","sys_login_log","sys_api_error_log","sys_api_access_log","sys_user_data_scope","sys_user_role","sys_role_permission","sys_role","sys_user","company")) jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);jdbc.update("DELETE FROM tenant WHERE id=?",tenant);
+        logs.flush();for(String table:List.of("job_run_log","job_definition","notify_message","sys_notice_read","sys_notice_target","sys_notice","outbox_event","audit_log","idempotency_record","sys_login_log","sys_api_error_log","sys_api_access_log","sys_user_data_scope","sys_user_role","sys_role_permission","sys_role","sys_user","company")) jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);jdbc.update("DELETE FROM tenant WHERE id=?",tenant);
     }
     @Test void Y05_02_concurrentInboxAndBellReadsDoNotDeadlockOrDuplicateMessages() throws Exception {
         request("POST","/auth/login",Map.of("tenantCode",code,"username","admin","password",password),false,200);
@@ -55,6 +55,15 @@ class SessionManagementIT {
         var replay=HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:"+port+"/api/v1/auth/me")).header("Cookie","ERPSESSION="+rawCookie).GET().build(),HttpResponse.BodyHandlers.ofString());assertThat(replay.statusCode()).isEqualTo(401);assertThat(json.readTree(replay.body()).path("errorCode").asString()).isEqualTo("SESSION_REVOKED");
         assertThat(jdbc.queryForList("SELECT result FROM sys_login_log WHERE tenant_id=? ORDER BY id",String.class,tenant)).containsExactly("failed","success");
         assertThat(jdbc.queryForList("SELECT * FROM sys_login_log WHERE tenant_id=?",tenant).toString()).doesNotContain(password,sid,rawCookie,"错误密码");
+    }
+    @Autowired cn.erp.scheduler.JobEngine jobs;
+    @Test void Z02_05_apiWithoutWorkerCanQueueOnlyPresetActionsAndStillChecksPermission() throws Exception {
+        assertThat(jobs.registered("outbox.poll")).isFalse();
+        request("POST","/auth/login",Map.of("tenantCode",code,"username","admin","password",password),false,200);
+        var queued=request("POST","/sys/jobs/outbox.poll/run",Map.of(),true,200).path("data");assertThat(queued.path("status").asString()).isEqualTo("pending");
+        assertThat(jdbc.queryForObject("SELECT status FROM job_run_log WHERE tenant_id=? AND id=?",String.class,tenant,queued.path("id").asString())).isEqualTo("pending");
+        request("POST","/sys/jobs/java.lang.Runtime/run",Map.of(),true,404);
+        jdbc.update("DELETE FROM sys_role_permission WHERE tenant_id=? AND role_id=? AND permission_id=(SELECT id FROM sys_permission WHERE code='job:run')",tenant,role);request("POST","/sys/jobs/outbox.poll/run",Map.of(),true,403);
     }
     @Test void Z03_01_logsUseTemplateAndHandleVersionWithoutSavingInputs() throws Exception {
         request("POST","/auth/login",Map.of("tenantCode",code,"username","admin","password",password),false,200);

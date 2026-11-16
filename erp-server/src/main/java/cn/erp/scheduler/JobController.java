@@ -25,7 +25,9 @@ class JobController {
         },Map.class));
     }
     @PostMapping("/{code}/run") @Transactional ApiResponse<?> run(HttpServletRequest request,@PathVariable String code,@RequestHeader(value="Idempotency-Key",required=false) String key) {
-        var actor=actor(request,"job:run");PlatformAccess.lock(jdbc,actor,"job:run");engine.ensure(actor.tenantId());if(!engine.registered(code)) throw new ApiException(503,"WORKER_UNAVAILABLE","当前实例未启用此任务动作，请检查后台任务配置");
+        var actor=actor(request,"job:run");PlatformAccess.lock(jdbc,actor,"job:run");engine.ensure(actor.tenantId());
+        // API与Worker分离部署时，管理入口只排队预置动作，不能要求API本机注册执行器。
+        if(jdbc.queryForList("SELECT code FROM job_definition WHERE tenant_id=0 AND code=?",String.class,code).isEmpty()) throw missing();
         return ApiResponse.success(commands.execute(actor,"job.run",key,Map.of("code",code),202,()->{if(jdbc.queryForList("SELECT code FROM job_definition WHERE tenant_id=? AND code=?",String.class,actor.tenantId(),code).isEmpty()) throw missing();long id=Ids.next();jdbc.update("INSERT INTO job_run_log(id,tenant_id,job_code,trigger_kind,operator_id) VALUES(?,?,?,'manual',?)",id,actor.tenantId(),code,actor.userId());audit.record(actor,"job.run","job_run_log",id,null,Map.of("code",code));return Map.of("id",Long.toString(id),"status","pending");},Map.class));
     }
     @GetMapping("/{code}/logs") ApiResponse<?> logs(HttpServletRequest request,@PathVariable String code,@RequestParam(required=false) Long cursor,@RequestParam(defaultValue="50") int limit) {
