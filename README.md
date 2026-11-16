@@ -20,6 +20,8 @@
 
 库存期初 CSV 导入生成草稿，须经审核并过账后才计入库存和成本。各业务状态、金额口径和异常处理见[业务规则](docs/业务规则.md)及[用户使用手册](docs/用户使用手册.md)。
 
+M10 本机迭代增加默认收付款账户、工作台金额与十二个月趋势，以及报表只读备库配置。工作台金额按权限和仓库范围统计，最多缓存五分钟，并显示数据截止时间。实现、验收结果及目标环境事项见 [M10 实施说明](docs/M10功能优化实施说明.md)和[本机验收报告](docs/M10本机验收报告.md)。这些变更尚未正式发布。
+
 ### 技术栈与目录
 
 前端使用 Vue 3、TypeScript、Vite 和 Element Plus。后端使用 Java 21、Spring Boot 和 Maven，提供 REST API。MySQL 8.0.46 保存业务数据，Flyway 负责数据库迁移，Redis 保存会话。后台 Worker 处理导入、导出等异步任务，生产附件和文件任务使用私有 S3 兼容对象仓。
@@ -99,6 +101,8 @@ Qiheng ERP is an inventory and business finance system for trading and warehouse
 | Finance | Enter or import opening balances, manage receivables and payables, and record receipts, payments, and transfers between accounts. Reverse transactions, run eight reconciliation checks, and close or reopen accounting periods. |
 | Reports and files | Use ten report types, including inventory movements, sales and purchase summaries, aging, cash journals, and gross margin. Run background CSV imports and exports, download rejected rows, preview printed documents, and manage private attachments. |
 | Access and audit | Scope data by tenant, company, and warehouse, and grant permissions by role and action. Key transactions can require a separate reviewer and record an audit trail. Administrators can configure SMS codes, email codes, and WeChat sign-in per tenant. |
+
+The unreleased M10 iteration adds default receipt and payment accounts, permission-scoped dashboard amounts with twelve-month trends, and an optional read-only reporting replica. Dashboard results are cached for up to five minutes and show their data cutoff time. See the [implementation notes (Chinese)](docs/M10功能优化实施说明.md) and [local acceptance report (Chinese)](docs/M10本机验收报告.md) for validation and remaining deployment work.
 
 An opening-stock CSV import creates drafts for review and posting before the balances and costs are recorded. See the [business rules (Chinese)](docs/业务规则.md) and [user guide (Chinese)](docs/用户使用手册.md) for the full workflows.
 
