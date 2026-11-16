@@ -2,6 +2,7 @@ package cn.erp.identity;
 
 import java.security.SecureRandom;
 import java.util.Base64;
+import java.util.HexFormat;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,7 @@ class LoginSettingsTest {
         String secret = "仅用于验证的测试密钥";
         String encrypted = cipher.encrypt(7, "sms", secret);
 
+        assertTrue(encrypted.startsWith("2."));
         assertFalse(encrypted.contains(secret));
         assertNotEquals(encrypted, cipher.encrypt(7, "sms", secret));
         assertEquals(secret, cipher.decrypt(7, "sms", encrypted));
@@ -31,8 +33,33 @@ class LoginSettingsTest {
 
         byte[] corrupted = Base64.getDecoder().decode(encrypted.substring(2));
         corrupted[corrupted.length - 1] ^= 1;
-        String modified = "1." + Base64.getEncoder().encodeToString(corrupted);
+        String modified = "2." + Base64.getEncoder().encodeToString(corrupted);
         assertThrows(ApiException.class, () -> cipher.decrypt(7, "sms", modified));
+        assertThrows(ApiException.class, () -> cipher.decrypt(7, "sms", "1." + encrypted.substring(2)));
+    }
+
+    @Test
+    void hkdfMatchesRfc5869CaseThreeAndSeparatesLoginPurposes() {
+        byte[] material = new byte[22];
+        java.util.Arrays.fill(material, (byte) 0x0b);
+        assertEquals("8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d",
+                HexFormat.of().formatHex(LoginKeyDerivation.derive(material, "")));
+        assertNotEquals(HexFormat.of().formatHex(LoginKeyDerivation.derive(material, "erp-login-cipher-v1")),
+                HexFormat.of().formatHex(LoginKeyDerivation.derive(material, "erp-login-code-v1")));
+    }
+
+    @Test
+    void legacyCiphertextStillRequiresOriginalTenantMethodAndMasterKey() throws Exception {
+        byte[] masterKey = new byte[32];
+        new SecureRandom().nextBytes(masterKey);
+        var cipher = new LoginSettingsCipher(Base64.getEncoder().encodeToString(masterKey));
+        String encrypted = LoginSecretFixtures.legacySecret(masterKey, 7, "sms", "旧版渠道密钥");
+        assertTrue(cipher.legacy(encrypted));
+        assertEquals("旧版渠道密钥", cipher.decrypt(7, "sms", encrypted));
+        assertThrows(ApiException.class, () -> cipher.decrypt(8, "sms", encrypted));
+        assertThrows(ApiException.class, () -> cipher.decrypt(7, "email", encrypted));
+        assertThrows(ApiException.class, () -> new LoginSettingsCipher("").decrypt(7, "sms", encrypted));
+        assertThrows(ApiException.class, () -> cipher.decrypt(7, "sms", "3." + encrypted.substring(2)));
     }
 
     @Test

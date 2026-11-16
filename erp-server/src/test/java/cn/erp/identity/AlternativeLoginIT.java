@@ -47,6 +47,7 @@ class AlternativeLoginIT {
     @Autowired JdbcTemplate jdbc;
     @Autowired PasswordEncoder passwords;
     @Autowired ObjectMapper json;
+    @Autowired LoginSettingsService settingsService;
     @MockitoBean LoginCodeDelivery delivery;
 
     private final long tenant = Ids.next();
@@ -92,6 +93,56 @@ class AlternativeLoginIT {
         jdbc.update("DELETE FROM sys_role WHERE tenant_id=?", tenant);
         jdbc.update("DELETE FROM sys_user WHERE tenant_id=?", tenant);
         jdbc.update("DELETE FROM tenant WHERE id=?", tenant);
+    }
+
+    @Test
+    void legacyMigrationKeepsAConcurrentAdministratorUpdate() throws Exception {
+        enable(login("boss"));
+        var cipher = new LoginSettingsCipher("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
+        String legacy = LoginSecretFixtures.legacySecret(new byte[32], tenant, "sms", "旧版短信密钥");
+        jdbc.update("UPDATE tenant_login_provider SET secret_ciphertext=? WHERE tenant_id=? AND method='sms'",
+                legacy, tenant);
+        long version = jdbc.queryForObject(
+                "SELECT version FROM tenant_login_provider WHERE tenant_id=? AND method='sms'", Long.class, tenant);
+        String changed = cipher.encrypt(tenant, "sms", "管理员并发更新的密钥");
+        var racingJdbc = new JdbcTemplate(jdbc.getDataSource()) {
+            @Override
+            public int update(String sql, Object... arguments) {
+                jdbc.update("""
+                        UPDATE tenant_login_provider SET secret_ciphertext=?,version=version+1
+                        WHERE tenant_id=? AND method='sms'
+                        """, changed, tenant);
+                return super.update(sql, arguments);
+            }
+        };
+        var racingSettings = new LoginSettingsService(racingJdbc, json, cipher, null, "smtp.example.test");
+
+        racingSettings.provider(tenant, "sms");
+
+        assertEquals(changed, jdbc.queryForObject(
+                "SELECT secret_ciphertext FROM tenant_login_provider WHERE tenant_id=? AND method='sms'", String.class, tenant));
+        assertEquals(version + 1, settingsService.provider(tenant, "sms").version());
+        assertEquals("管理员并发更新的密钥", settingsService.provider(tenant, "sms").secret());
+    }
+
+    @Test
+    void oldProviderIsReencryptedOnUseWithoutChangingConfigurationVersion() throws Exception {
+        enable(login("boss"));
+        String legacy = LoginSecretFixtures.legacySecret(new byte[32], tenant, "sms", "旧版短信密钥");
+        jdbc.update("UPDATE tenant_login_provider SET secret_ciphertext=? WHERE tenant_id=? AND method='sms'",
+                legacy, tenant);
+        long version = jdbc.queryForObject(
+                "SELECT version FROM tenant_login_provider WHERE tenant_id=? AND method='sms'", Long.class, tenant);
+
+        var provider = settingsService.provider(tenant, "sms");
+
+        assertEquals("旧版短信密钥", provider.secret());
+        assertEquals(version, provider.version());
+        var migrated = jdbc.queryForMap(
+                "SELECT secret_ciphertext,version FROM tenant_login_provider WHERE tenant_id=? AND method='sms'", tenant);
+        assertTrue(migrated.get("secret_ciphertext").toString().startsWith("2."));
+        assertEquals(version, ((Number) migrated.get("version")).longValue());
+        assertEquals("旧版短信密钥", settingsService.provider(tenant, "sms").secret());
     }
 
     @Test

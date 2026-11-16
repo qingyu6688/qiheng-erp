@@ -23,14 +23,18 @@ class LoginSettingsCipher {
     private static final int KEY_BYTES = 32;
     private static final int NONCE_BYTES = 12;
     private static final int TAG_BITS = 128;
-    private static final String ENVELOPE_VERSION = "1.";
+    private static final String ENVELOPE_VERSION = "2.";
+    private static final String LEGACY_VERSION = "1.";
     private static final String ALGORITHM = "AES/GCM/NoPadding";
 
     private final SecureRandom random = new SecureRandom();
     private final SecretKeySpec key;
+    private final SecretKeySpec legacyKey;
 
     LoginSettingsCipher(@Value("${ERP_LOGIN_SETTINGS_KEY:}") String encodedKey) {
-        key = loadKey(encodedKey);
+        legacyKey = loadKey(encodedKey);
+        key = legacyKey == null ? null : new SecretKeySpec(
+                LoginKeyDerivation.derive(legacyKey.getEncoded(), "erp-login-cipher-v1"), "AES");
     }
 
     boolean configured() {
@@ -41,7 +45,7 @@ class LoginSettingsCipher {
         byte[] nonce = new byte[NONCE_BYTES];
         random.nextBytes(nonce);
         try {
-            byte[] encrypted = cipher(Cipher.ENCRYPT_MODE, tenantId, method, nonce)
+            byte[] encrypted = cipher(Cipher.ENCRYPT_MODE, key, tenantId, method, nonce)
                     .doFinal(secret.getBytes(StandardCharsets.UTF_8));
             return ENVELOPE_VERSION + Base64.getEncoder().encodeToString(
                     ByteBuffer.allocate(nonce.length + encrypted.length).put(nonce).put(encrypted).array());
@@ -51,13 +55,15 @@ class LoginSettingsCipher {
     }
 
     String decrypt(long tenantId, String method, String encrypted) {
-        if (encrypted == null || !encrypted.startsWith(ENVELOPE_VERSION)) throw unavailable();
+        if (encrypted == null || !(encrypted.startsWith(ENVELOPE_VERSION) || legacy(encrypted))) {
+            throw unavailable();
+        }
         try {
             byte[] value = Base64.getDecoder().decode(encrypted.substring(ENVELOPE_VERSION.length()));
             if (value.length <= NONCE_BYTES + TAG_BITS / Byte.SIZE) throw unavailable();
             byte[] nonce = new byte[NONCE_BYTES];
             ByteBuffer.wrap(value).get(nonce);
-            byte[] clear = cipher(Cipher.DECRYPT_MODE, tenantId, method, nonce)
+            byte[] clear = cipher(Cipher.DECRYPT_MODE, legacy(encrypted) ? legacyKey : key, tenantId, method, nonce)
                     .doFinal(value, NONCE_BYTES, value.length - NONCE_BYTES);
             return new String(clear, StandardCharsets.UTF_8);
         } catch (GeneralSecurityException | IllegalArgumentException failure) {
@@ -65,11 +71,15 @@ class LoginSettingsCipher {
         }
     }
 
-    private Cipher cipher(int operation, long tenantId, String method, byte[] nonce)
+    boolean legacy(String encrypted) {
+        return encrypted != null && encrypted.startsWith(LEGACY_VERSION);
+    }
+
+    private Cipher cipher(int operation, SecretKeySpec cipherKey, long tenantId, String method, byte[] nonce)
             throws GeneralSecurityException {
-        if (key == null) throw unavailable();
+        if (cipherKey == null) throw unavailable();
         Cipher cipher = Cipher.getInstance(ALGORITHM);
-        cipher.init(operation, key, new GCMParameterSpec(TAG_BITS, nonce));
+        cipher.init(operation, cipherKey, new GCMParameterSpec(TAG_BITS, nonce));
         // 将密文固定在企业及登录方式上，禁止跨配置复制使用。
         cipher.updateAAD(("erp-login:" + tenantId + ":" + method).getBytes(StandardCharsets.UTF_8));
         return cipher;

@@ -88,7 +88,15 @@ class LoginSettingsService {
                 """, (row, index) -> readRow(row), tenantId, method);
         if (result.isEmpty() || !ready(method, result.getFirst())) return null;
         var stored = result.getFirst();
-        return new Provider(stored.config(), cipher.decrypt(tenantId, method, stored.encrypted()), stored.version());
+        String secret = cipher.decrypt(tenantId, method, stored.encrypted());
+        if (cipher.legacy(stored.encrypted())) {
+            // 原密文和版本共同限制迁移，管理员并发保存的新配置优先。
+            jdbc.update("""
+                    UPDATE tenant_login_provider SET secret_ciphertext=?
+                    WHERE tenant_id=? AND method=? AND version=? AND BINARY secret_ciphertext=BINARY ?
+                    """, cipher.encrypt(tenantId, method, secret), tenantId, method, stored.version(), stored.encrypted());
+        }
+        return new Provider(stored.config(), secret, stored.version());
     }
 
     Map<String, Map<String, Object>> read(long tenantId) {

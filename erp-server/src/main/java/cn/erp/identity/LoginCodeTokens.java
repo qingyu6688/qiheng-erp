@@ -124,7 +124,8 @@ class LoginCodeTokens {
     private static SecretKeySpec signingKey(String rawKey) {
         try {
             byte[] decoded = Base64.getDecoder().decode(rawKey.strip());
-            return decoded.length == 32 ? new SecretKeySpec(decoded, "HmacSHA256") : null;
+            return decoded.length == 32 ? new SecretKeySpec(
+                    LoginKeyDerivation.derive(decoded, "erp-login-code-v1"), "HmacSHA256") : null;
         } catch (IllegalArgumentException failure) {
             return null;
         }
