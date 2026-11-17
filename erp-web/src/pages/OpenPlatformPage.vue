@@ -25,7 +25,7 @@ import type {
   OpenSecret,
 } from '../api/open-platform'
 import { useSessionStore } from '../stores/session'
-import { formatDateTime } from '../utils/format'
+import { formatDateTime, formatPrintTime } from '../utils/format'
 
 const session = useSessionStore(),
   tab = ref('apps'),
@@ -114,7 +114,7 @@ function editApp(row?: OpenApp): void {
     version: row?.version,
   })
   ips.value = row?.ipWhitelist.join('\n') ?? ''
-  expires.value = row?.expiresAt ? formatDateTime(row.expiresAt).replace(' ', 'T').slice(0, 16) : ''
+  expires.value = row?.expiresAt ? formatPrintTime(row.expiresAt).replace(' ', 'T').slice(0, 16) : ''
   editing.value = true
 }
 function editHook(row?: OpenHook): void {
