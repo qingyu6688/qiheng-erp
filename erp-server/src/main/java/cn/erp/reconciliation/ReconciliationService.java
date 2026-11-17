@@ -54,7 +54,7 @@ public class ReconciliationService {
                     SELECT COUNT(*) FROM sys_user u JOIN tenant t ON t.id=u.tenant_id
                     JOIN company c ON c.tenant_id=u.tenant_id AND c.id=?
                     WHERE u.tenant_id=? AND u.id=? AND u.status='active' AND t.status='active' AND c.status='active'
-                    AND EXISTS(SELECT 1 FROM sys_user_data_scope s WHERE s.tenant_id=u.tenant_id AND s.user_id=u.id AND s.company_id=c.id AND s.scope_type='company')
+                    AND EXISTS(SELECT 1 FROM org_user_data_scope s WHERE s.tenant_id=u.tenant_id AND s.user_id=u.id AND s.company_id=c.id AND s.scope_type='company')
                     AND EXISTS(SELECT 1 FROM sys_user_role ur JOIN sys_role r ON r.tenant_id=ur.tenant_id AND r.id=ur.role_id AND r.status='active'
                         JOIN sys_role_permission rp ON rp.tenant_id=r.tenant_id AND rp.role_id=r.id JOIN sys_permission p ON p.id=rp.permission_id
                         WHERE ur.tenant_id=u.tenant_id AND ur.user_id=u.id AND p.code='reconciliation:run')

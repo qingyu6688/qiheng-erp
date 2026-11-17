@@ -30,7 +30,7 @@ class OrganizationConcurrencyIT {
         long role=Ids.next();
         jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(?,?,'ORG','组织管理员')",role,tenant);
         jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,user,role);
-        for(long scope:List.of(company,second)) jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,scope);
+        for(long scope:List.of(company,second)) jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,scope);
         var permissions=Set.of("org_department:create","org_department:update","org_department:view","user:update","user:view");
         actor=new CompanyAccess(tenant,user,company,true,Set.of(),permissions);
         other=new CompanyAccess(tenant,user,second,true,Set.of(),permissions);
@@ -38,7 +38,7 @@ class OrganizationConcurrencyIT {
     @AfterEach void clean() {
         for(String table:List.of("org_user_post","org_user_department","org_user_company")) jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
         for(long id:jdbc.queryForList("SELECT id FROM org_department WHERE tenant_id=? ORDER BY depth DESC",Long.class,tenant)) jdbc.update("DELETE FROM org_department WHERE id=?",id);
-        for(String table:List.of("audit_log","idempotency_record","sys_user_role","sys_role","sys_user_data_scope","sys_user","company")) jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
+        for(String table:List.of("audit_log","idempotency_record","sys_user_role","sys_role","org_user_data_scope","sys_user","company")) jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
         jdbc.update("DELETE FROM tenant WHERE id=?",tenant);
     }
     Department create(CompanyAccess scope,String code) {

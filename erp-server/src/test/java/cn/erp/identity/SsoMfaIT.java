@@ -82,7 +82,7 @@ class SsoMfaIT {
         jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?),(?,?,?,?)",
                 Ids.next(),tenant,adminId,adminId,Ids.next(),tenant,userId,role);
         for(long actor:List.of(adminId,userId)) jdbc.update("""
-                INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)
+                INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)
                 """,Ids.next(),tenant,actor,company);
         for(String permission:List.of("tenant:login_settings","tenant:security_policy")) jdbc.update("""
                 INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) SELECT ?,?,?,id FROM sys_permission WHERE code=?
@@ -95,7 +95,7 @@ class SsoMfaIT {
     void clean() {
         logs.flush();
         for(String table:List.of("sys_api_access_log","sys_api_error_log","sys_login_log","audit_log","user_mfa","tenant_security_policy",
-                "user_login_identity","tenant_login_provider","sys_user_data_scope","sys_user_role","sys_role_permission","sys_role","sys_user","company"))
+                "user_login_identity","tenant_login_provider","org_user_data_scope","sys_user_role","sys_role_permission","sys_role","sys_user","company"))
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id IN (?,?)",tenant,foreign);
         jdbc.update("DELETE FROM tenant WHERE id IN (?,?)",tenant,foreign);
     }

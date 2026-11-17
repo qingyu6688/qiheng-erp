@@ -24,7 +24,7 @@ class PlatformAdministrationIT {
         jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(89001,70101,'platform','管理员','非登录测试摘要'),(89002,70101,'recipient','收件人','非登录测试摘要')");
         jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(89011,70101,'TEST_ADMIN','测试管理')");
         jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) SELECT 89000+id,70101,89011,id FROM sys_permission");
-        for(long user:List.of(89001L,89002L)) {jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,70101,?,89011)",Ids.next(),user);jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,70101,?,'company',70201)",Ids.next(),user);}
+        for(long user:List.of(89001L,89002L)) {jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,70101,?,89011)",Ids.next(),user);jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,70101,?,'company',70201)",Ids.next(),user);}
         var permissions=Set.copyOf(jdbc.queryForList("SELECT code FROM sys_permission",String.class));actor=new CompanyAccess(70101,89001,70201,true,Set.of(),permissions);other=new CompanyAccess(70101,89002,70201,true,Set.of(),permissions);
     }
     @Test void Y03_01_presetsCannotBeChangedButTenantDisablePreservesHistoricalLabels() {

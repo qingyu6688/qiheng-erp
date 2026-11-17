@@ -74,7 +74,7 @@ public class MessageService implements TodoInbox,AlertNotificationPort {
     public void openWebhookDisabled(OpenWebhookDisabled event) {
         if (event.companyId()==null) return;
         var users=jdbc.queryForList("""
-                SELECT DISTINCT s.user_id FROM sys_user_data_scope s
+                SELECT DISTINCT s.user_id FROM org_user_data_scope s
                 JOIN sys_user u ON u.tenant_id=s.tenant_id AND u.id=s.user_id AND u.status='active' AND u.user_type='human'
                 JOIN sys_user_role ur ON ur.tenant_id=s.tenant_id AND ur.user_id=s.user_id
                 JOIN sys_role r ON r.tenant_id=ur.tenant_id AND r.id=ur.role_id AND r.status='active'
@@ -219,7 +219,7 @@ public class MessageService implements TodoInbox,AlertNotificationPort {
     /** 后台每次只处理一个企业，授权变化在实际派发及读取时再次检查。 */
     @Transactional(propagation=Propagation.NOT_SUPPORTED)
     public void refreshTenant(long tenant) {
-        for(var row:jdbc.queryForList("SELECT DISTINCT user_id,company_id FROM sys_user_data_scope WHERE tenant_id=? ORDER BY user_id,company_id",tenant)) {
+        for(var row:jdbc.queryForList("SELECT DISTINCT user_id,company_id FROM org_user_data_scope WHERE tenant_id=? ORDER BY user_id,company_id",tenant)) {
             refreshTransaction.executeWithoutResult(status->{var actor=access.forUser(tenant,((Number)row.get("user_id")).longValue(),((Number)row.get("company_id")).longValue());if(actor!=null) sync(actor);});
         }
     }

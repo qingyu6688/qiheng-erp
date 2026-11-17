@@ -1,8 +1,13 @@
 package cn.erp.shared;
 
+import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationInfo;
+import org.flywaydb.core.api.MigrationInfoService;
+import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 class DatabaseMigrationConfigurationTest {
     private MockEnvironment environment(String... profiles) {
@@ -43,5 +48,20 @@ class DatabaseMigrationConfigurationTest {
         assertThat(DatabaseMigrationConfiguration.credentials(environment).user()).isEqualTo("migration");
         environment.withProperty("springdoc.use-management-port","true");
         assertThatThrownBy(() -> DatabaseMigrationConfiguration.credentials(environment)).hasMessageContaining("调试文档");
+    }
+
+    @Test void productionRequiresUpgradeToolBeforeMigratingLegacyData() {
+        var flyway = mock(Flyway.class);
+        var info = mock(MigrationInfoService.class);
+        var current = mock(MigrationInfo.class);
+        when(flyway.info()).thenReturn(info);
+        when(info.current()).thenReturn(current);
+        when(current.getVersion()).thenReturn(MigrationVersion.fromVersion("87"));
+        var configuration = new DatabaseMigrationConfiguration();
+        assertThatThrownBy(() -> configuration.applicationMigration(environment("prod")).migrate(flyway))
+                .hasMessageContaining("停写升级工具");
+        verify(flyway, never()).migrate();
+        configuration.applicationMigration(environment("test")).migrate(flyway);
+        verify(flyway).migrate();
     }
 }

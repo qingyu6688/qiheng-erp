@@ -3,10 +3,15 @@ package cn.erp.mfg;
 import cn.erp.catalog.CatalogAvailability;
 import cn.erp.catalog.CatalogAvailability.SkuUnit;
 import cn.erp.identity.CompanyAccess;
+import cn.erp.shared.ActorScope;
+import cn.erp.shared.ApiException;
 import cn.erp.shared.AuditService;
 import cn.erp.shared.BusinessCommands;
 import cn.erp.shared.Ids;
 import cn.erp.shared.OrgOwnership;
+import cn.erp.shared.WorkflowBusiness;
+import cn.erp.shared.WorkflowContext;
+import cn.erp.shared.WorkflowPort;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -23,8 +28,12 @@ import static cn.erp.mfg.MfgPlanningModels.*;
 
 @Service
 @Transactional
-class MfgBomService {
+class MfgBomService implements WorkflowBusiness {
     private static final String RESOURCE="mfg_bom";
+    private WorkflowPort workflow;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void workflow(WorkflowPort workflow) { this.workflow = workflow; }
     private static final int MAX_ALTERNATIVES=20;
     private final JdbcTemplate jdbc;
     private final CatalogAvailability catalog;
@@ -101,11 +110,17 @@ class MfgBomService {
     Map<String,Object> command(CompanyAccess actor,long id,String action,String key,Revision input) {
         boms.header(actor,id,false);
         String identifier=commands.execute(actor,RESOURCE+"."+action,key,List.of(id,input),200,()->{
+            workflow.guard(actor, RESOURCE, id, action.equals("disable") ? "cancel" : action);
             boms.lockGraph(actor);
             var previous=boms.header(actor,id,true);
             checkRevision(previous,input.version());
             switch(action) {
-                case "submit" -> {requireState(previous,"draft"); verifyReferences(actor,id,previous); transition(actor,id,"pending");}
+                case "submit" -> {
+                    requireState(previous,"draft");
+                    verifyReferences(actor,id,previous);
+                    transition(actor,id,"pending");
+                    workflow.start(actor, RESOURCE, id, Map.of());
+                }
                 case "approve" -> approve(actor,id,previous);
                 case "disable" -> {requireState(previous,"draft","pending","approved"); transition(actor,id,"disabled");}
                 default -> throw invalid("物料清单操作无效");
@@ -114,6 +129,32 @@ class MfgBomService {
             return Long.toString(id);
         },String.class);
         return boms.detail(actor,Long.parseLong(identifier));
+    }
+
+    @Override
+    public String businessType() { return RESOURCE; }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> snapshot(ActorScope scope, long id) {
+        var row = boms.header((CompanyAccess) scope, id, false);
+        String reference = row.get("id") + "/" + row.get("version_no");
+        return Map.of("documentNo", reference, "title", "物料清单 " + reference,
+                "createdBy", row.get("owner_user_id"), "totalAmount", "0");
+    }
+
+    @Override
+    public void decide(ActorScope scope, long id, String outcome, String comment, String key) {
+        if (!WorkflowContext.allows(scope, RESOURCE, id)) throw new ApiException(403, "FORBIDDEN", "业务回调缺少流程上下文");
+        var actor = (CompanyAccess) scope;
+        boms.lockGraph(actor);
+        var previous = boms.header(actor, id, true);
+        if (outcome.equals("approved")) approve(actor, id, previous);
+        else {
+            requireState(previous, "pending");
+            transition(actor, id, "draft");
+        }
+        audit.record(actor, RESOURCE + "." + outcome, RESOURCE, id, previous, boms.detail(actor, id));
     }
 
     private void approve(CompanyAccess actor,long id,Map<String,Object> previous) {

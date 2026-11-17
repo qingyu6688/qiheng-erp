@@ -39,6 +39,18 @@ export function onSessionExpired(handler: () => void): void {
   onExpired = handler
 }
 
+export async function requireServerVersion(): Promise<void> {
+  const result = await api<{ apiMajor: number }>('/system/version', { public: true }).catch(
+    (cause: unknown) => {
+      if (cause instanceof ApiFailure && [401, 403, 404].includes(cause.status)) return undefined
+      throw cause
+    },
+  )
+  if (result?.apiMajor !== 2) {
+    throw new ApiFailure(426, 'ERP_VERSION_INCOMPATIBLE', '当前服务端版本与移动端不兼容，请升级到柒衡 ERP 2.0。')
+  }
+}
+
 export function validOrigin(value: string): string {
   if (typeof URL !== 'function') {
     // 原生 JS 引擎缺少 URL 时，只接受明确的 HTTPS 主机和可选端口。

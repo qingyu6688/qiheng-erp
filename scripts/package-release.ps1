@@ -59,6 +59,12 @@ foreach($file in Get-ChildItem -LiteralPath (Join-Path $root 'deploy') -File){if
 $monitoringTemplates = Join-Path $root 'deploy/observability'
 Copy-Item -LiteralPath $monitoringTemplates -Destination (Join-Path $stage 'deploy/observability') -Recurse
 foreach($file in Get-ChildItem -LiteralPath (Join-Path $root 'scripts') -Filter '*.ps1' -File){Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $stage 'scripts')}
+Copy-Item -LiteralPath (Join-Path $root 'scripts/upgrade-2.0.sh') -Destination (Join-Path $stage 'scripts')
+$upgradeDirectory=Join-Path $stage 'scripts/upgrade-2.0'
+New-Item -ItemType Directory -Path $upgradeDirectory | Out-Null
+foreach($file in 'engine.py','data.py','upgrade.py','03-permission-codes.tsv','retired-api.tsv'){
+ Copy-Item -LiteralPath (Join-Path $root "scripts/upgrade-2.0/$file") -Destination $upgradeDirectory
+}
 Copy-Item -LiteralPath (Join-Path $root 'scripts/verify-observability.py') -Destination (Join-Path $stage 'scripts')
 $javaDirectory=Join-Path $root 'scripts/java'
 if(Test-Path -LiteralPath $javaDirectory -PathType Container){
@@ -70,7 +76,8 @@ $documents=@(
  '接口设计.md','数据库设计.md','开发计划.md','优化文档.md','项目总结.md','环境检查.md',
  '更新日志.md','上线准备清单.md','本机期初导入与业务试运行报告.md','多方式登录配置.md',
  '企业级演进规划.md','UI设计规范.md','可观测性设计.md','M14平台二期使用与验收.md',
- 'M14单点登录与MFA使用说明.md','M14开放平台接入手册.md','M14工作流二期使用说明.md','2.0不兼容变更预告.md'
+ 'M14单点登录与MFA使用说明.md','M14开放平台接入手册.md','M14工作流二期使用说明.md','2.0不兼容变更预告.md',
+ '1.x升级到2.0指南.md'
 )
 foreach($name in $documents) {
  Copy-Item -LiteralPath (Join-Path $root ('docs/'+$name)) -Destination (Join-Path $stage 'docs')

@@ -69,7 +69,7 @@ class AlertRules {
                     ORDER BY name,id LIMIT 50
                     """,actor.tenantId(),keyword);
             case "user" -> jdbc.queryForList("""
-                    SELECT DISTINCT u.id,u.display_name name FROM sys_user u JOIN sys_user_data_scope s ON s.tenant_id=u.tenant_id AND s.user_id=u.id
+                    SELECT DISTINCT u.id,u.display_name name FROM sys_user u JOIN org_user_data_scope s ON s.tenant_id=u.tenant_id AND s.user_id=u.id
                     WHERE u.tenant_id=? AND s.company_id=? AND u.status='active' AND LOCATE(?,u.display_name)>0 ORDER BY name,u.id LIMIT 50
                     """,actor.tenantId(),actor.companyId(),keyword);
             default -> throw invalid("接收人查询类型无效");

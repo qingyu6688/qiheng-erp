@@ -82,7 +82,7 @@ final class WorkflowTestData {
                         role,
                         permission);
             jdbc.update(
-                    "INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id)"
+                    "INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id)"
                         + " VALUES(?,?,?,'company',?)",
                     Ids.next(),
                     tenant,
@@ -393,7 +393,7 @@ final class WorkflowTestData {
                         "partner_role",
                         "business_partner",
                         "accounting_period",
-                        "sys_user_data_scope",
+                        "org_user_data_scope",
                         "warehouse",
                         "company_policy",
                         "org_role_data_scope_dept",

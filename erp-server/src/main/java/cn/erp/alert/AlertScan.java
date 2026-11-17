@@ -128,7 +128,7 @@ class AlertScan {
             Object value=target.type().equals("role")?AlertRules.positive(target.id()):target.id();
             return jdbc.queryForList("""
                     SELECT DISTINCT x.user_id FROM sys_user_role x JOIN sys_role r ON r.tenant_id=x.tenant_id AND r.id=x.role_id
-                    JOIN sys_user_data_scope s ON s.tenant_id=x.tenant_id AND s.user_id=x.user_id AND s.company_id=?
+                    JOIN org_user_data_scope s ON s.tenant_id=x.tenant_id AND s.user_id=x.user_id AND s.company_id=?
                     WHERE x.tenant_id=? AND r.status='active' AND
                     """+field+"=? ORDER BY x.user_id",Long.class,company,tenant,value);
         }

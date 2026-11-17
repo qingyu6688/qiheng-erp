@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Transactional
 @Sql(scripts="/constraints/fixtures.sql", config=@SqlConfig(encoding="UTF-8"))
 class DashboardIT {
-    private static final Set<String> PERMISSIONS=Set.of("dashboard:view","cost:view","gl_report:view","crm_statistics:view","crm_target:view",
+    private static final Set<String> PERMISSIONS=Set.of("dashboard:view","cost:view","gl_report:view","crm_statistic:view","crm_target:view",
             "batch:view","receipt:view","purchase_order:view","qc_inspection:view","mfg_report:view",ReportType.SALES_SUMMARY.permission(),
             ReportType.GROSS_MARGIN.permission(),ReportType.INVENTORY_SUMMARY.permission(),ReportType.INVENTORY_FLOW.permission(),
             ReportType.PURCHASE_SUMMARY.permission(),ReportType.RECEIVABLE_AGING.permission());

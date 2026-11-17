@@ -41,7 +41,7 @@ public class CommandResultAccess {
             if(row.get("items") instanceof List<?> values) for(Object value:values) if(value instanceof Map<?,?> item && item.get("id")!=null) OrgOwnership.requireAllocation(jdbc,actor,item.get("id"));
         }
         if(operation.equals("user.assign_organization")) {
-            Long count=jdbc.queryForObject("SELECT COUNT(*) FROM sys_user_data_scope WHERE tenant_id=? AND company_id=? AND user_id=?",Long.class,scope.tenantId(),scope.companyId(),row.get("userId"));
+            Long count=jdbc.queryForObject("SELECT COUNT(*) FROM org_user_data_scope WHERE tenant_id=? AND company_id=? AND user_id=?",Long.class,scope.tenantId(),scope.companyId(),row.get("userId"));
             if(count==null || count==0) throw missing();
             return;
         }

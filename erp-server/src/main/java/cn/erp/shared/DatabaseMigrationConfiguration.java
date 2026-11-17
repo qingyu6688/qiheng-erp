@@ -1,10 +1,14 @@
 package cn.erp.shared;
 
 import java.util.Arrays;
+import org.flywaydb.core.api.MigrationVersion;
 import org.springframework.boot.flyway.autoconfigure.FlywayConfigurationCustomizer;
+import org.springframework.boot.flyway.autoconfigure.FlywayMigrationStrategy;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 /** 迁移连接与运行连接分离；本机空配置仍沿用当前测试或开发数据源。 */
 @Configuration(proxyBeanMethods=false)
@@ -15,6 +19,33 @@ public class DatabaseMigrationConfiguration {
     FlywayConfigurationCustomizer migrationCredentials(Environment environment) {
         Credentials credentials=credentials(environment);
         return configuration -> configuration.dataSource(environment.getRequiredProperty("spring.datasource.url"), credentials.user(), credentials.password());
+    }
+
+    @Bean
+    FlywayMigrationStrategy applicationMigration(Environment environment) {
+        boolean production = environment.acceptsProfiles(Profiles.of("prod", "production"));
+        return flyway -> {
+            if (!production) {
+                flyway.migrate();
+                return;
+            }
+            var current = flyway.info().current();
+            if (current != null && current.getVersion().compareTo(
+                    MigrationVersion.fromVersion(Integer.toString(EnterpriseUpgradeMode.SCHEMA_VERSION))) < 0)
+                throw new IllegalStateException("旧 ERP 库必须使用停写升级工具核验后再启动 2.0");
+            flyway.migrate();
+            var jdbc = new JdbcTemplate(flyway.getConfiguration().getDataSource());
+            if (current == null) {
+                jdbc.update("""
+                        INSERT INTO upgrade_log(run_id,step,details)
+                        VALUES('00000000000000000000000000000000','fresh',JSON_OBJECT('version','2.0.0'))
+                        """);
+            }
+            if (!Boolean.TRUE.equals(jdbc.queryForObject("""
+                    SELECT EXISTS(SELECT 1 FROM upgrade_log WHERE step IN ('verified','fresh'))
+                    """, Boolean.class)))
+                throw new IllegalStateException("候选库尚未完成升级核验，保持维护状态");
+        };
     }
 
     static Credentials credentials(Environment environment) {

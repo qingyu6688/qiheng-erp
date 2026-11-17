@@ -57,6 +57,16 @@ class AssigneeResolver {
                                     tenant,
                                     code));
             }
+            case "approval_permission" -> result.addAll(jdbc.queryForList("""
+                    SELECT DISTINCT ur.user_id FROM sys_user_role ur
+                    JOIN sys_role r ON r.tenant_id=ur.tenant_id AND r.id=ur.role_id AND r.status='active'
+                    JOIN sys_role_permission rp ON rp.tenant_id=r.tenant_id AND rp.role_id=r.id
+                    JOIN sys_permission p ON p.id=rp.permission_id
+                    JOIN org_user_data_scope s ON s.tenant_id=ur.tenant_id AND s.user_id=ur.user_id
+                    WHERE ur.tenant_id=? AND s.company_id=? AND p.code=?
+                    ORDER BY ur.user_id
+                    """, Long.class, tenant, company,
+                    WorkflowDocuments.permission(instance.get("business_type").toString(), "approve")));
             case "post" -> {
                 for (long post : a.postIds())
                     result.addAll(
@@ -169,7 +179,7 @@ class AssigneeResolver {
         return jdbc
                 .queryForList(
                         "SELECT DISTINCT u.id,u.display_name FROM sys_user u JOIN"
-                            + " sys_user_data_scope s ON s.tenant_id=u.tenant_id AND s.user_id=u.id"
+                            + " org_user_data_scope s ON s.tenant_id=u.tenant_id AND s.user_id=u.id"
                             + " AND s.company_id=? WHERE u.tenant_id=? AND u.status='active' ORDER"
                             + " BY u.id",
                         actor.companyId(),
@@ -201,7 +211,7 @@ class AssigneeResolver {
         return jdbc
                 .queryForList(
                         "SELECT DISTINCT u.id,u.display_name FROM sys_user u JOIN"
-                            + " sys_user_data_scope s ON s.tenant_id=u.tenant_id AND s.user_id=u.id"
+                            + " org_user_data_scope s ON s.tenant_id=u.tenant_id AND s.user_id=u.id"
                             + " AND s.company_id=? WHERE u.tenant_id=? AND u.status='active' ORDER"
                             + " BY u.id",
                         actor.companyId(),

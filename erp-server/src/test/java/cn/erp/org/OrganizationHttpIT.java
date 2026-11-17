@@ -39,7 +39,7 @@ class OrganizationHttpIT {
         for(long id:List.of(manager,member,viewer)) {
             String username=id==manager?"manager":id==member?"member":"viewer";
             jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash,must_change_password) VALUES(?,?,?,?,?,0)",id,tenant,username,username,encoder.encode(password));
-            for(long current:List.of(company,second)) jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,id,current);
+            for(long current:List.of(company,second)) jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,id,current);
         }
         jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(?,?,'ADMIN','管理员'),(?,?,'VIEWER','只读')",adminRole,tenant,viewerRole,tenant);
         jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?),(?,?,?,?)",Ids.next(),tenant,manager,adminRole,Ids.next(),tenant,viewer,viewerRole);
@@ -51,7 +51,7 @@ class OrganizationHttpIT {
         for(String table:List.of("org_user_post","org_user_department","org_user_company")) jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
         var departments=jdbc.queryForList("SELECT id FROM org_department WHERE tenant_id IN (?,?) ORDER BY depth DESC",Long.class,tenant,foreignTenant);
         for(long id:departments) jdbc.update("DELETE FROM org_department WHERE id=?",id);
-        for(String table:List.of("org_post","audit_log","idempotency_record","sys_user_role","sys_role_permission","sys_role","sys_user_data_scope","sys_user")) jdbc.update("DELETE FROM "+table+" WHERE tenant_id IN (?,?)",tenant,foreignTenant);
+        for(String table:List.of("org_post","audit_log","idempotency_record","sys_user_role","sys_role_permission","sys_role","org_user_data_scope","sys_user")) jdbc.update("DELETE FROM "+table+" WHERE tenant_id IN (?,?)",tenant,foreignTenant);
         jdbc.update("DELETE FROM company WHERE tenant_id IN (?,?)",tenant,foreignTenant);jdbc.update("DELETE FROM tenant WHERE id IN (?,?)",tenant,foreignTenant);
     }
     void login(String username) throws Exception {
@@ -120,7 +120,7 @@ class OrganizationHttpIT {
         var postBody=json.createObjectNode().put("version",0);postBody.putArray("departments");postBody.putArray("postIds").add(foreignPost);
         call("PUT","/users/"+member+"/organization",postBody.toString(),company,404,true,"foreign-post");
         call("PUT","/users/"+member+"/organization",assignment(Long.toString(foreign),null,0),company,404,true,"foreign-member");
-        jdbc.update("DELETE FROM sys_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=?",tenant,member,company);
+        jdbc.update("DELETE FROM org_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=?",tenant,member,company);
         var body=json.createObjectNode().put("code","L").put("name","负责人越界").put("sortNo",0).put("leaderUserId",member);
         call("POST","/org/departments",body.toString(),company,404,true,"foreign-leader");
         call("PUT","/users/"+member+"/organization","{\"departments\":[],\"postIds\":[],\"version\":0}",company,404,true,"no-scope");

@@ -16,7 +16,7 @@ class AiBridgePrincipalRepository {
                 JOIN tenant t ON t.id=u.tenant_id AND t.status='active'
                 JOIN company c ON c.tenant_id=u.tenant_id AND c.status='active'
                 WHERE u.tenant_id=? AND u.id=? AND c.id=? AND u.status='active' AND u.must_change_password=0
-                  AND EXISTS (SELECT 1 FROM sys_user_data_scope s
+                  AND EXISTS (SELECT 1 FROM org_user_data_scope s
                               WHERE s.tenant_id=u.tenant_id AND s.user_id=u.id AND s.company_id=c.id)
             ), active_roles AS (
                 SELECT r.tenant_id,r.id

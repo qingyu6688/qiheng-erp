@@ -149,7 +149,7 @@ class PrintTemplates {
         DocumentAccess.require(actor,TENANT_MANAGE);
         var missing=jdbc.queryForObject("""
                 SELECT EXISTS(SELECT 1 FROM company c WHERE c.tenant_id=? AND c.status='active' AND NOT EXISTS(
-                    SELECT 1 FROM sys_user_data_scope s WHERE s.tenant_id=c.tenant_id AND s.company_id=c.id AND s.user_id=? AND s.scope_type='company'))
+                    SELECT 1 FROM org_user_data_scope s WHERE s.tenant_id=c.tenant_id AND s.company_id=c.id AND s.user_id=? AND s.scope_type='company'))
                 """,Boolean.class,actor.tenantId(),actor.userId());
         if(Boolean.TRUE.equals(missing)) throw new ApiException(403,"FORBIDDEN","维护企业共享模板需要全部公司的授权");
     }

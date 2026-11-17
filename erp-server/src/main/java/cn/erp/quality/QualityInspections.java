@@ -14,6 +14,9 @@ import cn.erp.shared.BusinessCommands;
 import cn.erp.shared.Ids;
 import cn.erp.shared.OrgOwnership;
 import cn.erp.shared.ReceiptQualityPort;
+import cn.erp.shared.WorkflowBusiness;
+import cn.erp.shared.WorkflowContext;
+import cn.erp.shared.WorkflowPort;
 import cn.erp.sysadmin.DictionaryService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -29,8 +32,13 @@ import static cn.erp.quality.QualityModels.*;
 
 @Service
 @Transactional
-class QualityInspections implements ReceiptQualityPort {
+class QualityInspections implements ReceiptQualityPort, WorkflowBusiness {
     private static final ZoneId ZONE=ZoneId.of("Asia/Shanghai");
+    private static final String TYPE = "qc_inspection";
+    private WorkflowPort workflow;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void workflow(WorkflowPort workflow) { this.workflow = workflow; }
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
     private final QualitySettings settings;
@@ -124,6 +132,7 @@ class QualityInspections implements ReceiptQualityPort {
                     WHERE tenant_id=? AND company_id=? AND id=?
                     """,actor.userId(),quantities.qualified(),quantities.unqualified(),quantities.concession(),quantities.reason(),
                     result(quantities),actor.tenantId(),actor.companyId(),id);
+            workflow.start(actor, TYPE, id, Map.of());
             return changed(actor,id,"submit",row);
         });
     }
@@ -132,12 +141,34 @@ class QualityInspections implements ReceiptQualityPort {
         if(input==null)throw invalid("请提供审核版本");
         find(actor,id,false);
         return execute(actor,action,key,List.of(id,input),()->{
+            workflow.guard(actor, TYPE, id, action);
             var row=find(actor,id,true);version(input.version(),row);state(row,"submitted");
             if(id(row,"inspector_id")==actor.userId())throw new ApiException(422,"SAME_OPERATOR_NOT_ALLOWED","质量审核人不能是检验员");
             if(action.equals("approve")) approve(actor,row);
             else reject(actor,row,text(input.reason(),200,"驳回原因",true));
             return changed(actor,id,action,row);
         });
+    }
+
+    @Override
+    public String businessType() { return TYPE; }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> snapshot(ActorScope scope, long id) {
+        var row = find(company(scope), id, false);
+        return Map.of("documentNo", row.get("inspection_no"), "title", "来料检验 " + row.get("inspection_no"),
+                "createdBy", Objects.requireNonNullElse(row.get("inspector_id"), row.get("owner_user_id")),
+                "ownerDeptId", row.get("owner_department_id"), "totalAmount", "0");
+    }
+
+    @Override
+    public void decide(ActorScope scope, long id, String outcome, String comment, String key) {
+        if (!WorkflowContext.allows(scope, TYPE, id)) throw new ApiException(403, "FORBIDDEN", "业务回调缺少流程上下文");
+        var actor = company(scope);
+        var row = find(actor, id, false);
+        decide(actor, id, outcome.equals("approved") ? "approve" : "reject", key,
+                new Decision(id(row, "version"), Objects.toString(comment, "流程未通过")));
     }
 
     Map<String,Object> dispose(CompanyAccess actor,long id,String key,Disposition input){

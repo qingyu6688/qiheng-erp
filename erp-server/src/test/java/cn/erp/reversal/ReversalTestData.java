@@ -67,11 +67,11 @@ abstract class ReversalTestData {
         for(long operator:List.of(user,reviewerId)) {
             jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,?,?,?,?)",operator,tenant,operator==user?"operator":"reviewer","冲销验收用户",hash);
             jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,operator,role);
-            jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,operator,otherCompany);
+            jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,operator,otherCompany);
         }
         for(long wh:List.of(warehouse,otherWarehouse)) {
             jdbc.update("INSERT INTO warehouse(id,tenant_id,company_id,code,name) VALUES(?,?,?,?,?)",wh,tenant,company,"W"+wh,"冲销仓");
-            for(long operator:List.of(user,reviewerId))jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id,warehouse_id) VALUES(?,?,?,'warehouse',?,?)",Ids.next(),tenant,operator,company,wh);
+            for(long operator:List.of(user,reviewerId))jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id,warehouse_id) VALUES(?,?,?,'warehouse',?,?)",Ids.next(),tenant,operator,company,wh);
         }
         jdbc.update("INSERT INTO unit(id,tenant_id,name) VALUES(?,?,'件')",unit,tenant);
         long category=Ids.next(),product=Ids.next();
@@ -105,7 +105,7 @@ abstract class ReversalTestData {
         for(String table:List.of("outbox_event","ledger_balance","journal_line","journal","settlement_allocation","partner_open_item","invoice_registration_line","invoice_registration","receivable","payable","document_reversal","refund_request",
             "inventory_reservation_change","inventory_reservation","cost_adjustment","inventory_movement","inventory_balance","inventory_cost","sales_return_line","sales_return","shipment_line","shipment","purchase_return_line","purchase_return","goods_receipt_line","goods_receipt","receipt","payment","account_transfer",
             "stock_count_line","stock_count","stock_adjustment_line","stock_adjustment","opening_entry","document_change","sales_order_fee","sales_order_line","sales_order","purchase_order_fee","purchase_order_line","purchase_order","audit_log","approval_record","idempotency_record","document_sequence","cash_account_balance","cash_account","income_expense_item",
-            "unit_conversion","sku","product","product_category","unit","partner_role","business_partner","sys_user_data_scope","warehouse","accounting_period","sys_role_permission","sys_user_role","sys_role","sys_user","company_policy","company"))jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
+            "unit_conversion","sku","product","product_category","unit","partner_role","business_partner","org_user_data_scope","warehouse","accounting_period","sys_role_permission","sys_user_role","sys_role","sys_user","company_policy","company"))jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
         jdbc.update("DELETE FROM tenant WHERE id=?",tenant);
     }
     long stock(String qty,String cost) {return stock(qty,cost,DAY);}

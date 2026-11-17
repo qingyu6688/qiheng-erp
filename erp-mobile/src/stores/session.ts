@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { api, ApiFailure, onSessionExpired, replaceContext, validOrigin } from '../api/http'
+import { api, ApiFailure, onSessionExpired, replaceContext, requireServerVersion, validOrigin } from '../api/http'
 import type { Device, Id, PairingCode, Session } from '../types/api'
 
 const deviceStorage = 'qiheng.device.session'
@@ -33,6 +33,7 @@ export const useSession = defineStore('mobile-session', {
       }
       this.applyContext()
       try {
+        await requireServerVersion()
         this.accept(await api<Session>('/auth/me'))
       } catch (error) {
         if (!(error instanceof ApiFailure) || error.status !== 401) throw error
@@ -40,6 +41,7 @@ export const useSession = defineStore('mobile-session', {
       }
     },
     async signIn(tenantCode: string, username: string, password: string): Promise<void> {
+      await requireServerVersion()
       this.accept(await api<Session>('/auth/login', {
         method: 'POST', public: true, data: { tenantCode, username, password },
       }))
@@ -53,6 +55,7 @@ export const useSession = defineStore('mobile-session', {
       this.origin = origin
       this.applyContext()
       try {
+        await requireServerVersion()
         this.device = await api<Device>('/auth/devices/activate', {
           method: 'POST', public: true, data: { pairingCode },
         })

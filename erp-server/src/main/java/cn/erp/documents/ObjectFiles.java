@@ -50,7 +50,8 @@ public class ObjectFiles {
             root = null;
         } else {
             boolean localProfile = Arrays.stream(environment.getActiveProfiles())
-                    .anyMatch(profile -> profile.equals("dev") || profile.equals("test") || profile.equals("e2e"))
+                    .anyMatch(profile -> profile.equals("dev") || profile.equals("test") || profile.equals("e2e")
+                            || profile.equals("upgrade") && environment.getProperty("erp.upgrade.cli", Boolean.class, false))
                     && Arrays.stream(environment.getActiveProfiles()).noneMatch(profile -> profile.equals("prod") || profile.equals("production"));
             if (!localProfile) {
                 throw new IllegalStateException("生产环境必须显式配置共享对象仓，禁止使用本机私有文件目录");

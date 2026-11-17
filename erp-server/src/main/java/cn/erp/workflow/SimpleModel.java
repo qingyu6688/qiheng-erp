@@ -60,13 +60,9 @@ public final class SimpleModel {
     public record Condition(
             String field, String op, String value, List<Condition> all, List<Condition> any) {}
 
-    public static final Set<String> TYPES =
-            Set.of(
-                    "sales_order",
-                    "purchase_order",
-                    "refund_request",
-                    "document_reversal",
-                    "stock_adjustment","credit_increase","wf_generic_request","crm_contract","mfg_issue_doc");
+    public static final Set<String> TYPES = java.util.stream.Stream.concat(
+            SystemWorkflowPlan.LABELS.keySet().stream(), java.util.stream.Stream.of("wf_generic_request"))
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
     static final Set<String> TRIGGERS = Set.of("checkpoint", "review_required");
     private static final Set<String> SELECTIVE = Set.of("condition_branch", "route_branch", "inclusive_branch");
     public static final Set<String> STRATEGIES =
@@ -75,6 +71,7 @@ public final class SimpleModel {
                     "role",
                     "dept_leader",
                     "multi_level_leader",
+                    "approval_permission",
                     "post",
                     "starter_select",
                     "starter",
@@ -85,6 +82,8 @@ public final class SimpleModel {
                     Map.entry("totalAmount", "decimal"),
                     Map.entry("discountRate", "decimal"),
                     Map.entry("belowMinPrice", "boolean"),
+                    Map.entry("priceApprovalRequired", "boolean"),
+                    Map.entry("creditApprovalRequired", "boolean"),
                     Map.entry("customerLevel", "string"),
                     Map.entry("overCreditLimit","boolean"),Map.entry("creditExposure","decimal"),Map.entry("creditLimit","decimal"),
                     Map.entry("ownerDeptId", "id"),
@@ -203,6 +202,8 @@ public final class SimpleModel {
     private static void validateAssignee(Node node) {
         var a = node.assignee();
         if (a == null || !STRATEGIES.contains(a.strategy())) throw invalid("请选择审批人或抄送人策略");
+        if (a.strategy().equals("approval_permission") && !node.type().equals("approver"))
+            throw invalid("按业务审批权限分配仅适用于人工审批节点");
         if (a.level() != null && (a.level() < 1 || a.level() > 20)) throw invalid("上级层数须为1至20层");
         if (a.emptyHandler() != null
                 && !Set.of("skip", "admin", "reject").contains(a.emptyHandler()))
@@ -288,7 +289,8 @@ public final class SimpleModel {
         result.addAll(
                 switch (type) {
                     case "sales_order" ->
-                            Set.of("discountRate", "belowMinPrice", "customerId", "salesUserId");
+                            Set.of("discountRate", "belowMinPrice", "customerId", "salesUserId",
+                                    "priceApprovalRequired", "creditApprovalRequired");
                     case "purchase_order" ->
                             Set.of(
                                     "discountRate",

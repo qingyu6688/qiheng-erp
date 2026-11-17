@@ -18,7 +18,7 @@ public class CrmDashboardMetrics {
                          BigDecimal contractTarget,String dataSource) {}
 
     public Values metrics(CompanyAccess actor,LocalDate from,LocalDate to) {
-        if (!actor.hasPermission("crm_statistics:view") || !actor.allWarehouses())
+        if (!actor.hasPermission("crm_statistic:view") || !actor.allWarehouses())
             throw new ApiException(403,"FORBIDDEN","CRM 经营汇总需要整仓数据范围和统计权限");
         var funnel=statistics.statistics(actor,"funnel",from,to,null,null);
         var performance=statistics.statistics(actor,"performance",from,to,null,null);

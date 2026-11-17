@@ -17,7 +17,12 @@ import static cn.erp.ar.ArSupport.*;
 /** 坏账同时追加运营分录和核销事实，再经总账事件形成只读业务凭证。 */
 @Service
 @Transactional(readOnly = true, isolation = Isolation.READ_COMMITTED)
-public class BadDebtService {
+public class BadDebtService implements WorkflowBusiness {
+    private static final String TYPE = "ar_bad_debt";
+    private WorkflowPort workflow;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void workflow(WorkflowPort workflow) { this.workflow = workflow; }
     private final ArSupport s;
     private final AgingService aging;
     private final FinancialBookPort books;
@@ -194,6 +199,7 @@ public class BadDebtService {
                 key,
                 Map.of("id", id, "input", input),
                 () -> {
+                    workflow.guard(a, TYPE, id, action);
                     var first = s.row(a, "ar_bad_debt", id, false);
                     long period = openPeriod(a, date(first.get("business_date")));
                     s.lockCustomer(a, number(first.get("customer_id")));
@@ -209,6 +215,7 @@ public class BadDebtService {
                                 a.tenantId(),
                                 a.companyId(),
                                 id);
+                        workflow.start(a, TYPE, id, Map.of());
                     } else {
                         if (!status.equals("pending")) throw invalid("当前申请不在待审状态");
                         if (number(before.get("created_by")) == a.userId())
@@ -227,6 +234,28 @@ public class BadDebtService {
                     s.audit.record(a, "bad_debt." + action, "ar_bad_debt", id, before, after);
                     return after;
                 });
+    }
+
+    @Override
+    public String businessType() { return TYPE; }
+
+    @Override
+    public Map<String, Object> snapshot(ActorScope scope, long id) {
+        var actor = (CompanyAccess) scope;
+        s.require(actor, "bad_debt:view");
+        var row = s.row(actor, TYPE, id, false);
+        return Map.of("documentNo", Long.toString(id), "title", "坏账处理 " + id,
+                "createdBy", row.get("created_by"), "totalAmount", row.get("amount").toString());
+    }
+
+    @Override
+    @Transactional
+    public void decide(ActorScope scope, long id, String outcome, String comment, String key) {
+        if (!WorkflowContext.allows(scope, TYPE, id)) throw new ApiException(403, "FORBIDDEN", "业务回调缺少流程上下文");
+        var actor = (CompanyAccess) scope;
+        var row = s.row(actor, TYPE, id, false);
+        change(actor, id, outcome.equals("approved") ? "approve" : "reject", key,
+                new Command(number(row.get("version")), Objects.toString(comment, "流程未通过")));
     }
 
     private void post(CompanyAccess a, long id, Map<String, Object> row, long period) {

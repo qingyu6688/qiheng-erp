@@ -30,6 +30,7 @@ class WorkflowHttpIT {
     @Autowired AccessService access;
     @Autowired SalesOrderService sales;
     @Autowired WorkflowModels models;
+    @Autowired WorkflowRuntime runtime;
     @Autowired ProcessEngine engine;
     @Autowired PasswordEncoder passwords;
     @Autowired ObjectMapper json;
@@ -193,7 +194,7 @@ class WorkflowHttpIT {
         long id = Ids.next();
         jdbc.update("INSERT INTO company(id,tenant_id,code,name) VALUES(?,?,'B','另一家公司')", id, d.tenant);
         jdbc.update("INSERT INTO org_user_company(tenant_id,company_id,user_id) VALUES(?,?,?)", d.tenant, id, d.maker);
-        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",
+        jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",
                 Ids.next(), d.tenant, d.maker, id);
         return id;
     }
@@ -306,6 +307,32 @@ class WorkflowHttpIT {
         var response = request(method, path, body, body != null, d.company, key);
         assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
         return json.readTree(response.body()).path("data");
+    }
+
+    @Test
+    void legacyPendingOrderUsesDefaultFlowAndExistingReviewAuthority() throws Exception {
+        long order = d.order("1", "25");
+        assertThat(d.submit(order)).isZero();
+        long model = models.installDefault(d.tenant, d.company, "sales_order");
+        assertThat(models.installDefault(d.tenant, d.company, "sales_order")).isEqualTo(model);
+        jdbc.update("DELETE rp FROM sys_role_permission rp JOIN sys_user_role ur"
+                + " ON ur.tenant_id=rp.tenant_id AND ur.role_id=rp.role_id"
+                + " JOIN sys_permission p ON p.id=rp.permission_id"
+                + " WHERE ur.tenant_id=? AND ur.user_id=? AND p.code='sales_order:approve'", d.tenant, d.financeA);
+        runtime.resumeLegacy(d.actor(d.maker), "sales_order", order);
+        assertThat(d.status(order)).isEqualTo("pending");
+        var tasks = jdbc.queryForList("""
+                SELECT t.assignee_id FROM wf_task_ext t JOIN wf_instance i
+                  ON i.tenant_id=t.tenant_id AND i.company_id=t.company_id AND i.id=t.instance_id
+                WHERE i.tenant_id=? AND i.company_id=? AND i.business_type='sales_order' AND i.business_id=?
+                """, Long.class, d.tenant, d.company, order);
+        assertThat(tasks).contains(d.manager).doesNotContain(d.maker, d.financeA);
+        login(d.manager);
+        var direct = request("POST", "/sales-orders/" + order + "/approve", Map.of("version", d.version(order)),
+                true, d.company, key());
+        assertThat(direct.statusCode()).isEqualTo(409);
+        assertThat(json.readTree(direct.body()).path("errorCode").asString()).isEqualTo("WORKFLOW_IN_PROGRESS");
+        assertThat(request("GET", "/sales-orders/" + order, null, false, d.company + 1, null).statusCode()).isEqualTo(403);
     }
 
     @Test
@@ -432,7 +459,7 @@ class WorkflowHttpIT {
                 d.tenant,
                 d.company);
         jdbc.update(
-                "UPDATE sys_user_data_scope SET scope_type='warehouse',warehouse_id=? WHERE"
+                "UPDATE org_user_data_scope SET scope_type='warehouse',warehouse_id=? WHERE"
                     + " tenant_id=? AND user_id=?",
                 d.warehouse + 1,
                 d.tenant,

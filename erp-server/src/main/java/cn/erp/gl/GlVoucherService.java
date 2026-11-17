@@ -13,7 +13,11 @@ import static cn.erp.gl.GlSupport.*;
 
 @Service
 @Transactional(readOnly = true)
-public class GlVoucherService {
+public class GlVoucherService implements WorkflowBusiness {
+    private WorkflowPort workflow;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void workflow(WorkflowPort workflow) { this.workflow = workflow; }
     private final GlSupport s;
     private final GlPostingEngine engine;
 
@@ -144,6 +148,7 @@ public class GlVoucherService {
 
     private Map<String, Object> changeInternal(
             CompanyAccess a, long id, String action, GlModels.Version input) {
+        workflow.guard(a, "gl_voucher", id, action);
         var first = s.row(a, "gl_voucher", id, false);
         s.openPeriod(a, date(first.get("voucher_date")));
         s.book(a, true);
@@ -212,6 +217,7 @@ public class GlVoucherService {
                     a.tenantId(),
                     a.companyId(),
                     id);
+        if (action.equals("submit")) workflow.start(a, "gl_voucher", id, Map.of());
         var after = view(s.row(a, "gl_voucher", id, false));
         s.audit.record(
                 a,
@@ -221,6 +227,29 @@ public class GlVoucherService {
                 before,
                 Map.of("voucher", after, "reason", Objects.toString(input.reason(), "")));
         return after;
+    }
+
+    @Override
+    public String businessType() { return "gl_voucher"; }
+
+    @Override
+    public Map<String, Object> snapshot(ActorScope scope, long id) {
+        var actor = (CompanyAccess) scope;
+        var row = get(actor, id);
+        String number = Objects.toString(row.get("number"), Long.toString(id));
+        return Map.of("documentNo", number, "title", "总账凭证 " + number,
+                "createdBy", row.get("makerId"), "totalAmount", Objects.toString(row.get("debitTotal"), "0"));
+    }
+
+    @Override
+    @Transactional
+    public void decide(ActorScope scope, long id, String outcome, String comment, String key) {
+        if (!WorkflowContext.allows(scope, businessType(), id))
+            throw new ApiException(403, "FORBIDDEN", "业务回调缺少流程上下文");
+        var actor = (CompanyAccess) scope;
+        var row = s.row(actor, "gl_voucher", id, false);
+        change(actor, id, outcome.equals("approved") ? "approve" : "reject", key,
+                new GlModels.Version(number(row.get("version")), Objects.toString(comment, "流程未通过")));
     }
 
     public record Reversal(Long version, LocalDate date, String reason) {}

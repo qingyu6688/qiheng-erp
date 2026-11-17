@@ -41,11 +41,11 @@ abstract class OpeningTestData {
         for(long operator:List.of(user,reviewerId)) {
             jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,?,?,?,?)",operator,tenant,operator==user?"operator":"reviewer","期初验收用户",hash);
             jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,operator,role);
-            jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,operator,otherCompany);
+            jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,operator,otherCompany);
         }
         for(long wh:List.of(warehouse,otherWarehouse)) {
             jdbc.update("INSERT INTO warehouse(id,tenant_id,company_id,code,name) VALUES(?,?,?,?,?)",wh,tenant,company,"W"+wh,"期初仓");
-            for(long operator:List.of(user,reviewerId)) {jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id,warehouse_id) VALUES(?,?,?,'warehouse',?,?)",Ids.next(),tenant,operator,company,wh);}
+            for(long operator:List.of(user,reviewerId)) {jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id,warehouse_id) VALUES(?,?,?,'warehouse',?,?)",Ids.next(),tenant,operator,company,wh);}
         }
         for(long id:List.of(unit,box)) {jdbc.update("INSERT INTO unit(id,tenant_id,name) VALUES(?,?,?)",id,tenant,id==unit?"件":"箱");}
         jdbc.update("INSERT INTO product_category(id,tenant_id,code,name,path) VALUES(?,?,'CAT','期初分类','/')",category,tenant);
@@ -66,7 +66,7 @@ abstract class OpeningTestData {
         for(String table:List.of("outbox_event","ledger_balance","journal_line","journal","settlement_allocation","partner_open_item","receivable","payable",
                 "inventory_reservation_change","inventory_reservation","cost_adjustment","inv_movement_hold","inventory_movement","inventory_balance","inventory_cost",
                 "stock_count_line","stock_count","stock_adjustment_line","stock_adjustment","opening_entry","audit_log","approval_record","idempotency_record","document_sequence","cash_account_balance","cash_account",
-                "unit_conversion","sku","product","product_category","unit","partner_role","business_partner","sys_user_data_scope","warehouse","accounting_period",
+                "unit_conversion","sku","product","product_category","unit","partner_role","business_partner","org_user_data_scope","warehouse","accounting_period",
                 "sys_role_permission","sys_user_role","sys_role","sys_user","company_policy","company")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
         }

@@ -34,7 +34,7 @@ class OrgSupport {
     }
     void user(CompanyAccess actor,long userId,boolean active) {
         String sql="SELECT COUNT(*) FROM sys_user u WHERE u.tenant_id=? AND u.id=?"+(active?" AND u.status='active'":"")
-                +" AND EXISTS (SELECT 1 FROM sys_user_data_scope s WHERE s.tenant_id=u.tenant_id AND s.user_id=u.id AND s.company_id=?)";
+                +" AND EXISTS (SELECT 1 FROM org_user_data_scope s WHERE s.tenant_id=u.tenant_id AND s.user_id=u.id AND s.company_id=?)";
         if (jdbc.queryForObject(sql,Long.class,actor.tenantId(),userId,actor.companyId())==0) throw missing();
     }
     static void version(Long supplied,long actual) {

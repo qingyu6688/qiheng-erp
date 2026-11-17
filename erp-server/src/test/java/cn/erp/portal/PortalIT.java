@@ -100,7 +100,7 @@ class PortalIT {
                 "einv_issue_request","invoice_registration","shipment","sales_order","journal_line","journal","accounting_period","warehouse",
                 "portal_content_hit","portal_sensitive_word",
                 "crm_customer_team","crm_contact_profile","crm_customer_profile","partner_contact","partner_role","business_partner",
-                "sys_user_data_scope","sys_user_role","sys_role_permission","sys_role","sys_user","company")) {
+                "org_user_data_scope","sys_user_role","sys_role_permission","sys_role","sys_user","company")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id IN (?,?)",tenant,foreignTenant);
         }
         jdbc.update("DELETE FROM tenant WHERE id IN (?,?)",tenant,foreignTenant);
@@ -361,7 +361,7 @@ class PortalIT {
         for(long permission:permissions) jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) VALUES(?,?,?,?)",Ids.next(),tenant,role,permission);
         jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,user,role);
         for(long scope:List.of(company,otherCompany)) jdbc.update("""
-                INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)
+                INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)
                 """,Ids.next(),tenant,user,scope);
     }
 

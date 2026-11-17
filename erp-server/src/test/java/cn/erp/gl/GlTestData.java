@@ -41,7 +41,7 @@ class GlTestData {
                     tenant,
                     "U" + user);
             jdbc.update(
-                    "INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id)"
+                    "INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id)"
                             + " VALUES(?,?,?,'company',?)",
                     Ids.next(),
                     tenant,
@@ -185,7 +185,7 @@ class GlTestData {
                         "partner_role",
                         "business_partner",
                         "accounting_period",
-                        "sys_user_data_scope",
+                        "org_user_data_scope",
                         "sys_user_role",
                         "sys_role_permission",
                         "sys_role",

@@ -27,7 +27,7 @@ class ImportAccess {
                 SELECT COUNT(*) FROM sys_user u JOIN tenant t ON t.id=u.tenant_id
                 JOIN company c ON c.tenant_id=u.tenant_id AND c.id=? AND c.status='active'
                 WHERE u.tenant_id=? AND u.id=? AND u.status='active' AND t.status='active' AND u.must_change_password=0
-                AND EXISTS(SELECT 1 FROM sys_user_data_scope s WHERE s.tenant_id=u.tenant_id AND s.user_id=u.id AND s.company_id=c.id)
+                AND EXISTS(SELECT 1 FROM org_user_data_scope s WHERE s.tenant_id=u.tenant_id AND s.user_id=u.id AND s.company_id=c.id)
                 """,Long.class,company,tenant,user);
         if(active==null||active!=1)throw forbidden();
         var permissions=new HashSet<>(jdbc.queryForList("""
@@ -37,8 +37,8 @@ class ImportAccess {
                 JOIN sys_permission p ON p.id=rp.permission_id
                 WHERE ur.tenant_id=? AND ur.user_id=?
                 """,String.class,tenant,user));
-        boolean all=jdbc.queryForObject("SELECT COUNT(*) FROM sys_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=? AND scope_type='company'",Long.class,tenant,user,company)>0;
-        var allowed=new HashSet<>(jdbc.queryForList("SELECT warehouse_id FROM sys_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=? AND warehouse_id IS NOT NULL",Long.class,tenant,user,company));
+        boolean all=jdbc.queryForObject("SELECT COUNT(*) FROM org_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=? AND scope_type='company'",Long.class,tenant,user,company)>0;
+        var allowed=new HashSet<>(jdbc.queryForList("SELECT warehouse_id FROM org_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=? AND warehouse_id IS NOT NULL",Long.class,tenant,user,company));
         if(all)allowed.addAll(snapshot);
         allowed.retainAll(snapshot);
         allowed.retainAll(jdbc.queryForList("SELECT id FROM warehouse WHERE tenant_id=? AND company_id=? AND status='active'",Long.class,tenant,company));

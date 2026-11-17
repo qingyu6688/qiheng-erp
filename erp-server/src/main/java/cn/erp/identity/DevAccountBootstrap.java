@@ -148,7 +148,7 @@ class DevAccountBootstrap implements ApplicationRunner {
         long company = Ids.next();
         jdbc.update("INSERT INTO company(id,tenant_id,code,name) VALUES (?,?,?,?)", company, tenant, code, name);
         jdbc.update("""
-                INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id)
+                INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id)
                 VALUES (?,?,?,'company',?)
                 """, Ids.next(), tenant, user, company);
     }

@@ -164,7 +164,7 @@ class PrintDesignHttpIT extends OpeningTestData {
         return "{\"documentType\":\"shipment\",\"name\":\"三等分发货校验\",\"shared\":"+shared+",\"status\":\"active\",\"isDefault\":true,\"layout\":"+layout+"}";
     }
 
-    private void fullCompany(){jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,company);}
+    private void fullCompany(){jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,company);}
     private long shipment(String number) {
         long id=Ids.next();
         jdbc.update("INSERT INTO shipment(id,tenant_id,company_id,shipment_no,customer_id,warehouse_id,business_date,created_by,cost_amount) VALUES(?,?,?,?,?,?,'2026-11-01',?,98765.43)",id,tenant,company,number,partner,warehouse,user);

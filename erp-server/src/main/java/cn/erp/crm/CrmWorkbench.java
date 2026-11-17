@@ -42,7 +42,7 @@ class CrmWorkbench {
             result.put("upcomingReclaims", pool.upcoming(actor));
         }
         if (actor.hasPermission("crm_contract:view")) result.put("pendingApprovals", pending(actor));
-        if (actor.hasPermission("crm_statistics:view")) result.put("performance", performance(actor, today));
+        if (actor.hasPermission("crm_statistic:view")) result.put("performance", performance(actor, today));
         if (result.isEmpty()) throw CrmScope.forbidden("没有查看客户关系工作台的权限");
         result.put("asOf", Instant.now().toString());
         return result;

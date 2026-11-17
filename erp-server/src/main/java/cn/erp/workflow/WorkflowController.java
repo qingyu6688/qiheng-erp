@@ -226,7 +226,7 @@ class WorkflowController {
                 jdbc
                         .queryForList(
                                 "SELECT DISTINCT u.id,u.display_name name FROM sys_user u JOIN"
-                                    + " sys_user_data_scope s ON s.tenant_id=u.tenant_id AND"
+                                    + " org_user_data_scope s ON s.tenant_id=u.tenant_id AND"
                                     + " s.user_id=u.id AND s.company_id=? WHERE u.tenant_id=? AND"
                                     + " u.status='active' ORDER BY u.id",
                                 actor.companyId(),

@@ -18,8 +18,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class LedgerService {
     private final JdbcTemplate jdbc;
     private final cn.erp.jobs.OutboxService outbox;
+    private org.springframework.beans.factory.ObjectProvider<cn.erp.shared.FinancialJournalPort> financial;
 
     public LedgerService(JdbcTemplate jdbc,cn.erp.jobs.OutboxService outbox) {this.jdbc=jdbc;this.outbox=outbox;}
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void financial(org.springframework.beans.factory.ObjectProvider<cn.erp.shared.FinancialJournalPort> financial) {
+        this.financial = financial;
+    }
 
     public record Line(String accountCode,String direction,BigDecimal amount,Long partnerId,
                        Long cashAccountId,Long warehouseId,Long skuId,Long sourceLineId,String memo) {
@@ -117,6 +123,7 @@ public class LedgerService {
                       amount,partner_id,cash_account_id,warehouse_id,sku_id,source_line_id,memo)
                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,inserts);
+        if (financial != null) financial.ifAvailable(port -> port.validatePosting(scope, id));
         applyCash(scope,posting.lines());
         outbox.publish(scope.tenantId(),"journal",id,0,"journal.posted",Map.of("journalId",Long.toString(id)));
         return id;

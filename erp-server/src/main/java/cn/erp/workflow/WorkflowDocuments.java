@@ -36,6 +36,8 @@ public class WorkflowDocuments {
             case "document_reversal" -> "reversal:" + action;
             case "credit_increase" -> "credit_limit:" + action;
             case "mfg_issue_doc" -> "mfg_issue:" + action;
+            case "mfg_receipt_doc" -> "mfg_receipt:" + action;
+            case "ar_bad_debt" -> "bad_debt:" + action;
             default -> type + ":" + action;
         };
     }
@@ -65,7 +67,8 @@ public class WorkflowDocuments {
             if (review
                     && separate(tenant, company, type)
                     && (number(source.get("createdBy")) == user
-                            || type.equals("mfg_issue_doc") && number(source.get("submittedBy")) == user)) return null;
+                            || Set.of("mfg_issue_doc", "mfg_receipt_doc").contains(type)
+                            && number(source.get("submittedBy")) == user)) return null;
             return actor;
         } catch (ApiException error) {
             if (Set.of(403, 404).contains(error.getStatus())) return null;
@@ -101,7 +104,8 @@ public class WorkflowDocuments {
     }
 
     boolean separate(long tenant, long company, String type) {
-        if (!Set.of("sales_order", "purchase_order").contains(type)) return true;
+        if (type.equals("mfg_bom")) return false;
+        if (!Set.of("sales_order", "purchase_order", "purchase_requisition").contains(type)) return true;
         var rules =
                 jdbc.queryForList(
                         "SELECT separate_order_approver FROM company_policy WHERE tenant_id=? AND"

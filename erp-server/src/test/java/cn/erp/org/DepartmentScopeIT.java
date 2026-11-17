@@ -43,7 +43,7 @@ class DepartmentScopeIT {
         jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash,must_change_password) VALUES(?,70101,'scope','范围用户','测试散列',0),(?,70101,'other','其他用户','测试散列',0)",user,otherUser);
         jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(?,70101,'SCOPE','范围角色')",role);
         jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,70101,?,?)",Ids.next(),user,role);
-        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,70101,?,'company',70201)",Ids.next(),user);
+        jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,70101,?,'company',70201)",Ids.next(),user);
         for(long id:List.of(root,child,sibling)) jdbc.update("INSERT INTO org_department(id,tenant_id,company_id,parent_id,code,name,path,depth) VALUES(?,70101,70201,?,?,?, ?,?)",id,id==child?root:null,"D"+id,"部门"+id,id==child?"/"+root+"/"+child+"/":"/"+id+"/",id==child?2:1);
         jdbc.update("INSERT INTO org_user_company(tenant_id,company_id,user_id) VALUES(70101,70201,?)",user);
         jdbc.update("INSERT INTO org_user_department(tenant_id,company_id,user_id,department_id,is_primary) VALUES(70101,70201,?,?,1)",user,root);

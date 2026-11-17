@@ -37,13 +37,14 @@ public class AccessService {
             UNION ALL
             SELECT 2, NULL, NULL, NULL, NULL, c.id, c.code, c.name, s.scope_type, s.warehouse_id, s.warehouse_key
             FROM active_account a
-            JOIN sys_user_data_scope s ON s.tenant_id = a.tenant_id AND s.user_id = a.id
+            JOIN org_user_data_scope s ON s.tenant_id = a.tenant_id AND s.user_id = a.id
             JOIN company c ON c.tenant_id = s.tenant_id AND c.id = s.company_id AND c.status = 'active'
             ORDER BY row_kind, company_id, warehouse_key
             """;
     private static final String HUMAN_PROFILE = PROFILE_SQL.formatted(PASSWORD_REVISION,
             SessionChecks.PRIMARY + SessionChecks.MFA,UserAccessMapper.ROLE_PERMISSIONS);
     private static final String BACKGROUND_PROFILE = PROFILE_SQL.formatted(PASSWORD_REVISION,"",UserAccessMapper.ROLE_PERMISSIONS);
+    private static final String LEGACY_PROFILE = BACKGROUND_PROFILE.replace("org_user_data_scope", "sys_user_data_scope");
     private final JdbcTemplate jdbc;
     private final OrgScopeResolver orgScopes;
 
@@ -97,9 +98,17 @@ public class AccessService {
 
     /** 后台任务使用实时主库授权，与浏览器请求采用相同的公司、仓库和部门交集。 */
     public CompanyAccess forUser(long tenant,long user,long companyId) {
+        return loadUser(tenant,user,companyId,BACKGROUND_PROFILE);
+    }
+
+    public CompanyAccess forLegacyUpgrade(long tenant,long user,long companyId) {
+        return loadUser(tenant,user,companyId,LEGACY_PROFILE);
+    }
+
+    private CompanyAccess loadUser(long tenant,long user,long companyId,String query) {
         var revisions=jdbc.queryForList("SELECT "+PASSWORD_REVISION+" FROM sys_user u WHERE tenant_id=? AND id=? AND status='active'",Long.class,tenant,user);
         if(revisions.isEmpty()) return null;
-        UserView profile=jdbc.query(BACKGROUND_PROFILE,(ResultSetExtractor<UserView>) rows->readProfile(rows,user),tenant,user,revisions.getFirst());
+        UserView profile=jdbc.query(query,(ResultSetExtractor<UserView>) rows->readProfile(rows,user),tenant,user,revisions.getFirst());
         if(profile==null||profile.mustChangePassword()) return null;
         if(companyId==0) return new CompanyAccess(tenant,user,0,true,Set.of(),profile.permissions());
         var company=profile.companies().stream().filter(c->c.id().equals(Long.toString(companyId))).findFirst().orElse(null);if(company==null) return null;

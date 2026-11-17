@@ -19,6 +19,10 @@ import static cn.erp.salesfinance.FinanceSupport.*;
 @Service
 @Transactional
 public class StockCountService {
+    private WorkflowPort workflow;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void workflow(WorkflowPort workflow) { this.workflow = workflow; }
     private final JdbcTemplate jdbc;
     private final FinanceSupport finance;
     private final CatalogAvailability catalog;
@@ -91,12 +95,13 @@ public class StockCountService {
     }
     public Map<String,Object> command(CompanyAccess scope,long id,String action,String key,StockCountModels.Version input) {
         return execute(scope,action,key,List.of(id,input),200,()->{
+            workflow.guard(scope, "stock_count", id, action);
             var snapshot=find(scope,id,false);LocalDate day=((java.sql.Date)snapshot.get("business_date")).toLocalDate();
             Long period=Set.of("start","submit","approve","post").contains(action)?finance.period(scope,day):null;
             var before=find(scope,id,true);version(before,input.version());
             switch(action) {
                 case "start" -> {state(before,"draft");start(scope,id,before);}
-                case "submit" -> {state(before,"counting");requireCounts(scope,id,before);setState(scope,id,"submitted");tasks.phase(scope,id,"submitted");}
+                case "submit" -> {state(before,"counting");requireCounts(scope,id,before);setState(scope,id,"submitted");tasks.phase(scope,id,"submitted");workflow.start(scope,"stock_count",id,Map.of());}
                 case "approve" -> {state(before,"submitted");differentReviewer(scope,before);
                     jdbc.update("UPDATE stock_count SET status='approved',approved_by=?,approved_at=UTC_TIMESTAMP(3),version=version+1,updated_by=? WHERE id=?",scope.userId(),scope.userId(),id);}
                 case "reject" -> {state(before,"submitted");differentReviewer(scope,before);if(input.reason()==null||input.reason().isBlank())throw invalid("请填写驳回原因");setState(scope,id,"counting");tasks.phase(scope,id,"counting");}

@@ -41,7 +41,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class MfgStockIT {
     @Autowired JdbcTemplate jdbc;
     @Autowired MfgStockDocuments documents;
-    @Autowired MfgIssueWorkflow workflow;
+    @Autowired @org.springframework.beans.factory.annotation.Qualifier("mfgIssueWorkflow")
+    cn.erp.shared.WorkflowBusiness workflow;
     @Autowired AccessService access;
     @Autowired WorkflowModels models;
     @Autowired WorkflowTasks tasks;
@@ -199,7 +200,7 @@ class MfgStockIT {
             jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,?,?,'生产流程验收员','非登录验收摘要')",
                     user.userId(), tenant, "U" + user.userId());
             jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)", Ids.next(), tenant, user.userId(), role);
-            jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)", Ids.next(), tenant, user.userId(), company);
+            jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)", Ids.next(), tenant, user.userId(), company);
             jdbc.update("INSERT INTO org_user_company(tenant_id,company_id,user_id) VALUES(?,?,?)", tenant, company, user.userId());
         }
         var admin = access.forUser(tenant, maker.userId(), company);

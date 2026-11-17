@@ -19,7 +19,7 @@ public class TodoQueries {
             if(!actor.hasPermission(task.permission())||!actor.hasPermission(browser.permission(task.kind()))) continue;
             var spec=browser.spec(task.kind());var params=browser.params(actor);params.put("user",actor.userId());params.put("state",task.state());
             String where=browser.where(actor,spec,new DocumentBrowser.Filter(null,null,null,null,null,null,null,null,task.kind().equals("shipments")),params)+" AND h.status=:state";
-            if(Set.of("sales_order","purchase_order","refund_request").contains(spec.type())) where+=" AND h.wf_instance_id=0";
+            if(Set.of("sales_order","purchase_order","purchase_requisition","refund_request").contains(spec.type())) where+=" AND h.wf_instance_id=0";
             if(task.action().equals("approve")&&!task.kind().equals("refund-requests")) where+=" AND (h.created_by IS NULL OR h.created_by<>:user OR EXISTS(SELECT 1 FROM company_policy p WHERE p.tenant_id=h.tenant_id AND p.company_id=h.company_id AND p.separate_order_approver=0))";
             if(task.action().equals("confirm")) where+=" AND (h.created_by IS NULL OR h.created_by<>:user OR EXISTS(SELECT 1 FROM company_policy p WHERE p.tenant_id=h.tenant_id AND p.company_id=h.company_id AND p.separate_receipt_confirmer=0))";
             if(task.kind().equals("refund-requests")) where+=" AND h.created_by<>:user";

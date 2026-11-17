@@ -40,9 +40,9 @@ class M4HttpIT {
         jdbc.update("INSERT INTO warehouse(id,tenant_id,company_id,code,name) VALUES(?,?,?,?,?)",warehouse,tenant,company,"W1","发货仓");
         jdbc.update("INSERT INTO warehouse(id,tenant_id,company_id,code,name) VALUES(?,?,?,?,?)",otherWarehouse,tenant,company,"W2","备用仓");
         for(long wh:List.of(warehouse,otherWarehouse)) {
-            jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id,warehouse_id) VALUES(?,?,?,'warehouse',?,?)",Ids.next(),tenant,user,company,wh);
+            jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id,warehouse_id) VALUES(?,?,?,'warehouse',?,?)",Ids.next(),tenant,user,company,wh);
         }
-        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,secondCompany);
+        jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,secondCompany);
         jdbc.update("INSERT INTO business_partner(id,tenant_id,code,name) VALUES(?,?,'C','客户')",customer,tenant);
         jdbc.update("INSERT INTO partner_role(id,tenant_id,partner_id,role) VALUES(?,?,?,'customer')",Ids.next(),tenant,customer);
         jdbc.update("INSERT INTO cash_account(id,tenant_id,company_id,code,name,account_type) VALUES(?,?,?,'BANK','结算账户','bank')",account,tenant,company);
@@ -67,7 +67,7 @@ class M4HttpIT {
     @AfterEach void cleanup() {
         for(String table:List.of("idempotency_record","audit_log","receipt","shipment_line","shipment","sales_order_line","sales_order","document_sequence",
                 "cash_account_balance","cash_account","accounting_period","unit_conversion","sku","product","product_category","unit","partner_role",
-                "business_partner","sys_user_data_scope","sys_role_permission","sys_user_role","sys_role","sys_user","warehouse","company")) {
+                "business_partner","org_user_data_scope","sys_role_permission","sys_user_role","sys_role","sys_user","warehouse","company")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
         }
         jdbc.update("DELETE FROM tenant WHERE id=?",tenant);
@@ -106,7 +106,7 @@ class M4HttpIT {
         assertThat(created.body()).doesNotContain("unitCost","costAmount");
         String resultPath="/command-results?operation=shipment.create&key="+key;
         assertThat(http("GET",resultPath,null,null,false,company).statusCode()).isEqualTo(200);
-        jdbc.update("DELETE FROM sys_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=? AND warehouse_id=?",tenant,user,company,warehouse);
+        jdbc.update("DELETE FROM org_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=? AND warehouse_id=?",tenant,user,company,warehouse);
         assertThat(http("GET","/shipments/"+id,null,null,false,company).statusCode()).isEqualTo(404);
         assertThat(http("GET",resultPath,null,null,false,company).statusCode()).isEqualTo(404);
         assertThat(http("POST","/shipments",body,key,true,company).statusCode()).isEqualTo(404);

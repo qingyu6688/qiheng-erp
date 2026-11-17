@@ -2,8 +2,8 @@
   "name": "柒衡 ERP 仓储作业",
   "appid": "",
   "description": "柒衡 ERP 仓储作业及手机审批",
-  "versionName": "1.0.0",
-  "versionCode": "100",
+  "versionName": "2.0.0",
+  "versionCode": "200",
   "transformPx": false,
   "uniStatistics": { "enable": false },
   "app-plus": {

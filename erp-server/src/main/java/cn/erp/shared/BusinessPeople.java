@@ -34,7 +34,7 @@ public final class BusinessPeople {
         long selected=requested==null?(previous>0?previous:inherited(jdbc,actor,table,id)):requested;
         if(requested!=null&&selected!=previous) {
             if(selected<=0) throw new ApiException(400,"VALIDATION_FAILED","请选择有效业务员");
-            Long count=jdbc.queryForObject("SELECT COUNT(*) FROM sys_user u WHERE u.tenant_id=? AND u.id=? AND u.status='active' AND EXISTS(SELECT 1 FROM sys_user_data_scope s WHERE s.tenant_id=u.tenant_id AND s.user_id=u.id AND s.company_id=?)",Long.class,actor.tenantId(),selected,actor.companyId());
+            Long count=jdbc.queryForObject("SELECT COUNT(*) FROM sys_user u WHERE u.tenant_id=? AND u.id=? AND u.status='active' AND EXISTS(SELECT 1 FROM org_user_data_scope s WHERE s.tenant_id=u.tenant_id AND s.user_id=u.id AND s.company_id=?)",Long.class,actor.tenantId(),selected,actor.companyId());
             if(count==null||count==0) throw missing();
         }
         jdbc.update("UPDATE "+table+" SET "+field+"=? WHERE tenant_id=? AND company_id=? AND id=?",selected,actor.tenantId(),actor.companyId(),id);

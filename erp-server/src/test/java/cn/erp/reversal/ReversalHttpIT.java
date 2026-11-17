@@ -35,7 +35,7 @@ class ReversalHttpIT extends ReversalTestData {
         assertThat(http("GET","/document-reversals/"+id,null,null,false,company).statusCode()).isEqualTo(403);
         assertThat(http("GET",result,null,null,false,company).statusCode()).isEqualTo(403);
         jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) SELECT ?,?,?,id FROM sys_permission WHERE code='stock_adjustment:view'",Ids.next(),tenant,role);
-        jdbc.update("DELETE FROM sys_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=? AND warehouse_id=?",tenant,user,company,warehouse);
+        jdbc.update("DELETE FROM org_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=? AND warehouse_id=?",tenant,user,company,warehouse);
         assertThat(http("GET","/document-reversals/"+id,null,null,false,company).statusCode()).isEqualTo(404);
         assertThat(http("GET",result,null,null,false,company).statusCode()).isEqualTo(404);
         assertThat(http("POST","/document-reversals",body,key,true,company).statusCode()).isEqualTo(404);

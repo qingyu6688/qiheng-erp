@@ -21,12 +21,15 @@ public class WorkflowRuntime implements WorkflowPort {
     final ProcessEngine engine;
     final AssigneeResolver assignees;
     private final OutboxService outbox;
+    private final EnterpriseUpgradeMode upgrade;
 
-    public WorkflowRuntime(WorkflowState state, ProcessEngine engine, AssigneeResolver assignees, OutboxService outbox) {
+    public WorkflowRuntime(WorkflowState state, ProcessEngine engine, AssigneeResolver assignees,
+                           OutboxService outbox, EnterpriseUpgradeMode upgrade) {
         this.state = state;
         this.engine = engine;
         this.assignees = assignees;
         this.outbox = outbox;
+        this.upgrade = upgrade;
     }
 
     private CreditPort credit=new CreditPort() {};
@@ -35,19 +38,35 @@ public class WorkflowRuntime implements WorkflowPort {
 
     @Override
     public void start(ActorScope scope, String type, long id, Map<String, List<Long>> selections) {
-        var actor = (CompanyAccess) scope;
+        start((CompanyAccess) scope, type, id, selections, false);
+    }
+
+    public void resumeLegacy(CompanyAccess actor, String type, long id) {
+        start(actor, type, id, Map.of(), true);
+        if (state.jdbc.queryForObject("""
+                SELECT COUNT(*) FROM wf_instance WHERE tenant_id=? AND company_id=? AND business_type=?
+                    AND business_id=? AND status='running' AND flowable_instance_id IS NOT NULL
+                """, Long.class, actor.tenantId(), actor.companyId(), type, id) != 1)
+            throw SimpleModel.invalid("旧待审单据必须生成一个在途流程");
+    }
+
+    private void start(CompanyAccess actor, String type, long id, Map<String, List<Long>> selections,
+                       boolean legacy) {
         var creditInfo=type.equals("sales_order")?credit.inspect(actor,id):Map.<String,Object>of();
         boolean needsCredit=Boolean.TRUE.equals(creditInfo.get("overCreditLimit"))&&"approval".equals(creditInfo.get("creditPolicy"));
         if (!SimpleModel.TYPES.contains(type)) throw SimpleModel.invalid("工作流业务类型无效");
         boolean generic = type.equals("wf_generic_request");
-        if (!generic && state.jdbc.queryForObject(
+        boolean required = legacy || !generic && upgrade.active();
+        boolean unbound = !generic && state.jdbc.queryForObject(
                         "SELECT COUNT(*) FROM wf_business_binding WHERE tenant_id=? AND company_id"
                             + " IN(0,?) AND business_type=? AND enabled=1",
                         Long.class,
                         actor.tenantId(),
                         actor.companyId(),
                         type)
-                == 0) {
+                == 0;
+        if (unbound && required) state.models.installDefault(actor.tenantId(), actor.companyId(), type);
+        if (unbound && !required) {
             if(needsCredit)throw new ApiException(422,"CREDIT_APPROVAL_REQUIRED","超额或超期须配置人工信用审批，当前没有匹配流程");
             if (type.equals("sales_order")
                     && state.jdbc.queryForObject(
@@ -72,12 +91,18 @@ public class WorkflowRuntime implements WorkflowPort {
                     id);
             return;
         }
-        var summary = state.documents.snapshot(actor, type, id);
-        var binding = generic ? state.models.genericBinding(actor, number(summary.get("modelId")))
-                : state.models.selected(actor, type, summary);
+        var summary = new LinkedHashMap<>(state.documents.snapshot(actor, type, id));
         boolean needsPrice =
                 Boolean.TRUE.equals(summary.get("belowMinPrice"))
                         && "approval".equals(summary.get("belowMinPricePolicy"));
+        summary.put("priceApprovalRequired", needsPrice);
+        summary.put("creditApprovalRequired", needsCredit);
+        var binding = generic ? state.models.genericBinding(actor, number(summary.get("modelId")))
+                : state.models.selected(actor, type, summary);
+        if (required && binding == null) {
+            state.models.installDefault(actor.tenantId(), actor.companyId(), type);
+            binding = state.models.selected(actor, type, summary);
+        }
         if (binding == null) {
             if (generic) throw SimpleModel.invalid("申请关联的流程未发布或已停用");
             if(needsCredit)throw new ApiException(422,"CREDIT_APPROVAL_REQUIRED","当前没有匹配的人工信用审批流程");
@@ -147,7 +172,8 @@ public class WorkflowRuntime implements WorkflowPort {
         state.jdbc.update(
                 "UPDATE "
                         + type
-                        + " SET wf_instance_id=? WHERE tenant_id=? AND company_id=? AND id=?",
+                            + " SET wf_instance_id=?" + (legacy ? ",updated_at=updated_at" : "")
+                            + " WHERE tenant_id=? AND company_id=? AND id=?",
                 instance,
                 actor.tenantId(),
                 actor.companyId(),

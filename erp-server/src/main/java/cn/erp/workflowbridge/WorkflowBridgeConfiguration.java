@@ -15,8 +15,10 @@ import cn.erp.reversal.*;
 import cn.erp.salesfinance.*;
 import cn.erp.salesorder.*;
 import cn.erp.shared.*;
+import cn.erp.stockcount.StockCountModels;
+import cn.erp.stockcount.StockCountService;
 
-/** 组合层登记业务适配器，避免工作流引擎与五个业务模块形成依赖环。 */
+/** 组合层登记业务适配器，避免工作流引擎与业务模块形成依赖环。 */
 @Configuration(proxyBeanMethods = false)
 class WorkflowBridgeConfiguration {
     @FunctionalInterface
@@ -179,6 +181,28 @@ class WorkflowBridgeConfiguration {
                 return service.workflowPreview((CompanyAccess) actor, type, id, date);
             }
         };
+    }
+
+    @Bean
+    WorkflowBusiness requisitionWorkflow(RequisitionService service, JdbcTemplate jdbc) {
+        String type = "purchase_requisition";
+        return adapter(type, "请购单", service::get,
+                (actor, id, outcome, comment, key) -> service.command(actor, id,
+                        outcome.equals("approved") ? "approve" : "reject", key,
+                        new PurchaseOrderModels.Command(version(jdbc, type, actor, id),
+                                Objects.toString(comment, "流程未通过"), null, Map.of())),
+                (actor, id) -> Map.of(), jdbc);
+    }
+
+    @Bean
+    WorkflowBusiness countWorkflow(StockCountService service, JdbcTemplate jdbc) {
+        String type = "stock_count";
+        return adapter(type, "库存盘点", service::get,
+                (actor, id, outcome, comment, key) -> service.command(actor, id,
+                        outcome.equals("approved") ? "approve" : "reject", key,
+                        new StockCountModels.Version(version(jdbc, type, actor, id),
+                                Objects.toString(comment, "流程未通过"))),
+                (actor, id) -> Map.of(), jdbc);
     }
 
     @Bean

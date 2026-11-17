@@ -109,7 +109,7 @@ class AiBridgeIT {
         jdbc.update("DELETE FROM org_user_department WHERE tenant_id=?", tenant);
         jdbc.update("DELETE FROM org_user_company WHERE tenant_id=?", tenant);
         jdbc.update("DELETE FROM org_department WHERE tenant_id=?", tenant);
-        jdbc.update("DELETE FROM sys_user_data_scope WHERE tenant_id=?", tenant);
+        jdbc.update("DELETE FROM org_user_data_scope WHERE tenant_id=?", tenant);
         jdbc.update("DELETE FROM sys_user_role WHERE tenant_id=?", tenant);
         jdbc.update("DELETE FROM sys_role_permission WHERE tenant_id=?", tenant);
         jdbc.update("DELETE FROM sys_role WHERE tenant_id=?", tenant);
@@ -289,7 +289,7 @@ class AiBridgeIT {
 
     private void addCompanyWarehouseScope() {
         jdbc.update("""
-                INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id,warehouse_id)
+                INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id,warehouse_id)
                 VALUES(?,?,?,'warehouse',?,?),(?,?,?,'warehouse',?,?),(?,?,?,'company',?,NULL)
                 """, Ids.next(), tenant, user, company, visibleWarehouse,
                 Ids.next(), tenant, user, company, disabledWarehouse, Ids.next(), tenant, user, alternateCompany);

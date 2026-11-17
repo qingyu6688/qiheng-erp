@@ -5,6 +5,8 @@ import java.util.Map;
 import org.springframework.stereotype.Component;
 
 import cn.erp.jobs.OutboxService;
+import cn.erp.shared.ActorScope;
+import cn.erp.shared.EnterpriseUpgradeMode;
 import cn.erp.shared.FinancialJournalPort;
 
 /** 运营投影只投递独立事件，映射错误不会回滚运营余额。 */
@@ -12,10 +14,23 @@ import cn.erp.shared.FinancialJournalPort;
 class GlJournalQueue implements FinancialJournalPort {
     private final GlSupport s;
     private final OutboxService outbox;
+    private final EnterpriseUpgradeMode upgrade;
+    private final GlUpgradeChecks checks;
+    private final GlMappingResolver mappings;
 
-    GlJournalQueue(GlSupport s, OutboxService outbox) {
+    GlJournalQueue(GlSupport s, OutboxService outbox, EnterpriseUpgradeMode upgrade, GlUpgradeChecks checks,
+                   GlMappingResolver mappings) {
         this.s = s;
         this.outbox = outbox;
+        this.upgrade = upgrade;
+        this.checks = checks;
+        this.mappings = mappings;
+    }
+
+    @Override
+    public void validatePosting(ActorScope actor, long journal) {
+        if (!upgrade.active()) return;
+        checks.requireJournal(actor, journal, false, mappings.mappings(actor));
     }
 
     public void projected(long tenant, long company, long journal) {

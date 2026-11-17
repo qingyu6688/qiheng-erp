@@ -19,7 +19,8 @@ public class WorkflowAccess {
                     || review
                             && !actor.hasPermission(WorkflowDocuments.permission(type, "approve")))
                 continue;
-            if(type.equals("credit_increase")&&(!actor.allWarehouses()||!actor.orgScope().allDepartments()||!actor.hasPermission("cost:view")))continue;
+            if(Set.of("credit_increase", "gl_voucher", "ar_bad_debt").contains(type)
+                    && (!actor.allWarehouses() || !actor.orgScope().allDepartments() || !actor.hasPermission("cost:view"))) continue;
             String where =
                     "h.tenant_id="
                             + instance
@@ -29,9 +30,9 @@ public class WorkflowAccess {
                             + instance
                             + ".business_id"
                             + OrgOwnership.filter(actor, "h");
-            if (Set.of("sales_order", "purchase_order").contains(type)) {
+            if (Set.of("sales_order", "purchase_order", "purchase_requisition").contains(type)) {
                 where += " AND h.is_deleted=0";
-                if (!actor.allWarehouses())
+                if (!actor.allWarehouses() && !type.equals("purchase_requisition"))
                     where +=
                             " AND NOT EXISTS(SELECT 1 FROM "
                                     + type
@@ -47,12 +48,24 @@ public class WorkflowAccess {
                                     + " OR EXISTS(SELECT 1 FROM company_policy p WHERE"
                                     + " p.tenant_id=h.tenant_id AND p.company_id=h.company_id AND"
                                     + " p.separate_order_approver=0))";
-            } else if (review) where += " AND h.created_by<>" + actor.userId();
-            if (type.equals("stock_adjustment") && !actor.allWarehouses())
+            } else if (review && !type.equals("mfg_bom")) {
+                String maker = switch (type) {
+                    case "gl_voucher" -> "h.maker_id";
+                    case "qc_inspection" -> "COALESCE(h.inspector_id,h.owner_user_id)";
+                    default -> "h.created_by";
+                };
+                where += " AND " + maker + "<>" + actor.userId();
+            }
+            if (type.equals("gl_voucher")) where += " AND h.is_deleted=0";
+            if (Set.of("stock_adjustment", "stock_count", "stock_misc_doc", "qc_inspection").contains(type) && !actor.allWarehouses())
                 where += " AND NOT (" + outside(actor, "h.warehouse_id") + ")";
-            if (type.equals("mfg_issue_doc")) {
+            if (type.equals("mfg_bom") && !actor.allWarehouses())
+                where += " AND NOT EXISTS(SELECT 1 FROM mfg_bom_line l WHERE l.tenant_id=h.tenant_id"
+                        + " AND l.company_id=h.company_id AND l.bom_id=h.id AND l.issue_warehouse_id IS NOT NULL AND "
+                        + outside(actor, "l.issue_warehouse_id") + ")";
+            if (Set.of("mfg_issue_doc", "mfg_receipt_doc").contains(type)) {
                 where += " AND " + ManufacturingScope.stockCondition(actor, "h");
-                if (review) where += " AND h.submitted_by<>" + actor.userId();
+                if (review) where += " AND COALESCE(h.submitted_by,h.created_by)<>" + actor.userId();
             }
             if (type.equals("document_reversal")) {
                 var sources = new ArrayList<String>();

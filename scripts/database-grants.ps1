@@ -22,7 +22,7 @@ try {
     if($LASTEXITCODE -ne 0){throw '无法取得生产成本视图清单，未生成授权。'}
     $appendOnly=@('inventory_movement','inventory_reservation_change','inv_location_opening','cost_adjustment','journal','journal_line','approval_record','audit_log','stock_transfer_event_line','wf_task_action','wf_model_version','wms_task_confirmation','print_log')
     $retained=@('print_template')
-    $readOnly=@('sys_permission','ledger_account','flyway_schema_history','gl_standard_preset')
+    $readOnly=@('sys_permission','ledger_account','flyway_schema_history','gl_standard_preset','upgrade_log')
     $sql=[Collections.Generic.List[string]]::new()
     $sql.Add('-- 由实际表清单生成，先审阅再以数据库管理员执行。账号密码另用私有脚本配置。')
     $sql.Add("CREATE ROLE IF NOT EXISTS '$RuntimeRole', '$MigrationRole', '$ReportRole';")

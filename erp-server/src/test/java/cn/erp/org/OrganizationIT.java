@@ -35,7 +35,7 @@ class OrganizationIT {
         long role=Ids.next();
         jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(?,?,'ORG','组织管理员')",role,tenant);
         jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,user,role);
-        for(long id:List.of(company,otherCompany)) jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,id);
+        for(long id:List.of(company,otherCompany)) jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,id);
         var permissions=Set.of("org_department:view","org_department:create","org_department:update","org_post:view","org_post:create","org_post:update","user:view","user:update");
         actor=new CompanyAccess(tenant,user,company,true,Set.of(),permissions);
         other=new CompanyAccess(tenant,user,otherCompany,true,Set.of(),permissions);
@@ -78,7 +78,7 @@ class OrganizationIT {
         assertThat(users.get(other,user)).isEqualTo(second);
         assertThat(users.get(actor,user).departments()).isEmpty();
         assertThat(jdbc.queryForObject("SELECT version FROM sys_user WHERE id=?",Long.class,user)).isZero();
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sys_user_data_scope WHERE tenant_id=? AND user_id=?",Long.class,tenant,user)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM org_user_data_scope WHERE tenant_id=? AND user_id=?",Long.class,tenant,user)).isEqualTo(2);
     }
     @Test void Y01_02_rejectsAmbiguousPrimaryDuplicateAndForeignReferences() {
         var a=create("A",null);var b=create("B",null);var p=post();
@@ -87,7 +87,7 @@ class OrganizationIT {
         var duplicate=new Assignment(List.of(new Membership(Long.valueOf(a.id()),true),new Membership(Long.valueOf(a.id()),false)),List.of(),0L);
         assertThatThrownBy(()->users.assign(actor,user,"duplicate",duplicate)).isInstanceOf(ApiException.class);
         assertThatThrownBy(()->users.assign(other,user,"wrong-company",assignment(a,p,0))).isInstanceOfSatisfying(ApiException.class,e->assertThat(e.getStatus()).isEqualTo(404));
-        jdbc.update("DELETE FROM sys_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=?",tenant,user,company);
+        jdbc.update("DELETE FROM org_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=?",tenant,user,company);
         assertThatThrownBy(()->users.assign(actor,user,"without-scope",assignment(a,p,0))).isInstanceOfSatisfying(ApiException.class,e->assertThat(e.getStatus()).isEqualTo(404));
     }
     @Test void Y01_05_disabledAndReferencedObjectsCannotBeAssignedOrDisabled() {

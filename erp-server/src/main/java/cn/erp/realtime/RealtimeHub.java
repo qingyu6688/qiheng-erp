@@ -8,6 +8,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.*;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.connection.Message;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -20,6 +21,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** Redis 负责跨节点广播；推送只含变更摘要，业务内容由客户端重新经过权限接口读取。 */
 @Component
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class RealtimeHub extends TextWebSocketHandler {
     private static final Logger LOG=LoggerFactory.getLogger(RealtimeHub.class);
     private static final int MAX_CONNECTIONS=1000,MAX_USER_CONNECTIONS=4;

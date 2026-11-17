@@ -7,6 +7,14 @@ export type WorkflowBusinessType =
   | 'credit_increase'
   | 'crm_contract'
   | 'mfg_issue_doc'
+  | 'mfg_receipt_doc'
+  | 'mfg_bom'
+  | 'purchase_requisition'
+  | 'stock_count'
+  | 'stock_misc_doc'
+  | 'gl_voucher'
+  | 'qc_inspection'
+  | 'ar_bad_debt'
   | 'wf_generic_request'
 export type NodeType =
   | 'start'
@@ -23,6 +31,7 @@ export type NodeType =
 export type AssigneeStrategy =
   | 'users'
   | 'role'
+  | 'approval_permission'
   | 'dept_leader'
   | 'multi_level_leader'
   | 'post'
@@ -272,6 +281,14 @@ export const businessLabels: Record<WorkflowBusinessType, string> = {
   credit_increase: '临时信用额度调增',
   crm_contract: 'CRM 合同',
   mfg_issue_doc: '生产领退料',
+  mfg_receipt_doc: '生产完工入库',
+  mfg_bom: '物料清单',
+  purchase_requisition: '请购单',
+  stock_count: '库存盘点',
+  stock_misc_doc: '其他出入库',
+  gl_voucher: '总账凭证',
+  qc_inspection: '来料检验',
+  ar_bad_debt: '坏账处理',
   wf_generic_request: '通用申请',
 }
 export const workflowStatus: Record<string, string> = {
@@ -354,4 +371,8 @@ export const businessRoutes: Partial<Record<WorkflowBusinessType, string>> = {
   credit_increase: 'ar/credit',
   crm_contract: 'crm/contracts',
   mfg_issue_doc: 'mfg/issues',
+  mfg_receipt_doc: 'mfg/receipts',
+  purchase_requisition: 'purchase-requisitions',
+  stock_count: 'stock-counts',
+  gl_voucher: 'gl/vouchers',
 }

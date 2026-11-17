@@ -211,7 +211,7 @@ public final class InitializeTenant {
                 INSERT INTO sys_user_role(id, tenant_id, user_id, role_id, created_by) VALUES (?, ?, ?, ?, ?)
                 """, Ids.next(), tenant, user, role, user);
         insert(connection, """
-                INSERT INTO sys_user_data_scope(id, tenant_id, user_id, scope_type, company_id, created_by)
+                INSERT INTO org_user_data_scope(id, tenant_id, user_id, scope_type, company_id, created_by)
                 VALUES (?, ?, ?, 'company', ?, ?)
                 """, Ids.next(), tenant, user, company, user);
     }

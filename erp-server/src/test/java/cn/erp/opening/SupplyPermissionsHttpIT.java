@@ -51,7 +51,7 @@ class SupplyPermissionsHttpIT extends OpeningTestData {
         assertThat(http("GET",path,null,null,company).body()).doesNotContain("inputUnitCost","unitCost","amount");
         revoke("stock_misc_doc:submit");
         assertThat(http("POST",path+"/submit","{\"version\":0}",key(),company).statusCode()).isEqualTo(403);
-        jdbc.update("DELETE FROM sys_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=? AND warehouse_id=?",tenant,user,company,warehouse);
+        jdbc.update("DELETE FROM org_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=? AND warehouse_id=?",tenant,user,company,warehouse);
         assertThat(http("GET",path,null,null,company).statusCode()).isEqualTo(404);
     }
 

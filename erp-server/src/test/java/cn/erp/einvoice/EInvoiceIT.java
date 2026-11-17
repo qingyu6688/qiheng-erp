@@ -97,7 +97,7 @@ class EInvoiceIT {
         register(maker,tenant,company,"maker",hash,List.of("einv:view","einv:create","einv:submit"));
         register(checker,tenant,company,"checker",hash,List.of("einv:view","einv:submit","einv:red_issue","einv:download","einv:manage","einv:inbound","sku:view","sku:update"));
         register(viewer,tenant,company,"viewer",hash,List.of("einv:view"));
-        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,viewer,otherCompany);
+        jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,viewer,otherCompany);
         register(noPermission,tenant,company,"member",hash,List.of());
         register(outsider,foreign,foreignCompany,"outsider",hash,List.of("einv:view","einv:download","einv:inbound","einv:manage","sku:view","sku:update"));
         when(provider.available()).thenReturn(true);
@@ -112,7 +112,7 @@ class EInvoiceIT {
         for(String table:List.of("einv_file_task","einv_file","attachment","einv_inbound","einv_issue_line","einv_issue_request",
                 "einv_provider_config","invoice_registration_line","invoice_registration","receivable","payable","goods_receipt","shipment_line","shipment",
                 "sales_order_line","sales_order","unit_conversion","sku","product","product_category","unit","idempotency_record","audit_log",
-                "sys_api_access_log","sys_api_error_log","sys_login_log","sys_user_data_scope","sys_user_role","sys_role_permission","sys_role","sys_user",
+                "sys_api_access_log","sys_api_error_log","sys_login_log","org_user_data_scope","sys_user_role","sys_role_permission","sys_role","sys_user",
                 "accounting_period","business_partner","warehouse","company")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id IN (?,?)",tenant,foreign);
         }
@@ -288,7 +288,7 @@ class EInvoiceIT {
         jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,?,?,?,?)",user,tenant,name,name,hash);
         jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(?,?,?,?)",role,tenant,name,name);
         jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,user,role);
-        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,company);
+        jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,company);
         for(String permission:permissions)jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) SELECT ?,?,?,id FROM sys_permission WHERE code=?",
                 Ids.next(),tenant,role,permission);
     }

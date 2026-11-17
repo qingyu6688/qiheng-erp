@@ -34,11 +34,11 @@ class RealtimeIT {
         second=new SpringApplicationBuilder(ErpApplication.class).profiles("test").run("--server.port=0","--management.server.port=0","--erp.worker.enabled=false","--spring.main.banner-mode=off");secondPort=((WebServerApplicationContext)second).getWebServer().getPort();
     }
     void account(long selectedTenant,long selectedUser,long selectedCompany) {
-        jdbc.update("INSERT INTO tenant(id,code,name) VALUES(?,?,'实时验收企业')",selectedTenant,"RT"+selectedTenant);jdbc.update("INSERT INTO company(id,tenant_id,code,name) VALUES(?,?,'A','实时验收公司')",selectedCompany,selectedTenant);jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,?,'reader','实时用户',?)",selectedUser,selectedTenant,encoder.encode(password));jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),selectedTenant,selectedUser,selectedCompany);
+        jdbc.update("INSERT INTO tenant(id,code,name) VALUES(?,?,'实时验收企业')",selectedTenant,"RT"+selectedTenant);jdbc.update("INSERT INTO company(id,tenant_id,code,name) VALUES(?,?,'A','实时验收公司')",selectedCompany,selectedTenant);jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,?,'reader','实时用户',?)",selectedUser,selectedTenant,encoder.encode(password));jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),selectedTenant,selectedUser,selectedCompany);
     }
     @AfterEach void cleanup() {
         for(var socket:sockets) socket.abort();if(second!=null) second.close();
-        for(long selected:List.of(tenant,foreignTenant)) {for(String table:List.of("outbox_event","audit_log","idempotency_record","sys_login_log","sys_api_access_log","sys_api_error_log","sys_user_data_scope","sys_user_role","sys_role_permission","sys_role","sys_user","company")) jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",selected);jdbc.update("DELETE FROM tenant WHERE id=?",selected);}
+        for(long selected:List.of(tenant,foreignTenant)) {for(String table:List.of("outbox_event","audit_log","idempotency_record","sys_login_log","sys_api_access_log","sys_api_error_log","org_user_data_scope","sys_user_role","sys_role_permission","sys_role","sys_user","company")) jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",selected);jdbc.update("DELETE FROM tenant WHERE id=?",selected);}
     }
     @Test void Z04_01_twoApiInstancesBroadcastThroughRedisAndKickClosesBothWithoutCrossTenantDelivery() throws Exception {
         var login=login(tenant);var foreign=login(foreignTenant);var a=new Listener();var b=new Listener();var other=new Listener();

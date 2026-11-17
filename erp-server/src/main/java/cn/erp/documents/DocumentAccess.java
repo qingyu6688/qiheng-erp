@@ -2,6 +2,7 @@ package cn.erp.documents;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.BiFunction;
 
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -64,6 +65,10 @@ public class DocumentAccess {
     public String permission(String type, String action) {
         validate(type);
         return (type.equals("document_reversal") ? "reversal" : type) + ":" + action;
+    }
+
+    public Set<String> supportedTypes() {
+        return Set.copyOf(readers.keySet());
     }
 
     public String writePermission(String type) {

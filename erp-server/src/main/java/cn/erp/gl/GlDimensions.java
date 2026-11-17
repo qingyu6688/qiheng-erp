@@ -69,7 +69,7 @@ class GlDimensions {
             case "employee" -> {
                 query =
                         "SELECT COUNT(*) FROM sys_user u WHERE u.tenant_id=? AND u.id=? AND"
-                            + " u.status='active' AND EXISTS(SELECT 1 FROM sys_user_data_scope d"
+                            + " u.status='active' AND EXISTS(SELECT 1 FROM org_user_data_scope d"
                             + " WHERE d.tenant_id=u.tenant_id AND d.user_id=u.id AND"
                             + " d.company_id=?)";
                 args.add(id);

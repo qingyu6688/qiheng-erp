@@ -10,7 +10,7 @@ public final class PlatformAccess {
     public static void require(JdbcTemplate jdbc,CompanyAccess actor,String permission) {
         if(!actor.hasPermission(permission)) throw new ApiException(403,"FORBIDDEN","没有执行此操作的权限");
         var resolver=new OrgScopeResolver(jdbc);
-        var companies=jdbc.queryForList("SELECT DISTINCT s.company_id FROM sys_user_data_scope s JOIN company c ON c.tenant_id=s.tenant_id AND c.id=s.company_id AND c.status='active' WHERE s.tenant_id=? AND s.user_id=?",Long.class,actor.tenantId(),actor.userId());
+        var companies=jdbc.queryForList("SELECT DISTINCT s.company_id FROM org_user_data_scope s JOIN company c ON c.tenant_id=s.tenant_id AND c.id=s.company_id AND c.status='active' WHERE s.tenant_id=? AND s.user_id=?",Long.class,actor.tenantId(),actor.userId());
         if(companies.isEmpty()) throw new ApiException(403,"FORBIDDEN","平台管理需要至少一个有效的公司授权");
         for(long company:companies) {
             if(!resolver.resolve(actor.tenantId(),company,actor.userId()).allDepartments()) throw new ApiException(403,"FORBIDDEN","平台管理需要所授权公司的全部部门范围");

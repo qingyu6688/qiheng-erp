@@ -242,7 +242,7 @@ class CrmCoreIT {
     }
 
     private void assignCompany(long user, long companyId) {
-        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",
+        jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",
                 Ids.next(), tenant, user, companyId);
     }
 

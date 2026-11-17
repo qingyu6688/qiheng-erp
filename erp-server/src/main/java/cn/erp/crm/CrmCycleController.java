@@ -148,7 +148,7 @@ class CrmCycleController {
                               @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
                               @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo,
                               @RequestParam(required = false) String userIds, @RequestParam(required = false) String deptId) {
-        return ApiResponse.success(statistics.statistics(access.requireCompany(request, "crm_statistics:view"), kind, dateFrom,
+        return ApiResponse.success(statistics.statistics(access.requireCompany(request, "crm_statistic:view"), kind, dateFrom,
                 dateTo, userIds, deptId));
     }
 }

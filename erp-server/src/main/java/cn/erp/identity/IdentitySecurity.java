@@ -10,6 +10,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -35,7 +36,7 @@ class IdentitySecurity {
     private static final Set<String> PUBLIC_POSTS = Set.of(
             AUTH + "/login", AUTH + "/code/send", AUTH + "/code/login", AUTH + "/wechat/start", AUTH + "/ldap/login",
             AUTH + "/devices/activate");
-    private static final Set<String> PUBLIC_GETS = Set.of(HEALTH, AUTH + "/methods", AUTH + "/wechat/callback",
+    private static final Set<String> PUBLIC_GETS = Set.of(HEALTH, "/api/v1/system/version", AUTH + "/methods", AUTH + "/wechat/callback",
             AUTH + "/sso/callback");
     private static final Set<String> MFA_POSTS = Set.of(AUTH+"/mfa/setup",AUTH+"/mfa/activate",AUTH+"/mfa/verify");
     private static final RequestMatcher PUBLIC_FIRST_FACTOR = request ->
@@ -59,6 +60,7 @@ class IdentitySecurity {
     }
 
     @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     SecurityFilterChain apiSecurity(HttpSecurity http, AccessService access, SessionAuthority authority, DeviceSessions devices,
                                     CookieCsrfTokenRepository tokens,
                                     @Qualifier("handlerExceptionResolver") HandlerExceptionResolver errors)

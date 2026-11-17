@@ -228,7 +228,7 @@ public class CustomFields {
         if (value == null) return;
         if (type.equals("user") && !Boolean.TRUE.equals(jdbc.queryForObject("""
                 SELECT EXISTS(SELECT 1 FROM sys_user u WHERE u.tenant_id=? AND u.id=? AND u.status='active'
-                  AND u.user_type='human' AND (?=0 OR EXISTS(SELECT 1 FROM sys_user_data_scope s
+                  AND u.user_type='human' AND (?=0 OR EXISTS(SELECT 1 FROM org_user_data_scope s
                     WHERE s.tenant_id=u.tenant_id AND s.user_id=u.id AND s.company_id=?)))
                 """, Boolean.class, actor.tenantId(), value, actor.companyId(), actor.companyId()))) throw CustomFieldTypes.bad(label);
         if (type.equals("department") && !Boolean.TRUE.equals(jdbc.queryForObject("""

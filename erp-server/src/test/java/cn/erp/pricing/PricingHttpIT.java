@@ -41,7 +41,7 @@ class PricingHttpIT {
         jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,user,role);
         jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) SELECT ?,?,?,id FROM sys_permission WHERE code='sales_order:create'",Ids.next(),tenant,role);
         jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) SELECT ?,?,?,id FROM sys_permission WHERE code='purchase_order:create'",Ids.next(),tenant,role);
-        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,company);
+        jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,company);
         jdbc.update("INSERT INTO business_partner(id,tenant_id,code,name) VALUES(?,?,?,?)",partner,tenant,"C","客户");
         jdbc.update("INSERT INTO partner_role(id,tenant_id,partner_id,role) VALUES(?,?,?,'customer')",Ids.next(),tenant,partner);
         jdbc.update("INSERT INTO partner_role(id,tenant_id,partner_id,role) VALUES(?,?,?,'supplier')",Ids.next(),tenant,partner);
@@ -57,7 +57,7 @@ class PricingHttpIT {
         for(String table:List.of("price_list_target","price_list_item","price_list","crm_customer_profile","idempotency_record","document_sequence",
                 "sales_order_fee","sales_order_line","sales_order","purchase_order_fee","purchase_order_line","purchase_order",
                 "unit_conversion","sku","product","product_category","unit","partner_role","business_partner",
-                "sys_user_data_scope","sys_role_permission","sys_user_role","sys_role","sys_user","company")) {
+                "org_user_data_scope","sys_role_permission","sys_user_role","sys_role","sys_user","company")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
         }
         jdbc.update("DELETE FROM tenant WHERE id=?",tenant);
@@ -162,7 +162,7 @@ class PricingHttpIT {
                 tenant,company,partner,user);
         long other=Ids.next();
         jdbc.update("INSERT INTO company(id,tenant_id,code,name) VALUES(?,?,'B','第二公司')",other,tenant);
-        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,other);
+        jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,other);
         assertThat(post("/auth/login","{\"tenantCode\":\"HTTP"+tenant+"\",\"username\":\"pricing\",\"password\":\"PricingTest!2026\"}",false,company).statusCode()).isEqualTo(200);
         var any=post("/price-lists",priceList("通用价","all","","109",90,false),true,company);
         var level=post("/price-lists",priceList("级别价","customer_level","gold","88",50,false),true,company);

@@ -52,6 +52,7 @@ const strategies: { value: AssigneeStrategy; label: string }[] = [
   { value: 'starter', label: '发起人本人' },
   { value: 'field_user', label: '单据中的人员字段' },
   { value: 'starter_dept_members', label: '发起部门全员（抄送）' },
+  { value: 'approval_permission', label: '拥有此单据审批权限的用户' },
 ]
 function select(id: string): void {
   selected.value = id
@@ -236,7 +237,9 @@ function timeout(patch: Partial<NonNullable<WorkflowNode['timeout']>>): void {
           ><el-select :model-value="node.assignee?.strategy" @change="strategy"
             ><el-option
               v-for="item in strategies.filter(
-                (item) => node?.type === 'copy' || item.value !== 'starter_dept_members',
+                (item) =>
+                  (node?.type === 'copy' || item.value !== 'starter_dept_members') &&
+                  (node?.type === 'approver' || item.value !== 'approval_permission'),
               )"
               :key="item.value"
               :value="item.value"

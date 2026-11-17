@@ -35,7 +35,7 @@ class StockCountHttpIT extends OpeningTestData {
         assertThat(http("PUT","/stock-counts/"+id+"/counts",body,null,true).statusCode()).isEqualTo(403);
         String result="/command-results?operation=stock_count.create&key="+creation;
         assertThat(http("GET",result,null,null,false).statusCode()).isEqualTo(200);
-        jdbc.update("DELETE FROM sys_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=? AND warehouse_id=?",tenant,user,company,warehouse);
+        jdbc.update("DELETE FROM org_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=? AND warehouse_id=?",tenant,user,company,warehouse);
         assertThat(http("GET","/stock-counts/"+id,null,null,false).statusCode()).isEqualTo(404);
         assertThat(http("GET",result,null,null,false).statusCode()).isEqualTo(404);
         assertThat(http("GET","/stock-counts?limit=201",null,null,false).statusCode()).isEqualTo(400);

@@ -25,7 +25,7 @@ public class CommandResults {
         Object response=row.get("response_body")==null?null:json.readValue(row.get("response_body").toString(),Object.class);
         resultAccess.verify(scope,operation,response);
         if(operation.startsWith("company.") && response instanceof Map<?,?> company) {
-            Long visible=jdbc.queryForObject("SELECT COUNT(*) FROM sys_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=?",
+            Long visible=jdbc.queryForObject("SELECT COUNT(*) FROM org_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=?",
                     Long.class,scope.tenantId(),scope.userId(),company.get("id"));
             if(visible==null || visible==0) {throw new ApiException(404,"NOT_FOUND","资料不存在或无权查看");}
         }

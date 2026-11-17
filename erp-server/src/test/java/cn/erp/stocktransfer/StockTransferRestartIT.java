@@ -77,7 +77,7 @@ class StockTransferRestartIT extends StockTransferTestData {
         jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(?,?,'RESTART','调拨重启权限')",role,tenant);
         jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,user,role);
         for(String permission:List.of("stock_transfer:view","stock_transfer:receive"))jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) SELECT ?,?,?,id FROM sys_permission WHERE code=?",Ids.next(),tenant,role,permission);
-        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,company);
+        jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,company);
     }
 
     private Isolation isolation() throws Exception {

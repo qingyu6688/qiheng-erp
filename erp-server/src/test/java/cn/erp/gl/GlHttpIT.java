@@ -63,7 +63,7 @@ class GlHttpIT {
                     role,
                     id);
         jdbc.update(
-                "INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id)"
+                "INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id)"
                         + " VALUES(?,?,?,'company',?)",
                 Ids.next(),
                 d.tenant,

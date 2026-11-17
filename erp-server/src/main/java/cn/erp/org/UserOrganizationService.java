@@ -35,7 +35,7 @@ class UserOrganizationService {
         var values=jdbc.query("""
             SELECT u.id,u.username,u.display_name,u.status FROM sys_user u
             WHERE u.tenant_id=? AND u.id>? AND (LOCATE(?,u.username)>0 OR LOCATE(?,u.display_name)>0)
-              AND EXISTS(SELECT 1 FROM sys_user_data_scope s WHERE s.tenant_id=u.tenant_id AND s.user_id=u.id AND s.company_id=?)
+              AND EXISTS(SELECT 1 FROM org_user_data_scope s WHERE s.tenant_id=u.tenant_id AND s.user_id=u.id AND s.company_id=?)
             ORDER BY u.id LIMIT ?
             """,(r,n)->new User(r.getString(1),r.getString(2),r.getString(3),r.getString(4)),actor.tenantId(),after,search,search,actor.companyId(),limit+1);
         return new Page<>(values.stream().limit(limit).toList(),values.size()>limit?values.get(limit-1).id():null);

@@ -68,7 +68,7 @@ public class CrmScope {
                     ON d.tenant_id=ud.tenant_id AND d.company_id=ud.company_id AND d.id=ud.department_id AND d.status='active'
                     WHERE ud.tenant_id=u.tenant_id AND ud.company_id=? AND ud.user_id=u.id AND ud.is_primary=1),0)
                 FROM sys_user u WHERE u.tenant_id=? AND u.id=? AND u.status='active' AND u.user_type='human'
-                AND EXISTS(SELECT 1 FROM sys_user_data_scope s WHERE s.tenant_id=u.tenant_id AND s.user_id=u.id AND s.company_id=?)
+                AND EXISTS(SELECT 1 FROM org_user_data_scope s WHERE s.tenant_id=u.tenant_id AND s.user_id=u.id AND s.company_id=?)
                 """, Long.class, actor.companyId(), actor.tenantId(), user, actor.companyId());
         if (departments.isEmpty()) throw invalid("请选择当前公司的有效员工");
         return departments.getFirst();
@@ -85,7 +85,7 @@ public class CrmScope {
                     LEFT JOIN org_user_department ud ON ud.tenant_id=u.tenant_id AND ud.user_id=u.id AND ud.company_id=? AND ud.is_primary=1
                     LEFT JOIN org_department d ON d.tenant_id=ud.tenant_id AND d.company_id=ud.company_id AND d.id=ud.department_id AND d.status='active'
                     WHERE u.tenant_id=? AND u.status='active' AND u.user_type='human' AND LOCATE(?,u.display_name)>0
-                    AND EXISTS(SELECT 1 FROM sys_user_data_scope s WHERE s.tenant_id=u.tenant_id AND s.user_id=u.id AND s.company_id=?)
+                    AND EXISTS(SELECT 1 FROM org_user_data_scope s WHERE s.tenant_id=u.tenant_id AND s.user_id=u.id AND s.company_id=?)
                 ) e WHERE %s ORDER BY e.display_name,e.owner_user_id LIMIT 200
                 """.formatted(actor.orgScope().ownerFilter("e")), actor.companyId(), actor.tenantId(), term, actor.companyId());
         return rows.stream().map(CrmCoreRows::row).toList();

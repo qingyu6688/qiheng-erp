@@ -52,14 +52,14 @@ class IdentityIT {
                 VALUES(?,?,'buyer','采购员',?,1)
                 """, userId, tenantId, passwords.encode(password));
         jdbc.update("""
-                INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id)
+                INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id)
                 VALUES(?,?,?,'company',?)
                 """, Ids.next(), tenantId, userId, companyId);
     }
 
     @AfterEach
     void removeFixture() {
-        jdbc.update("DELETE FROM sys_user_data_scope WHERE tenant_id = ?", tenantId);
+        jdbc.update("DELETE FROM org_user_data_scope WHERE tenant_id = ?", tenantId);
         jdbc.update("DELETE FROM sys_user_role WHERE tenant_id = ?", tenantId);
         jdbc.update("DELETE FROM sys_role_permission WHERE tenant_id = ?", tenantId);
         jdbc.update("DELETE FROM sys_role WHERE tenant_id = ?", tenantId);
@@ -99,7 +99,7 @@ class IdentityIT {
         jdbc.update("INSERT INTO warehouse(id,tenant_id,company_id,code,name) VALUES(?,?,?,'A','甲仓'),(?,?,?,'B','乙仓')",
                 firstWarehouse, tenantId, restrictedCompany, secondWarehouse, tenantId, restrictedCompany);
         jdbc.update("""
-                INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id,warehouse_id)
+                INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id,warehouse_id)
                 VALUES(?,?,?,'warehouse',?,?),(?,?,?,'warehouse',?,?)
                 """, Ids.next(), tenantId, userId, restrictedCompany, secondWarehouse,
                 Ids.next(), tenantId, userId, restrictedCompany, firstWarehouse);

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import axios from 'axios'
-import { request, renewSessionScope, replaceSession, setCompanyScope } from '../src/api/http'
+import { request, renewSessionScope, replaceSession, requireServerVersion, setCompanyScope } from '../src/api/http'
 
 const { clientRequest } = vi.hoisted(() => ({ clientRequest: vi.fn() }))
 vi.mock('axios', async importOriginal => {
@@ -26,6 +26,23 @@ beforeEach(() => {
   window.addEventListener('erp:session-expired', expired)
 })
 afterEach(() => window.removeEventListener('erp:session-expired', expired))
+
+it('2.0 页面在旧 API 缺少版本探测端点时要求升级', async () => {
+  clientRequest.mockRejectedValueOnce({ isAxiosError: true, response: { status: 404, data: {} } })
+  await expect(requireServerVersion()).rejects.toThrow('请升级到柒衡 ERP 2.0')
+  clientRequest.mockResolvedValueOnce({ data: { data: { apiMajor: 2, version: '2.0.0' } } })
+  await expect(requireServerVersion()).resolves.toBeUndefined()
+})
+
+it('版本探测期间会话轮换仍可正常打开登录页', async () => {
+  const reply = deferred()
+  clientRequest.mockReturnValueOnce(reply.promise)
+  const pending = requireServerVersion()
+  renewSessionScope()
+  reply.resolve({ data: { data: { apiMajor: 2 } } })
+  await expect(pending).resolves.toBeUndefined()
+  expect(expired).not.toHaveBeenCalled()
+})
 
 it('退出时丢弃旧的租户级401，保留新登录页面', async () => {
   let reject: (error: unknown) => void = () => undefined

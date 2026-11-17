@@ -97,6 +97,18 @@ export function notifySessionFailure(status: number, code?: string, authCheck = 
     window.dispatchEvent(new Event('erp:session-expired'))
 }
 
+export async function requireServerVersion(): Promise<void> {
+  // 登录和退出会更新会话范围，版本检查使用独立请求。
+  const major = await client
+    .request<ApiResponse<{ apiMajor: number }>>({ url: '/system/version', method: 'GET' })
+    .then((response) => response.data?.data?.apiMajor)
+    .catch((cause: unknown) => {
+      if (axios.isAxiosError(cause) && [401, 403, 404].includes(cause.response?.status ?? 0)) return undefined
+      throw new Error('暂时无法检查服务端版本，请稍后重试。')
+    })
+  if (major !== 2) throw new Error('当前服务端版本与页面不兼容，请升级到柒衡 ERP 2.0。')
+}
+
 export async function request<T>(config: AxiosRequestConfig, companyScoped = false): Promise<T> {
   const scope = companyRequests
   const revision = sessionRevision

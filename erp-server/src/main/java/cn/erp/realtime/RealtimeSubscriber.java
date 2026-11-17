@@ -2,6 +2,7 @@ package cn.erp.realtime;
 
 import org.slf4j.*;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 /** 实时提醒可以稍后恢复，Redis 订阅失败不能阻止原有业务组件启动。 */
 @Component
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 class RealtimeSubscriber {
     private static final Logger LOG=LoggerFactory.getLogger(RealtimeSubscriber.class);
     private final RedisMessageListenerContainer listener;

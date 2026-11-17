@@ -25,7 +25,7 @@ class OrganizationService {
     }
 
     Page<CompanyView> companies(CompanyAccess actor) {
-        var ids=jdbc.queryForList("SELECT DISTINCT company_id FROM sys_user_data_scope WHERE tenant_id=? AND user_id=?",Long.class,actor.tenantId(),actor.userId());
+        var ids=jdbc.queryForList("SELECT DISTINCT company_id FROM org_user_data_scope WHERE tenant_id=? AND user_id=?",Long.class,actor.tenantId(),actor.userId());
         return new Page<>(ids.stream().map(id -> company(actor,id,false)).toList(),null);
     }
 
@@ -48,7 +48,7 @@ class OrganizationService {
                     id,actor.tenantId(),input.code(),input.name(),input.taxNo(),input.address(),input.phone(),actor.userId(),actor.userId());
             jdbc.update("INSERT INTO company_policy(id,tenant_id,company_id,created_by,updated_by) VALUES(?,?,?,?,?)",
                     Ids.next(),actor.tenantId(),id,actor.userId(),actor.userId());
-            jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id,created_by) VALUES(?,?,?,'company',?,?)",
+            jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id,created_by) VALUES(?,?,?,'company',?,?)",
                     Ids.next(),actor.tenantId(),actor.userId(),id,actor.userId());
             var after=company(actor,id,false);
             audit.record(new CompanyAccess(actor.tenantId(),actor.userId(),id,true,java.util.Set.of(),actor.permissions()),"company.create","company",id,null,after);
@@ -120,7 +120,7 @@ class OrganizationService {
         }
         var rows=jdbc.query("""
                 SELECT id,action,object_type,object_id,operator_id,created_at,request_id FROM audit_log a
-                WHERE tenant_id=? AND id<? AND (company_id IS NULL OR EXISTS(SELECT 1 FROM sys_user_data_scope s
+                WHERE tenant_id=? AND id<? AND (company_id IS NULL OR EXISTS(SELECT 1 FROM org_user_data_scope s
                 WHERE s.tenant_id=a.tenant_id AND s.company_id=a.company_id AND s.user_id=?)) ORDER BY id DESC LIMIT ?
                 """,(r,n)->{
             var item=new java.util.LinkedHashMap<String,Object>();
@@ -135,7 +135,7 @@ class OrganizationService {
     }
 
     void visible(CompanyAccess actor,long id) {
-        Long found=jdbc.queryForObject("SELECT COUNT(*) FROM sys_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=?",
+        Long found=jdbc.queryForObject("SELECT COUNT(*) FROM org_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=?",
                 Long.class,actor.tenantId(),actor.userId(),id);
         if(found==null||found==0) throw missing();
     }

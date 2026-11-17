@@ -33,8 +33,8 @@ class AuditQueryService {
     AdminModels.Page<Map<String,Object>> list(CompanyAccess actor,Filter filter,String cursor,int limit) {
         if(limit<1||limit>200) throw invalid("查询条数为 1 到 200");
         var args=new ArrayList<Object>(List.of(actor.tenantId(),cursor(cursor),actor.userId()));
-        var sql=new StringBuilder("SELECT a.*,u.display_name AS operator_name,c.name AS company_name FROM audit_log a LEFT JOIN sys_user u ON u.tenant_id=a.tenant_id AND u.id=a.operator_id LEFT JOIN company c ON c.tenant_id=a.tenant_id AND c.id=a.company_id WHERE a.tenant_id=? AND a.id<? AND (a.company_id IS NULL OR EXISTS(SELECT 1 FROM sys_user_data_scope s WHERE s.tenant_id=a.tenant_id AND s.company_id=a.company_id AND s.user_id=? AND s.scope_type='company'))");
-        var companies=jdbc.queryForList("SELECT DISTINCT company_id FROM sys_user_data_scope WHERE tenant_id=? AND user_id=?",Long.class,actor.tenantId(),actor.userId());
+        var sql=new StringBuilder("SELECT a.*,u.display_name AS operator_name,c.name AS company_name FROM audit_log a LEFT JOIN sys_user u ON u.tenant_id=a.tenant_id AND u.id=a.operator_id LEFT JOIN company c ON c.tenant_id=a.tenant_id AND c.id=a.company_id WHERE a.tenant_id=? AND a.id<? AND (a.company_id IS NULL OR EXISTS(SELECT 1 FROM org_user_data_scope s WHERE s.tenant_id=a.tenant_id AND s.company_id=a.company_id AND s.user_id=? AND s.scope_type='company'))");
+        var companies=jdbc.queryForList("SELECT DISTINCT company_id FROM org_user_data_scope WHERE tenant_id=? AND user_id=?",Long.class,actor.tenantId(),actor.userId());
         var restricted=new ArrayList<Long>();var resolver=new OrgScopeResolver(jdbc);
         for(long company:companies) if(!resolver.resolve(actor.tenantId(),company,actor.userId()).allDepartments()) restricted.add(company);
         if(!restricted.isEmpty()) {sql.append(" AND (a.company_id IS NULL OR a.company_id NOT IN ("+String.join(",",Collections.nCopies(restricted.size(),"?"))+"))");args.addAll(restricted);}
@@ -92,7 +92,7 @@ class AuditQueryService {
         sql.append(" AND (a.object_type NOT IN ('open_app','open_webhook','open_webhook_delivery')");
         if (actor.hasPermission("open_platform:view")) {
             var companies=jdbc.queryForList("""
-                    SELECT s.company_id FROM sys_user_data_scope s JOIN company c ON c.tenant_id=s.tenant_id
+                    SELECT s.company_id FROM org_user_data_scope s JOIN company c ON c.tenant_id=s.tenant_id
                       AND c.id=s.company_id AND c.status='active'
                     WHERE s.tenant_id=? AND s.user_id=? AND s.scope_type='company'
                     """,Long.class,actor.tenantId(),actor.userId()).stream().filter(id -> !restricted.contains(id))

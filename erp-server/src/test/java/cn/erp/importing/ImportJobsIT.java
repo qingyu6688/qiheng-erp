@@ -111,7 +111,7 @@ class ImportJobsIT extends ImportTestData {
     }
     @Test void revokedWarehouseOrDisabledActorStopsWorkerAndHidesExistingResults() {
         long job=id(create("opening_stock","SKU,件,1,10,撤权"));
-        jdbc.update("DELETE FROM sys_user_data_scope WHERE tenant_id=? AND user_id=? AND warehouse_id=?",tenant,user,warehouse);
+        jdbc.update("DELETE FROM org_user_data_scope WHERE tenant_id=? AND user_id=? AND warehouse_id=?",tenant,user,warehouse);
         processor.processNext();assertThat(count("stock_adjustment")).isZero();
         assertThat(jdbc.queryForObject("SELECT status FROM import_job WHERE id=?",String.class,job)).isEqualTo("failed");
         assertThatThrownBy(()->jobs.get(maker,job)).isInstanceOf(ApiException.class);

@@ -44,7 +44,7 @@ class TreasuryHttpIT {
         for(String permission:List.of("payment:view","payment:create","payment:submit","payment:confirm","account_transfer:view","account_transfer:create","account_transfer:submit","account_transfer:confirm")) {
             jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) SELECT ?,?,?,id FROM sys_permission WHERE code=?",Ids.next(),tenant,role,permission);
         }
-        for(long id:List.of(company,otherCompany)) {jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,id);}
+        for(long id:List.of(company,otherCompany)) {jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,id);}
         jdbc.update("INSERT INTO business_partner(id,tenant_id,code,name) VALUES(?,?,'VENDOR','供应商')",partner,tenant);
         jdbc.update("INSERT INTO partner_role(id,tenant_id,partner_id,role) VALUES(?,?,?,'supplier')",Ids.next(),tenant,partner);
         for(long id:List.of(account,target,outside)) {
@@ -61,7 +61,7 @@ class TreasuryHttpIT {
 
     @AfterEach void cleanup() {
         jdbc.update("DELETE FROM inbox_event WHERE event_id IN(SELECT id FROM outbox_event WHERE tenant_id=?)",tenant);
-        for(String table:List.of("outbox_event","ledger_balance","journal_line","journal","settlement_allocation","partner_open_item","payment","account_transfer","audit_log","idempotency_record","document_sequence","cash_account_balance","cash_account","accounting_period","partner_role","business_partner","sys_user_data_scope","sys_role_permission","sys_user_role","sys_role","sys_user","company_policy","company")) {
+        for(String table:List.of("outbox_event","ledger_balance","journal_line","journal","settlement_allocation","partner_open_item","payment","account_transfer","audit_log","idempotency_record","document_sequence","cash_account_balance","cash_account","accounting_period","partner_role","business_partner","org_user_data_scope","sys_role_permission","sys_user_role","sys_role","sys_user","company_policy","company")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
         }
         jdbc.update("DELETE FROM tenant WHERE id=?",tenant);

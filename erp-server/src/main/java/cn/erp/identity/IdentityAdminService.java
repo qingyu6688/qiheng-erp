@@ -121,9 +121,9 @@ class IdentityAdminService {
         var before=user(actor,id,true);version(input.version(),before.version());
         var scopes=new LinkedHashSet<>(input.scopes());
         for(DataScope scope:scopes) validateScope(actor,scope);
-        jdbc.update("DELETE FROM sys_user_data_scope WHERE tenant_id=? AND user_id=?",actor.tenantId(),id);
+        jdbc.update("DELETE FROM org_user_data_scope WHERE tenant_id=? AND user_id=?",actor.tenantId(),id);
         for(DataScope scope:scopes) jdbc.update("""
-                INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id,warehouse_id,created_by) VALUES(?,?,?,?,?,?,?)
+                INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id,warehouse_id,created_by) VALUES(?,?,?,?,?,?,?)
                 """,Ids.next(),actor.tenantId(),id,scope.scopeType(),identifier(scope.companyId()),
                 scope.warehouseId()==null?null:identifier(scope.warehouseId()),actor.userId());
         touchUser(actor,id);ensureAdministrators(actor,prior);
@@ -215,7 +215,7 @@ class IdentityAdminService {
     }
 
     private List<DataScope> scopes(CompanyAccess actor,long id) {
-        return jdbc.query("SELECT company_id,scope_type,warehouse_id FROM sys_user_data_scope WHERE tenant_id=? AND user_id=? ORDER BY company_id,warehouse_key",
+        return jdbc.query("SELECT company_id,scope_type,warehouse_id FROM org_user_data_scope WHERE tenant_id=? AND user_id=? ORDER BY company_id,warehouse_key",
                 (r,n)->new DataScope(r.getString(1),r.getString(2),r.getString(3)),actor.tenantId(),id);
     }
 
@@ -240,7 +240,7 @@ class IdentityAdminService {
     }
 
     private void requireUnrestrictedAdministration(CompanyAccess actor) {
-        var companies=jdbc.queryForList("SELECT DISTINCT s.company_id FROM sys_user_data_scope s JOIN company c ON c.tenant_id=s.tenant_id AND c.id=s.company_id AND c.status='active' WHERE s.tenant_id=? AND s.user_id=?",Long.class,actor.tenantId(),actor.userId());
+        var companies=jdbc.queryForList("SELECT DISTINCT s.company_id FROM org_user_data_scope s JOIN company c ON c.tenant_id=s.tenant_id AND c.id=s.company_id AND c.status='active' WHERE s.tenant_id=? AND s.user_id=?",Long.class,actor.tenantId(),actor.userId());
         var resolver=new OrgScopeResolver(jdbc);
         if(companies.stream().anyMatch(company->!resolver.resolve(actor.tenantId(),company,actor.userId()).allDepartments()))
             throw forbidden("用户角色、权限、数据范围及口令管理须由所授权公司均拥有全部部门范围的管理员处理");
@@ -249,7 +249,7 @@ class IdentityAdminService {
     private int administrators(CompanyAccess actor) {
         return (int)jdbc.queryForList("SELECT id FROM sys_user WHERE tenant_id=? AND status='active'",Long.class,actor.tenantId()).stream()
                 .filter(id -> mapper.permissions(actor.tenantId(),id).containsAll(ADMIN_PERMISSIONS))
-                .filter(id -> jdbc.queryForObject("SELECT COUNT(*) FROM sys_user_data_scope WHERE tenant_id=? AND user_id=?",Long.class,actor.tenantId(),id)>0).count();
+                .filter(id -> jdbc.queryForObject("SELECT COUNT(*) FROM org_user_data_scope WHERE tenant_id=? AND user_id=?",Long.class,actor.tenantId(),id)>0).count();
     }
 
     private void ensureAdministrators(CompanyAccess actor,AdministratorState before) {

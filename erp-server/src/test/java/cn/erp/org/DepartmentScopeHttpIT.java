@@ -38,7 +38,7 @@ class DepartmentScopeHttpIT {
         jdbc.update("INSERT INTO company(id,tenant_id,code,name) VALUES(?,?,'A','甲公司'),(?,?,'B','乙公司')",company,tenant,second,tenant);
         for(long id:List.of(admin,user)) {
             jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash,must_change_password) VALUES(?,?,?,?,?,0)",id,tenant,id==admin?"admin":"user","范围用户",encoder.encode(password));
-            for(long scope:List.of(company,second)) jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,id,scope);
+            for(long scope:List.of(company,second)) jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,id,scope);
         }
         for(long id:List.of(adminRole,role)) {
             jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(?,?,?,'范围测试角色')",id,tenant,"R"+id);
@@ -55,7 +55,7 @@ class DepartmentScopeHttpIT {
         for(String storageKey:jdbc.queryForList("SELECT storage_key FROM attachment WHERE tenant_id=?",String.class,tenant)) files.delete(storageKey);
         jdbc.update("DELETE FROM file_ticket WHERE tenant_id=?",tenant);
         jdbc.update("DELETE FROM attachment WHERE tenant_id=?",tenant);
-        for(String table:List.of("org_role_data_scope_dept","org_role_data_scope","org_user_department","org_user_company","purchase_requisition","org_department","audit_log","idempotency_record","sys_user_role","sys_role_permission","sys_role","sys_user_data_scope","sys_user","company")) jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
+        for(String table:List.of("org_role_data_scope_dept","org_role_data_scope","org_user_department","org_user_company","purchase_requisition","org_department","audit_log","idempotency_record","sys_user_role","sys_role_permission","sys_role","org_user_data_scope","sys_user","company")) jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
         jdbc.update("DELETE FROM tenant WHERE id=?",tenant);
     }
     void login(String name) throws Exception {cookies.getCookieStore().removeAll();call("POST","/auth/login",json.createObjectNode().put("tenantCode",code).put("username",name).put("password",password).toString(),company,200,false,null);}

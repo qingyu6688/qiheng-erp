@@ -12,7 +12,7 @@ public class OrgScopeResolver {
     public OrgScopeResolver(JdbcTemplate jdbc) { this.jdbc=jdbc; }
     public Set<Long> administrativeCompanies(long tenant) {
         var rows=jdbc.queryForList("""
-            SELECT DISTINCT u.id,s.company_id FROM sys_user u JOIN sys_user_data_scope s ON s.tenant_id=u.tenant_id AND s.user_id=u.id
+            SELECT DISTINCT u.id,s.company_id FROM sys_user u JOIN org_user_data_scope s ON s.tenant_id=u.tenant_id AND s.user_id=u.id
             WHERE u.tenant_id=? AND u.status='active' AND EXISTS(SELECT 1 FROM sys_user_role ur JOIN sys_role r ON r.tenant_id=ur.tenant_id AND r.id=ur.role_id AND r.status='active'
             JOIN sys_role_permission rp ON rp.tenant_id=r.tenant_id AND rp.role_id=r.id JOIN sys_permission p ON p.id=rp.permission_id
             WHERE ur.tenant_id=u.tenant_id AND ur.user_id=u.id AND p.code='role:assign_permission')

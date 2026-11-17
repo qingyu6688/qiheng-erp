@@ -14,6 +14,10 @@ import static cn.erp.purchasing.PurchaseOrderQueries.*;
 @Service
 @Transactional
 public class RequisitionService {
+    private cn.erp.shared.WorkflowPort workflow;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void workflow(cn.erp.shared.WorkflowPort workflow) { this.workflow = workflow; }
     private final JdbcTemplate jdbc;private final CatalogAvailability catalog;private final BusinessCommands commands;
     private final DocumentNumbers numbers;private final AuditService audit;private final PricingEngine pricing;
     public RequisitionService(JdbcTemplate jdbc,CatalogAvailability catalog,BusinessCommands commands,DocumentNumbers numbers,AuditService audit,PricingEngine pricing) {this.jdbc=jdbc;this.catalog=catalog;this.commands=commands;this.numbers=numbers;this.audit=audit;this.pricing=pricing;}
@@ -50,6 +54,7 @@ public class RequisitionService {
     @SuppressWarnings({"unchecked","rawtypes"})
     public Map<String,Object> command(CompanyAccess scope,long id,String action,String key,PurchaseOrderModels.Command input) {
         return commands.execute(scope,"purchase_requisition."+action,key,List.of(id,input),200,()->{
+            workflow.guard(scope, "purchase_requisition", id, action);
             var before=header(scope,id,true);version(input.version(),before);String next;
             switch(action) {
                 case "submit" -> {state(before,"draft");for(var row:lines(scope,id)) {catalog.requireActiveSku(scope,number(row,"sku_id"),number(row,"unit_id"));}next="pending";}
@@ -61,6 +66,7 @@ public class RequisitionService {
                 default -> throw invalid("请购操作无效");
             }
             jdbc.update("UPDATE purchase_requisition SET status=?,version=version+1,updated_by=? WHERE id=?",next,scope.userId(),id);
+            if (action.equals("submit")) workflow.start(scope, "purchase_requisition", id, input.workflowAssignees());
             if(Set.of("submit","approve","reject","withdraw").contains(action)) {jdbc.update("INSERT INTO approval_record(id,tenant_id,company_id,document_type,document_id,revision,action,operator_id,comment) VALUES(?,?,?,'purchase_requisition',?,0,?,?,?)",Ids.next(),scope.tenantId(),scope.companyId(),id,action,scope.userId(),input.comment()==null?input.reason():input.comment());}
             var result=get(scope,id);audit.record(scope,"purchase_requisition."+action,"purchase_requisition",id,camel(before),result);return result;
         },(Class)Map.class);

@@ -38,7 +38,7 @@ class ExportJobsIT {
         jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,70101,'exporter','报表导出经办','不用于登录的测试摘要')",USER);
         jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(?,70101,'EXPORT','报表导出角色')",ROLE);
         jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(75803,70101,?,?)",USER,ROLE);
-        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(75804,70101,?,'company',70201)",USER);
+        jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(75804,70101,?,'company',70201)",USER);
         long id=75810;for(String permission:permissions) { jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) SELECT ?,70101,?,id FROM sys_permission WHERE code=?",id++,ROLE,permission); }
         worker=new ExportWorker(jobs,access,reports,files,json,compensation);
     }

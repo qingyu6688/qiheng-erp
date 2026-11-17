@@ -62,7 +62,7 @@ class GlChoices {
                         .queryForList(
                                 "SELECT u.id,u.username code,u.display_name name FROM sys_user u"
                                     + " WHERE u.tenant_id=? AND u.status='active' AND EXISTS(SELECT"
-                                    + " 1 FROM sys_user_data_scope d WHERE d.tenant_id=u.tenant_id"
+                                    + " 1 FROM org_user_data_scope d WHERE d.tenant_id=u.tenant_id"
                                     + " AND d.company_id=? AND d.user_id=u.id) ORDER BY u.id LIMIT"
                                     + " 3000",
                                 a.tenantId(),

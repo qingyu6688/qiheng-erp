@@ -14,7 +14,7 @@ enum DashboardMetric {
     PURCHASE("采购", "/reports/purchase-summary",Set.of(ReportType.PURCHASE_SUMMARY.permission())),
     FINANCE("财务", "/gl/reports",Set.of("gl_report:view","cost:view")),
     PRODUCTION("生产", "/mfg/reports",Set.of("mfg_report:view")),
-    CRM("客户经营", "/crm/statistics",Set.of("crm_statistics:view"));
+    CRM("客户经营", "/crm/statistics",Set.of("crm_statistic:view"));
 
     final String label;
     final String link;

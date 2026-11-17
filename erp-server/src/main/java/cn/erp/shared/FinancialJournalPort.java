@@ -4,4 +4,6 @@ package cn.erp.shared;
 @FunctionalInterface
 public interface FinancialJournalPort {
     void projected(long tenant, long company, long journal);
+
+    default void validatePosting(ActorScope actor, long journal) {}
 }

@@ -29,7 +29,7 @@ class AuditQueryIT {
         jdbc.update("INSERT INTO tenant(id,code,name) VALUES(?,?,'审计测试')",tenant,"T"+tenant);
         jdbc.update("INSERT INTO company(id,tenant_id,code,name) VALUES(?,?,'C','审计公司')",company,tenant);
         jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,?,'auditor','审计人员','unused-test-hash')",user,tenant);
-        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,company);
+        jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,company);
         long role=Ids.next();
         jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(?,?,'AUDITOR','审计角色')",role,tenant);
         jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,user,role);
@@ -51,7 +51,7 @@ class AuditQueryIT {
         assertThat(result.items()).hasSize(1);assertThat(result.items().getFirst().get("id")).isEqualTo(Long.toString(visible));assertThat(result.nextCursor()).isNull();
         assertThat(service.list(actor,filter("payment.confirm",null),null,20).items()).isEmpty();
         long warehouse=Ids.next();jdbc.update("INSERT INTO warehouse(id,tenant_id,company_id,code,name) VALUES(?,?,?,'W','审计仓')",warehouse,tenant,company);
-        jdbc.update("UPDATE sys_user_data_scope SET scope_type='warehouse',warehouse_id=? WHERE tenant_id=? AND user_id=?",warehouse,tenant,user);
+        jdbc.update("UPDATE org_user_data_scope SET scope_type='warehouse',warehouse_id=? WHERE tenant_id=? AND user_id=?",warehouse,tenant,user);
         assertThat(service.list(actor,filter(null,null),null,20).items()).isEmpty();
     }
     @Test void recursivelyRedactsFieldPermissionsAndNeverReturnsSecrets() {

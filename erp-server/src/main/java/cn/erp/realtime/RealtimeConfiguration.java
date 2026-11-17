@@ -4,6 +4,7 @@ import cn.erp.identity.*;
 import java.net.URI;
 import java.util.*;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.*;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.listener.*;
@@ -13,6 +14,7 @@ import org.springframework.web.socket.config.annotation.*;
 import org.springframework.web.socket.server.HandshakeInterceptor;
 
 @Configuration(proxyBeanMethods=false)
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @EnableWebSocket
 class RealtimeConfiguration implements WebSocketConfigurer {
     private final RealtimeHub hub;private final AccessService access;private final SessionAuthority authority;private final List<String> origins;

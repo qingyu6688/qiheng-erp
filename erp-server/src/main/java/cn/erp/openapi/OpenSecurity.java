@@ -18,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.dao.DataAccessException;
@@ -37,6 +38,7 @@ import cn.erp.identity.CompanyAccess;
 import cn.erp.shared.ApiException;
 
 @Configuration(proxyBeanMethods=false)
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 class OpenSecurity {
     private static final String ACTOR = OpenSecurity.class.getName()+".actor";
     private static final String COMMAND_KEY = OpenSecurity.class.getName()+".idempotency";

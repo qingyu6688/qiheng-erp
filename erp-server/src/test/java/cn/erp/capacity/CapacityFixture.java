@@ -83,7 +83,7 @@ public class CapacityFixture {
                 transactions.executeWithoutResult(status->{
                 jdbc.update("INSERT INTO company(id,tenant_id,code,name) VALUES(?,?,?,?)",company,tenant,"C"+currentCompany,"容量公司"+currentCompany);
                 jdbc.update("INSERT INTO company_policy(id,tenant_id,company_id) VALUES(?,?,?)",Ids.next(),tenant,company);
-                for(long user:List.of(maker,reviewer))jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,company);
+                for(long user:List.of(maker,reviewer))jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,company);
                 for(long wh:List.of(warehouse,hotWarehouse))jdbc.update("INSERT INTO warehouse(id,tenant_id,company_id,code,name) VALUES(?,?,?,?,?)",wh,tenant,company,wh==warehouse?"DISTRIBUTED":"HOT",wh==warehouse?"分散仓":"热点仓");
                 jdbc.update("INSERT INTO accounting_period(id,tenant_id,company_id,period,start_date,end_date) VALUES(?,?,?,?,?,?)",period,tenant,company,month.toString().replace("-",""),month.atDay(1),month.atEndOfMonth());
                 jdbc.update("INSERT INTO cash_account(id,tenant_id,company_id,code,name,account_type) VALUES(?,?,?,'LOAD','容量资金','bank')",cash,tenant,company);

@@ -230,7 +230,7 @@ def cleanup_tenant(settings: dict, tenant_code: str) -> None:
     tenant = sql(settings, f"SELECT id FROM tenant WHERE code='{tenant_code}'")
     if not tenant:
         return
-    for table in ("outbox_event", "audit_log", "sys_user_data_scope", "sys_user_role",
+    for table in ("outbox_event", "audit_log", "org_user_data_scope", "sys_user_role",
                   "sys_role_permission", "sys_role", "sys_user", "company"):
         sql(settings, f"DELETE FROM {table} WHERE tenant_id={int(tenant)}")
     sql(settings, f"DELETE FROM tenant WHERE id={int(tenant)}")

@@ -37,10 +37,10 @@ class PeriodHttpIT {
         jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(?,?,'PERIOD','期间权限')",role,tenant);
         jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,user,role);
         for(String permission:List.of("period:view","period:close","period:reopen"))jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) SELECT ?,?,?,id FROM sys_permission WHERE code=?",Ids.next(),tenant,role,permission);
-        for(long id:List.of(company,otherCompany))jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,id);
+        for(long id:List.of(company,otherCompany))jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,id);
     }
     @AfterEach void cleanup(){
-        for(String table:List.of("audit_log","idempotency_record","ledger_projection_lock","sys_user_data_scope","warehouse","accounting_period","sys_role_permission","sys_user_role","sys_role","sys_user","company"))jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
+        for(String table:List.of("audit_log","idempotency_record","ledger_projection_lock","org_user_data_scope","warehouse","accounting_period","sys_role_permission","sys_user_role","sys_role","sys_user","company"))jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
         jdbc.update("DELETE FROM tenant WHERE id=?",tenant);
     }
     @Test void authenticationCsrfAndReadOnlyFiveItemPrecheck() throws Exception {
@@ -71,8 +71,8 @@ class PeriodHttpIT {
         assertThat(http("POST","/accounting-periods/"+otherPeriod+"/close-check",null,null,true,company).statusCode()).isEqualTo(404);
         String closeKey=key();assertThat(http("POST","/accounting-periods/"+period+"/close","{\"version\":0}",closeKey,true,company).statusCode()).isEqualTo(200);
         assertThat(http("POST","/accounting-periods/"+period+"/reopen","{\"version\":1,\"reason\":\"复核数据范围\"}",key(),true,company).statusCode()).isEqualTo(200);
-        jdbc.update("DELETE FROM sys_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=?",tenant,user,company);
-        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id,warehouse_id) VALUES(?,?,?,'warehouse',?,?)",Ids.next(),tenant,user,company,warehouse);
+        jdbc.update("DELETE FROM org_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=?",tenant,user,company);
+        jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id,warehouse_id) VALUES(?,?,?,'warehouse',?,?)",Ids.next(),tenant,user,company,warehouse);
         assertThat(http("POST",path,null,null,true,company).statusCode()).isEqualTo(403);
         assertThat(http("GET","/command-results?operation=period.close&key="+closeKey,null,null,false,company).statusCode()).isEqualTo(403);
         assertThat(http("POST","/accounting-periods/"+period+"/close","{\"version\":0}",key(),true,company).statusCode()).isEqualTo(403);

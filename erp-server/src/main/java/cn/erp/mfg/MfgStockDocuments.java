@@ -9,6 +9,7 @@ import cn.erp.shared.DocumentNumbers;
 import cn.erp.shared.Ids;
 import cn.erp.shared.ProductionCostPort;
 import cn.erp.shared.WorkflowPort;
+import cn.erp.shared.EnterpriseUpgradeMode;
 import java.sql.Date;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -35,13 +36,15 @@ class MfgStockDocuments {
     private final FinanceSupport finance;
     private final ProductionCostPort productionCost;
     private final WorkflowPort workflow;
+    private final EnterpriseUpgradeMode upgrade;
     private final DocumentNumbers numbers;
     private final BusinessCommands commands;
     private final AuditService audit;
 
     MfgStockDocuments(JdbcTemplate jdbc, MfgOrders orders, MfgStockQueries queries, MfgStockLines lines,
                       MfgStockPosting posting, FinanceSupport finance, ProductionCostPort productionCost,
-                      WorkflowPort workflow, DocumentNumbers numbers, BusinessCommands commands, AuditService audit) {
+                      WorkflowPort workflow, DocumentNumbers numbers, BusinessCommands commands, AuditService audit,
+                      EnterpriseUpgradeMode upgrade) {
         this.jdbc = jdbc;
         this.orders = orders;
         this.queries = queries;
@@ -50,6 +53,7 @@ class MfgStockDocuments {
         this.finance = finance;
         this.productionCost = productionCost;
         this.workflow = workflow;
+        this.upgrade = upgrade;
         this.numbers = numbers;
         this.commands = commands;
         this.audit = audit;
@@ -107,7 +111,7 @@ class MfgStockDocuments {
         require(actor, type, action);
         queries.header(actor, type, document, false);
         return execute(actor, type, action, key, List.of(document, input), 200, () -> {
-            if (type == Type.ISSUE && !"submit".equals(action)) workflow.guard(actor, type.head, document, action);
+            workflow.guard(actor, type.head, document, action);
             var snapshot = queries.header(actor, type, document, false);
             var day = ((Date) snapshot.get("business_date")).toLocalDate();
             long period = period(actor, action, day);
@@ -123,18 +127,18 @@ class MfgStockDocuments {
         });
     }
 
-    void workflowDecide(CompanyAccess actor, long document, String outcome, String comment) {
-        var snapshot = queries.header(actor, Type.ISSUE, document, false);
+    void workflowDecide(CompanyAccess actor, Type type, long document, String outcome, String comment) {
+        var snapshot = queries.header(actor, type, document, false);
         orders.header(actor, id(snapshot, "work_order_id"), true);
-        var before = queries.header(actor, Type.ISSUE, document, true);
+        var before = queries.header(actor, type, document, true);
         state(before, "pending");
         switch (outcome) {
-            case "approved" -> review(actor, Type.ISSUE, before, true, comment);
-            case "rejected" -> review(actor, Type.ISSUE, before, false, comment);
-            case "cancelled", "terminated" -> setStatus(actor, Type.ISSUE, document, "cancelled");
+            case "approved" -> review(actor, type, before, true, comment);
+            case "rejected" -> review(actor, type, before, false, comment);
+            case "cancelled", "terminated" -> setStatus(actor, type, document, "cancelled");
             default -> throw invalid("审批结果无效");
         }
-        record(actor, Type.ISSUE, document, outcome, outcome, comment);
+        record(actor, type, document, outcome, outcome, comment);
     }
 
     private void transition(CompanyAccess actor, Type type, long document, String action, Revision input,
@@ -175,7 +179,8 @@ class MfgStockDocuments {
         params.addAll(List.of(actor.tenantId(), actor.companyId(), document));
         jdbc.update("UPDATE " + type.head + " SET status='pending',submitted_by=?,updated_by=?,version=version+1"
                         + (type == Type.ISSUE ? ",over_issue=?" : "") + " WHERE tenant_id=? AND company_id=? AND id=?", params.toArray());
-        if (over) workflow.start(actor, type.head, document, input.workflowAssignees());
+        if (over || type == Type.RECEIPT || upgrade.active())
+            workflow.start(actor, type.head, document, input.workflowAssignees());
     }
 
     private void review(CompanyAccess actor, Type type, Map<String, Object> document, boolean approve, String reason) {

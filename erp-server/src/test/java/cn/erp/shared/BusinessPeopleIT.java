@@ -28,7 +28,7 @@ class BusinessPeopleIT {
     @BeforeEach void prepare() {
         for(long id:List.of(89001L,89002L,89003L)) {
             jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,70101,?,?,'非登录测试摘要')",id,"rep"+id,id==89001?"甲业务员":"乙业务员");
-            jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,70101,?,'company',?)",Ids.next(),id,id==89003?70202:70201);
+            jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,70101,?,'company',?)",Ids.next(),id,id==89003?70202:70201);
         }
         actor=new CompanyAccess(70101,89001,70201,true,Set.of(),Set.copyOf(jdbc.queryForList("SELECT code FROM sys_permission",String.class)));
     }

@@ -43,7 +43,7 @@ class ReportExportHttpIT {
         jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(?,?,'REPORT','报表角色')",role,tenant);
         jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,user,role);
         for(var type:ReportType.values()) { grant(type.permission());grant(type.exportPermission()); }grant("cost:view");
-        for(long id:List.of(company,otherCompany)) { jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,id); }
+        for(long id:List.of(company,otherCompany)) { jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,id); }
         jdbc.update("INSERT INTO unit(id,tenant_id,name) VALUES(?,?,'件')",unit,tenant);
         jdbc.update("INSERT INTO product_category(id,tenant_id,code,name,path) VALUES(?,?,'CAT','分类','/CAT')",category,tenant);
         jdbc.update("INSERT INTO product(id,tenant_id,category_id,code,name,base_unit_id) VALUES(?,?,?,'P','报表商品',?)",product,tenant,category,unit);
@@ -53,7 +53,7 @@ class ReportExportHttpIT {
     }
     @AfterEach void cleanup() {
         for(String key:jdbc.queryForList("SELECT storage_key FROM attachment WHERE tenant_id=?",String.class,tenant)) { files.delete(key); }
-        for(String table:List.of("file_ticket","export_job","attachment","audit_log","idempotency_record","inventory_cost","inventory_balance","sku","product","product_category","unit","sys_user_data_scope","sys_role_permission","sys_user_role","sys_role","sys_user","warehouse","company")) {
+        for(String table:List.of("file_ticket","export_job","attachment","audit_log","idempotency_record","inventory_cost","inventory_balance","sku","product","product_category","unit","org_user_data_scope","sys_role_permission","sys_user_role","sys_role","sys_user","warehouse","company")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
         }
         jdbc.update("DELETE FROM tenant WHERE id=?",tenant);
@@ -95,12 +95,12 @@ class ReportExportHttpIT {
         revoke("export:inventory_summary");assertThat(http("GET",path,null,null,false,company).statusCode()).isEqualTo(403);
         grant("export:inventory_summary");assertThat(http("GET",path,null,null,false,company).statusCode()).isEqualTo(200);
         revoke("cost:view");assertThat(http("GET",path,null,null,false,company).statusCode()).isEqualTo(403);grant("cost:view");
-        jdbc.update("DELETE FROM sys_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=?",tenant,user,company);
+        jdbc.update("DELETE FROM org_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=?",tenant,user,company);
         long otherWarehouse=Ids.next();jdbc.update("INSERT INTO warehouse(id,tenant_id,company_id,code,name) VALUES(?,?,?,'W2','无权下载原仓')",otherWarehouse,tenant,company);
-        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id,warehouse_id) VALUES(?,?,?,'warehouse',?,?)",Ids.next(),tenant,user,company,otherWarehouse);
+        jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id,warehouse_id) VALUES(?,?,?,'warehouse',?,?)",Ids.next(),tenant,user,company,otherWarehouse);
         assertThat(http("GET",path,null,null,false,company).statusCode()).isEqualTo(403);
         assertThat(http("GET","/export-jobs/"+id,null,null,false,otherCompany).statusCode()).isEqualTo(404);
-        jdbc.update("UPDATE sys_user_data_scope SET scope_type='company',warehouse_id=NULL WHERE tenant_id=? AND user_id=? AND company_id=?",tenant,user,company);
+        jdbc.update("UPDATE org_user_data_scope SET scope_type='company',warehouse_id=NULL WHERE tenant_id=? AND user_id=? AND company_id=?",tenant,user,company);
         jdbc.update("UPDATE file_ticket SET expires_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 1 SECOND) WHERE tenant_id=? AND purpose='export_job' AND resource_id=?",tenant,id);
         assertThat(http("GET",path,null,null,false,company).statusCode()).isEqualTo(403);
     }

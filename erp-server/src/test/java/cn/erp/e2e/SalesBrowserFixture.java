@@ -57,8 +57,8 @@ public class SalesBrowserFixture {
         for(long role:jdbc.queryForList("SELECT role_id FROM sys_user_role WHERE tenant_id=? AND user_id=?",Long.class,tenant,admin)) {
             jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,reviewer,role);
         }
-        for(var range:jdbc.queryForList("SELECT scope_type,company_id,warehouse_id FROM sys_user_data_scope WHERE tenant_id=? AND user_id=?",tenant,admin)) {
-            jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id,warehouse_id) VALUES(?,?,?,?,?,?)",
+        for(var range:jdbc.queryForList("SELECT scope_type,company_id,warehouse_id FROM org_user_data_scope WHERE tenant_id=? AND user_id=?",tenant,admin)) {
+            jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id,warehouse_id) VALUES(?,?,?,?,?,?)",
                     Ids.next(),tenant,reviewer,range.get("scope_type"),range.get("company_id"),range.get("warehouse_id"));
         }
         long warehouse=Ids.next(),customer=Ids.next(),unit=Ids.next(),category=Ids.next(),product=Ids.next(),sku=Ids.next(),account=Ids.next(),period=Ids.next();
@@ -96,7 +96,7 @@ public class SalesBrowserFixture {
                 SELECT ?,?,?,id FROM sys_permission WHERE code='warehouse:view'
                 """,Ids.next(),tenant,role);
         jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,user,role);
-        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",
+        jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",
                 Ids.next(),tenant,user,company);
     }
 
@@ -115,7 +115,7 @@ public class SalesBrowserFixture {
         for(long permission:permissions)
             jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) VALUES(?,?,?,?)",Ids.next(),tenant,role,permission);
         jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,user,role);
-        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",
+        jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",
                 Ids.next(),tenant,user,company);
     }
 

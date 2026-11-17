@@ -52,7 +52,7 @@ abstract class StockTransferTestData {
     }
     @AfterEach void cleanTransfer(){
         jdbc.update("DELETE FROM inbox_event WHERE event_id IN(SELECT id FROM outbox_event WHERE tenant_id=?)",tenant);
-        for(String table:List.of("outbox_event","ledger_balance","journal_line","journal","cost_adjustment","inv_movement_hold","inventory_movement","inventory_cost","inventory_balance","stock_transfer_event_line","stock_transfer_line","stock_transfer","audit_log","idempotency_record","document_sequence","accounting_period","unit_conversion","sku","product","product_category","unit","sys_user_data_scope","warehouse","sys_role_permission","sys_user_role","sys_role","sys_user","company"))jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
+        for(String table:List.of("outbox_event","ledger_balance","journal_line","journal","cost_adjustment","inv_movement_hold","inventory_movement","inventory_cost","inventory_balance","stock_transfer_event_line","stock_transfer_line","stock_transfer","audit_log","idempotency_record","document_sequence","accounting_period","unit_conversion","sku","product","product_category","unit","org_user_data_scope","warehouse","sys_role_permission","sys_user_role","sys_role","sys_user","company"))jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
         jdbc.update("DELETE FROM tenant WHERE id=?",tenant);
     }
     StockTransferModels.Input input(String qty,Long version){return new StockTransferModels.Input(from,to,DAY,"调拨验收",List.of(new StockTransferModels.Line(sku,unit,qty)),version);}

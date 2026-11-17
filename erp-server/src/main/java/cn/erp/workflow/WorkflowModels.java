@@ -111,6 +111,7 @@ public class WorkflowModels {
 
     public Map<String, Object> save(CompanyAccess actor, Long id, String key, Input input) {
         manage(actor, id == null ? "workflow_model:create" : "workflow_model:update", true);
+        checkEditable(input.code());
         company(actor, input.companyId());
         SimpleModel.safeLabel(input.name());
         SimpleModel.validate(input.simple(), input.businessType());
@@ -130,6 +131,7 @@ public class WorkflowModels {
                     long model = id == null ? Ids.next() : id;
                     if (id != null) {
                         var old = head(actor, id, true);
+                        checkEditable(old.get("code").toString());
                         version(input.version(), old);
                         if (!old.get("code").equals(input.code())
                                 || number(old.get("company_id")) != input.companyId()
@@ -187,6 +189,7 @@ public class WorkflowModels {
                 Map.of("id", id, "version", expected),
                 () -> {
                     var raw = head(actor, id, true);
+                    checkEditable(raw.get("code").toString());
                     version(expected, raw);
                     int published = ((Number) raw.get("published_version")).intValue();
                     if (action.equals("publish")) {
@@ -196,38 +199,8 @@ public class WorkflowModels {
                         String type = raw.get("business_type").toString();
                         SimpleModel.validate(node, type);
                         published++;
-                        String xml =
-                                SimpleCompiler.compile(
-                                        "erp_" + id, raw.get("name").toString(), node, type);
-                        String tenant = Long.toString(actor.tenantId());
-                        var deployment =
-                                engine.getRepositoryService()
-                                        .createDeployment()
-                                        .tenantId(tenant)
-                                        .name(raw.get("name").toString())
-                                        .addString("erp_" + id + ".bpmn20.xml", xml)
-                                        .deploy();
-                        var definition =
-                                engine.getRepositoryService()
-                                        .createProcessDefinitionQuery()
-                                        .deploymentId(deployment.getId())
-                                        .processDefinitionTenantId(tenant)
-                                        .singleResult();
-                        jdbc.update(
-                                "INSERT INTO"
-                                    + " wf_model_version(id,tenant_id,company_id,model_id,version_no,flowable_definition_id,deployment_id,simple_json,bpmn_xml,content_hash,published_by)"
-                                    + " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                                Ids.next(),
-                                actor.tenantId(),
-                                raw.get("company_id"),
-                                id,
-                                published,
-                                definition.getId(),
-                                deployment.getId(),
-                                raw.get("simple_json").toString(),
-                                xml,
-                                digest(xml),
-                                actor.userId());
+                        deploy(actor.tenantId(), number(raw.get("company_id")), id, type,
+                                raw.get("name").toString(), node, published, actor.userId());
                     }
                     jdbc.update(
                             "UPDATE wf_model SET"
@@ -272,6 +245,7 @@ public class WorkflowModels {
 
     public Map<String, Object> bind(CompanyAccess actor, Long id, String key, Binding input) {
         manage(actor, "workflow_binding:update", true);
+        if (input.priority() == SystemWorkflowPlan.PRIORITY) throw SimpleModel.invalid("默认流程优先级由系统管理");
         company(actor, input.companyId());
         if (!SimpleModel.TYPES.contains(input.businessType()) || input.businessType().equals(GenericWorkflowBusiness.TYPE))
             throw SimpleModel.invalid("请选择业务单据类型，通用审批通过表单关联流程");
@@ -300,6 +274,8 @@ public class WorkflowModels {
                                         id,
                                         actor.companyId());
                         if (rows.isEmpty()) throw missing();
+                        if (number(rows.getFirst().get("priority")) == SystemWorkflowPlan.PRIORITY)
+                            throw SimpleModel.invalid("系统默认流程绑定由系统管理，可新增自定义流程覆盖");
                         version(input.version(), rows.getFirst());
                         if (number(rows.getFirst().get("company_id")) != input.companyId()
                                 || !rows.getFirst()
@@ -358,7 +334,7 @@ public class WorkflowModels {
                         "SELECT b.*,m.status model_status,m.published_version FROM"
                             + " wf_business_binding b JOIN wf_model m ON m.tenant_id=b.tenant_id"
                             + " AND m.id=b.model_id WHERE b.tenant_id=? AND b.company_id IN(0,?)"
-                            + " AND b.business_type=? AND b.enabled=1 ORDER BY b.company_id"
+                            + " AND b.business_type=? AND b.enabled=1 ORDER BY (b.priority=" + SystemWorkflowPlan.PRIORITY + "),b.company_id"
                             + " DESC,b.priority DESC,b.id",
                         actor.tenantId(),
                         actor.companyId(),
@@ -375,6 +351,59 @@ public class WorkflowModels {
             return row;
         }
         return null;
+    }
+
+    public long installDefault(long tenant, long company, String type) {
+        String label = SystemWorkflowPlan.LABELS.get(type);
+        if (label == null) throw SimpleModel.invalid("此类单据没有系统默认流程");
+        // 公司行串行化首次提交与补建，防止重复部署流程。
+        if (jdbc.queryForList("SELECT id FROM company WHERE tenant_id=? AND id=? FOR UPDATE",
+                Long.class, tenant, company).isEmpty()) throw missing();
+        String code = SystemWorkflowPlan.CODE_PREFIX + type;
+        var existing = jdbc.queryForList("""
+                SELECT m.id FROM wf_model m JOIN wf_business_binding b
+                    ON b.tenant_id=m.tenant_id AND b.company_id=m.company_id AND b.model_id=m.id
+                WHERE m.tenant_id=? AND m.company_id=? AND m.code=? AND m.status='published'
+                  AND b.priority=? AND b.enabled=1 AND b.condition_json IS NULL AND b.business_type=?
+                """, Long.class, tenant, company, code, SystemWorkflowPlan.PRIORITY, type);
+        if (!existing.isEmpty()) return existing.getFirst();
+        var node = SystemWorkflowPlan.tree(type);
+        SimpleModel.validate(node, type);
+        long model = Ids.next();
+        String name = label + "默认审批";
+        jdbc.update("""
+                INSERT INTO wf_model(id,tenant_id,company_id,code,name,business_type,simple_json,status,published_version,created_by)
+                VALUES(?,?,?,?,?,?,?,'published',1,0)
+                """, model, tenant, company, code, name, type, json.writeValueAsString(node));
+        deploy(tenant, company, model, type, name, node, 1, 0);
+        jdbc.update("""
+                INSERT INTO wf_business_binding(id,tenant_id,company_id,business_type,model_id,priority,created_by)
+                VALUES(?,?,?,?,?,?,0)
+                """, Ids.next(), tenant, company, type, model, SystemWorkflowPlan.PRIORITY);
+        return model;
+    }
+
+    private void deploy(long tenant, long company, long id, String type, String name,
+                        SimpleModel.Node node, int version, long operator) {
+        String key = "erp_" + id;
+        String xml = SimpleCompiler.compile(key, name, node, type);
+        String engineTenant = Long.toString(tenant);
+        var repository = engine.getRepositoryService();
+        var deployment = repository.createDeployment().tenantId(engineTenant).name(name)
+                .addString(key + ".bpmn20.xml", xml).deploy();
+        var definition = repository.createProcessDefinitionQuery().deploymentId(deployment.getId())
+                .processDefinitionTenantId(engineTenant).singleResult();
+        jdbc.update("""
+                INSERT INTO wf_model_version(id,tenant_id,company_id,model_id,version_no,flowable_definition_id,
+                                             deployment_id,simple_json,bpmn_xml,content_hash,published_by)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                """, Ids.next(), tenant, company, id, version, definition.getId(), deployment.getId(),
+                json.writeValueAsString(node), xml, digest(xml), operator);
+    }
+
+    private static void checkEditable(String code) {
+        if (code.toLowerCase(Locale.ROOT).startsWith(SystemWorkflowPlan.CODE_PREFIX))
+            throw SimpleModel.invalid("系统默认流程由系统管理，可新建自定义流程覆盖");
     }
 
     Map<String,Object> genericBinding(CompanyAccess actor,long modelId) {

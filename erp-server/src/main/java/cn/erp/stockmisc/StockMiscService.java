@@ -25,7 +25,11 @@ import static cn.erp.stockmisc.StockMiscQueries.RESOURCE;
 
 @Service
 @Transactional
-class StockMiscService {
+class StockMiscService implements WorkflowBusiness {
+    private WorkflowPort workflow;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void workflow(WorkflowPort workflow) { this.workflow = workflow; }
     private final JdbcTemplate jdbc;
     private final StockMiscQueries queries;
     private final StockMiscLoans loans;
@@ -93,13 +97,17 @@ class StockMiscService {
     Map<String,Object> command(CompanyAccess actor,long document,String action,String key,Command input){
         queries.head(actor,document,false);
         return execute(actor,action,key,List.of(document,input),200,()->{
+            workflow.guard(actor, RESOURCE, document, action);
             var snapshot=queries.head(actor,document,false);
             LocalDate day=((Date)snapshot.get("business_date")).toLocalDate();
             Long period=Set.of("submit","approve","post").contains(action)?dates.period(actor,day):null;
             var current=queries.head(actor,document,true);
             version(current,input.version());
             switch(action){
-                case "submit" -> submit(actor,document,current);
+                case "submit" -> {
+                    submit(actor, document, current);
+                    workflow.start(actor, RESOURCE, document, Map.of());
+                }
                 case "approve" -> approve(actor,document,current);
                 case "reject" -> reject(actor,document,current,input.reason());
                 case "void" -> {state(current,"draft","pending","approved");transition(actor,document,"voided");}
@@ -109,6 +117,26 @@ class StockMiscService {
             changed(actor,document,action,current,input.reason());
             return document;
         });
+    }
+
+    @Override
+    public String businessType() { return RESOURCE; }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> snapshot(ActorScope actor, long id) {
+        var row = queries.head((CompanyAccess) actor, id, false);
+        return Map.of("documentNo", row.get("document_no"), "title", "其他出入库 " + row.get("document_no"),
+                "createdBy", row.get("created_by"), "ownerDeptId", row.get("owner_department_id"), "totalAmount", "0");
+    }
+
+    @Override
+    public void decide(ActorScope scope, long id, String outcome, String comment, String key) {
+        if (!WorkflowContext.allows(scope, RESOURCE, id)) throw new ApiException(403, "FORBIDDEN", "业务回调缺少流程上下文");
+        var actor = (CompanyAccess) scope;
+        var row = queries.head(actor, id, false);
+        command(actor, id, outcome.equals("approved") ? "approve" : "reject", key,
+                new Command(id(row, "version"), Objects.toString(comment, "流程未通过")));
     }
 
     private void validate(CompanyAccess actor,Input input){

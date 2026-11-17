@@ -25,7 +25,7 @@ public class ExportAccess {
             WHERE u.tenant_id=? AND u.id=? AND u.status='active' AND u.must_change_password=0 AND t.status='active' AND c.status='active'
             """,Long.class,company,tenant,user);
         if(count==null || count==0) { throw forbidden(); }
-        var scopes=jdbc.queryForList("SELECT scope_type,warehouse_id FROM sys_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=?",tenant,user,company);
+        var scopes=jdbc.queryForList("SELECT scope_type,warehouse_id FROM org_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=?",tenant,user,company);
         if(scopes.isEmpty()) { throw forbidden(); }
         boolean all=scopes.stream().anyMatch(s->s.get("scope_type").equals("company"));var warehouses=new HashSet<Long>();
         for(var row:scopes) { if(row.get("warehouse_id") instanceof Number n) { warehouses.add(n.longValue()); } }

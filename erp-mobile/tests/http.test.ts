@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { api, ApiFailure, onSessionExpired, replaceContext, validOrigin } from '../src/api/http'
+import { api, ApiFailure, onSessionExpired, replaceContext, requireServerVersion, validOrigin } from '../src/api/http'
 
 type Response = { statusCode: number; data: unknown }
 type Request = { url: string; header: Record<string, string>; withCredentials: boolean; success: (response: Response) => void }
@@ -8,6 +8,19 @@ afterEach(() => {
   vi.unstubAllGlobals()
   onSessionExpired(() => undefined)
   replaceContext({ origin: '' })
+})
+
+it('探测主版本时不携带设备令牌，旧后端提示升级', async () => {
+  const request = vi.fn((options: Request) => options.success({ statusCode: 200, data: { data: { apiMajor: 1 } } }))
+  vi.stubGlobal('uni', { request })
+  replaceContext({ origin: 'https://erp.example.com', token: 'old-device' })
+  await expect(requireServerVersion()).rejects.toMatchObject({ code: 'ERP_VERSION_INCOMPATIBLE' })
+  expect(request).toHaveBeenCalledWith(expect.objectContaining({
+    url: 'https://erp.example.com/api/v1/system/version',
+    header: {},
+  }))
+  request.mockImplementationOnce((options: Request) => options.success({ statusCode: 200, data: { data: { apiMajor: 2 } } }))
+  await expect(requireServerVersion()).resolves.toBeUndefined()
 })
 
 it('设备只向已配置的 HTTPS 域名发 Bearer 并继续携带公司范围', async () => {

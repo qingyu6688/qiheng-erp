@@ -136,7 +136,7 @@ class OpenPlatformIT {
                     "ledger_balance","journal_line","journal","cost_adjustment","inv_movement_hold","inventory_movement","inventory_cost","inventory_balance",
                     "shipment_line","shipment","sales_order_fee","sales_order_line","sales_order","document_sequence","accounting_period",
                     "unit_conversion","sku","product","product_category","unit","partner_role","business_partner",
-                    "sys_user_data_scope","sys_user_role","sys_role_permission","sys_role","sys_user","warehouse","company")) {
+                    "org_user_data_scope","sys_user_role","sys_role_permission","sys_role","sys_user","warehouse","company")) {
                 jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",owner);
             }
             jdbc.update("DELETE FROM tenant WHERE id=?",owner);
@@ -292,7 +292,7 @@ class OpenPlatformIT {
             jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) VALUES(?,?,?,?)",Ids.next(),owner,role,permission);
         }
         jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),owner,user,role);
-        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,company_id,scope_type) VALUES(?,?,?,?,'company')",
+        jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,company_id,scope_type) VALUES(?,?,?,?,'company')",
                 Ids.next(),owner,user,grantedCompany);
         var response=send(request("/api/v1/auth/login").header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(
                 json.writeValueAsString(Map.of("tenantCode",code(owner),"username","open_admin","password",clear)))).build());

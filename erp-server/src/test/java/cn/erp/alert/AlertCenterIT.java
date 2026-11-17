@@ -53,7 +53,7 @@ class AlertCenterIT {
         jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,?,'tester','预警员','test-hash')",user,tenant);
         jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(?,?,'SYSTEM_ADMIN','管理员')",role,tenant);
         jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,user,role);
-        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,company_id,scope_type) VALUES(?,?,?,?,'company')",Ids.next(),tenant,user,company);
+        jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,company_id,scope_type) VALUES(?,?,?,?,'company')",Ids.next(),tenant,user,company);
         for (String permission : actor.permissions()) jdbc.update("""
                 INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) SELECT ?,?,?,id FROM sys_permission WHERE code=?
                 """,Ids.next(),tenant,role,permission);

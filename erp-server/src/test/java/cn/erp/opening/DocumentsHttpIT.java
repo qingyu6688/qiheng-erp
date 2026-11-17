@@ -101,7 +101,7 @@ class DocumentsHttpIT extends OpeningTestData {
         jdbc.update("UPDATE file_ticket SET expires_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 1 SECOND) WHERE tenant_id=?", tenant);
         assertThat(content(location).statusCode()).isEqualTo(403);
         String fresh = request("GET", "/attachments/" + id + "/download", null, false, company).headers().firstValue("Location").orElseThrow();
-        jdbc.update("DELETE FROM sys_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=? AND warehouse_id=?", tenant, user, company, warehouse);
+        jdbc.update("DELETE FROM org_user_data_scope WHERE tenant_id=? AND user_id=? AND company_id=? AND warehouse_id=?", tenant, user, company, warehouse);
         assertThat(content(fresh).statusCode()).isEqualTo(404);
         assertThat(request("GET", "/attachments?ownerType=stock_adjustment&ownerId=" + owner, null, false, company).statusCode()).isEqualTo(404);
     }
@@ -145,7 +145,7 @@ class DocumentsHttpIT extends OpeningTestData {
 
     @Test void paymentPrintSourcesUseHumanDocumentNumbersAndCurrentSourceViewPermission() throws Exception {
         long order = Ids.next(), payment = Ids.next();
-        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)", Ids.next(), tenant, user, company);
+        jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)", Ids.next(), tenant, user, company);
         jdbc.update("INSERT INTO purchase_order(id,tenant_id,company_id,order_no,supplier_id,business_date,price_tax_inclusive,created_by) VALUES(?,?,?,'PO-PRINT-SOURCE',?,'2026-11-01',1,?)",
                 order, tenant, company, partner, user);
         jdbc.update("INSERT INTO payment(id,tenant_id,company_id,payment_no,payment_type,partner_id,cash_account_id,amount,business_date,related_order_id,created_by) VALUES(?,?,?,'PAY-PRINT-SOURCE','supplier',?,?,10,'2026-11-01',?,?)",
