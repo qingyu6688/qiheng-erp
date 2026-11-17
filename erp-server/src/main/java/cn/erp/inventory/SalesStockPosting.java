@@ -33,6 +33,27 @@ public class SalesStockPosting {
         public Issue(Posting posting,BigDecimal quantity,Long reservationId){this(posting,quantity,reservationId,null);}
     }
 
+    @Transactional(readOnly=true,noRollbackFor=ApiException.class)
+    public void checkIssue(CompanyAccess scope,List<Issue> inputs) {
+        inventory.checkShipmentPicks(scope,inputs,true);
+        var keys=inputs.stream().map(input->input.posting().key()).toList();
+        var balances=store.readMany(scope,keys,false);
+        var costs=store.readMany(scope,keys,true);
+        var reservations=reservationRows(scope,inputs.stream().map(Issue::reservationId).filter(Objects::nonNull).distinct().toList(),false);
+        for(var input:inputs) {
+            var balance=balances.get(input.posting().key());
+            var cost=costs.get(input.posting().key());
+            if(balance==null||cost==null) throw insufficient();
+            var reservation=reservations.get(input.reservationId());
+            var available=availability(input,balance,cost,reservation);
+            balance.put("on_hand_qty",available.onHand());
+            balance.put("reserved_qty",available.reserved());
+            cost.put("qty",decimal(cost,"qty").subtract(input.quantity()));
+            if(available.consumed().signum()>0)
+                reservation.put("remaining_qty",decimal(reservation,"remaining_qty").subtract(available.consumed()));
+        }
+    }
+
     public List<CostResult> issue(CompanyAccess scope,List<Issue> inputs) {
         if(inputs==null || inputs.isEmpty() || inputs.size()>500 || inputs.stream().anyMatch(Objects::isNull)) {throw new ApiException(400,"VALIDATION_FAILED","发货出库明细无效");}
         var first=inputs.getFirst().posting();
@@ -74,11 +95,9 @@ public class SalesStockPosting {
             Map<Key,Map<String,Object>> costs,Map<Long,Map<String,Object>> reservations,Writes writes) {
         var p=input.posting();var qty=input.quantity();var balance=balances.get(p.key());var cost=costs.get(p.key());
         var reservation=input.reservationId()==null?null:reservations.get(input.reservationId());
-        if(input.reservationId()!=null && (reservation==null || ((Number)reservation.get("warehouse_id")).longValue()!=p.key().warehouseId() || ((Number)reservation.get("sku_id")).longValue()!=p.key().skuId())) {throw missing();}
-        BigDecimal consumed=reservation!=null && "active".equals(reservation.get("status"))?qty.min(decimal(reservation,"remaining_qty")):BigDecimal.ZERO;
-        BigDecimal onHand=decimal(balance,"on_hand_qty").subtract(qty),reserved=decimal(balance,"reserved_qty").subtract(consumed);
-        if(onHand.signum()<0 || reserved.signum()<0 || onHand.subtract(reserved).subtract(decimal(balance,"blocked_qty")).signum()<0 || decimal(cost,"qty").compareTo(qty)<0) {throw insufficient();}
-        balance.put("on_hand_qty",onHand);balance.put("reserved_qty",reserved);
+        var available=availability(input,balance,cost,reservation);
+        var consumed=available.consumed();
+        balance.put("on_hand_qty",available.onHand());balance.put("reserved_qty",available.reserved());
         BigDecimal unit=InventoryNumbers.average(decimal(cost,"qty"),decimal(cost,"total_cost")),out=InventoryNumbers.roundedCost(qty.multiply(unit));
         BigDecimal remaining=decimal(cost,"qty").subtract(qty),remainingCost=decimal(cost,"total_cost").subtract(out),adjust=BigDecimal.ZERO.setScale(2);
         if(remaining.signum()==0) {adjust=remainingCost.negate();remainingCost=BigDecimal.ZERO.setScale(2);}
@@ -93,6 +112,21 @@ public class SalesStockPosting {
         }
         if(adjust.signum()!=0) {writes.adjustments.add(new Object[]{Ids.next(),scope.tenantId(),scope.companyId(),p.key().warehouseId(),p.key().skuId(),adjust,p.source().id(),p.source().lineId(),p.businessDate(),p.periodId(),scope.userId()});}
         return new CostResult(qty,unit,out,adjust,remaining,remainingCost);
+    }
+
+    private record Availability(BigDecimal onHand,BigDecimal reserved,BigDecimal consumed) {}
+
+    private Availability availability(Issue input,Map<String,Object> balance,Map<String,Object> cost,Map<String,Object> reservation) {
+        var key=input.posting().key();
+        var quantity=input.quantity();
+        if(input.reservationId()!=null&&(reservation==null||((Number)reservation.get("warehouse_id")).longValue()!=key.warehouseId()
+                ||((Number)reservation.get("sku_id")).longValue()!=key.skuId())) throw missing();
+        var consumed=reservation!=null&&"active".equals(reservation.get("status"))?quantity.min(decimal(reservation,"remaining_qty")):BigDecimal.ZERO;
+        var onHand=decimal(balance,"on_hand_qty").subtract(quantity);
+        var reserved=decimal(balance,"reserved_qty").subtract(consumed);
+        if(onHand.signum()<0||reserved.signum()<0||onHand.subtract(reserved).subtract(decimal(balance,"blocked_qty")).signum()<0
+                ||decimal(cost,"qty").compareTo(quantity)<0) throw insufficient();
+        return new Availability(onHand,reserved,consumed);
     }
 
     private Map<Long,Map<String,Object>> reservationRows(CompanyAccess scope,List<Long> ids,boolean lock) {

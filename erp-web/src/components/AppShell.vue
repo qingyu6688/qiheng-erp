@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onScopeDispose, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onScopeDispose, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowDown,
@@ -23,6 +23,8 @@ import {
 import { useSessionStore } from '../stores/session'
 import { messageOf, isCancelled } from '../api/http'
 import { workbenchSummary } from '../api/workbench'
+import { openAiDocument } from '../hooks/ai-document'
+import type { AiDocumentContext } from '../types/ai'
 import BrandMark from './BrandMark.vue'
 import NotificationBell from './NotificationBell.vue'
 import { reportSpecs, reportPermission } from '../types/reporting'
@@ -44,6 +46,7 @@ const accountName = computed(() => session.user?.displayName || session.user?.us
 const AiAssistantDrawer = defineAsyncComponent(() => import('./AiAssistantDrawer.vue'))
 const assistantOpen = ref(false)
 const assistantOpened = ref(false)
+const assistantDocument = ref<AiDocumentContext>()
 const showAssistant = computed(
   () => Boolean(session.companyId) && !session.user?.mustChangePassword && session.can('ai:use'),
 )
@@ -52,13 +55,30 @@ watch(
   () => {
     assistantOpen.value = false
     assistantOpened.value = false
+    assistantDocument.value = undefined
   },
   { flush: 'sync' },
 )
 function openAssistant(): void {
+  assistantDocument.value = undefined
   assistantOpened.value = true
   assistantOpen.value = true
 }
+provide(openAiDocument, (document) => {
+  if (!showAssistant.value) return
+  assistantDocument.value = document
+  assistantOpened.value = true
+  assistantOpen.value = true
+})
+watch(
+  () => route.fullPath,
+  () => {
+    if (!assistantDocument.value) return
+    assistantOpen.value = false
+    assistantDocument.value = undefined
+  },
+  { flush: 'sync' },
+)
 interface NavigationItem {
   path: string
   title: string
@@ -592,6 +612,10 @@ async function logout(): Promise<void> {
         />
       </main>
     </div>
-    <AiAssistantDrawer v-if="showAssistant && assistantOpened" v-model="assistantOpen" />
+    <AiAssistantDrawer
+      v-if="showAssistant && assistantOpened"
+      v-model="assistantOpen"
+      :document-context="assistantDocument"
+    />
   </div>
 </template>

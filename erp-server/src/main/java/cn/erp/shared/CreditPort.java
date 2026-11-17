@@ -17,4 +17,6 @@ public interface CreditPort {
     }
 
     default void shipment(ActorScope actor, long customer) {}
+
+    default void checkShipment(ActorScope actor, long customer) {shipment(actor,customer);}
 }

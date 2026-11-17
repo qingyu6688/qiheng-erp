@@ -48,4 +48,9 @@ class AiBridgeController {
         signature.verify(request,PREFIX+"/scope/"+code,false);
         return ApiResponse.success(bridge.scope(request,code));
     }
+
+    @PostMapping(path="/scope/document_explain",consumes="application/json")
+    ApiResponse<?> documentScope(HttpServletRequest request) {
+        return ApiResponse.success(bridge.documentScope(request,signature.verifyQuery(request,PREFIX+"/scope/document_explain")));
+    }
 }

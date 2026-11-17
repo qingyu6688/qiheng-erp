@@ -116,6 +116,32 @@ class GlClosingService implements FinancialPeriodPort {
         return result;
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> closeReadiness(ActorScope actor, long period) {
+        if (enabled(actor) == null) return List.of();
+        authorize(actor, "close");
+        var current = s.period(actor, period, false);
+        var items = new ArrayList<Map<String, Object>>();
+        if (!periodEnded(current)) items.add(Map.of("check","gl_period_not_ended","passed",false,
+                "message","期间结束后才能执行财务结账"));
+        if (nextOpenPeriod(actor,current).isEmpty()) items.add(Map.of("check","gl_next_period_not_open","passed",false,
+                "message","请先建立下一个开放期间，以便滚入余额"));
+        return List.copyOf(items);
+    }
+
+    private boolean periodEnded(Map<String,Object> period) {
+        return !date(period.get("end_date")).isAfter(LocalDate.now(ZoneId.of("Asia/Shanghai")));
+    }
+
+    private List<Map<String,Object>> nextOpenPeriod(ActorScope actor,Map<String,Object> period) {
+        return s.jdbc.queryForList("""
+                SELECT * FROM accounting_period WHERE tenant_id=? AND company_id=?
+                AND start_date>? ORDER BY start_date LIMIT 1
+                """,actor.tenantId(),actor.companyId(),period.get("end_date")).stream()
+                .filter(next->"open".equals(next.get("status"))).toList();
+    }
+
     public void close(ActorScope a, long period) {
         var book = enabled(a);
         if (book == null) return;
@@ -124,17 +150,11 @@ class GlClosingService implements FinancialPeriodPort {
         s.active(a);
         s.lockPosting(a);
         var p = s.period(a, period, false);
-        if (date(p.get("end_date")).isAfter(LocalDate.now(ZoneId.of("Asia/Shanghai"))))
+        if (!periodEnded(p))
             throw invalid("期间结束后才能执行财务结账");
         requireChecks(a, period);
-        var next =
-                s.jdbc.queryForList(
-                        "SELECT * FROM accounting_period WHERE tenant_id=? AND company_id=? AND"
-                                + " start_date>? ORDER BY start_date LIMIT 1",
-                        a.tenantId(),
-                        a.companyId(),
-                        p.get("end_date"));
-        if (next.isEmpty() || !"open".equals(next.getFirst().get("status")))
+        var next = nextOpenPeriod(a, p);
+        if (next.isEmpty())
             throw invalid("请先建立下一个开放期间，以便滚入余额");
         long cycle = Ids.next();
         int sequence =

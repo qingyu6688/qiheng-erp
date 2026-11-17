@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onScopeDispose, ref, watch } from 'vue'
-import { records } from '../api/admin'
+import { useRoute, useRouter } from 'vue-router'
+import { allRecords } from '../api/admin'
 import { checkPeriod } from '../api/period'
 import type { PeriodCheck } from '../api/period'
 import type { DataRow } from '../types/admin'
@@ -9,8 +10,11 @@ import { useSessionStore } from '../stores/session'
 import { resourceSpecs } from './resources'
 import PeriodActions from '../components/PeriodActions.vue'
 import RecordEditor from '../components/RecordEditor.vue'
+import AiDocumentButton from '../components/AiDocumentButton.vue'
 import { documentLink } from '../types/reporting'
 const session = useSessionStore(),
+  route = useRoute(),
+  router = useRouter(),
   rows = ref<DataRow[]>([]),
   selected = ref<DataRow>(),
   report = ref<PeriodCheck>(),
@@ -28,13 +32,15 @@ const labels: Record<string, string> = {
 let revision = 0,
   checkRevision = 0
 function selectPeriod(row: DataRow | undefined): void {
-  if (row) void inspect(row)
+  if (row && row.id !== selected.value?.id)
+    void router.replace({ query: { ...route.query, id: row.id } })
 }
 async function inspect(row: DataRow): Promise<void> {
   const current = ++checkRevision
   selected.value = row
   report.value = undefined
   error.value = ''
+  checking.value = false
   if (!session.can('period:close') || row.status !== 'open') return
   checking.value = true
   try {
@@ -46,6 +52,22 @@ async function inspect(row: DataRow): Promise<void> {
     if (current === checkRevision) checking.value = false
   }
 }
+async function inspectSelected(): Promise<void> {
+  const id = route.query.id
+  const row =
+    id == null
+      ? (rows.value.find((item) => item.id === selected.value?.id) ?? rows.value[0])
+      : rows.value.find((item) => item.id === id)
+  if (row) {
+    await inspect(row)
+    return
+  }
+  ++checkRevision
+  selected.value = undefined
+  report.value = undefined
+  checking.value = false
+  error.value = id == null ? '' : '当前公司没有可查看的指定期间。'
+}
 async function load(): Promise<void> {
   const current = ++revision
   ++checkRevision
@@ -53,11 +75,10 @@ async function load(): Promise<void> {
   error.value = ''
   report.value = undefined
   try {
-    const page = await records('accounting-periods', true, { limit: 200 })
+    const periods = await allRecords('accounting-periods', true, session.companyId ?? undefined)
     if (current !== revision) return
-    rows.value = page.items
-    const selectedRow = rows.value.find((row) => row.id === selected.value?.id) ?? rows.value[0]
-    if (selectedRow) await inspect(selectedRow)
+    rows.value = periods
+    await inspectSelected()
   } catch (cause: unknown) {
     if (current === revision && !isCancelled(cause)) error.value = messageOf(cause)
   } finally {
@@ -77,6 +98,12 @@ watch(
   },
   { immediate: true },
 )
+watch(
+  () => route.query.id,
+  () => {
+    if (rows.value.length) void inspectSelected()
+  },
+)
 onScopeDispose(() => {
   ++revision
   ++checkRevision
@@ -95,7 +122,12 @@ onScopeDispose(() => {
   <el-alert v-if="error" :title="error" type="error" :closable="false" />
   <div class="period-layout">
     <section class="panel table-panel">
-      <el-table :data="rows" row-key="id" highlight-current-row @current-change="selectPeriod"
+      <el-table
+        :data="rows"
+        row-key="id"
+        :current-row-key="selected?.id"
+        highlight-current-row
+        @current-change="selectPeriod"
         ><el-table-column prop="period" label="期间" /><el-table-column
           prop="startDate"
           label="开始日期"
@@ -116,12 +148,22 @@ onScopeDispose(() => {
     <section class="panel period-check">
       <div class="page-heading">
         <h2>{{ selected?.period ?? '选择期间' }} · 关账检查</h2>
-        <el-button
-          v-if="selected?.status === 'open' && session.can('period:close')"
-          :loading="checking"
-          @click="inspect(selected)"
-          >重新检查</el-button
-        >
+        <div v-if="selected && session.can('period:close')">
+          <AiDocumentButton
+            v-if="session.company?.allWarehouses"
+            :document="{
+              documentType: 'accounting_period',
+              documentId: selected.id,
+              label: String(selected.period),
+            }"
+          />
+          <el-button
+            v-if="selected.status === 'open'"
+            :loading="checking"
+            @click="inspect(selected)"
+            >重新检查</el-button
+          >
+        </div>
       </div>
       <p v-if="checking" role="status">正在核对库存、资金和未完成单据…</p>
       <p v-if="selected?.status === 'closed'">
@@ -152,8 +194,7 @@ onScopeDispose(() => {
               v-if="documentLink(document.documentType, document.documentId)"
               class="text-link"
               :to="documentLink(document.documentType, document.documentId)!"
-              >{{ document.documentNo }}</router-link
-            ><span v-else>{{ document.documentNo }}</span>
+              >{{ document.documentNo }}</router-link><span v-else>{{ document.documentNo }}</span>
           </p>
         </div></template
       >

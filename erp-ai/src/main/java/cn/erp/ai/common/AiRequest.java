@@ -75,9 +75,23 @@ public class AiRequest {
         var tool=BusinessToolSpec.require(code);
         tool.validate(arguments);
         tool.authorize(access.actor(),arguments);
+        return signedQuery(access,QUERY+tool.code(),arguments);
+    }
+
+    public JsonNode explainDocument(Access access,JsonNode arguments) {
+        DocumentExplainSpec.read(arguments).authorize(access.actor());
+        return signedQuery(access,QUERY+DocumentExplainSpec.CODE,arguments);
+    }
+
+    public String documentScope(Access access,JsonNode arguments) {
+        DocumentExplainSpec.read(arguments).authorize(access.actor());
+        return scopeFingerprint(signedQuery(access,SCOPE+DocumentExplainSpec.CODE,arguments));
+    }
+
+    private JsonNode signedQuery(Access access,String path,JsonNode arguments) {
         if (access.credentials().csrf==null)
-            throw new AiException(403,"AI_CSRF_REQUIRED","查数请求验证已失效，请刷新后重试");
-        return erp(access.credentials(),"POST",QUERY+tool.code(),access.credentials().csrf,json.writeValueAsBytes(arguments));
+            throw new AiException(403,"AI_CSRF_REQUIRED","业务查询验证已失效，请刷新后重试");
+        return erp(access.credentials(),"POST",path,access.credentials().csrf,json.writeValueAsBytes(arguments));
     }
 
     public String businessScope(Access access,String code) {
@@ -129,7 +143,8 @@ public class AiRequest {
         if (response.statusCode() == 403) throw AiException.forbidden();
         if (response.statusCode() == 404) throw AiException.missing();
         if (payload!=null && (response.statusCode()==400 || response.statusCode()==422))
-            throw AiException.invalid("查数条件无法用于此业务查询，请核对条件后重试");
+            throw AiException.invalid(path.endsWith("/"+DocumentExplainSpec.CODE)
+                    ? "单据解释条件无效，请重新打开单据后重试" : "查数条件无法用于此业务查询，请核对条件后重试");
         if (response.statusCode() != 200) throw upstream();
         JsonNode body;
         try { body=json.readTree(response.body()); }

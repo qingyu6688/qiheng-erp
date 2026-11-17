@@ -52,6 +52,28 @@ public class DocumentBrowser {
     }
     public Spec spec(String kind) {var value=SPECS.get(kind);if(value==null)throw invalid("单据类型无效");return value;}
     public String permission(String kind) {return documents.permission(spec(kind).type(),"view");}
+
+    public Optional<String> visibleNumber(CompanyAccess actor,String kind,long id) {
+        var spec=spec(kind);
+        if(!actor.hasPermission(permission(kind))) return Optional.empty();
+        var bindings=params(actor);
+        bindings.put("referenceId",id);
+        boolean reversal="document_reversal".equals(spec.type());
+        String columns="h."+spec.number()+" document_no"+(reversal?",h.source_type,h.source_id":"");
+        var rows=jdbc.queryForList("SELECT "+columns+" FROM "+spec.type()+" h WHERE "
+                +where(actor,spec,Filter.empty(),bindings)+" AND h.id=:referenceId",bindings);
+        if(rows.isEmpty()) return Optional.empty();
+        var row=rows.getFirst();
+        if(reversal) {
+            String sourceType=row.get("source_type").toString();
+            var source=SPECS.entrySet().stream().filter(entry->sourceType.equals(entry.getValue().type()))
+                    .map(Map.Entry::getKey).findFirst();
+            if(source.isEmpty()||kind.equals(source.get())||visibleNumber(actor,source.get(),((Number)row.get("source_id")).longValue()).isEmpty())
+                return Optional.empty();
+        }
+        return Optional.of(row.get("document_no").toString());
+    }
+
     public Map<String,Object> page(CompanyAccess actor,String kind,Filter filter,Long cursor,int limit,boolean withTotal) {
         return page(actor,kind,filter,cursor,limit,withTotal,Map.of(),false);
     }

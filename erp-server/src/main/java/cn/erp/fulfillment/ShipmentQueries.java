@@ -149,7 +149,7 @@ public class ShipmentQueries {
         return page(items,rows.size()>limit?items.getLast().get("id"):null);
     }
 
-    private List<String> actions(CompanyAccess scope,String status) {
+    List<String> actions(CompanyAccess scope,String status) {
         var result=new ArrayList<String>();
         if(status.equals("draft")) {if(scope.hasPermission("shipment:update")) {result.add("update");} add(result,scope,"submit");}
         if(status.equals("submitted")) {add(result,scope,"post");add(result,scope,"void");}

@@ -198,6 +198,18 @@ public class InventoryService {
         }
     }
 
+    @Transactional(readOnly=true,noRollbackFor=ApiException.class)
+    public void checkShipmentPicks(CompanyAccess scope,List<SalesStockPosting.Issue> lines,boolean posting) {
+        var preview=new InventoryDimensions.PickPreview();
+        for(var line:lines) {
+            var movement=line.posting();
+            var allocated=posting?shipmentPick(scope,movement.source().lineId(),false):null;
+            var pick=dimensions.outgoing(scope,movement,line.quantity(),allocated==null?line.stockSelection():allocated,
+                    null,allocated!=null,preview);
+            if(allocated==null) preview.add(movement.key(),pick,line.quantity());
+        }
+    }
+
     private void reserveShipmentPick(CompanyAccess scope,Posting posting,BigDecimal qty,StockSelection selection) {
         var pick=dimensions.outgoing(scope,posting,qty,selection,null,false);
         dimensions.reserveSerials(scope,posting.key(),pick);
@@ -218,7 +230,11 @@ public class InventoryService {
     }
 
     private StockSelection shipmentPick(CompanyAccess scope,long lineId) {
-        return jdbc.queryForList("SELECT serial_ids FROM inv_shipment_pick WHERE tenant_id=? AND company_id=? AND shipment_line_id=? FOR UPDATE",
+        return shipmentPick(scope,lineId,true);
+    }
+
+    private StockSelection shipmentPick(CompanyAccess scope,long lineId,boolean lock) {
+        return jdbc.queryForList("SELECT serial_ids FROM inv_shipment_pick WHERE tenant_id=? AND company_id=? AND shipment_line_id=?"+(lock?" FOR UPDATE":""),
                 String.class,scope.tenantId(),scope.companyId(),lineId).stream().map(this::decodeSelection).findFirst().orElse(null);
     }
 

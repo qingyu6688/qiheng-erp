@@ -39,6 +39,28 @@ public class PeriodService {
         companyScope(scope);var period=find(scope,id);return report(scope,id,period);
     }
 
+    public record CloseReadiness(String period,String status,List<String> allowedActions,
+                                 List<Map<String,Object>> checks) {}
+
+    public CloseReadiness explainClose(CompanyAccess scope,long id) {
+        companyScope(scope);
+        var target=find(scope,id);
+        String status=target.get("status").toString();
+        String number=target.get("period").toString();
+        if(!"open".equals(status)) {
+            return new CloseReadiness(number,status,List.of(),List.of(
+                    Map.of("check","STATE_CONFLICT","passed",false,"message","该会计期间已经关闭")));
+        }
+        var available=jdbc.queryForList("SELECT id,period,status FROM accounting_period WHERE tenant_id=? AND company_id=? ORDER BY period",
+                scope.tenantId(),scope.companyId());
+        var items=reportItems(scope,id,target);
+        previousOpen(available,target).ifPresent(previous -> items.add(Map.of("check","PERIOD_ORDER_INVALID","passed",false,
+                "message",periodOrderInvalid().getMessage(),"documents",List.of(Map.of("documentType","accounting_period",
+                        "documentId",previous.get("id").toString(),"documentNo",previous.get("period").toString())))));
+        if(financial!=null) items.addAll(financial.closeReadiness(scope,id));
+        return new CloseReadiness(number,status,List.of("close"),List.copyOf(items));
+    }
+
     @Transactional(isolation=Isolation.READ_COMMITTED)
     @SuppressWarnings({"unchecked","rawtypes"})
     public Map<String,Object> close(CompanyAccess scope,long id,String key,Version input) {
@@ -51,9 +73,7 @@ public class PeriodService {
             var initial=report(scope,id,before);requirePassed(initial);
             var periods=lockPeriods(scope);var current=periods.stream().filter(p->id(p,"id")==id).findFirst().orElseThrow(()->missing());
             version(current,input.version());state(current,"open");
-            if(periods.stream().anyMatch(p->p.get("period").toString().compareTo(current.get("period").toString())<0&&"open".equals(p.get("status")))) {
-                throw new ApiException(422,"PERIOD_ORDER_INVALID","请先关闭之前的开放期间");
-            }
+            if(previousOpen(periods,current).isPresent()) throw periodOrderInvalid();
             // 排他锁等到在途过账提交后再读最新事实，防止旧快照穿透。
             var latest=report(scope,id,current);requirePassed(latest);
             if(!projections.pending(scope).isEmpty()) {
@@ -83,6 +103,11 @@ public class PeriodService {
     }
 
     private Map<String,Object> report(CompanyAccess scope,long id,Map<String,Object> period) {
+        var items=reportItems(scope,id,period);
+        return Map.of("id",Long.toString(id),"period",period.get("period"),"version",period.get("version"),"passed",items.stream().allMatch(item->Boolean.TRUE.equals(item.get("passed"))),"items",items);
+    }
+
+    private ArrayList<Map<String,Object>> reportItems(CompanyAccess scope,long id,Map<String,Object> period) {
         var pending=checks.check(scope,"period_close",id);var items=new ArrayList<Map<String,Object>>();
         add(items,"unposted_documents",pending.stream().filter(d->DOCUMENTS.contains(d.key())).toList(),"已提交未过账的单据已处理",scope,period);
         add(items,"pending_money",pending.stream().filter(d->Set.of("receipt","payment","refund_request","account_transfer","opening_entry").contains(d.key())).toList(),"没有待确认资金及未完成退款",scope,period);
@@ -102,7 +127,17 @@ public class PeriodService {
             """,Long.class,scope.tenantId(),scope.companyId(),scope.tenantId(),scope.companyId());
         items.add(Map.of("check","cost_residue","passed",residues==0,"count",residues,"message",residues==0?"数量归零的成本尾差已处理":"存在数量归零但成本未归零的流水"));
         if(financial!=null) items.addAll(financial.checks(scope,id));
-        return Map.of("id",Long.toString(id),"period",period.get("period"),"version",period.get("version"),"passed",items.stream().allMatch(item->Boolean.TRUE.equals(item.get("passed"))),"items",items);
+        return items;
+    }
+
+    private Optional<Map<String,Object>> previousOpen(List<Map<String,Object>> periods,Map<String,Object> current) {
+        String target=current.get("period").toString();
+        return periods.stream().filter(period->"open".equals(period.get("status"))
+                && period.get("period").toString().compareTo(target)<0).findFirst();
+    }
+
+    private ApiException periodOrderInvalid() {
+        return new ApiException(422,"PERIOD_ORDER_INVALID","请先关闭之前的开放期间");
     }
     private void add(List<Map<String,Object>> items,String type,List<ReconciliationChecks.Difference> differences,String success,CompanyAccess scope,Map<String,Object> period) {
         long count=differences.stream().map(ReconciliationChecks.Difference::actual).mapToLong(n->n.signum()>0&&n.scale()<=0?n.longValue():1).sum();

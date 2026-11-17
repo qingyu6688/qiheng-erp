@@ -44,10 +44,19 @@ public class LedgerService {
 
     /** 获取期间共享锁，调用事务完成前关账无法越过该锁。 */
     public void lockOpenPeriod(ActorScope scope,long periodId,LocalDate date) {
+        validateOpenPeriod(scope,periodId,date,true);
+    }
+
+    @Transactional(readOnly=true,noRollbackFor=ApiException.class)
+    public void checkOpenPeriod(ActorScope scope,long periodId,LocalDate date) {
+        validateOpenPeriod(scope,periodId,date,false);
+    }
+
+    private void validateOpenPeriod(ActorScope scope,long periodId,LocalDate date,boolean lock) {
         if(scope.tenantId()<=0 || scope.companyId()<=0 || date==null || date.isAfter(LocalDate.now(ZoneId.of("Asia/Shanghai")))) {
             throw AccountingAmounts.invalid("业务日期或公司上下文无效");
         }
-        var periods=jdbc.queryForList("SELECT status,start_date,end_date FROM accounting_period WHERE tenant_id=? AND company_id=? AND id=? FOR SHARE",scope.tenantId(),scope.companyId(),periodId);
+        var periods=jdbc.queryForList("SELECT status,start_date,end_date FROM accounting_period WHERE tenant_id=? AND company_id=? AND id=?"+(lock?" FOR SHARE":""),scope.tenantId(),scope.companyId(),periodId);
         if(periods.isEmpty()) {throw AccountingAmounts.missing();}
         var period=periods.getFirst();
         if(!"open".equals(period.get("status"))) {throw new ApiException(422,"PERIOD_CLOSED","会计期间已关闭");}
