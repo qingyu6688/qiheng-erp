@@ -124,6 +124,14 @@ const definitions = [
       { path: 'stock-transfers', title: '库存调拨', permission: 'stock_transfer:view' },
       { path: 'stock-counts', title: '库存盘点', permission: 'stock_count:view' },
       { path: 'stock-adjustments', title: '库存调整', permission: 'stock_adjustment:view' },
+      {
+        path: 'inventory-trace',
+        title: '批次与序列号',
+        any: ['batch:view', 'batch:trace', 'serial:trace', 'inventory_trace:customer'],
+      },
+      { path: 'stock-misc-in', title: '其他入库', permission: 'stock_misc_doc:view' },
+      { path: 'stock-misc-out', title: '其他出库', permission: 'stock_misc_doc:view' },
+      { path: 'quality', title: '来料质检', any: ['qc_inspection:view', 'qc_setting:view'] },
     ],
   },
   {
@@ -136,6 +144,7 @@ const definitions = [
       { path: 'account-transfers', title: '账户转账', permission: 'account_transfer:view' },
       { path: 'settlements', title: '核销工作台', permission: 'settlement:view' },
       { path: 'invoice-registrations', title: '开票登记', permission: 'invoice_registration:view' },
+      { path: 'e-invoices', title: '数电发票', permission: 'einv:view' },
       { path: 'opening-entries', title: '往来与资金期初', permission: 'opening_entry:view' },
     ],
   },
@@ -145,6 +154,7 @@ const definitions = [
     items: [
       { path: 'document-reversals', title: '单据冲销', permission: 'reversal:view' },
       { path: 'accounting-periods', title: '会计期间与关账', permission: 'period:view' },
+      { path: 'supply-reconciliation', title: '供应链对账', permission: 'reconciliation:view' },
     ],
   },
   {
@@ -174,8 +184,10 @@ const definitions = [
       { path: 'partners', title: '往来单位', permission: 'partner:view' },
       { path: 'skus', title: '商品与 SKU', any: ['sku:view', 'product:view'] },
       { path: 'product-categories', title: '商品分类', permission: 'product_category:view' },
+      { path: 'brands', title: '品牌', permission: 'brand:view' },
       { path: 'units', title: '计量单位', permission: 'unit:view' },
       { path: 'warehouses', title: '仓库管理', permission: 'warehouse:view' },
+      { path: 'warehouse-locations', title: '库区库位', permission: 'wms_location:view' },
       { path: 'cash-accounts', title: '结算账户', permission: 'cash_account:view' },
       { path: 'income-expense-items', title: '收支项目', permission: 'income_expense_item:view' },
     ],

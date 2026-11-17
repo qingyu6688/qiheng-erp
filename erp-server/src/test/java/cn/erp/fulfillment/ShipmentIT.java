@@ -81,7 +81,7 @@ class ShipmentIT {
         jdbc.update("DELETE FROM inbox_event WHERE event_id IN(SELECT id FROM outbox_event WHERE tenant_id=?)",tenant);
         jdbc.update("UPDATE sales_order_fee SET recognized_shipment_id=NULL WHERE tenant_id=?",tenant);
         for(String table:List.of("outbox_event","ledger_balance","journal_line","journal","settlement_allocation","partner_open_item",
-                "receivable","receipt","inventory_reservation_change","inventory_reservation","cost_adjustment","inventory_movement",
+                "receivable","receipt","inventory_reservation_change","inventory_reservation","cost_adjustment","inv_movement_hold","inventory_movement",
                 "inventory_cost","inventory_balance","shipment_line","shipment","sales_order_fee","sales_order_line","sales_order",
                 "audit_log","idempotency_record","document_sequence","cash_account_balance","cash_account","accounting_period",
                 "unit_conversion","sku","product","product_category","unit","partner_role","business_partner","warehouse","company")) {

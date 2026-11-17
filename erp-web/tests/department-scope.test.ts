@@ -93,6 +93,23 @@ describe('Y-02 角色部门范围', () => {
     )
     wrapper.unmount()
   })
+  it('保存后刷新同一会话不清空成功提示或重新加载范围', async () => {
+    const wrapper = editor()
+    await flushPromises()
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    const session = useSessionStore()
+    const current = session.user!
+    session.user = { ...current, permissions: [...current.permissions] }
+    await flushPromises()
+    expect(wrapper.text()).toContain('当前公司的角色部门范围已保存')
+    expect(api.roleDataScope).toHaveBeenCalledTimes(1)
+    session.user = { ...current, id: '2' }
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('当前公司的角色部门范围已保存')
+    expect(api.roleDataScope).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
   it('切公司会取消旧请求，迟到结果不覆盖新版本', async () => {
     let old!: (value: RoleDataScope) => void
     vi.mocked(api.roleDataScope).mockImplementationOnce(

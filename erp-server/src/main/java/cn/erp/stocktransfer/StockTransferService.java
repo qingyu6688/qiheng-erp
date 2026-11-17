@@ -64,7 +64,8 @@ public class StockTransferService {
         inventory.lockKeys(scope,keys(lines,from,to));var entries=new ArrayList<LedgerService.Line>();
         for(var line:lines){
             long lineId=id(line,"id"),sku=id(line,"sku_id");catalog.requireActiveSku(scope,sku,id(line,"unit_id"));
-            var result=inventory.issue(scope,new Posting(new Key(from,sku),new Source("stock_transfer",id,lineId),day,period,"transfer_out"),decimal(line,"base_qty"),null);
+            var result=inventory.issue(scope,new Posting(new Key(from,sku),new Source("stock_transfer",id,lineId),day,period,"transfer_out"),
+                    decimal(line,"base_qty"),null,inventory.decodeSelection(line.get("stock_selection")),null);
             jdbc.update("UPDATE stock_transfer_line SET unit_cost=?,cost_amount=?,version=version+1,updated_by=? WHERE id=?",result.unitCost(),result.movementCost(),scope.userId(),lineId);
             event(scope,id,lineId,"ship",decimal(line,"base_qty"),result.movementCost(),period,day,null);
             add(entries,"GOODS_IN_TRANSIT","D",result.movementCost(),from,sku,lineId);add(entries,"INVENTORY","C",result.movementCost(),from,sku,lineId);
@@ -79,19 +80,27 @@ public class StockTransferService {
             var head=find(scope,id,true);version(head,input.version());state(head,"shipped");warehouses(scope,head);eventDate(scope,id,day);
             var lines=lines(scope,id,true);var selected=received(input.lines(),lines);long from=id(head,"from_warehouse_id"),to=id(head,"to_warehouse_id");
             inventory.lockKeys(scope,keys(lines,from,to));var entries=new ArrayList<LedgerService.Line>();boolean any=false;
-            for(var line:lines){BigDecimal qty=selected.get(id(line,"id"));if(qty==null||qty.signum()==0)continue;any=true;receiveLine(scope,id,line,qty,from,to,period,day,entries);}
+            for(var line:lines){
+                var received=selected.get(id(line,"id"));
+                if(received==null||received.quantity().signum()==0)continue;
+                any=true;
+                receiveLine(scope,id,line,received,from,to,period,day,entries);
+            }
             boolean last=!Boolean.FALSE.equals(input.finalReceipt());if(!last&&!any)throw invalid("分批调入须填写大于零的实收数量");
             if(last)markDifferences(scope,id);
             post(scope,"stock_transfer_receive",id,Math.toIntExact(input.version()),period,day,entries);refresh(scope,id,period);
             return changed(scope,id,"receive");
         });
     }
-    private void receiveLine(CompanyAccess scope,long id,Map<String,Object> line,BigDecimal qty,long from,long to,long period,LocalDate day,List<LedgerService.Line> entries){
+    private void receiveLine(CompanyAccess scope,long id,Map<String,Object> line,Received received,long from,long to,long period,LocalDate day,List<LedgerService.Line> entries){
+        var qty=received.quantity();
         long lineId=id(line,"id"),sku=id(line,"sku_id");var remaining=costs.remaining(scope,lineId);
         if(qty.compareTo(remaining.remainingQuantity())>0)throw new ApiException(422,"RECEIVE_QTY_EXCEEDED","实收数量超过剩余在途数量");
         BigDecimal cost=qty.compareTo(remaining.remainingQuantity())==0?remaining.remainingCost():decimal(line,"cost_amount").multiply(decimal(line,"received_base_qty").add(qty)).divide(decimal(line,"base_qty"),2,RoundingMode.HALF_UP).subtract(decimal(line,"received_cost_amount"));
         long event=event(scope,id,lineId,"receive",qty,cost,period,day,null);
-        inventory.receive(scope,new Posting(new Key(to,sku),new Source("stock_transfer_event",id,event),day,period,"transfer_in"),qty,cost);
+        var target=new Key(to,sku);
+        var selection=inventory.returnSelection(scope,target,new Source("stock_transfer",id,lineId),"transfer_out",received.selection(),qty,null);
+        inventory.receive(scope,new Posting(target,new Source("stock_transfer_event",id,event),day,period,"transfer_in"),qty,cost,selection,null);
         costs.receive(scope,lineId,remaining.version(),qty,cost);
         add(entries,"INVENTORY","D",cost,to,sku,event);add(entries,"GOODS_IN_TRANSIT","C",cost,from,sku,event);
     }
@@ -109,7 +118,11 @@ public class StockTransferService {
     private void resolveLine(CompanyAccess scope,long id,Map<String,Object> line,String disposition,long from,long period,LocalDate day,String reason,List<LedgerService.Line> entries){
         stateValue(line,"diff_status","pending");long lineId=id(line,"id"),sku=id(line,"sku_id");var remaining=costs.remaining(scope,lineId);
         BigDecimal qty=decimal(line,"diff_base_qty"),cost=remaining.remainingCost();long event=event(scope,id,lineId,disposition,qty,cost,period,day,reason);
-        if(disposition.equals("returned"))inventory.receive(scope,new Posting(new Key(from,sku),new Source("stock_transfer_event",id,event),day,period,"transfer_in"),qty,cost);
+        var origin=new Source("stock_transfer",id,lineId);
+        var key=new Key(from,sku);
+        var selection=inventory.returnSelection(scope,key,origin,"transfer_out",null,qty,null);
+        if(disposition.equals("returned"))inventory.receive(scope,new Posting(key,new Source("stock_transfer_event",id,event),day,period,"transfer_in"),qty,cost,selection,null);
+        else inventory.finishLostInTransit(scope,key,event,selection);
         costs.resolveDifference(scope,lineId,remaining.version(),qty,cost);
         add(entries,disposition.equals("returned")?"INVENTORY":"INVENTORY_ADJUSTMENT","D",cost,from,sku,event);add(entries,"GOODS_IN_TRANSIT","C",cost,from,sku,event);
     }
@@ -126,7 +139,9 @@ public class StockTransferService {
     public Map<String,Object> get(CompanyAccess scope,long id){
         var raw=find(scope,id,false);var result=row(raw);result.put("documentNo",raw.get("transfer_no"));
         result.put("fromWarehouseName",warehouseName(scope,id(raw,"from_warehouse_id")));result.put("toWarehouseName",warehouseName(scope,id(raw,"to_warehouse_id")));
-        var lines=jdbc.queryForList("SELECT l.*,s.name sku_name,u.name unit_name FROM stock_transfer_line l JOIN sku s ON s.tenant_id=l.tenant_id AND s.id=l.sku_id JOIN unit u ON u.tenant_id=l.tenant_id AND u.id=l.unit_id WHERE l.tenant_id=? AND l.company_id=? AND l.transfer_id=? ORDER BY l.line_no",scope.tenantId(),scope.companyId(),id).stream().map(FinanceSupport::row).toList();
+        var lines=jdbc.queryForList("SELECT l.*,s.name sku_name,u.name unit_name FROM stock_transfer_line l JOIN sku s ON s.tenant_id=l.tenant_id AND s.id=l.sku_id JOIN unit u ON u.tenant_id=l.tenant_id AND u.id=l.unit_id WHERE l.tenant_id=? AND l.company_id=? AND l.transfer_id=? ORDER BY l.line_no",scope.tenantId(),scope.companyId(),id).stream().map(line->{
+            var view=row(line);view.put("stockSelection",inventory.viewSelection(line.get("stock_selection")));return view;
+        }).toList();
         for(var line:lines){BigDecimal remaining=new BigDecimal(line.get("baseQty").toString()).subtract(new BigDecimal(line.get("receivedBaseQty").toString()));if("resolved".equals(line.get("diffStatus")))remaining=remaining.subtract(new BigDecimal(line.get("diffBaseQty").toString()));line.put("remainingQty",remaining.toPlainString());if(!scope.hasPermission("cost:view"))hideCost(line);}
         var events=jdbc.queryForList("SELECT * FROM stock_transfer_event_line WHERE tenant_id=? AND company_id=? AND transfer_id=? ORDER BY id",scope.tenantId(),scope.companyId(),id).stream().map(FinanceSupport::row).toList();
         if(!scope.hasPermission("cost:view"))events.forEach(StockTransferService::hideCost);result.put("lines",lines);result.put("events",events);result.put("allowedActions",actions(scope,raw));return result;
@@ -149,7 +164,7 @@ public class StockTransferService {
     }
     private void writeLines(CompanyAccess scope,long id,List<StockTransferModels.Line> lines){int no=0;for(var line:lines){
         var rate=jdbc.queryForObject("SELECT rate_to_base FROM unit_conversion WHERE tenant_id=? AND sku_id=? AND unit_id=?",BigDecimal.class,scope.tenantId(),line.skuId(),line.unitId());var base=new BigDecimal(pricing.convertQuantity(line.qty(),rate.toPlainString()));
-        jdbc.update("INSERT INTO stock_transfer_line(id,tenant_id,company_id,transfer_id,line_no,sku_id,unit_id,unit_rate,qty,base_qty,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",Ids.next(),scope.tenantId(),scope.companyId(),id,++no,line.skuId(),line.unitId(),rate,quantity(line.qty()),base,scope.userId(),scope.userId());}}
+        jdbc.update("INSERT INTO stock_transfer_line(id,tenant_id,company_id,transfer_id,line_no,sku_id,unit_id,unit_rate,qty,base_qty,stock_selection,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",Ids.next(),scope.tenantId(),scope.companyId(),id,++no,line.skuId(),line.unitId(),rate,quantity(line.qty()),base,inventory.encodeSelection(line.stockSelection()),scope.userId(),scope.userId());}}
     private Map<String,Object> find(CompanyAccess scope,long id,boolean lock){
         cn.erp.shared.OrgOwnership.require(jdbc,scope,"stock_transfer",id);var rows=jdbc.queryForList("SELECT * FROM stock_transfer WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"stock_transfer")+" AND id=?"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);if(rows.isEmpty())throw missing();var row=rows.getFirst();if(!scope.allowsWarehouse(id(row,"from_warehouse_id"))||!scope.allowsWarehouse(id(row,"to_warehouse_id")))throw missing();return row;}
     private List<Map<String,Object>> lines(CompanyAccess scope,long id,boolean lock){return jdbc.queryForList("SELECT * FROM stock_transfer_line WHERE tenant_id=? AND company_id=? AND transfer_id=? ORDER BY sku_id,id"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),id);}
@@ -160,7 +175,8 @@ public class StockTransferService {
     private LocalDate day(Map<String,Object> head,LocalDate requested){LocalDate day=requested==null?((java.sql.Date)head.get("business_date")).toLocalDate():requested;date(day);if(day.isBefore(((java.sql.Date)head.get("business_date")).toLocalDate()))throw invalid("操作日期不能早于调拨业务日期");return day;}
     private void eventDate(CompanyAccess scope,long id,LocalDate day){var latest=jdbc.queryForObject("SELECT MAX(business_date) FROM stock_transfer_event_line WHERE tenant_id=? AND company_id=? AND transfer_id=?",java.sql.Date.class,scope.tenantId(),scope.companyId(),id);if(latest!=null&&day.isBefore(latest.toLocalDate()))throw invalid("操作日期不能早于已有调拨记录");}
     private long event(CompanyAccess scope,long id,long line,String type,BigDecimal qty,BigDecimal cost,long period,LocalDate day,String reason){long event=Ids.next();jdbc.update("INSERT INTO stock_transfer_event_line(id,tenant_id,company_id,transfer_id,transfer_line_id,event_type,base_qty,cost_amount,business_date,period_id,reason,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",event,scope.tenantId(),scope.companyId(),id,line,type,qty,cost,day,period,reason,scope.userId());return event;}
-    private Map<Long,BigDecimal> received(List<StockTransferModels.ReceivedLine> selected,List<Map<String,Object>> lines){if(selected==null||selected.isEmpty()||selected.size()>200)throw invalid("请填写1到200行实收明细");var ids=lines.stream().map(l->id(l,"id")).toList();var result=new HashMap<Long,BigDecimal>();for(var line:selected){if(line==null||line.lineId()==null||!ids.contains(line.lineId()))throw missing();BigDecimal qty=nonNegative(line.qty());if(result.put(line.lineId(),qty)!=null)throw invalid("实收行不能重复");}return result;}
+    private record Received(BigDecimal quantity,StockSelection selection) {}
+    private Map<Long,Received> received(List<StockTransferModels.ReceivedLine> selected,List<Map<String,Object>> lines){if(selected==null||selected.isEmpty()||selected.size()>200)throw invalid("请填写1到200行实收明细");var ids=lines.stream().map(l->id(l,"id")).toList();var result=new HashMap<Long,Received>();for(var line:selected){if(line==null||line.lineId()==null||!ids.contains(line.lineId()))throw missing();var receive=new Received(nonNegative(line.qty()),line.stockSelection());if(result.put(line.lineId(),receive)!=null)throw invalid("实收行不能重复");}return result;}
     private Map<Long,String> differences(List<StockTransferModels.DifferenceLine> selected,List<Map<String,Object>> lines){if(selected==null||selected.isEmpty()||selected.size()>200)throw invalid("请选择1到200行差异");var ids=lines.stream().map(l->id(l,"id")).toList();var result=new HashMap<Long,String>();for(var line:selected){if(line==null||line.lineId()==null||!ids.contains(line.lineId()))throw missing();if(line.disposition()==null||!Set.of("returned","lost").contains(line.disposition()))throw invalid("差异处理方式无效");if(result.put(line.lineId(),line.disposition())!=null)throw invalid("差异行不能重复");}return result;}
     private BigDecimal nonNegative(String value){if(value==null||value.length()>32||!value.matches("[0-9]+(?:\\.[0-9]{1,6})?"))throw invalid("实收数量须为最多六位小数的非负数");var result=new BigDecimal(value).setScale(6);if(result.precision()>24)throw invalid("实收数量超出允许范围");return result;}
     private void stateValue(Map<String,Object> row,String field,String expected){if(!expected.equals(row.get(field)))throw new ApiException(409,"STATE_CONFLICT","该调拨行没有待处理差异");}

@@ -18,6 +18,7 @@
 | 财务总账（候选） | 公司独立人民币账套、两套准则样例、七维辅助、手工及业务凭证、三表指标、期末结转；支持信用、催收和坏账，见[M12使用说明](docs/M12财务总账使用说明.md)。 |
 | 内部 AI 助手（候选） | 按企业、角色和部门检索内部资料，回答附可核对的引用。知识维护人员可导入资料、调整片段和审核 Wiki，管理员可配置模型、只读工具和用量。见 [M13 使用与验收说明](docs/M13人工智能使用与验收.md)。 |
 | 平台二期（候选） | 企业单点登录、按角色强制 MFA、动态字段、编码规则、签名 API 与 Webhook、通用审批和动态表单。见 [M14 使用与验收](docs/M14平台二期使用与验收.md)。 |
+| 供应链一期（候选） | 来料检验、批次与序列号追溯、先进先出和近效期先出、库位记账、其他出入库、数电发票与供应链对账。 [M14 供应链使用与验收](docs/M14供应链一期使用与验收.md) |
 | 报表与文件 | 提供库存收发存、销售采购汇总、账龄、资金日记账、毛利等十类报表。支持后台 CSV 导入导出、错误行下载、单据打印预览和私有附件。 |
 | 权限与审计 | 按企业、公司和仓库划分数据范围，按角色与操作授权。关键审核支持经办与复核分离，并记录操作审计。管理员可以按企业配置短信、邮箱验证码和微信扫码登录。 |
 
@@ -121,6 +122,7 @@ M11 workflow work adds Flowable 8.0.0 with a SIMPLE designer, immutable model re
 | Finance | Enter or import opening balances, manage receivables and payables, and record receipts, payments, and transfers between accounts. Reverse transactions, run eight reconciliation checks, and close or reopen accounting periods. |
 | Internal AI assistant (candidate) | Ask questions with verifiable citations scoped to the tenant, roles, and departments. Maintain document segments and review Wiki revisions. Admins can set model routes, read-only tools, and usage limits. See the [M13 guide and acceptance checklist (Chinese)](docs/M13人工智能使用与验收.md). |
 | Platform phase two (candidate) | Enterprise SSO, role-enforced MFA, custom fields, numbering rules, signed API and webhook integrations, and general approvals with dynamic forms. See the [M14 guide and acceptance checklist (Chinese)](docs/M14平台二期使用与验收.md). |
+| Supply chain phase one (candidate) | Incoming inspection, lot and serial traceability, FIFO and FEFO, bin-level accounting, miscellaneous receipts and issues, digital invoices, and supply chain reconciliation. [M14 supply chain guide and acceptance checklist (Chinese)](docs/M14供应链一期使用与验收.md) |
 | Reports and files | Use ten report types, including inventory movements, sales and purchase summaries, aging, cash journals, and gross margin. Run background CSV imports and exports, download rejected rows, preview printed documents, and manage private attachments. |
 | Access and audit | Scope data by tenant, company, and warehouse, and grant permissions by role and action. Key transactions can require a separate reviewer and record an audit trail. Administrators can configure SMS codes, email codes, and WeChat sign-in per tenant. |
 

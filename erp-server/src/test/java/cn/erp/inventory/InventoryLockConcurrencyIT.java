@@ -36,7 +36,7 @@ class InventoryLockConcurrencyIT extends OrderCreationRaceData {
     }
 
     @AfterEach void cleanupBalances() {
-        for(String table:List.of("inventory_reservation_change","inventory_reservation","sales_order_line","sales_order","cost_adjustment","inventory_movement","inventory_cost","inventory_balance","accounting_period"))jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
+        for(String table:List.of("inventory_reservation_change","inventory_reservation","sales_order_line","sales_order","cost_adjustment","inv_movement_hold","inventory_movement","inventory_cost","inventory_balance","accounting_period"))jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
     }
 
     @Test void repeatedExistingDimensionLocksAcrossCompaniesCommitOnceWithoutTailGapDeadlock() throws Exception {

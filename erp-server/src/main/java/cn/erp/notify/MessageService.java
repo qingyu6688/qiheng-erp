@@ -71,6 +71,7 @@ public class MessageService implements TodoInbox {
         // 铃铛、工作台和收件箱会同时补齐消息，先锁收件人，避免空范围更新与去重插入互相死锁。
         jdbc.queryForList("SELECT id FROM sys_user WHERE tenant_id=? AND id=? FOR UPDATE",Long.class,actor.tenantId(),actor.userId());
         var existing=new HashSet<>(jdbc.queryForList("SELECT event_key FROM notify_message WHERE tenant_id=? AND company_id=? AND user_id=?",String.class,actor.tenantId(),actor.companyId(),actor.userId()));
+        qualityTodos(actor,existing);
         for(var task:jdbc.queryForList("SELECT t.id,t.instance_id,t.version FROM wf_task_ext t JOIN wf_instance i ON i.tenant_id=t.tenant_id AND i.id=t.instance_id WHERE t.tenant_id=? AND t.company_id=? AND t.assignee_id=? AND t.status='pending' AND i.status='running'",actor.tenantId(),actor.companyId(),actor.userId())) {
             String key="wf:task:"+task.get("id")+":v"+task.get("version");if(!existing.contains(key)) create(actor,"workflow.todo","新的审批待办","请进入审批中心查看并处理。","/workflow/instances/"+task.get("instance_id"),"todo","wf_task_ext",((Number)task.get("id")).longValue(),null,null,key,((Number)task.get("version")).longValue());
         }
@@ -107,6 +108,21 @@ public class MessageService implements TodoInbox {
         if(!category.isEmpty()) {where+=" AND m.category=:category";params.put("category",category);}if(unread!=null) where+=unread?" AND m.read_at IS NULL":" AND m.read_at IS NOT NULL";
         return page(named.queryForList("SELECT m.id,m.title,m.content,m.link,m.category,m.source_type,m.source_id,m.read_at,m.created_at FROM notify_message m WHERE "+where+" ORDER BY m.id DESC LIMIT :limit",params),limit);
     }
+    private void qualityTodos(CompanyAccess actor,Set<String> existing){
+        var filter=visibility.qualityPending(actor);
+        if(filter==null)return;
+        var rows=named.queryForList("SELECT q.id,q.version FROM qc_inspection q WHERE "+filter.where()+" ORDER BY q.id DESC LIMIT 200",filter.params());
+        for(var row:rows){
+            long id=((Number)row.get("id")).longValue(),version=((Number)row.get("version")).longValue();
+            String key="quality:dispose:"+id+":v"+version;
+            if(existing.contains(key))jdbc.update("""
+                    UPDATE notify_message SET state='open' WHERE tenant_id=? AND company_id=? AND user_id=? AND event_key=? AND state='resolved'
+                    """,actor.tenantId(),actor.companyId(),actor.userId(),key);
+            else create(actor,"quality.dispose","来料检不合格品待处置","请核对不合格数量并登记退货、报废或复检。",
+                    "/quality?inspectionId="+id,"todo","qc_inspection",id,"dispose",null,key,version);
+        }
+    }
+
     public Map<String,Object> counts(CompanyAccess actor) {sync(actor);var filter=visibility.visible(actor);var result=new LinkedHashMap<String,Object>();long total=0;for(var row:named.queryForList("SELECT m.category,COUNT(*) amount FROM notify_message m WHERE "+filter.where()+" AND m.read_at IS NULL GROUP BY m.category",filter.params())) {long count=((Number)row.get("amount")).longValue();result.put(row.get("category").toString(),count);total+=count;}result.put("total",total);return result;}
     public Map<String,Object> read(CompanyAccess actor,long id) {
         var filter=visibility.visible(actor);var params=new HashMap<>(filter.params());params.put("id",id);
@@ -137,8 +153,32 @@ public class MessageService implements TodoInbox {
                 var detail=todos.detail(actor,query,((Number)row.get("source_id")).longValue());if(detail!=null) {detail.put("messageId",row.get("id").toString());items.add(detail);}
             }
         }
+        qualitySummary(actor,blocks,items);
         var flow=workflows.workbench(actor);if(((Number)flow.get("count")).longValue()>0) {blocks.add(Map.of("key","workflow","label","流程审批待办","count",flow.get("count"),"url","/workflow/todo"));if(flow.get("items") instanceof List<?> rows) for(Object row:rows) if(row instanceof Map<?,?> values) {var todo=new LinkedHashMap<String,Object>();values.forEach((key,value)->todo.put(key.toString(),value));items.addFirst(todo);}}
         return Map.of("blocks",blocks,"todos",items.stream().limit(10).toList());
+    }
+
+    private void qualitySummary(CompanyAccess actor,List<Map<String,Object>> blocks,List<Map<String,Object>> items){
+        var filter=visibility.qualityPending(actor);
+        if(filter==null)return;
+        var params=new HashMap<>(filter.params());
+        params.put("user",actor.userId());
+        String matching="""
+                FROM notify_message m JOIN qc_inspection q ON q.tenant_id=m.tenant_id AND q.company_id=m.company_id AND q.id=m.source_id
+                WHERE m.user_id=:user AND m.state='open' AND m.category='todo' AND m.source_type='qc_inspection'
+                  AND m.source_action='dispose' AND m.source_version=q.version AND
+                """+filter.where();
+        var count=named.queryForObject("SELECT COUNT(*) "+matching,params,Long.class);
+        if(count==null||count==0)return;
+        String label="来料检不合格品待处置";
+        blocks.add(Map.of("key","quality","label",label,"count",count,"url","/quality?tab=nonconforming"));
+        for(var row:named.queryForList("SELECT q.id,q.inspection_no,q.business_date,m.id message_id "+matching+" ORDER BY m.id DESC LIMIT 10",params)){
+            var item=ApiRows.row(row);
+            item.put("label",label);
+            item.put("documentNo",item.remove("inspectionNo"));
+            item.put("url","/quality?inspectionId="+item.get("id"));
+            items.addFirst(item);
+        }
     }
     /** 后台每次只处理一个企业，授权变化在实际派发及读取时再次检查。 */
     @Transactional(propagation=Propagation.NOT_SUPPORTED)

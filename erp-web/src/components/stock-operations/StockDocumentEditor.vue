@@ -12,6 +12,8 @@ import type { SalesSkuUnit } from '../../types/sales'
 import { today } from '../../types/sales'
 import { useSessionStore } from '../../stores/session'
 import DependencyList from './DependencyList.vue'
+import StockSelectionFields from './StockSelectionFields.vue'
+import type { StockSelection } from '../../types/inventory-tracking'
 
 const props = defineProps<{ kind: StockKind; original?: StockDocument }>()
 const emit = defineEmits<{ close: []; saved: [StockDocument] }>()
@@ -19,8 +21,8 @@ const session = useSessionStore(), spec = computed(() => stockSpecs.find(item =>
 const transfer = computed(() => props.kind === 'stock-transfers'), reversal = computed(() => props.kind === 'document-reversals')
 const sourceTypes = computed(() => reversalTypes.filter(item => session.can(item.permission)))
 const form = reactive({ fromWarehouseId: props.original?.fromWarehouseId ?? '', toWarehouseId: props.original?.toWarehouseId ?? '', warehouseId: props.original?.warehouseId ?? '', businessDate: props.original?.businessDate ?? today(), remark: props.original?.remark ?? '', reason: '', sourceType: sourceTypes.value[0]?.value ?? '', sourceId: '' })
-interface InputLine { skuId: string; unitId: string; qty: string }
-const lines = ref<InputLine[]>((props.original?.lines ?? []).map(line => ({ skuId: line.skuId, unitId: line.unitId ?? '', qty: line.qty ?? '1' })))
+interface InputLine { skuId: string; unitId: string; qty: string; stockSelection?: StockSelection | null }
+const lines = ref<InputLine[]>((props.original?.lines ?? []).map(line => ({ skuId: line.skuId, unitId: line.unitId ?? '', qty: line.qty ?? '1', stockSelection: line.stockSelection })))
 const warehouses = ref<DataRow[]>([]), skus = ref<DataRow[]>([]), units = reactive<Record<string, SalesSkuUnit[]>>({})
 const sources = ref<ReversalSource[]>([]), chosenSource = ref<ReversalSource>(), keyword = ref(''), sourceCursors = ref<(string | null)[]>([null]), sourceNext = ref<string | null>(null), sourceBusy = ref(false)
 const sourceOptions = computed(() => chosenSource.value && !sources.value.some(item => item.id === chosenSource.value?.id) ? [chosenSource.value, ...sources.value] : sources.value)
@@ -33,6 +35,7 @@ let submitted: Record<string, unknown> | undefined
 function addLine(): void { lines.value.push({ skuId: '', unitId: '', qty: '1' }) }
 async function chooseSku(line: InputLine, preserveUnit = false): Promise<void> {
   const skuId = line.skuId
+  if (!preserveUnit) line.stockSelection = null
   if (!skuId) { line.unitId = ''; return }
   try {
     const details = await record('skus/' + skuId)
@@ -55,11 +58,14 @@ function searchSources(): void { sourceCursors.value = [null]; void loadSources(
 function pageSources(forward: boolean): void { if (forward && sourceNext.value) sourceCursors.value.push(sourceNext.value); else if (!forward) sourceCursors.value.pop(); void loadSources() }
 function selectSource(): void { chosenSource.value = sources.value.find(item => item.id === form.sourceId) ?? chosenSource.value }
 watch(() => form.sourceType, () => { form.sourceId = ''; chosenSource.value = undefined; sources.value = []; sourceNext.value = null; keyword.value = ''; searchSources() })
+watch(() => transfer.value ? form.fromWarehouseId : form.warehouseId, () => {
+  lines.value.forEach(line => { line.stockSelection = null })
+})
 function payload(): Record<string, unknown> {
   const common = { businessDate: form.businessDate, version: props.original?.version }
   if (reversal.value) return { ...common, sourceType: form.sourceType, sourceId: form.sourceId, reason: form.reason, ...(Object.keys(selections.value).length ? { workflowAssignees: selections.value } : {}) }
-  if (transfer.value) return { ...common, fromWarehouseId: form.fromWarehouseId, toWarehouseId: form.toWarehouseId, remark: form.remark, lines: lines.value.map(line => ({ skuId: line.skuId, unitId: line.unitId, qty: line.qty })) }
-  return { ...common, warehouseId: form.warehouseId, countMode: 'watermark', remark: form.remark, lines: lines.value.map(line => ({ skuId: line.skuId })) }
+  if (transfer.value) return { ...common, fromWarehouseId: form.fromWarehouseId, toWarehouseId: form.toWarehouseId, remark: form.remark, lines: lines.value.map(line => ({ skuId: line.skuId, unitId: line.unitId, qty: line.qty, stockSelection: line.stockSelection ?? undefined })) }
+  return { ...common, warehouseId: form.warehouseId, countMode: 'watermark', remark: form.remark, lines: lines.value.map(line => ({ skuId: line.skuId, stockSelection: line.stockSelection ?? undefined })) }
 }
 async function save(): Promise<void> {
   if (busy.value || uncertain.value || refreshRequired.value || reversal.value && (!form.sourceId || !workflowReady.value)) return
@@ -132,6 +138,13 @@ onUnmounted(() => { sourceRevision++ })
           <el-select v-if="transfer" v-model="line.unitId" :aria-label="'调拨单位' + (index + 1)"><el-option v-for="unit in units[line.skuId] ?? []" :key="unit.unitId" :value="unit.unitId" :label="unit.unitName" /></el-select>
           <el-input v-if="transfer" v-model="line.qty" :aria-label="'调拨数量' + (index + 1)" placeholder="数量" />
           <el-button :disabled="lines.length === 1" @click="lines.splice(index, 1)">移除</el-button>
+          <StockSelectionFields
+            v-if="line.skuId"
+            v-model="line.stockSelection"
+            :warehouse-id="transfer ? form.fromWarehouseId : form.warehouseId"
+            :sku-id="line.skuId"
+            :mode="transfer ? 'out' : 'freeze'"
+          />
         </div>
         <el-button :disabled="lines.length >= 200" @click="addLine">添加商品</el-button>
         <el-form-item label="备注" for="stock-remark"><el-input id="stock-remark" v-model="form.remark" type="textarea" maxlength="500" /></el-form-item>

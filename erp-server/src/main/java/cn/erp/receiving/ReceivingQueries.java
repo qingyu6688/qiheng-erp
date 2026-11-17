@@ -1,6 +1,7 @@
 package cn.erp.receiving;
 
 import cn.erp.identity.CompanyAccess;
+import cn.erp.inventory.InventoryService;
 import java.util.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -11,7 +12,8 @@ import static cn.erp.receiving.ReceivingSupport.*;
 @Transactional(readOnly=true)
 public class ReceivingQueries {
     private final JdbcTemplate jdbc;
-    public ReceivingQueries(JdbcTemplate jdbc) {this.jdbc=jdbc;}
+    private final InventoryService inventory;
+    public ReceivingQueries(JdbcTemplate jdbc,InventoryService inventory) {this.jdbc=jdbc;this.inventory=inventory;}
     static String table(boolean returning) {return returning?"purchase_return":"goods_receipt";}
     static String parent(boolean returning) {return returning?"return_id":"receipt_id";}
     static String source(boolean returning) {return returning?"receipt_line_id":"order_line_id";}
@@ -31,6 +33,7 @@ public class ReceivingQueries {
         result.put("warehouseName",jdbc.queryForObject("SELECT name FROM warehouse WHERE tenant_id=? AND company_id=? AND id=?",String.class,scope.tenantId(),scope.companyId(),header.get("warehouse_id")));
         result.put("lines",lines(scope,returning,id,false).stream().map(raw->{
             var row=view(raw);
+            row.put("stockSelection",inventory.viewSelection(raw.get("stock_selection")));
             row.put("skuName",jdbc.queryForObject("SELECT name FROM sku WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),raw.get("sku_id")));
             row.put("unitName",jdbc.queryForObject("SELECT name FROM unit WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),raw.get("unit_id")));
             if(!scope.hasPermission("cost:view")) {hideCost(row);}return row;
@@ -70,6 +73,7 @@ public class ReceivingQueries {
         sql+=warehouseFilter(scope,"h.",args);args.add(limit+1);
         var rows=jdbc.queryForList(sql+" ORDER BY l.id DESC LIMIT ?",args.toArray());
         var items=rows.stream().limit(limit).map(raw->{var row=view(raw);
+            row.put("stockSelection",inventory.viewSelection(raw.get("stock_selection")));
             row.put("returnableQty",decimal(raw,"base_qty").subtract(decimal(raw,"returned_base_qty")).subtract(decimal(raw,"pending_return_base_qty")).toPlainString());
             if(!scope.hasPermission("cost:view")) {hideCost(row);}return row;
         }).toList();

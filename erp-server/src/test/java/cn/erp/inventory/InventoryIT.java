@@ -25,6 +25,8 @@ class InventoryIT {
     @Autowired InventoryService inventory;
     @Autowired ReservationService reservations;
     @Autowired OrderLineOccupancy occupancy;
+    @Autowired InventoryTraceQueries trace;
+    @Autowired InventoryExpiryJob expiry;
     @Autowired PlatformTransactionManager manager;
     private CompanyAccess scope;
     private Key key;
@@ -55,7 +57,8 @@ class InventoryIT {
 
     @AfterEach
     void cleanup() {
-        for(String table:List.of("inventory_reservation_change","inventory_reservation","cost_adjustment","inventory_movement",
+        for(String table:List.of("inventory_reservation_change","inventory_reservation","cost_adjustment","inv_movement_hold",
+                "doc_line_serial","inv_movement_serial","inv_serial","inventory_movement","inv_batch",
                 "inventory_cost","inventory_balance","sales_order_line","sales_order","unit_conversion","sku","product",
                 "product_category","unit","accounting_period","business_partner","warehouse","company")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
@@ -254,6 +257,83 @@ class InventoryIT {
         assertThatThrownBy(()->inventory.issue(scope,posting("sales_out"),d("1"),null))
                 .isInstanceOfSatisfying(ApiException.class,e->assertThat(e.getErrorCode()).isEqualTo("PERIOD_CLOSED"));
     }
+
+    @Test
+    void fifoAndFefoSelectDifferentBatchesWithoutChangingWarehouseAverageCost() {
+        tracking("fifo",false);
+        long first=receiveBatch("先入",InventoryDimensions.today().plusDays(20),List.of());
+        long near=receiveBatch("近效",InventoryDimensions.today().plusDays(5),List.of());
+        var out=posting("sales_out");
+        assertThat(inventory.issue(scope,out,d("1"),null).unitCost()).isEqualByComparingTo("10");
+        assertThat(inventory.postedSelection(scope,out.source(),"sales_out").batchId()).isEqualTo(first);
+        jdbc.update("UPDATE sku SET issue_strategy='fefo' WHERE id=?",sku);
+        long late=receiveBatch("远效",InventoryDimensions.today().plusDays(90),List.of());
+        out=posting("sales_out");
+        inventory.issue(scope,out,d("1"),null);
+        assertThat(inventory.postedSelection(scope,out.source(),"sales_out").batchId()).isEqualTo(near).isNotEqualTo(late);
+        assertProjectionMatchesHistory();
+    }
+
+    @Test
+    void concurrentIssueAndSerialTraceProtectLastPhysicalUnit() throws Exception {
+        tracking("fefo",true);
+        long batch=receiveBatch("序列批次",InventoryDimensions.today().plusDays(10),List.of("SN-001"));
+        assertThatThrownBy(()->receiveBatch("重复批次",InventoryDimensions.today().plusDays(10),List.of("SN-001")))
+                .isInstanceOfSatisfying(ApiException.class,error->assertThat(error.getErrorCode()).isEqualTo("SERIAL_NOT_AVAILABLE"));
+        var first=posting("sales_out");var second=posting("sales_out");
+        assertThat(race(()->issuePhysical(first),()->issuePhysical(second))).containsExactlyInAnyOrder(true,false);
+        var lifecycle=trace.serial(scope,sku,"SN-001",null,10);
+        assertThat(lifecycle.get("serial")).isInstanceOfSatisfying(Map.class,row->assertThat(row.get("status")).isEqualTo("shipped"));
+        assertThat(trace.batch(scope,batch,null,10).get("items")).isInstanceOfSatisfying(List.class,rows->assertThat(rows).hasSize(2));
+        var otherCompany=new CompanyAccess(tenant,scope.userId(),Ids.next(),true,Set.of(),scope.permissions());
+        var otherWarehouse=new CompanyAccess(tenant,scope.userId(),company,false,Set.of(Ids.next()),scope.permissions());
+        var otherDepartment=new CompanyAccess(tenant,scope.userId(),company,true,Set.of(),scope.permissions(),
+                cn.erp.shared.OrgScope.restricted(Set.of(Ids.next()),Set.of(),0));
+        for(var denied:List.of(otherCompany,otherWarehouse,otherDepartment)){
+            assertThatThrownBy(()->trace.batch(denied,batch,null,10)).isInstanceOfSatisfying(ApiException.class,error->assertThat(error.getStatus()).isEqualTo(404));
+            assertThatThrownBy(()->trace.serial(denied,sku,"SN-001",null,10)).isInstanceOfSatisfying(ApiException.class,error->assertThat(error.getStatus()).isEqualTo(404));
+        }
+    }
+
+    @Test
+    void elapsedBatchRejectsPickingAndFreezesOnceAfterReleasingIncompatibleReservation() {
+        tracking("fefo",false);
+        LocalDate today=InventoryDimensions.today();
+        jdbc.update("UPDATE accounting_period SET period=?,start_date=?,end_date=? WHERE id=?",today.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMM")),today.withDayOfMonth(1),today.withDayOfMonth(today.lengthOfMonth()),period);
+        long reference=Ids.next();
+        var receipt=new Posting(key,new Source("inventory_test",reference,reference),today,period,"purchase_in");
+        inventory.receive(scope,receipt,d("1"),d("10.00"),new StockSelection(null,"过期批次",null,today.plusDays(1),null,List.of()),null);
+        long batch=inventory.postedSelection(scope,receipt.source(),"purchase_in").batchId();
+        long orderLine=line(d("1"));
+        reservations.reserve(scope,List.of(new ReservationRequest(orderLine,key,d("1"),Instant.now().plusSeconds(300))));
+        jdbc.update("UPDATE inv_batch SET expiry_date=? WHERE id=?",today.minusDays(1),batch);
+        long source=Ids.next();
+        var shipment=new Posting(key,new Source("inventory_test",source,source),today,period,"sales_out");
+        assertThatThrownBy(()->inventory.issue(scope,shipment,d("1"),null,new StockSelection(batch,null,null,null,null,List.of()),null))
+                .isInstanceOfSatisfying(ApiException.class,error->assertThat(error.getErrorCode()).isEqualTo("PICK_UNAVAILABLE"));
+        expiry.run(tenant);expiry.run(tenant);
+        assertThat(inventory.balance(scope,key).blocked()).isEqualByComparingTo("1");
+        assertThat(inventory.balance(scope,key).reserved()).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM inventory_movement WHERE tenant_id=? AND source_type='batch_expiry'",Integer.class,tenant)).isEqualTo(1);
+        long disposal=Ids.next();
+        inventory.issue(scope,new Posting(key,new Source("inventory_test",disposal,disposal),today,period,"scrap"),d("1"),null,
+                new StockSelection(batch,null,null,null,null,List.of()),null);
+        assertThat(inventory.balance(scope,key).onHand()).isZero();
+        assertThat(inventory.balance(scope,key).blocked()).isZero();
+        assertProjectionMatchesHistory();
+    }
+
+    private void tracking(String strategy,boolean serial){
+        jdbc.update("UPDATE sku SET batch_managed=TRUE,serial_managed=?,issue_strategy=? WHERE id=?",serial,strategy,sku);
+    }
+
+    private long receiveBatch(String number,LocalDate expiryDate,List<String> serials){
+        var receipt=posting("purchase_in");
+        inventory.receive(scope,receipt,d("1"),d("10.00"),new StockSelection(null,number,null,expiryDate,null,serials),null);
+        return inventory.postedSelection(scope,receipt.source(),"purchase_in").batchId();
+    }
+
+    private boolean issuePhysical(Posting posting){inventory.issue(scope,posting,d("1"),null);return true;}
 
     private boolean reserve(long line) {
         reservations.reserve(scope,List.of(new ReservationRequest(line,key,d("1"),Instant.now().plusSeconds(60))));return true;

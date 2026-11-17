@@ -48,6 +48,8 @@ const rows = ref(
     remaining: line.progress?.shippableQty ?? '0',
     disposition: 'returned',
     pending: line.diffDisposition === 'pending',
+    availableSerials: line.stockSelection?.serials ?? [],
+    serials: [] as string[],
   })),
 )
 const operation = computed(() => {
@@ -68,7 +70,11 @@ function body(): Record<string, unknown> {
   }
   if (action.value === 'sign') {
     value.signDate = date.value
-    value.lines = rows.value.map((r) => ({ lineId: r.id, signedQty: r.qty }))
+    value.lines = rows.value.map((r) => ({
+      lineId: r.id,
+      signedQty: r.qty,
+      serials: r.availableSerials.length && Number(r.qty) > 0 && quantityDifference(r.shipped, r.qty) !== '0' ? r.serials : undefined,
+    }))
     value.attachmentIds = [...attachmentIds.value]
   }
   if (action.value === 'resolve_diff') {
@@ -190,6 +196,16 @@ async function verify(): Promise<void> {
               ><el-button v-if="action === 'close_lines'" text @click="row.qty = row.remaining"
                 >全部关闭</el-button
               >
+              <el-select
+                v-if="action === 'sign' && row.availableSerials.length && Number(row.qty) > 0 && Number(row.qty) < Number(row.shipped)"
+                v-model="row.serials"
+                class="sign-serials"
+                aria-label="签收序列号"
+                placeholder="请选择实际签收的序列号"
+                multiple filterable
+              >
+                <el-option v-for="serial in row.availableSerials" :key="serial" :label="serial" :value="serial" />
+              </el-select>
             </div>
           </div>
           <el-alert
@@ -261,6 +277,7 @@ async function verify(): Promise<void> {
   padding: 12px 0;
   border-bottom: 1px solid var(--el-border-color-light);
 }
+.sign-serials { grid-column: 1 / -1; }
 .sign-lines label small {
   display: block;
   color: var(--el-text-color-secondary);

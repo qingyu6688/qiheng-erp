@@ -92,6 +92,7 @@ abstract class ReversalTestData {
         jdbc.update("DELETE FROM inbox_event WHERE event_id IN(SELECT id FROM outbox_event WHERE tenant_id=?)",tenant);
         jdbc.update("UPDATE sales_order_fee SET recognized_shipment_id=NULL WHERE tenant_id=?",tenant);
         jdbc.update("UPDATE purchase_order_fee SET recognized_receipt_id=NULL WHERE tenant_id=?",tenant);
+        jdbc.update("DELETE FROM inv_movement_hold WHERE tenant_id=?",tenant);
         for(String fact:List.of("receivable","payable","inventory_movement","journal")) {
             if(fact.equals("journal"))jdbc.update("DELETE FROM journal_line WHERE tenant_id=?",tenant);
             if(fact.equals("receivable")) {

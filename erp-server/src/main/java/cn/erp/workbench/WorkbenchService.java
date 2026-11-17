@@ -31,7 +31,7 @@ public class WorkbenchService {
                   WHERE l.tenant_id=:tenant AND l.company_id=:company AND l.is_deleted=0 AND h.is_deleted=0 AND h.status='pending'
                 """+scope+cn.erp.shared.OrgOwnership.filter(actor,"h")+"""
                   GROUP BY l.warehouse_id,l.sku_id),b AS (SELECT warehouse_id,sku_id,SUM(on_hand_qty-reserved_qty-blocked_qty) available_qty
-                  FROM inventory_balance WHERE tenant_id=:tenant AND company_id=:company GROUP BY warehouse_id,sku_id)
+                  FROM inventory_balance WHERE tenant_id=:tenant AND company_id=:company AND location_key='' AND lot_key='' GROUP BY warehouse_id,sku_id)
                 SELECT d.warehouse_id,d.sku_id,w.name warehouse_name,s.code sku_code,s.name sku_name,COALESCE(b.available_qty,0) available_qty,d.pending_demand_qty
                 FROM demand d LEFT JOIN b USING(warehouse_id,sku_id) JOIN warehouse w ON w.tenant_id=:tenant AND w.id=d.warehouse_id
                 JOIN sku s ON s.tenant_id=:tenant AND s.id=d.sku_id WHERE d.pending_demand_qty>COALESCE(b.available_qty,0)

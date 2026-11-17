@@ -50,6 +50,7 @@ public class SalesBrowserFixture {
         long tenant=number(admins.getFirst(),"tenant_id"),admin=number(admins.getFirst(),"user_id");
         long company=jdbc.queryForObject("SELECT id FROM company WHERE tenant_id=? AND code='DEMO-A'",Long.class,tenant);
         prepareMfaUser(tenant,company);
+        prepareSupplyUser(tenant,company);
         if(jdbc.queryForObject("SELECT COUNT(*) FROM business_partner WHERE tenant_id=? AND code='E2E-CUSTOMER'",Long.class,tenant)>0) {return;}
         long reviewer=Ids.next();
         jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,?,'reviewer','验收复核员',?)",reviewer,tenant,passwords.encode(password));
@@ -94,6 +95,24 @@ public class SalesBrowserFixture {
                 INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id)
                 SELECT ?,?,?,id FROM sys_permission WHERE code='warehouse:view'
                 """,Ids.next(),tenant,role);
+        jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,user,role);
+        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",
+                Ids.next(),tenant,user,company);
+    }
+
+    /** 供应链浏览器用例使用独立账号，避免与其它用例争用管理员的登录限额。 */
+    private void prepareSupplyUser(long tenant,long company) {
+        if (!jdbc.queryForList("SELECT id FROM sys_user WHERE tenant_id=? AND username='supply_tester'",Long.class,tenant).isEmpty()) return;
+        long user=Ids.next(),role=Ids.next();
+        jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,?,'supply_tester','供应链验收员',?)",
+                user,tenant,passwords.encode(password));
+        jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(?,?,'E2E_SUPPLY_TESTER','供应链验收角色')",role,tenant);
+        var permissions=jdbc.queryForList("""
+                SELECT id FROM sys_permission WHERE code IN ('warehouse:view','warehouse:create','warehouse:update','wms_location:view',
+                    'wms_location:manage','partner:view','einv:view','einv:create','einv:inbound','einv:manage')
+                """,Long.class);
+        for(long permission:permissions)
+            jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) VALUES(?,?,?,?)",Ids.next(),tenant,role,permission);
         jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,user,role);
         jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",
                 Ids.next(),tenant,user,company);

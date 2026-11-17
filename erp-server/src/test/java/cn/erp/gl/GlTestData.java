@@ -160,7 +160,7 @@ class GlTestData {
                         "ledger_projection_lock",
                         "inventory_reservation_change",
                         "inventory_reservation",
-                        "inventory_movement",
+                        "inv_movement_hold","inventory_movement",
                         "cost_adjustment",
                         "receipt",
                         "sales_order_fee",

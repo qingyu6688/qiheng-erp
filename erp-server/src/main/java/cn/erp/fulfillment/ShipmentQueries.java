@@ -1,6 +1,7 @@
 package cn.erp.fulfillment;
 
 import cn.erp.identity.CompanyAccess;
+import cn.erp.inventory.InventoryService;
 import cn.erp.shared.ApiException;
 import java.util.*;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -12,7 +13,8 @@ import static cn.erp.fulfillment.ShipmentValues.*;
 @Transactional(readOnly=true)
 public class ShipmentQueries {
     private final JdbcTemplate jdbc;
-    public ShipmentQueries(JdbcTemplate jdbc) {this.jdbc=jdbc;}
+    private final InventoryService inventory;
+    public ShipmentQueries(JdbcTemplate jdbc,InventoryService inventory) {this.jdbc=jdbc;this.inventory=inventory;}
 
     public Map<String,Object> header(CompanyAccess scope,long id,boolean lock) {
         cn.erp.shared.OrgOwnership.require(jdbc,scope,"shipment",id);
@@ -90,6 +92,9 @@ public class ShipmentQueries {
         line.put("signedQty",decimal(row,"signed_base_qty").toPlainString());
         line.put("diffQty",decimal(row,"diff_base_qty").toPlainString());
         line.put("returnableQty",decimal(row,"signed_base_qty").subtract(decimal(row,"returned_base_qty")).subtract(decimal(row,"pending_return_base_qty")).toPlainString());
+        line.put("stockSelection",inventory.viewSelection(row.get("stock_selection")));
+        var signed=inventory.decodeSelection(row.get("signed_serials"));
+        if(signed!=null)line.put("signedSerials",signed.serials()==null?List.of():signed.serials());
         line.put("skuName",row.containsKey("sku_name")?row.get("sku_name"):jdbc.queryForObject("SELECT name FROM sku WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),row.get("sku_id")));
         line.put("unitName",row.containsKey("unit_name")?row.get("unit_name"):jdbc.queryForObject("SELECT name FROM unit WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),row.get("unit_id")));
         line.put("orderNo",row.containsKey("order_no")?row.get("order_no"):jdbc.queryForObject("SELECT h.order_no FROM sales_order_line l JOIN sales_order h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.order_id WHERE l.tenant_id=? AND l.company_id=? AND l.id=?",String.class,scope.tenantId(),scope.companyId(),row.get("order_line_id")));

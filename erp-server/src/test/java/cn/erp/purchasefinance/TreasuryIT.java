@@ -59,7 +59,7 @@ class TreasuryIT {
     @AfterEach void cleanup() {
         jdbc.update("DELETE FROM inbox_event WHERE event_id IN(SELECT id FROM outbox_event WHERE tenant_id=?)",tenant);
         for(String table:List.of("outbox_event","ledger_balance","journal_line","journal","settlement_allocation","partner_open_item",
-                "receipt","payment","account_transfer","payable","receivable","opening_entry","inventory_movement","inventory_balance","inventory_cost","goods_receipt_line","goods_receipt","purchase_order_fee","purchase_order_line","purchase_order","audit_log","approval_record","idempotency_record",
+                "receipt","payment","account_transfer","payable","receivable","opening_entry","inv_movement_hold","inventory_movement","inventory_balance","inventory_cost","goods_receipt_line","goods_receipt","purchase_order_fee","purchase_order_line","purchase_order","audit_log","approval_record","idempotency_record",
                 "document_sequence","cash_account_balance","cash_account","income_expense_item","partner_role","unit_conversion","sku","product","product_category","unit","warehouse","accounting_period","company","business_partner")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
         }

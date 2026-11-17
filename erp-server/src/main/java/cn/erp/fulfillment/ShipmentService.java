@@ -84,7 +84,7 @@ public class ShipmentService {
         queries.header(scope,id,false);
         return command(scope,"submit",key,List.of(id,version),200,()->{
             var snapshot=queries.header(scope,id,false);
-            period(scope,date(snapshot,"business_date"));
+            long period=period(scope,date(snapshot,"business_date"));
             credit.lock(scope,id(snapshot,"customer_id"));
             var before=queries.header(scope,id,true);version(version,before);
             if(id(snapshot,"customer_id")!=id(before,"customer_id"))throw invalid("客户已变化，请刷新后重试");credit.shipment(scope,id(before,"customer_id"));
@@ -93,12 +93,16 @@ public class ShipmentService {
             var sources=sources(scope,lines.stream().map(line->id(line,"order_line_id")).toList(),true);
             catalog.requireActiveSkus(scope,lines.stream().map(line->new CatalogAvailability.SkuUnit(id(line,"sku_id"),id(line,"unit_id"))).toList());
             var occupied=new LinkedHashMap<Long,BigDecimal>();
+            var picks=new ArrayList<SalesStockPosting.Issue>();
             for(var line:lines) {
                 var source=sources.get(id(line,"order_line_id"));
                 validateSource(scope,before,source);
                 occupied.put(id(line,"order_line_id"),decimal(line,"base_qty"));
+                var posting=new Posting(new Key(id(before,"warehouse_id"),id(line,"sku_id")),new Source("shipment_line",id,id(line,"id")),date(before,"business_date"),period,"sales_out");
+                picks.add(new SalesStockPosting.Issue(posting,decimal(line,"base_qty"),null,inventory.decodeSelection(line.get("stock_selection"))));
             }
             occupancy.occupyAll(scope,occupied);
+            inventory.reserveShipmentPicks(scope,picks);
             jdbc.update("UPDATE shipment SET status='submitted',submitted_at=UTC_TIMESTAMP(3),version=version+1,updated_by=? WHERE id=?",scope.userId(),id);
             changed(scope,id,"submit",before);var result=new LinkedHashMap<String,Object>(safe(scope,id));result.put("warnings",credit.warnings(scope,id(before,"customer_id")));return result;
         });
@@ -110,7 +114,11 @@ public class ShipmentService {
             var before=queries.header(scope,id,true);version(version,before);
             if(!"submitted".equals(before.get("status"))) {throw state();}
             var lines=lockLines(scope,id);
-            for(var line:lines) {occupancy.release(scope,id(line,"order_line_id"),decimal(line,"base_qty"));}
+            inventory.lockKeys(scope,lines.stream().map(line->new Key(id(before,"warehouse_id"),id(line,"sku_id"))).toList());
+            for(var line:lines) {
+                occupancy.release(scope,id(line,"order_line_id"),decimal(line,"base_qty"));
+                inventory.releaseShipmentPick(scope,new Key(id(before,"warehouse_id"),id(line,"sku_id")),id(line,"id"));
+            }
             jdbc.update("UPDATE shipment SET status='voided',voided_at=UTC_TIMESTAMP(3),version=version+1,updated_by=? WHERE id=?",scope.userId(),id);
             changed(scope,id,"void",before);return safe(scope,id);
         });
@@ -133,7 +141,7 @@ public class ShipmentService {
             for(var line:lines) {
                 var source=sources.get(id(line,"order_line_id"));validateSource(scope,before,source,true);
                 var posting=new Posting(new Key(id(before,"warehouse_id"),id(line,"sku_id")),new Source("shipment_line",id,id(line,"id")),date(before,"business_date"),period,"sales_out");
-                issues.add(new SalesStockPosting.Issue(posting,decimal(line,"base_qty"),activeReservations.get(id(line,"order_line_id"))));
+                issues.add(new SalesStockPosting.Issue(posting,decimal(line,"base_qty"),activeReservations.get(id(line,"order_line_id")),inventory.decodeSelection(line.get("stock_selection"))));
             }
             var costs=stockPosting.issue(scope,issues);int costIndex=0;
             var completed=new LinkedHashMap<Long,BigDecimal>();
@@ -182,9 +190,11 @@ public class ShipmentService {
         validateAttachments(scope,id,input.attachmentIds());
         var lines=lockLines(scope,id);
         var signed=new HashMap<Long,BigDecimal>();
+        var signedSerials=new HashMap<Long,List<String>>();
         if(input.lines()==null) {throw invalid("请登记所有发货行的签收数量");}
         for(var line:input.lines()) {
             if(line==null || line.lineId()==null || signed.put(line.lineId(),quantity(line.signedQty(),true))!=null) {throw invalid("签收行不能为空或重复");}
+            signedSerials.put(line.lineId(),line.serials()==null?List.of():line.serials());
         }
         if(signed.size()!=lines.size() || !signed.keySet().equals(lines.stream().map(row->id(row,"id")).collect(java.util.stream.Collectors.toSet()))) {
             throw invalid("签收必须包含本发货单的所有行");
@@ -206,7 +216,9 @@ public class ShipmentService {
             BigDecimal signedCost=qty.compareTo(sent)==0?decimal(line,"cost_amount"):decimal(line,"unit_cost").multiply(qty).setScale(2,RoundingMode.HALF_UP).min(decimal(line,"cost_amount"));
             BigDecimal diff=sent.subtract(qty),diffCost=decimal(line,"cost_amount").subtract(signedCost);
             hasDifference|=diff.signum()>0;
-            shipmentUpdates.add(new Object[]{qty,diff,diff.signum()==0?"none":"pending",amount,taxAmount,amount.subtract(taxAmount),signedCost,diffCost,scope.userId(),line.get("id")});
+            var serialSelection=signatureSerials(line,qty,sent,signedSerials.get(id(line,"id")));
+            shipmentUpdates.add(new Object[]{qty,diff,diff.signum()==0?"none":"pending",amount,taxAmount,amount.subtract(taxAmount),signedCost,diffCost,
+                    inventory.encodeSelection(serialSelection),scope.userId(),line.get("id")});
             orderUpdates.add(new Object[]{qty,diff,amount,taxAmount,scope.userId(),scope.tenantId(),scope.companyId(),line.get("order_line_id")});
             if(qty.signum()>0) {signedOrders.add(id(source,"order_id"));}
             if(amount.signum()>0) {receivables.add(new ReceivableInput(id(line,"id"),"shipment_line",id(source,"order_id"),amount,taxAmount));}
@@ -217,7 +229,7 @@ public class ShipmentService {
             add(entries,"GOODS_SHIPPED","C",signedCost,null,id(header,"warehouse_id"),id(line,"sku_id"),id(line,"id"));
             total=total.add(amount);tax=tax.add(taxAmount);cost=cost.add(signedCost);
         }
-        jdbc.batchUpdate("UPDATE shipment_line SET signed_base_qty=?,diff_base_qty=?,diff_disposition=?,receivable_amount=?,tax_amount=?,untaxed_amount=?,signed_cost_amount=?,diff_cost_amount=?,version=version+1,updated_by=? WHERE id=?",shipmentUpdates);
+        jdbc.batchUpdate("UPDATE shipment_line SET signed_base_qty=?,diff_base_qty=?,diff_disposition=?,receivable_amount=?,tax_amount=?,untaxed_amount=?,signed_cost_amount=?,diff_cost_amount=?,signed_serials=?,version=version+1,updated_by=? WHERE id=?",shipmentUpdates);
         jdbc.batchUpdate("UPDATE sales_order_line SET signed_base_qty=signed_base_qty+?,shipped_base_qty=shipped_base_qty-?,recognized_amount=recognized_amount+?,recognized_tax=recognized_tax+?,version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?",orderUpdates);
         for(long order:signedOrders) {
             for(var fee:jdbc.queryForList("SELECT * FROM sales_order_fee WHERE tenant_id=? AND company_id=? AND order_id=? AND bearer='buyer' AND recognized_shipment_id IS NULL ORDER BY id FOR UPDATE",
@@ -241,6 +253,20 @@ public class ShipmentService {
         refresh(scope,lines);
     }
 
+    private StockSelection signatureSerials(Map<String,Object> line,BigDecimal qty,BigDecimal sent,List<String> selected){
+        var posted=inventory.decodeSelection(line.get("stock_selection"));
+        var delivered=posted==null||posted.serials()==null?List.<String>of():posted.serials();
+        if(delivered.isEmpty()){
+            if(!selected.isEmpty())throw invalid("该行没有登记发货序列号");
+            return null;
+        }
+        if(qty.compareTo(sent)==0&&selected.isEmpty())selected=delivered;
+        if(qty.compareTo(BigDecimal.valueOf(selected.size()))!=0||new HashSet<>(selected).size()!=selected.size()||!delivered.containsAll(selected)){
+            throw invalid("部分签收时必须指定与签收数量一致的发货序列号");
+        }
+        return new StockSelection(null,null,null,null,null,selected);
+    }
+
     public Map<String,Object> resolve(CompanyAccess scope,long id,String key,ShipmentModels.Resolution input) {
         queries.header(scope,id,false);
         return command(scope,"resolve_diff",key,List.of(id,input),200,()->{
@@ -259,8 +285,17 @@ public class ShipmentService {
                 if(!"pending".equals(line.get("diff_disposition"))) {throw state();}
                 BigDecimal diff=decimal(line,"diff_base_qty"),diffCost=decimal(line,"diff_cost_amount");
                 if(resolve.disposition().equals("returned")) {
-                    inventory.receive(scope,new Posting(new Key(id(header,"warehouse_id"),id(line,"sku_id")),new Source("shipment_diff",id,id(line,"id")),
-                            input.businessDate(),period,"sales_reject_in"),diff,diffCost);
+                    var stockKey=new Key(id(header,"warehouse_id"),id(line,"sku_id"));
+                    var supplied=resolve.stockSelection();
+                    var sent=inventory.decodeSelection(line.get("stock_selection"));
+                    var signed=inventory.decodeSelection(line.get("signed_serials"));
+                    if(sent!=null&&sent.serials()!=null&&!sent.serials().isEmpty()){
+                        var unsigned=sent.serials().stream().filter(code->signed==null||signed.serials()==null||!signed.serials().contains(code)).toList();
+                        if(supplied!=null&&supplied.serials()!=null&&!unsigned.containsAll(supplied.serials()))throw invalid("拒收处理只能登记未签收的序列号");
+                        supplied=new StockSelection(sent.batchId(),null,null,null,supplied==null?null:supplied.locationId(),unsigned);
+                    }
+                    var selected=inventory.returnSelection(scope,stockKey,new Source("shipment_line",id,id(line,"id")),"sales_out",supplied,diff,null);
+                    inventory.receive(scope,new Posting(stockKey,new Source("shipment_diff",id,id(line,"id")),input.businessDate(),period,"sales_reject_in"),diff,diffCost,selected,null);
                     add(entries,"INVENTORY","D",diffCost,null,id(header,"warehouse_id"),id(line,"sku_id"),id(line,"id"));
                 } else {add(entries,"INVENTORY_ADJUSTMENT","D",diffCost,null,id(header,"warehouse_id"),id(line,"sku_id"),id(line,"id"));}
                 add(entries,"GOODS_SHIPPED","C",diffCost,null,id(header,"warehouse_id"),id(line,"sku_id"),id(line,"id"));
@@ -316,11 +351,11 @@ public class ShipmentService {
             try {base=qty.multiply(rate).setScale(6,RoundingMode.UNNECESSARY);}
             catch(ArithmeticException error) {throw invalid("换算后的基础数量超过6位小数");}
             quantity(base.toPlainString(),false);
-            inserts.add(new Object[]{Ids.next(),scope.tenantId(),scope.companyId(),shipment,++number,line.orderLineId(),source.get("sku_id"),line.unitId(),rate,qty,base,scope.userId(),scope.userId()});
+            inserts.add(new Object[]{Ids.next(),scope.tenantId(),scope.companyId(),shipment,++number,line.orderLineId(),source.get("sku_id"),line.unitId(),rate,qty,base,inventory.encodeSelection(line.stockSelection()),scope.userId(),scope.userId()});
         }
         jdbc.batchUpdate("""
-                    INSERT INTO shipment_line(id,tenant_id,company_id,shipment_id,line_no,order_line_id,sku_id,unit_id,unit_rate,qty,base_qty,created_by,updated_by)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    INSERT INTO shipment_line(id,tenant_id,company_id,shipment_id,line_no,order_line_id,sku_id,unit_id,unit_rate,qty,base_qty,stock_selection,created_by,updated_by)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,inserts);
     }
 

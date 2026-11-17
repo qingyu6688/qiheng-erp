@@ -69,6 +69,9 @@ public class ReportService {
         boolean agingReport=Set.of(ReportType.RECEIVABLE_AGING,ReportType.PAYABLE_AGING).contains(type);
         if("department".equals(query.groupBy())&&!agingReport)throw invalid("按部门汇总仅用于账龄报表");
         boolean commercial=Set.of(ReportType.SALES_SUMMARY,ReportType.PURCHASE_SUMMARY).contains(type);
+        boolean byBrand="brand".equals(query.groupBy());
+        boolean inventory=type==ReportType.INVENTORY_SUMMARY;
+        if(byBrand&&!inventory&&!commercial&&type!=ReportType.GROSS_MARGIN)throw invalid("此报表不支持按品牌汇总");
         boolean byBusinessUser="business_user".equals(query.groupBy())&&!agingReport;
         if(query.businessUserId()!=null||byBusinessUser) {
             if(!commercial&&!agingReport&&type!=ReportType.GROSS_MARGIN) throw invalid("此报表不支持业务员汇总或筛选");
@@ -78,14 +81,21 @@ public class ReportService {
             if(!commercial || query.skuId()!=null) { throw invalid("仅费用筛选只适用于销售或采购报表，且不能同时选择商品"); }
             sql+=" AND sku_id IS NULL";
         }
-        boolean aggregate=(commercial||byBusinessUser) && !Boolean.TRUE.equals(query.detail());
-        if(byBusinessUser) {
+        boolean aggregate=!byBrand&&(commercial||byBusinessUser) && !Boolean.TRUE.equals(query.detail());
+        if(byBrand) {
+            String measures=inventory
+                ?"SUM(f.on_hand_qty) on_hand_qty,SUM(f.reserved_qty) reserved_qty,SUM(f.blocked_qty) blocked_qty,SUM(f.available_qty) available_qty,SUM(f.cost_amount) cost_amount"
+                :"SUM(f.qty) qty,SUM(f.amount) amount,SUM(f.untaxed_amount) untaxed_amount,SUM(f.tax_amount) tax_amount,SUM(f.cost_amount) cost_amount,SUM(f.untaxed_amount)-SUM(f.cost_amount) gross_margin,COUNT(*) source_count";
+            sql="SELECT COALESCE(brand.id,0) id,brand.id brand_id,COALESCE(brand.name,'未设置品牌') brand_name,"+measures
+                +" FROM ("+sql+") f LEFT JOIN sku s ON s.tenant_id=:t AND s.id=f.sku_id"
+                +" LEFT JOIN catalog_brand brand ON brand.tenant_id=s.tenant_id AND brand.id=s.brand_id GROUP BY brand.id,brand.name";
+        } else if(byBusinessUser) {
             sql="SELECT MIN(id) id,business_user_id,SUM(qty) qty,SUM(amount) amount,SUM(untaxed_amount) untaxed_amount,SUM(tax_amount) tax_amount,SUM(cost_amount) cost_amount,SUM(untaxed_amount)-SUM(cost_amount) gross_margin,COUNT(*) source_count FROM ("+sql+") facts GROUP BY business_user_id";
         } else if(aggregate) {
             sql="SELECT MIN(id) id,partner_id,sku_id,business_date,IF(COUNT(DISTINCT business_user_id)=1,MIN(business_user_id),NULL) business_user_id,IF(COUNT(DISTINCT business_user_id)=1,NULL,'多位业务员') business_user_name,IF(COUNT(DISTINCT warehouse_id)=1,MIN(warehouse_id),NULL) warehouse_id,"+
                 "IF(COUNT(DISTINCT warehouse_id)=1,NULL,'多个仓库') warehouse_name,SUM(qty) qty,SUM(amount) amount,SUM(untaxed_amount) untaxed_amount,SUM(tax_amount) tax_amount,SUM(cost_amount) cost_amount,COUNT(*) source_count FROM ("+sql+") facts GROUP BY partner_id,sku_id,business_date";
         }
-        sql+=" ORDER BY "+(byBusinessUser?"business_user_id":switch(type) {
+        sql+=" ORDER BY "+(byBrand?"brand_name,id":byBusinessUser?"business_user_id":switch(type) {
             case INVENTORY_SUMMARY,INVENTORY_FLOW -> Boolean.TRUE.equals(query.detail()) && type==ReportType.INVENTORY_FLOW?"business_date,id":"warehouse_id,sku_id";
             case RECEIVABLE_AGING,PAYABLE_AGING -> "aging_date,id";
             case SALES_SUMMARY,PURCHASE_SUMMARY,GROSS_MARGIN -> aggregate?"business_date,id,partner_id,sku_id":"business_date,id,source_line_id";
@@ -119,7 +129,7 @@ public class ReportService {
             if(type==ReportType.INVENTORY_FLOW && !Boolean.TRUE.equals(query.detail())) {
                 item.put("detailUrl","/reports/inventory-flow?detail=true&warehouseId="+item.get("warehouseId")+"&skuId="+item.get("skuId")+"&dateFrom="+query.dateFrom()+"&dateTo="+query.dateTo());
             }
-            if(type==ReportType.INVENTORY_SUMMARY) { item.put("detailUrl","/reports/inventory-flow?warehouseId="+item.get("warehouseId")+"&skuId="+item.get("skuId")); }
+            if(inventory&&!byBrand) { item.put("detailUrl","/reports/inventory-flow?warehouseId="+item.get("warehouseId")+"&skuId="+item.get("skuId")); }
             items.add(item);
         }
         var summary=new LinkedHashMap<String,Object>();totals.forEach((key,value)->summary.put(camel(key),value.toPlainString()));
@@ -164,14 +174,24 @@ public class ReportService {
         types.put("shipment","shipment_no");types.put("sales_return","return_no");types.put("goods_receipt","receipt_no");types.put("purchase_return","return_no");
         types.put("receipt","receipt_no");types.put("payment","payment_no");types.put("opening_entry","entry_no");types.put("account_transfer","transfer_no");types.put("document_reversal","reversal_no");
         types.put("stock_adjustment","adjust_no");types.put("stock_count","count_no");types.put("stock_transfer","transfer_no");types.put("refund_request","refund_no");
+        types.put("stock_misc_doc","document_no");
         for(var type:types.entrySet()) {
             var ids=new HashSet<Object>();
             for(var row:rows) { if(row.get("source_no")==null && type.getKey().equals(documentType(row.get("source_type"))) && row.get("source_id")!=null) { ids.add(row.get("source_id")); } }
             if(ids.isEmpty()) { continue; }
             var params=Map.<String,Object>of("t",actor.tenantId(),"c",actor.companyId(),"ids",ids);
-            var numbers=new HashMap<String,Object>();
-            for(var value:jdbc.queryForList("SELECT id,"+type.getValue()+" no FROM "+type.getKey()+" WHERE tenant_id=:t AND company_id=:c AND id IN (:ids)",params)) { numbers.put(value.get("id").toString(),value.get("no")); }
-            for(var row:rows) { if(type.getKey().equals(documentType(row.get("source_type")))) { row.put("source_no",numbers.get(Objects.toString(row.get("source_id")))); } }
+            var documents=new HashMap<String,Map<String,Object>>();
+            String extra=type.getKey().equals("stock_misc_doc")?",direction":"";
+            for(var value:jdbc.queryForList("SELECT id,"+type.getValue()+" no"+extra+" FROM "+type.getKey()+" WHERE tenant_id=:t AND company_id=:c AND id IN (:ids)",params)) {
+                documents.put(value.get("id").toString(),value);
+            }
+            for(var row:rows) {
+                if(!type.getKey().equals(documentType(row.get("source_type"))))continue;
+                var document=documents.get(Objects.toString(row.get("source_id")));
+                if(document==null)continue;
+                row.put("source_no",document.get("no"));
+                if(document.containsKey("direction"))row.put("source_url","/stock-misc-"+document.get("direction")+"/"+row.get("source_id"));
+            }
         }
     }
     private static String documentType(Object value) {
@@ -181,6 +201,7 @@ public class ReportService {
             case "sales_return_line" -> "sales_return";case "goods_receipt_line","purchase_order_fee" -> "goods_receipt";
             case "purchase_return_line" -> "purchase_return";
             case "stock_transfer_out","stock_transfer_in","stock_transfer_diff" -> "stock_transfer";
+            case "stock_misc_line" -> "stock_misc_doc";
             default -> value.toString();
         };
     }

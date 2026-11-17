@@ -35,24 +35,25 @@ public class ReceivingService {
     private final LedgerService ledger;
     private final SettlementService settlement;
     private final PurchaseOrderQueries orders;
+    private final ReceiptQualityPort quality;
     public ReceivingService(JdbcTemplate jdbc,ReceivingQueries queries,BusinessCommands commands,DocumentNumbers numbers,AuditService audit,
             CatalogAvailability catalog,ReferenceAvailability references,PricingEngine pricing,InventoryService inventory,
-            LedgerService ledger,SettlementService settlement,PurchaseOrderQueries orders) {
+            LedgerService ledger,SettlementService settlement,PurchaseOrderQueries orders,ReceiptQualityPort quality) {
         this.jdbc=jdbc;this.queries=queries;this.commands=commands;this.numbers=numbers;this.audit=audit;this.catalog=catalog;
-        this.references=references;this.pricing=pricing;this.inventory=inventory;this.ledger=ledger;this.settlement=settlement;this.orders=orders;
+        this.references=references;this.pricing=pricing;this.inventory=inventory;this.ledger=ledger;this.settlement=settlement;this.orders=orders;this.quality=quality;
     }
-    private record Line(long sourceId,long unitId,String qty) {}
+    private record Line(long sourceId,long unitId,String qty,StockSelection selection) {}
     public Map<String,Object> createReceipt(CompanyAccess scope,String key,ReceivingModels.ReceiptInput input) {
-        return execute(scope,false,"create",key,input,201,()->create(scope,false,input.supplierId(),input.warehouseId(),input.businessDate(),input.remark(),input.lines().stream().map(l->new Line(l.orderLineId(),l.unitId(),l.qty())).toList(),input.buyerUserId()));
+        return execute(scope,false,"create",key,input,201,()->create(scope,false,input.supplierId(),input.warehouseId(),input.businessDate(),input.remark(),input.lines().stream().map(l->new Line(l.orderLineId(),l.unitId(),l.qty(),l.stockSelection())).toList(),input.buyerUserId()));
     }
     public Map<String,Object> createReturn(CompanyAccess scope,String key,ReceivingModels.ReturnInput input) {
-        return execute(scope,true,"create",key,input,201,()->create(scope,true,input.supplierId(),input.warehouseId(),input.businessDate(),input.reason(),input.lines().stream().map(l->new Line(l.receiptLineId(),l.unitId(),l.qty())).toList(),input.buyerUserId()));
+        return execute(scope,true,"create",key,input,201,()->create(scope,true,input.supplierId(),input.warehouseId(),input.businessDate(),input.reason(),input.lines().stream().map(l->new Line(l.receiptLineId(),l.unitId(),l.qty(),l.stockSelection())).toList(),input.buyerUserId()));
     }
     public Map<String,Object> updateReceipt(CompanyAccess scope,long id,ReceivingModels.ReceiptInput input) {
-        return update(scope,false,id,input.version(),input.supplierId(),input.warehouseId(),input.businessDate(),input.remark(),input.lines().stream().map(l->new Line(l.orderLineId(),l.unitId(),l.qty())).toList(),input.buyerUserId());
+        return update(scope,false,id,input.version(),input.supplierId(),input.warehouseId(),input.businessDate(),input.remark(),input.lines().stream().map(l->new Line(l.orderLineId(),l.unitId(),l.qty(),l.stockSelection())).toList(),input.buyerUserId());
     }
     public Map<String,Object> updateReturn(CompanyAccess scope,long id,ReceivingModels.ReturnInput input) {
-        return update(scope,true,id,input.version(),input.supplierId(),input.warehouseId(),input.businessDate(),input.reason(),input.lines().stream().map(l->new Line(l.receiptLineId(),l.unitId(),l.qty())).toList(),input.buyerUserId());
+        return update(scope,true,id,input.version(),input.supplierId(),input.warehouseId(),input.businessDate(),input.reason(),input.lines().stream().map(l->new Line(l.receiptLineId(),l.unitId(),l.qty(),l.stockSelection())).toList(),input.buyerUserId());
     }
     private Map<String,Object> create(CompanyAccess scope,boolean returning,long supplier,long warehouse,LocalDate date,String note,List<Line> lines,Long buyerUserId) {
         validateHeader(scope,returning,supplier,warehouse,date,note);
@@ -84,8 +85,8 @@ public class ReceivingService {
             catalog.requireActiveSku(scope,id(original,"sku_id"),input.unitId());
             BigDecimal rate=id(original,"unit_id")==input.unitId()?decimal(original,"unit_rate"):jdbc.queryForObject("SELECT rate_to_base FROM unit_conversion WHERE tenant_id=? AND sku_id=? AND unit_id=?",BigDecimal.class,scope.tenantId(),original.get("sku_id"),input.unitId());
             BigDecimal qty=quantity(input.qty()),base=new BigDecimal(pricing.convertQuantity(qty.toPlainString(),rate.toPlainString()));
-            jdbc.update("INSERT INTO "+table(returning)+"_line(id,tenant_id,company_id,"+parent(returning)+",line_no,"+source(returning)+",sku_id,unit_id,unit_rate,qty,base_qty,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    Ids.next(),scope.tenantId(),scope.companyId(),header,++no,input.sourceId(),original.get("sku_id"),input.unitId(),rate,qty,base,scope.userId(),scope.userId());
+            jdbc.update("INSERT INTO "+table(returning)+"_line(id,tenant_id,company_id,"+parent(returning)+",line_no,"+source(returning)+",sku_id,unit_id,unit_rate,qty,base_qty,stock_selection,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    Ids.next(),scope.tenantId(),scope.companyId(),header,++no,input.sourceId(),original.get("sku_id"),input.unitId(),rate,qty,base,inventory.encodeSelection(input.selection()),scope.userId(),scope.userId());
         }
     }
     public Map<String,Object> command(CompanyAccess scope,boolean returning,long id,String action,String key,Long expectedVersion) {
@@ -146,7 +147,12 @@ public class ReceivingService {
         validateHeader(scope,returning,id(header,"supplier_id"),id(header,"warehouse_id"),date(header,"business_date"),(String)header.get(returning?"reason":"remark"));
         for(var line:lines) {
             var original=originalSource(scope,returning,id(line,source(returning)),true);validateSource(scope,returning,id(header,"supplier_id"),id(header,"warehouse_id"),date(header,"business_date"),original,false);
-            if(!returning) {validateReceiptSnapshot(line,original);}
+            if(!returning) {
+                validateReceiptSnapshot(line,original);
+                long sku=id(line,"sku_id");
+                inventory.validateInbound(scope,new Key(id(header,"warehouse_id"),sku),decimal(line,"base_qty"),
+                        inventory.decodeSelection(line.get("stock_selection")),quality.requires(scope,sku,id(header,"supplier_id"))?"quality_hold":null);
+            }
             String sql=returning?"UPDATE goods_receipt_line SET pending_return_base_qty=pending_return_base_qty+?,version=version+1,updated_by=? WHERE id=? AND base_qty-returned_base_qty-pending_return_base_qty>=?":"UPDATE purchase_order_line SET pending_receive_base_qty=pending_receive_base_qty+?,version=version+1,updated_by=? WHERE id=? AND receive_limit_base_qty-closed_base_qty-received_base_qty-pending_receive_base_qty>=?";
             if(jdbc.update(sql,line.get("base_qty"),scope.userId(),original.get("id"),line.get("base_qty"))!=1) {throw new ApiException(422,returning?"RETURN_QTY_EXCEEDED":"RECEIVE_QTY_EXCEEDED",returning?"退货数量超过原收货可退数量":"收货数量超过审批时的可收上限");}
         }
@@ -170,6 +176,12 @@ public class ReceivingService {
     }
     private void post(CompanyAccess scope,boolean returning,Map<String,Object> header,List<Map<String,Object>> lines,long period) {
         long warehouse=id(header,"warehouse_id"),id=id(header,"id"),supplier=id(header,"supplier_id");LocalDate day=date(header,"business_date");
+        var holds=new HashMap<Long,ReceiptQualityPort.Hold>();
+        if(returning)for(var line:lines){
+            long lineId=id(line,"id");
+            var hold=quality.beforePurchaseReturn(scope,id,lineId,id(line,"receipt_line_id"),decimal(line,"base_qty"));
+            if(hold!=null)holds.put(lineId,hold);
+        }
         inventory.lockKeys(scope,lines.stream().map(line->new Key(warehouse,id(line,"sku_id"))).toList());
         boolean inclusive=false;
         if(!returning) {
@@ -180,7 +192,7 @@ public class ReceivingService {
         BigDecimal amount=ZERO,tax=ZERO,cost=ZERO;var journal=new ArrayList<LedgerService.Line>();
         for(var line:lines) {
             var original=originalSource(scope,returning,id(line,source(returning)),true);validateSource(scope,returning,supplier,warehouse,day,original,true);
-            BigDecimal[] posted=returning?postReturnLine(scope,id,supplier,warehouse,day,period,line,original,journal):postReceiptLine(scope,id,supplier,warehouse,day,period,line,original,inclusive,journal);
+            BigDecimal[] posted=returning?postReturnLine(scope,id,supplier,warehouse,day,period,line,original,holds.get(id(line,"id")),journal):postReceiptLine(scope,id,supplier,warehouse,day,period,line,original,inclusive,journal);
             amount=amount.add(posted[0]);tax=tax.add(posted[1]);cost=cost.add(posted[2]);
         }
         if(!returning) {var fees=postFees(scope,id,supplier,day,period,lines,inclusive,journal);amount=amount.add(fees[0]);tax=tax.add(fees[1]);}
@@ -195,7 +207,16 @@ public class ReceivingService {
         if(decimal(original,"pending_receive_base_qty").compareTo(qty)<0) {throw new ApiException(409,"STATE_CONFLICT","采购待收占用不一致");}
         BigDecimal amount=part(decimal(original,"payable_net"),total,previous,previous.add(qty));
         BigDecimal tax=part(decimal(original,"tax_amount"),total,previous,previous.add(qty));BigDecimal cost=inclusive?amount:amount.subtract(tax);
-        var result=inventory.receive(scope,new Posting(new Key(warehouse,id(line,"sku_id")),new Source("goods_receipt_line",header,lineId),day,period,"purchase_in"),qty,cost);
+        long sku=id(line,"sku_id");
+        var posting=new Posting(new Key(warehouse,sku),new Source("goods_receipt_line",header,lineId),day,period,"purchase_in");
+        boolean inspection=quality.requires(scope,sku,supplier);
+        var result=inventory.receive(scope,posting,qty,cost,inventory.decodeSelection(line.get("stock_selection")),inspection?"quality_hold":null,supplier);
+        if(inspection) {
+            var coordinates=inventory.postedSelection(scope,posting.source(),"purchase_in");
+            quality.received(scope,header,lineId,sku,supplier,warehouse,
+                    coordinates==null||coordinates.batchId()==null?"":coordinates.batchId().toString(),
+                    coordinates==null||coordinates.locationId()==null?"":coordinates.locationId().toString(),qty,day);
+        }
         jdbc.update("UPDATE goods_receipt_line SET payable_amount=?,tax_amount=?,untaxed_amount=?,unit_cost=?,cost_amount=?,version=version+1,updated_by=? WHERE id=?",amount,tax,amount.subtract(tax),result.unitCost(),cost,scope.userId(),lineId);
         jdbc.update("UPDATE purchase_order_line SET pending_receive_base_qty=pending_receive_base_qty-?,received_base_qty=received_base_qty+?,recognized_amount=recognized_amount+?,recognized_tax=recognized_tax+?,version=version+1,updated_by=? WHERE id=?",qty,qty,amount,tax,scope.userId(),original.get("id"));
         long open=payable(scope,supplier,"charge","goods_receipt_line",header,lineId,amount,tax,day,period);
@@ -219,11 +240,17 @@ public class ReceivingService {
         }return new BigDecimal[]{amount,tax};
     }
     private BigDecimal[] postReturnLine(CompanyAccess scope,long header,long supplier,long warehouse,LocalDate day,long period,
-            Map<String,Object> line,Map<String,Object> original,List<LedgerService.Line> journal) {
+            Map<String,Object> line,Map<String,Object> original,ReceiptQualityPort.Hold hold,List<LedgerService.Line> journal) {
         long lineId=id(line,"id");BigDecimal qty=decimal(line,"base_qty"),previous=decimal(original,"returned_base_qty"),total=decimal(original,"base_qty");
         if(decimal(original,"pending_return_base_qty").compareTo(qty)<0||previous.add(qty).compareTo(total)>0) {throw new ApiException(422,"RETURN_QTY_EXCEEDED","原收货可退数量不足");}
         BigDecimal amount=part(decimal(original,"payable_amount"),total,previous,previous.add(qty)),tax=part(decimal(original,"tax_amount"),total,previous,previous.add(qty));
-        var result=inventory.purchaseReturn(scope,new Posting(new Key(warehouse,id(line,"sku_id")),new Source("purchase_return_line",header,lineId),day,period,"purchase_return_out"),qty,decimal(original,"unit_cost"));
+        long originalLine=id(original,"id");
+        var origin=new Source("goods_receipt_line",id(original,"receipt_id"),originalLine);
+        var posting=new Posting(new Key(warehouse,id(line,"sku_id")),new Source("purchase_return_line",header,lineId),day,period,"purchase_return_out");
+        var selected=inventory.returnSelection(scope,posting.key(),origin,"purchase_in",inventory.decodeSelection(line.get("stock_selection")),qty,
+                hold==null?null:"quality_hold");
+        var result=inventory.purchaseReturn(scope,posting,qty,decimal(original,"unit_cost"),selected,
+                hold==null?null:new Source("goods_receipt_line",hold.sourceId(),hold.lineId()));
         BigDecimal cost=result.movementCost().subtract(result.adjustment());
         jdbc.update("UPDATE purchase_return_line SET debit_amount=?,tax_amount=?,untaxed_amount=?,unit_cost=?,cost_amount=?,cost_adjust_amount=?,version=version+1,updated_by=? WHERE id=?",amount,tax,amount.subtract(tax),original.get("unit_cost"),cost,result.adjustment(),scope.userId(),lineId);
         jdbc.update("UPDATE goods_receipt_line SET pending_return_base_qty=pending_return_base_qty-?,returned_base_qty=returned_base_qty+?,debited_amount=debited_amount+?,debited_tax=debited_tax+?,version=version+1,updated_by=? WHERE id=?",qty,qty,amount,tax,scope.userId(),original.get("id"));

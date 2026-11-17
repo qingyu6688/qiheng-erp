@@ -106,7 +106,7 @@ class OpenEvents implements EventHandler {
     private Map<String,Object> stock(long tenant,long company,String sku) {
         var quantities=jdbc.queryForMap("""
                 SELECT COALESCE(SUM(on_hand_qty),0) on_hand,COALESCE(SUM(on_hand_qty-reserved_qty-blocked_qty),0) available
-                FROM inventory_balance WHERE tenant_id=? AND company_id=? AND sku_id=?
+                FROM inventory_balance WHERE tenant_id=? AND company_id=? AND sku_id=? AND location_key='' AND lot_key=''
                 """,tenant,company,OpenPolicy.id(sku));
         return Map.of("skuId",sku,"onHandQty",quantities.get("on_hand").toString(),"availableQty",quantities.get("available").toString());
     }

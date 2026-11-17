@@ -1,0 +1,120 @@
+ALTER TABLE sku ADD COLUMN tax_category_code VARCHAR(24) NULL;
+ALTER TABLE invoice_registration ADD COLUMN einvoice_request_id BIGINT UNSIGNED NULL,
+    ADD UNIQUE KEY uk_invoice_electronic_request(tenant_id,company_id,einvoice_request_id);
+
+CREATE TABLE einv_provider_config (
+    tenant_id BIGINT UNSIGNED NOT NULL,
+    company_id BIGINT UNSIGNED NOT NULL,
+    provider VARCHAR(16) NOT NULL DEFAULT 'gateway',
+    tax_no VARCHAR(32) NOT NULL,
+    credentials_cipher TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    version BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (tenant_id,company_id),
+    CONSTRAINT fk_einv_config_company FOREIGN KEY (tenant_id,company_id) REFERENCES company(tenant_id,id)
+);
+
+CREATE TABLE einv_issue_request (
+    id BIGINT UNSIGNED NOT NULL,
+    tenant_id BIGINT UNSIGNED NOT NULL,
+    company_id BIGINT UNSIGNED NOT NULL,
+    invoice_registration_id BIGINT UNSIGNED NULL,
+    partner_id BIGINT UNSIGNED NOT NULL,
+    invoice_kind VARCHAR(12) NOT NULL,
+    buyer_name VARCHAR(100) NOT NULL,
+    buyer_tax_no VARCHAR(32) NOT NULL,
+    amount DECIMAL(24,2) NOT NULL,
+    tax_amount DECIMAL(24,2) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+    invoice_no VARCHAR(64) NULL,
+    issued_at DATETIME(3) NULL,
+    red_invoice_no VARCHAR(64) NULL,
+    red_reason VARCHAR(200) NULL,
+    error VARCHAR(200) NULL,
+    requested_by BIGINT UNSIGNED NOT NULL,
+    confirmed_by BIGINT UNSIGNED NULL,
+    next_attempt_at DATETIME(3) NULL,
+    lease_owner VARCHAR(40) NULL,
+    lease_until DATETIME(3) NULL,
+    attempts INT NOT NULL DEFAULT 0,
+    version BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_einv_request_scope (tenant_id,company_id,id),
+    UNIQUE KEY uk_einv_registration (tenant_id,company_id,invoice_registration_id),
+    UNIQUE KEY uk_einv_number (tenant_id,company_id,invoice_no),
+    KEY idx_einv_pending (tenant_id,status,next_attempt_at,id),
+    KEY idx_einv_company (tenant_id,company_id,id),
+    CONSTRAINT fk_einv_request_company FOREIGN KEY (tenant_id,company_id) REFERENCES company(tenant_id,id),
+    CONSTRAINT fk_einv_request_registration FOREIGN KEY (tenant_id,company_id,invoice_registration_id)
+        REFERENCES invoice_registration(tenant_id,company_id,id),
+    CONSTRAINT fk_einv_request_partner FOREIGN KEY (tenant_id,partner_id) REFERENCES business_partner(tenant_id,id),
+    CONSTRAINT ck_einv_request_kind CHECK (invoice_kind IN ('normal','special')),
+    CONSTRAINT ck_einv_request_status CHECK (status IN ('draft','submitted','issued','failed','red_submitted','red_issued')),
+    CONSTRAINT ck_einv_request_amount CHECK (amount>0 AND tax_amount>=0 AND tax_amount<=amount)
+);
+
+CREATE TABLE einv_issue_line (
+    id BIGINT UNSIGNED NOT NULL,
+    tenant_id BIGINT UNSIGNED NOT NULL,
+    company_id BIGINT UNSIGNED NOT NULL,
+    request_id BIGINT UNSIGNED NOT NULL,
+    receivable_id BIGINT UNSIGNED NOT NULL,
+    shipment_id BIGINT UNSIGNED NOT NULL,
+    sku_id BIGINT UNSIGNED NOT NULL,
+    goods_name VARCHAR(100) NOT NULL,
+    tax_category_code VARCHAR(24) NOT NULL,
+    spec VARCHAR(100) NULL,
+    unit_name VARCHAR(16) NOT NULL,
+    quantity DECIMAL(24,6) NOT NULL,
+    untaxed_amount DECIMAL(24,2) NOT NULL,
+    tax_amount DECIMAL(24,2) NOT NULL,
+    tax_rate DECIMAL(8,6) NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_einv_line (tenant_id,company_id,request_id,receivable_id),
+    CONSTRAINT fk_einv_line_request FOREIGN KEY (tenant_id,company_id,request_id) REFERENCES einv_issue_request(tenant_id,company_id,id),
+    CONSTRAINT fk_einv_line_receivable FOREIGN KEY (tenant_id,company_id,receivable_id) REFERENCES receivable(tenant_id,company_id,id),
+    CONSTRAINT fk_einv_line_shipment FOREIGN KEY (tenant_id,company_id,shipment_id) REFERENCES shipment(tenant_id,company_id,id)
+);
+
+CREATE TABLE einv_file (
+    tenant_id BIGINT UNSIGNED NOT NULL,
+    company_id BIGINT UNSIGNED NOT NULL,
+    request_id BIGINT UNSIGNED NOT NULL,
+    variant VARCHAR(6) NOT NULL,
+    file_format VARCHAR(3) NOT NULL,
+    attachment_id BIGINT UNSIGNED NOT NULL,
+    PRIMARY KEY (tenant_id,company_id,request_id,variant,file_format),
+    UNIQUE KEY uk_einv_file_attachment(attachment_id),
+    CONSTRAINT fk_einv_file_request FOREIGN KEY (tenant_id,company_id,request_id) REFERENCES einv_issue_request(tenant_id,company_id,id),
+    CONSTRAINT fk_einv_file_attachment FOREIGN KEY (attachment_id) REFERENCES attachment(id),
+    CONSTRAINT ck_einv_file_variant CHECK (variant IN ('issue','red')),
+    CONSTRAINT ck_einv_file_format CHECK (file_format IN ('pdf','ofd','xml'))
+);
+
+CREATE TABLE einv_inbound (
+    id BIGINT UNSIGNED NOT NULL,
+    tenant_id BIGINT UNSIGNED NOT NULL,
+    company_id BIGINT UNSIGNED NOT NULL,
+    invoice_no VARCHAR(64) NOT NULL,
+    seller_name VARCHAR(100) NOT NULL,
+    seller_tax_no VARCHAR(32) NOT NULL,
+    invoice_date DATE NOT NULL,
+    amount DECIMAL(24,2) NOT NULL,
+    tax_amount DECIMAL(24,2) NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    checked BOOLEAN NOT NULL DEFAULT FALSE,
+    payable_id BIGINT UNSIGNED NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_einv_inbound_invoice(tenant_id,company_id,invoice_no),
+    KEY idx_einv_inbound_date(tenant_id,company_id,invoice_date,id),
+    CONSTRAINT fk_einv_inbound_company FOREIGN KEY (tenant_id,company_id) REFERENCES company(tenant_id,id),
+    CONSTRAINT fk_einv_inbound_payable FOREIGN KEY (tenant_id,company_id,payable_id) REFERENCES payable(tenant_id,company_id,id),
+    CONSTRAINT ck_einv_inbound_status CHECK (status IN ('normal','voided','red_issued')),
+    CONSTRAINT ck_einv_inbound_amount CHECK (amount>0 AND tax_amount>=0 AND tax_amount<=amount)
+);

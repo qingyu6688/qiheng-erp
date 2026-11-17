@@ -5,7 +5,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 /** 归属只在新建时写入，后续审批、移部门和调整人员任职都不回写历史单据。 */
 public final class OrgOwnership {
-    public static final Set<String> TABLES=Set.of("sales_order","shipment","receipt","sales_return","refund_request","purchase_requisition","purchase_order","goods_receipt","purchase_return","payment","account_transfer","opening_entry","stock_adjustment","stock_count","stock_transfer","document_reversal","invoice_registration");
+    public static final Set<String> TABLES=Set.of("sales_order","shipment","receipt","sales_return","refund_request","purchase_requisition","purchase_order","goods_receipt","purchase_return","payment","account_transfer","opening_entry","stock_adjustment","stock_count","stock_transfer","stock_misc_doc","qc_inspection","document_reversal","invoice_registration");
     private OrgOwnership() {}
     public static OrgScope scope(ActorScope actor) { return actor instanceof OrgScoped org?org.orgScope():OrgScope.all(); }
     public static String filter(ActorScope actor,String alias) { return scope(actor).allDepartments()?"":" AND ("+scope(actor).ownerFilter(alias)+")"; }
@@ -39,6 +39,7 @@ public final class OrgOwnership {
         var result=new LinkedHashMap<String,String>();
         for(String table:TABLES.stream().sorted().toList()) {result.put(table,table);result.put(table+"_line",table);}
         result.put("sales_order_fee","shipment");result.put("purchase_order_fee","goods_receipt");
+        result.put("stock_misc_line","stock_misc_doc");
         result.put("shipment_diff","shipment");result.put("stock_transfer_event","stock_transfer");return Map.copyOf(result);
     }
     public static String sourceCondition(ActorScope actor,String type,String id) {

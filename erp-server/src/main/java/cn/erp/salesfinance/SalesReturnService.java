@@ -75,7 +75,9 @@ public class SalesReturnService {
                 JOIN sku s ON s.tenant_id=l.tenant_id AND s.id=l.sku_id
                 JOIN unit u ON u.tenant_id=l.tenant_id AND u.id=l.unit_id
                 WHERE l.tenant_id=? AND l.company_id=? AND l.return_id=? ORDER BY l.line_no
-                """,scope.tenantId(),scope.companyId(),id).stream().map(FinanceSupport::row).toList();
+                """,scope.tenantId(),scope.companyId(),id).stream().map(line->{
+                    var view=row(line);view.put("stockSelection",inventory.viewSelection(line.get("stock_selection")));return view;
+                }).toList();
         result.put("lines",lines);
         if(!scope.hasPermission("cost:view")) {
             result.remove("costAmount");lines.forEach(line->{line.remove("unitCost");line.remove("costAmount");});
@@ -158,9 +160,10 @@ public class SalesReturnService {
             BigDecimal available=decimal(source,"signed_base_qty").subtract(decimal(source,"returned_base_qty")).subtract(decimal(source,"pending_return_base_qty"));
             if(base.compareTo(available)>0) {throw new ApiException(422,"RETURN_QTY_EXCEEDED","退货数量超过原发货行可退数量");}
             jdbc.update("""
-                    INSERT INTO sales_return_line(id,tenant_id,company_id,return_id,line_no,shipment_line_id,sku_id,unit_id,unit_rate,qty,base_qty,quality_result,created_by,updated_by)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                    """,Ids.next(),scope.tenantId(),scope.companyId(),returnId,++number,line.shipmentLineId(),source.get("sku_id"),line.unitId(),rate,qty,base,line.qualityResult(),scope.userId(),scope.userId());
+                    INSERT INTO sales_return_line(id,tenant_id,company_id,return_id,line_no,shipment_line_id,sku_id,unit_id,unit_rate,qty,base_qty,quality_result,stock_selection,created_by,updated_by)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,Ids.next(),scope.tenantId(),scope.companyId(),returnId,++number,line.shipmentLineId(),source.get("sku_id"),line.unitId(),rate,qty,base,line.qualityResult(),
+                    inventory.encodeSelection(line.stockSelection()),scope.userId(),scope.userId());
         }
     }
 
@@ -248,10 +251,11 @@ public class SalesReturnService {
         BigDecimal cost=signedCost.multiply(previous.add(qty)).divide(signed,2,RoundingMode.HALF_UP)
                 .subtract(signedCost.multiply(previous).divide(signed,2,RoundingMode.HALF_UP));
         var posting=new Posting(new Key(warehouse,sku),new Source("sales_return_line",returnId,lineId),date,period,"sales_return_in");
-        inventory.receive(scope,posting,qty,cost);
-        if(!"passed".equals(line.get("quality_result"))) {
-            inventory.freeze(scope,new Posting(posting.key(),posting.source(),date,period,"block"),qty,true);
-        }
+        var origin=new Source("shipment_line",id(original,"shipment_id"),sourceLine);
+        var signedSelection=inventory.decodeSelection(original.get("signed_serials"));
+        var selection=inventory.returnSelection(scope,posting.key(),origin,"sales_out",inventory.decodeSelection(line.get("stock_selection")),qty,null,
+                signedSelection==null?null:signedSelection.serials());
+        inventory.receive(scope,posting,qty,cost,selection,"passed".equals(line.get("quality_result"))?null:"sales_reject");
         jdbc.update("""
                 UPDATE sales_return_line SET unit_cost=?,cost_amount=?,credit_amount=?,tax_amount=?,untaxed_amount=?,version=version+1,updated_by=? WHERE id=?
                 """,original.get("unit_cost"),cost,credit,tax,untaxed,scope.userId(),lineId);

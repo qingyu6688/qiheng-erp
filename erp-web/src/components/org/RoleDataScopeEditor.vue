@@ -105,7 +105,12 @@ async function save(): Promise<void> {
   }
 }
 watch(
-  () => [props.roleId, session.companyId, session.can('role:assign_permission')],
+  [
+    () => props.roleId,
+    () => session.companyId,
+    () => session.user?.id,
+    () => session.can('role:assign_permission'),
+  ],
   () => {
     void load()
   },

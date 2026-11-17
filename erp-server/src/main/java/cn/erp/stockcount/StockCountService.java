@@ -58,7 +58,14 @@ public class StockCountService {
         for(var line:input.lines()) {
             var counted=nonnegative(line.countedQty(),6,"实盘数量");
             var price=line.inputUnitCost()==null?null:nonnegative(line.inputUnitCost(),8,"盘盈录入单价");
-            jdbc.update("UPDATE stock_count_line SET counted_qty=?,input_unit_cost=?,version=version+1,updated_by=? WHERE id=?",counted,price,scope.userId(),line.lineId());
+            var original=current.stream().filter(item->id(item,"id")==line.lineId()).findFirst().orElseThrow(()->missing());
+            var selected=inventory.decodeSelection(original.get("stock_selection"));
+            if(line.serials()!=null||selected!=null)selected=new StockSelection(selected==null?null:selected.batchId(),null,null,null,
+                    selected==null?null:selected.locationId(),line.serials());
+            var difference=counted.subtract(decimal(original,"book_qty"));
+            inventory.validateCountChange(scope,new Key(id(before,"warehouse_id"),id(original,"sku_id")),selected,difference);
+            jdbc.update("UPDATE stock_count_line SET counted_qty=?,input_unit_cost=?,stock_selection=?,version=version+1,updated_by=? WHERE id=?",
+                    counted,price,inventory.encodeSelection(selected),scope.userId(),line.lineId());
         }
         increment(scope,id);return changed(scope,id,"record_counts");
     }
@@ -88,7 +95,7 @@ public class StockCountService {
         long watermark=0;
         for(var line:details) {
             long sku=id(line,"sku_id");activeSku(scope,sku);
-            var quantity=jdbc.queryForObject("SELECT on_hand_qty FROM inventory_balance WHERE tenant_id=? AND company_id=? AND warehouse_id=? AND sku_id=? AND location_key='' AND lot_key='' FOR UPDATE",BigDecimal.class,scope.tenantId(),scope.companyId(),warehouse,sku);
+            var quantity=inventory.countQuantity(scope,new Key(warehouse,sku),inventory.decodeSelection(line.get("stock_selection")));
             jdbc.update("UPDATE stock_count_line SET book_qty=?,counted_qty=NULL,input_unit_cost=NULL,version=version+1,updated_by=? WHERE id=?",quantity,scope.userId(),line.get("id"));
             var movements=jdbc.queryForList("SELECT id FROM inventory_movement WHERE tenant_id=? AND company_id=? AND warehouse_id=? AND sku_id=? ORDER BY id DESC LIMIT 1 FOR SHARE",Long.class,scope.tenantId(),scope.companyId(),warehouse,sku);
             if(!movements.isEmpty())watermark=Math.max(watermark,movements.getFirst());
@@ -112,13 +119,14 @@ public class StockCountService {
         long sku=id(line,"sku_id"),lineId=id(line,"id");activeSku(scope,sku);BigDecimal difference=decimal(line,"diff_qty");
         if(difference==null)throw invalid("盘点数量不完整");
         BigDecimal unitCost=BigDecimal.ZERO.setScale(8),cost=BigDecimal.ZERO.setScale(2);
+        var selection=inventory.decodeSelection(line.get("stock_selection"));
         // 将快照差额加到当前余额，盘点期间发生的收发货不会被覆盖。
         if(difference.signum()>0) {
             unitCost=gainUnitCost(scope,warehouse,line);cost=difference.multiply(unitCost).setScale(2,RoundingMode.HALF_UP);
-            inventory.receive(scope,new Posting(new Key(warehouse,sku),new Source("stock_count",id,lineId),day,period,"count_gain"),difference,cost);
+            inventory.receive(scope,new Posting(new Key(warehouse,sku),new Source("stock_count",id,lineId),day,period,"count_gain"),difference,cost,selection,null);
             entry(entries,"INVENTORY","D",cost,warehouse,sku,lineId);entry(entries,"INVENTORY_ADJUSTMENT","C",cost,warehouse,sku,lineId);
         } else if(difference.signum()<0) {
-            var result=inventory.issue(scope,new Posting(new Key(warehouse,sku),new Source("stock_count",id,lineId),day,period,"count_loss"),difference.negate(),null);
+            var result=inventory.issue(scope,new Posting(new Key(warehouse,sku),new Source("stock_count",id,lineId),day,period,"count_loss"),difference.negate(),null,selection,null);
             unitCost=result.unitCost();cost=result.movementCost().subtract(result.adjustment());
             entry(entries,"INVENTORY_ADJUSTMENT","D",result.movementCost(),warehouse,sku,lineId);entry(entries,"INVENTORY","C",result.movementCost(),warehouse,sku,lineId);
             entry(entries,"INVENTORY","D",result.adjustment(),warehouse,sku,lineId);entry(entries,"COST_VARIANCE","C",result.adjustment(),null,null,lineId);
@@ -145,7 +153,9 @@ public class StockCountService {
             JOIN sku s ON s.tenant_id=l.tenant_id AND s.id=l.sku_id JOIN product p ON p.tenant_id=s.tenant_id AND p.id=s.product_id
             JOIN unit u ON u.tenant_id=p.tenant_id AND u.id=p.base_unit_id
             WHERE l.tenant_id=? AND l.company_id=? AND l.count_id=? ORDER BY l.id
-            """,scope.tenantId(),scope.companyId(),id).stream().map(FinanceSupport::row).toList();
+            """,scope.tenantId(),scope.companyId(),id).stream().map(line->{
+                var view=row(line);view.put("stockSelection",inventory.viewSelection(line.get("stock_selection")));return view;
+            }).toList();
         if(!scope.hasPermission("cost:view"))for(var line:details){line.remove("inputUnitCost");line.remove("unitCost");line.remove("costAmount");}
         result.put("lines",details);result.put("allowedActions",actions(scope,head));return result;
     }
@@ -166,12 +176,23 @@ public class StockCountService {
         date(input.businessDate());warehouse(scope,input.warehouseId());
         if(!"watermark".equals(input.countMode()))throw invalid("本期使用流水水位盘点，暂不支持冻结方式");
         if(input.lines()==null||input.lines().isEmpty()||input.lines().size()>200)throw invalid("每张盘点单须有1到200行");
-        if(input.lines().stream().map(StockCountModels.Item::skuId).distinct().count()!=input.lines().size())throw invalid("同一商品不能重复盘点");
+        if(input.lines().stream().map(line->List.of(line.skuId().toString(),lot(line.stockSelection()),position(line.stockSelection()))).distinct().count()!=input.lines().size())
+            throw invalid("同一商品、批次及库位不能重复盘点");
         for(var line:input.lines())activeSku(scope,line.skuId());
     }
     private void writeLines(CompanyAccess scope,long id,List<StockCountModels.Item> lines) {
-        for(var line:lines)jdbc.update("INSERT INTO stock_count_line(id,tenant_id,company_id,count_id,sku_id,book_qty,created_by,updated_by) VALUES(?,?,?,?,?,0,?,?)",Ids.next(),scope.tenantId(),scope.companyId(),id,line.skuId(),scope.userId(),scope.userId());
+        for(var line:lines){
+            var selection=line.stockSelection();
+            if(selection!=null&&(selection.batchNo()!=null||selection.productionDate()!=null||selection.expiryDate()!=null))
+                throw invalid("盘点须选择已有批次");
+            jdbc.update("INSERT INTO stock_count_line(id,tenant_id,company_id,count_id,sku_id,batch_id,lot_key,location_key,stock_selection,book_qty,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,0,?,?)",
+                    Ids.next(),scope.tenantId(),scope.companyId(),id,line.skuId(),selection==null?null:selection.batchId(),lot(selection),position(selection),
+                    inventory.encodeSelection(selection),scope.userId(),scope.userId());
+        }
     }
+
+    private static String lot(StockSelection selection){return selection==null||selection.batchId()==null?"":selection.batchId().toString();}
+    private static String position(StockSelection selection){return selection==null||selection.locationId()==null?"":selection.locationId().toString();}
     private long activeSku(CompanyAccess scope,long sku) {
         var units=jdbc.queryForList("SELECT p.base_unit_id FROM sku s JOIN product p ON p.tenant_id=s.tenant_id AND p.id=s.product_id WHERE s.tenant_id=? AND s.id=?",Long.class,scope.tenantId(),sku);
         if(units.isEmpty())throw missing();catalog.requireActiveSku(scope,sku,units.getFirst());return units.getFirst();

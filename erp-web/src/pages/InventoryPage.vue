@@ -141,10 +141,16 @@ function refresh(): void {
       <p v-if="snapshot">实时数据 · {{ formatDateTime(snapshot.asOf) }} 刷新</p>
     </div>
     <div class="sales-actions">
-      <el-button
-        :loading="busy"
-        @click="refresh"
-        >刷新</el-button
+      <router-link
+        v-if="session.can('wms_location:view') && session.can('warehouse:view')"
+        class="text-link"
+        to="/warehouse-locations?view=balances"
+        >按库位</router-link
+      >
+      <router-link v-if="session.can('batch:view')" class="text-link" to="/inventory-trace"
+        >按批次</router-link
+      >
+      <el-button :loading="busy" @click="refresh">刷新</el-button
       ><router-link
         v-if="session.can('report:inventory_summary')"
         class="text-link"
@@ -276,8 +282,7 @@ function refresh(): void {
         ><div class="empty-state">
           <strong>{{
             busy ? '正在加载…' : error ? '加载失败，请重试' : '没有符合条件的库存记录'
-          }}</strong
-          ><el-button v-if="error" text @click="load">重新加载</el-button>
+          }}</strong><el-button v-if="error" text @click="load">重新加载</el-button>
         </div></template
       >
     </el-table>

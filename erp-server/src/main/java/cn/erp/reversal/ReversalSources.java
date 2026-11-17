@@ -9,7 +9,7 @@ import static cn.erp.salesfinance.FinanceSupport.*;
 
 @Component
 class ReversalSources {
-    static final Set<String> TYPES=Set.of("shipment","sales_return","goods_receipt","purchase_return","receipt","payment","account_transfer","stock_adjustment");
+    static final Set<String> TYPES=Set.of("shipment","sales_return","goods_receipt","purchase_return","receipt","payment","account_transfer","stock_adjustment","stock_misc_doc");
     private final JdbcTemplate jdbc;
     ReversalSources(JdbcTemplate jdbc){this.jdbc=jdbc;}
     Map<String,Object> head(CompanyAccess scope,String type,long source,boolean lock) {
@@ -28,7 +28,7 @@ class ReversalSources {
         else state(head,"posted");
     }
     String number(String type,Map<String,Object> head) {
-        return head.get(switch(type){case "shipment"->"shipment_no";case "sales_return","purchase_return"->"return_no";case "goods_receipt","receipt"->"receipt_no";case "payment"->"payment_no";case "account_transfer"->"transfer_no";default->"adjust_no";}).toString();
+        return head.get(switch(type){case "shipment"->"shipment_no";case "sales_return","purchase_return"->"return_no";case "goods_receipt","receipt"->"receipt_no";case "payment"->"payment_no";case "account_transfer"->"transfer_no";case "stock_misc_doc"->"document_no";default->"adjust_no";}).toString();
     }
     List<String> warehouses(Map<String,Object> head) {return head.get("warehouse_id")==null?List.of():List.of(head.get("warehouse_id").toString());}
 
@@ -57,6 +57,15 @@ class ReversalSources {
         var found=new ArrayList<Map<String,Object>>();
         if(type.equals("shipment"))children(scope,found,"sales_return","return_no","sales_return_line","return_id","shipment_line","shipment_id","shipment_line_id",source);
         if(type.equals("goods_receipt"))children(scope,found,"purchase_return","return_no","purchase_return_line","return_id","goods_receipt_line","receipt_id","receipt_line_id",source);
+        if(type.equals("stock_misc_doc"))for(var row:jdbc.queryForList("SELECT id,document_no,warehouse_id FROM stock_misc_doc WHERE tenant_id=? AND company_id=? AND original_loan_id=? AND status NOT IN('voided','reversed') ORDER BY id FOR SHARE",scope.tenantId(),scope.companyId(),source))
+            found.add(dependency(scope,type,row,"归还单引用了本借出单，请先处理归还单"));
+        if(Set.of("purchase_return","stock_adjustment").contains(type)&&!jdbc.queryForList("""
+                SELECT d.id FROM qc_disposition d JOIN qc_inspection q
+                  ON q.tenant_id=d.tenant_id AND q.company_id=d.company_id AND q.id=d.inspection_id
+                WHERE d.tenant_id=? AND d.company_id=? AND d.target_type=? AND d.target_id=?
+                  AND (q.round_no<>d.round_no OR q.status<>'approved') FOR SHARE
+                """,Long.class,scope.tenantId(),scope.companyId(),type,source).isEmpty())
+            throw new ApiException(422,"DEPENDENCY_EXISTS","该处置关联的来料检已进入新的检验轮次，不能单独冲销");
         if(type.equals("receipt"))for(var row:jdbc.queryForList("SELECT id,refund_no document_no FROM refund_request WHERE tenant_id=? AND company_id=? AND original_receipt_id=? AND status<>'cancelled' ORDER BY id FOR SHARE",scope.tenantId(),scope.companyId(),source))found.add(dependency(scope,"refund_request",row,"退款引用了本收款单"));
         for(String fact:List.of("receivable","payable"))for(var row:facts(scope,type,source,fact,true)) {
             if(decimal(row,"invoiced_amount").signum()>0) {
@@ -75,6 +84,7 @@ class ReversalSources {
     }
     private Map<String,Object> dependency(CompanyAccess scope,String type,Map<String,Object> row,String relation) {
         try {
+            if(row.get("warehouse_id")!=null&&!scope.allowsWarehouse(id(row,"warehouse_id")))throw missing();
             if(type.equals("settlement_allocation")) cn.erp.shared.OrgOwnership.requireAllocation(jdbc,scope,row.get("id"));
             else cn.erp.shared.OrgOwnership.require(jdbc,scope,type,row.get("id"));
         } catch(ApiException denied) {

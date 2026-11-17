@@ -412,6 +412,12 @@ onScopeDispose(() => {
             />
             <div v-else class="row-actions">
               <button v-if="canEdit(row)" class="text-link" @click="edit(row)">编辑</button>
+              <router-link
+                v-if="resource === 'skus'"
+                :to="'/skus/' + row.id + '/tracking'"
+                class="text-link"
+                >供应链设置</router-link
+              >
               <template
                 v-if="resource === 'cash-accounts' && row.status === 'active' && canEdit(row)"
               >

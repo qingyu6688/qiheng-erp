@@ -18,14 +18,14 @@ try {
     $mysql=Join-Path $MySqlDirectory 'mysql.exe'
     $tables=@("SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA='$Database' AND TABLE_TYPE='BASE TABLE' ORDER BY TABLE_NAME;" | & $mysql --no-defaults --host=$($settings.DB_HOST) --port=$($settings.DB_PORT) --user=$($settings.DB_USER) --batch --skip-column-names)
     if($LASTEXITCODE -ne 0 -or $tables.Count -lt 80){throw '无法取得完整项目表清单，未生成授权。'}
-    $appendOnly=@('inventory_movement','inventory_reservation_change','cost_adjustment','journal','journal_line','approval_record','audit_log','stock_transfer_event_line','wf_task_action','wf_model_version')
+    $appendOnly=@('inventory_movement','inventory_reservation_change','inv_location_opening','cost_adjustment','journal','journal_line','approval_record','audit_log','stock_transfer_event_line','wf_task_action','wf_model_version')
     $readOnly=@('sys_permission','ledger_account','flyway_schema_history','gl_standard_preset')
     $sql=[Collections.Generic.List[string]]::new()
     $sql.Add('-- 由实际表清单生成，先审阅再以数据库管理员执行。账号密码另用私有脚本配置。')
     $sql.Add("CREATE ROLE IF NOT EXISTS '$RuntimeRole', '$MigrationRole', '$ReportRole';")
     foreach($table in $tables){if($table -notmatch '^[A-Za-z][A-Za-z0-9_]*$'){throw '表标识无效。'};$permissions=if($table -in $appendOnly){'SELECT, INSERT'}elseif($table -in $readOnly){'SELECT'}else{'SELECT, INSERT, UPDATE, DELETE'};$sql.Add(('GRANT {0} ON `{1}`.`{2}` TO ''{3}'';' -f $permissions,$Database,$table,$RuntimeRole))}
     $sql.Add(('GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES ON `{0}`.* TO ''{1}'';' -f $Database,$MigrationRole))
-    $reportTables=@('shipment','shipment_line','sales_return','sales_return_line','goods_receipt','goods_receipt_line','purchase_return','purchase_return_line','receivable','payable','document_reversal','inventory_balance','inventory_cost','inventory_movement','cost_adjustment','partner_open_item','journal','journal_line','warehouse','sku','business_partner','cash_account','receipt','payment','opening_entry','account_transfer','stock_adjustment','stock_count','stock_transfer','refund_request','report_snapshot_watermark')
+    $reportTables=@('shipment','shipment_line','sales_return','sales_return_line','goods_receipt','goods_receipt_line','purchase_return','purchase_return_line','receivable','payable','document_reversal','inventory_balance','inventory_cost','inventory_movement','cost_adjustment','partner_open_item','journal','journal_line','warehouse','sku','catalog_brand','business_partner','cash_account','receipt','payment','opening_entry','account_transfer','stock_adjustment','stock_count','stock_transfer','stock_misc_doc','qc_inspection','refund_request','report_snapshot_watermark')
     foreach($table in $reportTables){if($table -in $tables){$sql.Add(('GRANT SELECT ON `{0}`.`{1}` TO ''{2}'';' -f $Database,$table,$ReportRole))}}
     if('sys_user' -in $tables){$sql.Add(('GRANT SELECT (`id`,`tenant_id`,`display_name`) ON `{0}`.`sys_user` TO ''{1}'';' -f $Database,$ReportRole))}
     if('org_department' -in $tables){$sql.Add(('GRANT SELECT (`id`,`tenant_id`,`company_id`,`name`) ON `{0}`.`org_department` TO ''{1}'';' -f $Database,$ReportRole))}
