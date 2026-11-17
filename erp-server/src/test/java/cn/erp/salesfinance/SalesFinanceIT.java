@@ -13,6 +13,8 @@ import java.time.LocalDate;
 import java.util.*;
 import java.util.concurrent.*;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -101,13 +103,70 @@ class SalesFinanceIT {
     @AfterEach void cleanup() {
         jdbc.update("DELETE FROM inbox_event WHERE event_id IN(SELECT id FROM outbox_event WHERE tenant_id=?)",tenant);
         for(String table:List.of("outbox_event","idempotency_record","audit_log","settlement_allocation","partner_open_item","refund_request",
+                "wms_task_confirmation","wms_task_line","wms_task",
                 "receipt","receivable","sales_return_line","sales_return","inventory_reservation_change","inventory_reservation",
                 "cost_adjustment","inv_movement_hold","inventory_movement","inventory_cost","inventory_balance","ledger_balance","journal_line","journal",
                 "shipment_line","shipment","sales_order_line","sales_order","document_sequence","cash_account_balance","cash_account","accounting_period",
-                "unit_conversion","sku","product","product_category","unit","partner_role","business_partner","warehouse","company")) {
+                "unit_conversion","sku","product","product_category","unit","partner_role","business_partner","wms_location","wms_zone",
+                "warehouse","company")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
         }
         jdbc.update("DELETE FROM tenant WHERE id=?",tenant);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"optional,passed,false,true","optional,passed,true,false","optional,failed,false,false","off,passed,false,false"})
+    void salesReturnCreatesPutawayOnlyForPassedStockAtReceivingLocation(String mode,String quality,boolean explicitStorage,boolean createsTask) {
+        long receiving=returnLocation("R","receiving");
+        long storage=returnLocation("S","storage");
+        jdbc.update("""
+                UPDATE warehouse SET location_managed=1,default_receiving_location_id=?,default_shipping_location_id=?,wms_task_mode=?
+                WHERE tenant_id=? AND company_id=? AND id=?
+                """,receiving,storage,mode,tenant,company,warehouse);
+        jdbc.update("""
+                UPDATE inventory_movement SET source_type='shipment_line',source_id=?,location_key=?
+                WHERE tenant_id=? AND company_id=? AND source_type='sample' AND source_line_id=? AND movement_type='sales_out'
+                """,shipment,Long.toString(storage),tenant,company,shipmentLine);
+        var selection=explicitStorage?new StockSelection(null,null,null,null,storage,List.of()):null;
+        var draft=returns.create(maker,key(),new FinanceModels.ReturnInput(customer,warehouse,DATE,"样例退货",
+                List.of(new FinanceModels.ReturnLine(shipmentLine,unit,"1",quality,selection)),null));
+        long returnId=identifier(draft);
+        var submitted=returns.command(maker,returnId,"submit",key(),version(draft));
+        String postKey=key();
+        assertThat(returns.command(maker,returnId,"post",postKey,version(submitted)))
+                .containsEntry("status","posted").containsEntry("creditAmount","45.83");
+        assertThat(returns.command(maker,returnId,"post",postKey,version(submitted))).containsEntry("status","posted");
+        var moves=jdbc.queryForList("""
+                SELECT id,location_key,on_hand_delta,blocked_delta FROM inventory_movement
+                WHERE tenant_id=? AND company_id=? AND source_type='sales_return_line' AND source_id=? AND movement_type='sales_return_in'
+                """,tenant,company,returnId);
+        String expectedLocation=Long.toString(createsTask?receiving:storage);
+        assertThat(moves).singleElement().satisfies(row->{
+            assertThat(row).containsEntry("location_key",expectedLocation);
+            assertThat((BigDecimal)row.get("on_hand_delta")).isEqualByComparingTo("1");
+            assertThat((BigDecimal)row.get("blocked_delta")).isEqualByComparingTo(quality.equals("passed")?"0":"1");
+        });
+        var taskLines=jdbc.queryForList("""
+                SELECT t.status,l.receipt_movement_id,l.plan_qty FROM wms_task t JOIN wms_task_line l
+                  ON l.tenant_id=t.tenant_id AND l.company_id=t.company_id AND l.task_id=t.id
+                WHERE t.tenant_id=? AND t.company_id=? AND t.warehouse_id=? AND t.source_type='sales_return' AND t.source_id=?
+                """,tenant,company,warehouse,returnId);
+        if(createsTask){
+            assertThat(taskLines).singleElement().satisfies(row->{
+                assertThat(row).containsEntry("status","created").containsEntry("receipt_movement_id",moves.getFirst().get("id"));
+                assertThat((BigDecimal)row.get("plan_qty")).isEqualByComparingTo("1");
+            });
+        }else assertThat(taskLines).isEmpty();
+        assertThat(inventory.balance(maker,new Key(warehouse,sku)).cost()).isEqualByComparingTo("11.00");
+    }
+
+    private long returnLocation(String code,String type) {
+        long zone=Ids.next(),location=Ids.next();
+        jdbc.update("INSERT INTO wms_zone(id,tenant_id,company_id,warehouse_id,code,name,type) VALUES(?,?,?,?,?,'退货测试库区',?)",
+                zone,tenant,company,warehouse,code,type);
+        jdbc.update("INSERT INTO wms_location(id,tenant_id,company_id,warehouse_id,zone_id,code,name) VALUES(?,?,?,?,?,?,'退货测试库位')",
+                location,tenant,company,warehouse,zone,code);
+        return location;
     }
 
     @Test void completeReturnRefundSampleHasNoReconciliationDifferencesAndPaidRetryIsStable() {

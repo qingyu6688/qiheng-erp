@@ -39,6 +39,7 @@ const movementNames: Record<string, string> = {
   opening_in: '期初库存', purchase_in: '采购收货', purchase_return_out: '采购退货',
   sales_out: '销售发货', sales_return_in: '销售退货', sales_reject_in: '拒收退回',
   transfer_out: '调拨出库', transfer_in: '调拨入库', count_gain: '盘盈', count_loss: '盘亏',
+  location_move_out: '库位移出', location_move_in: '库位移入',
   adjust_in: '调整入库', adjust_out: '调整出库', block: '冻结', unblock: '解冻',
   scrap: '报废', stock_misc_in: '其他入库', stock_misc_out: '其他出库', stock_misc_return_in: '借出归还',
 }
@@ -217,7 +218,7 @@ function batchStatus(batch: TrackedBatch): string {
         </el-table-column>
         <el-table-column label="单据与往来单位" min-width="180">
           <template #default="{ row }">
-            <div>{{ row.receiptNo || row.shipmentNo || row.purchaseReturnNo || row.sourceId }}</div>
+            <div>{{ row.receiptNo || row.shipmentNo || row.purchaseReturnNo || row.sourceId || '—' }}</div>
             {{ row.supplierName || row.customerName || '' }}
           </template>
         </el-table-column>

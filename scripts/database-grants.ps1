@@ -18,7 +18,7 @@ try {
     $mysql=Join-Path $MySqlDirectory 'mysql.exe'
     $tables=@("SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA='$Database' AND TABLE_TYPE='BASE TABLE' ORDER BY TABLE_NAME;" | & $mysql --no-defaults --host=$($settings.DB_HOST) --port=$($settings.DB_PORT) --user=$($settings.DB_USER) --batch --skip-column-names)
     if($LASTEXITCODE -ne 0 -or $tables.Count -lt 80){throw '无法取得完整项目表清单，未生成授权。'}
-    $appendOnly=@('inventory_movement','inventory_reservation_change','inv_location_opening','cost_adjustment','journal','journal_line','approval_record','audit_log','stock_transfer_event_line','wf_task_action','wf_model_version')
+    $appendOnly=@('inventory_movement','inventory_reservation_change','inv_location_opening','cost_adjustment','journal','journal_line','approval_record','audit_log','stock_transfer_event_line','wf_task_action','wf_model_version','wms_task_confirmation')
     $readOnly=@('sys_permission','ledger_account','flyway_schema_history','gl_standard_preset')
     $sql=[Collections.Generic.List[string]]::new()
     $sql.Add('-- 由实际表清单生成，先审阅再以数据库管理员执行。账号密码另用私有脚本配置。')

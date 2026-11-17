@@ -301,6 +301,12 @@ export const router = createRouter({
           meta: { permission: 'inventory:view', company: true, title: '实时库存' },
         },
         {
+          path: 'wms-tasks',
+          name: 'wms-tasks',
+          component: () => import('../pages/PutawayTasksPage.vue'),
+          meta: { permission: 'wms_task:view', company: true, title: '上架任务' },
+        },
+        {
           path: 'inventory-trace',
           name: 'inventory-trace',
           component: () => import('../pages/InventoryTracePage.vue'),

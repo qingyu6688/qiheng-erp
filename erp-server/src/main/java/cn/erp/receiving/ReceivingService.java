@@ -9,6 +9,7 @@ import cn.erp.pricing.PricingEngine;
 import cn.erp.purchasing.PurchaseOrderQueries;
 import cn.erp.reference.ReferenceAvailability;
 import cn.erp.shared.*;
+import cn.erp.shared.PutawayPort;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.*;
@@ -36,11 +37,14 @@ public class ReceivingService {
     private final SettlementService settlement;
     private final PurchaseOrderQueries orders;
     private final ReceiptQualityPort quality;
+    private final PutawayPort putawayTasks;
     public ReceivingService(JdbcTemplate jdbc,ReceivingQueries queries,BusinessCommands commands,DocumentNumbers numbers,AuditService audit,
             CatalogAvailability catalog,ReferenceAvailability references,PricingEngine pricing,InventoryService inventory,
-            LedgerService ledger,SettlementService settlement,PurchaseOrderQueries orders,ReceiptQualityPort quality) {
+            LedgerService ledger,SettlementService settlement,PurchaseOrderQueries orders,ReceiptQualityPort quality,
+            PutawayPort putawayTasks) {
         this.jdbc=jdbc;this.queries=queries;this.commands=commands;this.numbers=numbers;this.audit=audit;this.catalog=catalog;
         this.references=references;this.pricing=pricing;this.inventory=inventory;this.ledger=ledger;this.settlement=settlement;this.orders=orders;this.quality=quality;
+        this.putawayTasks=putawayTasks;
     }
     private record Line(long sourceId,long unitId,String qty,StockSelection selection) {}
     public Map<String,Object> createReceipt(CompanyAccess scope,String key,ReceivingModels.ReceiptInput input) {
@@ -200,6 +204,7 @@ public class ReceivingService {
         jdbc.update("UPDATE "+table(returning)+" SET status='posted',"+(returning?"debit_amount":"payable_amount")+"=?,tax_amount=?,untaxed_amount=?,cost_amount=?,period_id=?,posted_at=UTC_TIMESTAMP(3),posted_by=?,version=version+1,updated_by=? WHERE id=?",
                 amount,tax,amount.subtract(tax),cost,period,scope.userId(),scope.userId(),id);
         refresh(scope,returning,lines);
+        if(!returning) putawayTasks.createFromReceipt(scope,warehouse,"goods_receipt",id);
     }
     private BigDecimal[] postReceiptLine(CompanyAccess scope,long header,long supplier,long warehouse,LocalDate day,long period,
             Map<String,Object> line,Map<String,Object> original,boolean inclusive,List<LedgerService.Line> journal) {

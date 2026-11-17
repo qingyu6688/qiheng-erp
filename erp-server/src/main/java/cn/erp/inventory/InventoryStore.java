@@ -5,8 +5,8 @@ import cn.erp.shared.ApiException;
 import cn.erp.shared.Ids;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.*;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -134,6 +134,19 @@ class InventoryStore {
                     qty_delta,source_type,source_id,source_line_id,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)
                 """, Ids.next(), scope.tenantId(), scope.companyId(), id, type, quantity, source.type(),
                 source.id(), source.lineId(), scope.userId());
+    }
+
+    long appendMovement(CompanyAccess scope, Posting posting, InventoryDimensions.Coordinates at, BigDecimal quantity,
+                        BigDecimal blocked, BigDecimal unitCost, BigDecimal cost) {
+        long id = Ids.next();
+        jdbc.update("""
+                INSERT INTO inventory_movement(id,tenant_id,company_id,warehouse_id,sku_id,location_key,lot_key,movement_type,on_hand_delta,
+                    blocked_delta,unit_cost,cost_delta,source_type,source_id,source_line_id,business_date,period_id,posted_at,created_by)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """, id, scope.tenantId(), scope.companyId(), posting.key().warehouseId(), posting.key().skuId(), at.location(),
+                at.lot(), posting.movementType(), quantity, blocked, unitCost, cost, posting.source().type(), posting.source().id(),
+                posting.source().lineId(), posting.businessDate(), posting.periodId(), Timestamp.from(Instant.now()), scope.userId());
+        return id;
     }
 
     static BigDecimal decimal(Map<String,Object> row, String key) { return (BigDecimal) row.get(key); }

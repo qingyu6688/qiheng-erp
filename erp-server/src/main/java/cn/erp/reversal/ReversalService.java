@@ -24,8 +24,10 @@ public class ReversalService {
     private final BusinessCommands commands;
     private final DocumentNumbers numbers;
     private final AuditService audit;
-    public ReversalService(JdbcTemplate jdbc,FinanceSupport finance,ReversalSources sources,ReversalProgress progress,ReversalPosting posting,BusinessCommands commands,DocumentNumbers numbers,AuditService audit) {
+    private final PutawayPort putaway;
+    public ReversalService(JdbcTemplate jdbc,FinanceSupport finance,ReversalSources sources,ReversalProgress progress,ReversalPosting posting,BusinessCommands commands,DocumentNumbers numbers,AuditService audit,PutawayPort putaway) {
         this.jdbc=jdbc;this.finance=finance;this.sources=sources;this.progress=progress;this.posting=posting;this.commands=commands;this.numbers=numbers;this.audit=audit;
+        this.putaway=putaway;
     }
     public Map<String,Object> create(CompanyAccess scope,String key,ReversalModels.Input input) {
         if(input==null||input.sourceType()==null||input.sourceId()==null||input.sourceId()<=0||input.reason()==null||input.reason().isBlank()||input.reason().length()>200)throw invalid("请填写有效的来源和冲销原因");
@@ -34,6 +36,7 @@ public class ReversalService {
         return execute(scope,"create",key,input,201,()->{
             finance.period(scope,input.businessDate());
             var head=sources.head(scope,input.sourceType(),input.sourceId(),true);sources.posted(head,input.sourceType());
+            putaway.requireReversible(scope,input.sourceType(),input.sourceId());
             progress.lock(scope,input.sourceType(),input.sourceId());sources.dependencies(scope,input.sourceType(),input.sourceId());
             if(!jdbc.queryForList("SELECT id FROM document_reversal WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"document_reversal")+" AND source_type=? AND source_id=? AND status<>'rejected' FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),input.sourceType(),input.sourceId()).isEmpty())throw new ApiException(409,"STATE_CONFLICT","原单已有待处理或已完成的冲销单");
             long id=Ids.next();
@@ -63,7 +66,9 @@ public class ReversalService {
                 jdbc.update("UPDATE document_reversal SET status=?,approved_by=?,approved_at=UTC_TIMESTAMP(3),version=version+1 WHERE id=?",action.equals("approve")?"approved":"rejected",scope.userId(),id);
             } else if(action.equals("post")) {
                 state(before,"approved");sources.posted(head,type);sources.dependencies(scope,type,source);
+                putaway.requireReversible(scope,type,source);
                 posting.post(scope,id,type,source,head,period,((java.sql.Date)before.get("business_date")).toLocalDate());
+                putaway.cancelUntouched(scope,type,source);
                 jdbc.update("UPDATE document_reversal SET status='posted',period_id=?,posted_at=UTC_TIMESTAMP(3),version=version+1 WHERE id=?",period,id);
             } else throw invalid("冲销操作无效");
             audit.record(scope,"reversal."+action,"document_reversal",id,null,Map.of("reason",input.reason()==null?"":input.reason(),"sourceType",type,"sourceId",Long.toString(source)));

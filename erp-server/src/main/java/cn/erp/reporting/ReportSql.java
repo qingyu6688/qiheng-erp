@@ -32,7 +32,8 @@ final class ReportSql {
     private static String inventoryFlow(boolean detail,CompanyAccess actor) {
         String events="""
             WITH e AS (SELECT id,warehouse_id,sku_id,business_date,on_hand_delta qty,blocked_delta blocked_qty,cost_delta cost_amount,source_type,source_id,source_line_id,posting_action
-              FROM inventory_movement m WHERE tenant_id=:t AND company_id=:c AND %s
+              FROM inventory_movement m WHERE tenant_id=:t AND company_id=:c
+                AND m.movement_type NOT IN ('location_move_out','location_move_in') AND %s
               UNION ALL SELECT id,warehouse_id,sku_id,business_date,0,0,amount,source_type,source_id,source_line_id,'adjustment'
               FROM cost_adjustment a WHERE tenant_id=:t AND company_id=:c AND %s)
             """.formatted(source(actor,"m.source_type","m.source_id"),source(actor,"a.source_type","a.source_id"));

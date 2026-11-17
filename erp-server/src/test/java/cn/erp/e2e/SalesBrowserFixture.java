@@ -109,7 +109,8 @@ public class SalesBrowserFixture {
         jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(?,?,'E2E_SUPPLY_TESTER','供应链验收角色')",role,tenant);
         var permissions=jdbc.queryForList("""
                 SELECT id FROM sys_permission WHERE code IN ('warehouse:view','warehouse:create','warehouse:update','wms_location:view',
-                    'wms_location:manage','partner:view','einv:view','einv:create','einv:inbound','einv:manage')
+                    'wms_location:manage','wms_task:view','wms_task:configure','partner:view','einv:view','einv:create',
+                    'einv:inbound','einv:manage')
                 """,Long.class);
         for(long permission:permissions)
             jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) VALUES(?,?,?,?)",Ids.next(),tenant,role,permission);

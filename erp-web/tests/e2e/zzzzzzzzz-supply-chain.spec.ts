@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test'
-import type { Page } from '@playwright/test'
+import type { APIResponse, Page } from '@playwright/test'
 import { env } from 'node:process'
+import type { PageResult } from '../../src/types/api'
+import type { UserSession } from '../../src/types/auth'
+import type { WmsTaskSummary, WmsWarehouse } from '../../src/types/wms'
 
 async function login(page: Page): Promise<void> {
   if (!env.ERP_E2E_PASSWORD || !/^E2E-[a-f0-9]{12}$/.test(env.ERP_E2E_TENANT_CODE ?? '')) {
@@ -56,4 +59,79 @@ test('数电发票可查看开具记录、进项台账和服务商启用状态',
   await expect(page.getByText('暂无进项发票', { exact: true })).toBeVisible()
   await page.getByRole('tab', { name: '服务商配置' }).click()
   await expect(page.getByRole('button', { name: '测试已保存的连接' })).toBeDisabled()
+})
+
+async function dataOf<T>(response: APIResponse): Promise<T> {
+  expect(response.ok(), `接口请求失败，状态 ${response.status()}`).toBe(true)
+  return ((await response.json()) as { data: T }).data
+}
+
+async function createPutawayWarehouse(
+  page: Page,
+  headers: Record<string, string>,
+): Promise<{ id: string; code: string }> {
+  const code = 'M17-' + crypto.randomUUID().slice(0, 10).toUpperCase()
+  const warehouse = await dataOf<{ id: string; version: number }>(
+    await page.request.post('/api/v1/warehouses', {
+      headers: { ...headers, 'Idempotency-Key': crypto.randomUUID() },
+      data: { code, name: '作业模式验收仓' },
+    }),
+  )
+  const root = `/api/v1/warehouses/${warehouse.id}/locations`
+  const zone = await dataOf<{ id: string }>(
+    await page.request.put(root + '/zones', {
+      headers,
+      data: { code: 'RC', name: '收货区', type: 'receiving', enabled: true },
+    }),
+  )
+  const slot = await dataOf<{ id: string }>(
+    await page.request.put(root, {
+      headers,
+      data: { zoneId: zone.id, code: 'RC-01', name: '收货位', enabled: true },
+    }),
+  )
+  await dataOf(
+    await page.request.put(root + '/settings', {
+      headers,
+      data: { receivingId: slot.id, shippingId: slot.id, version: warehouse.version },
+    }),
+  )
+  return { id: warehouse.id, code }
+}
+
+test('M17 上架任务菜单读取当前仓库，库位仓作业模式默认关闭且可开启', async ({ page }) => {
+  await login(page)
+  const user = await dataOf<UserSession>(await page.request.get('/api/v1/auth/me'))
+  const token = (await page.context().cookies()).find((cookie) => cookie.name === 'XSRF-TOKEN')
+  const headers = { 'X-Company-Id': user.companies[0]!.id, 'X-XSRF-TOKEN': token?.value ?? '' }
+  const warehouse = await createPutawayWarehouse(page, headers)
+  const list = () =>
+    page.request.get('/api/v1/wms/warehouses', { headers }).then(dataOf<{ items: WmsWarehouse[] }>)
+  expect((await list()).items.find((row) => row.id === warehouse.id)).toMatchObject({
+    taskMode: 'off',
+    locationManaged: true,
+  })
+
+  const link = page.locator('.nav-group a[href="/wms-tasks"]')
+  await expect(link).toBeAttached()
+  if (!(await link.isVisible()))
+    await page.locator('.nav-group summary').getByText('库存', { exact: true }).click()
+  await link.click()
+  await expect(page.getByRole('heading', { name: '上架任务', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '仓库任务模式' }).click()
+  const settings = page.getByRole('region', { name: '仓库任务模式' })
+  await settings.getByRole('combobox', { name: '配置仓库' }).press('Enter')
+  await page.getByRole('option', { name: `${warehouse.code} · 作业模式验收仓` }).click()
+  await expect(settings.getByRole('button', { name: '保存模式' })).toBeDisabled()
+  await settings.getByRole('combobox', { name: '任务模式' }).press('Enter')
+  await page.getByRole('option', { name: '生成上架任务' }).click()
+  await settings.getByRole('button', { name: '保存模式' }).click()
+  await expect(page.getByText('仓库任务模式已保存。')).toBeVisible()
+  expect((await list()).items.find((row) => row.id === warehouse.id)?.taskMode).toBe('optional')
+
+  const tasks = await dataOf<PageResult<WmsTaskSummary>>(
+    await page.request.get('/api/v1/wms/tasks', { headers, params: { warehouseId: warehouse.id } }),
+  )
+  expect(tasks.items).toEqual([])
+  await expect(page.getByText('暂无匹配的上架任务')).toBeVisible()
 })

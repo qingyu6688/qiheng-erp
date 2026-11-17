@@ -33,6 +33,7 @@ class InventoryDimensions {
     record Pick(Coordinates at,List<String> serials) {}
     record HoldChange(String reason,Source source,BigDecimal delta) {}
     private record PickPosition(Key key,Coordinates at) {}
+    record MoveSerial(long id, String status, Object previousMovement) {}
 
     static final class PickPreview {
         private final Map<PickPosition,BigDecimal> quantities=new HashMap<>();
@@ -455,6 +456,34 @@ class InventoryDimensions {
     private void linkSerial(CompanyAccess actor,long movement,long serial,String prior,String state,Object priorMovement) {
         jdbc.update("INSERT INTO inv_movement_serial(tenant_id,company_id,movement_id,serial_id,prior_status,current_status,prior_movement_id) VALUES(?,?,?,?,?,?,?)",
                 actor.tenantId(),actor.companyId(),movement,serial,prior,state,priorMovement);
+    }
+
+    List<MoveSerial> lockMoveSerials(CompanyAccess actor, Key key, Coordinates from, List<String> codes) {
+        var locked = new ArrayList<MoveSerial>();
+        for (String code : codes) {
+            var row = serialRow(actor, key.skuId(), code, true);
+            if (row == null || !Objects.equals(asLong(row.get("batch_id")), from.batch())
+                    || asLong(row.get("warehouse_id")) != key.warehouseId() || !from.location().equals(row.get("location_key"))
+                    || !Set.of("in_stock", "returned").contains(row.get("status"))) {
+                throw serialConflict();
+            }
+            locked.add(new MoveSerial(asLong(row.get("id")), (String) row.get("status"), row.get("last_movement_id")));
+        }
+        return locked;
+    }
+
+    void moveSerials(CompanyAccess actor, Source source, Coordinates to, List<MoveSerial> serials, long out, long in) {
+        for (var serial : serials) {
+            jdbc.update("""
+                    UPDATE inv_serial SET location_key=?,last_movement_id=?,version=version+1
+                    WHERE tenant_id=? AND company_id=? AND id=?
+                    """, to.location(), in, actor.tenantId(), actor.companyId(), serial.id());
+            linkSerial(actor, out, serial.id(), serial.status(), serial.status(), serial.previousMovement());
+            linkSerial(actor, in, serial.id(), serial.status(), serial.status(), out);
+            jdbc.update("""
+                    INSERT INTO doc_line_serial(tenant_id,company_id,doc_type,line_id,serial_id) VALUES(?,?,?,?,?)
+                    """, actor.tenantId(), actor.companyId(), source.type(), source.lineId(), serial.id());
+        }
     }
 
     Map<String,Object> serialRow(CompanyAccess actor,long sku,String serial,boolean lock) {

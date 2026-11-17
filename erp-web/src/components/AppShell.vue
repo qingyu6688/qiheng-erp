@@ -163,6 +163,7 @@ const definitions = [
     icon: Box,
     items: [
       { path: 'inventory-balances', title: '实时库存', permission: 'inventory:view' },
+      { path: 'wms-tasks', title: '上架任务', permission: 'wms_task:view' },
       { path: 'stock-transfers', title: '库存调拨', permission: 'stock_transfer:view' },
       { path: 'stock-counts', title: '库存盘点', permission: 'stock_count:view' },
       { path: 'stock-adjustments', title: '库存调整', permission: 'stock_adjustment:view' },

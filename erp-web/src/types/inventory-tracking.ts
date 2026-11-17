@@ -75,7 +75,7 @@ export interface StockMovementTrace {
   blockedDelta: string
   businessDate: string
   sourceType: string
-  sourceId: string
+  sourceId?: string
   receiptNo?: string
   purchaseReturnNo?: string
   supplierName?: string

@@ -7,6 +7,7 @@ import cn.erp.pricing.PricingEngine;
 import cn.erp.reference.ReferenceAvailability;
 import cn.erp.salesorder.SalesOrderQueries;
 import cn.erp.shared.*;
+import cn.erp.shared.PutawayPort;
 import java.math.*;
 import java.time.*;
 import java.util.*;
@@ -30,10 +31,13 @@ public class SalesReturnService {
     private final InventoryService inventory;
     private final PricingEngine pricing;
     private final SalesOrderQueries orders;
+    private final PutawayPort putawayTasks;
     public SalesReturnService(JdbcTemplate jdbc,FinanceSupport support,DocumentNumbers numbers,BusinessCommands commands,AuditService audit,
-            ReferenceAvailability references,LedgerService ledger,SettlementService settlement,InventoryService inventory,PricingEngine pricing,SalesOrderQueries orders) {
+            ReferenceAvailability references,LedgerService ledger,SettlementService settlement,InventoryService inventory,PricingEngine pricing,
+            SalesOrderQueries orders,PutawayPort putawayTasks) {
         this.jdbc=jdbc;this.support=support;this.numbers=numbers;this.commands=commands;this.audit=audit;this.references=references;
         this.ledger=ledger;this.settlement=settlement;this.inventory=inventory;this.pricing=pricing;this.orders=orders;
+        this.putawayTasks=putawayTasks;
     }
 
     public Map<String,Object> list(CompanyAccess scope,Long customer,String status,Long cursor,int limit) {
@@ -211,12 +215,14 @@ public class SalesReturnService {
         var originals=new LinkedHashMap<Long,Map<String,Object>>();
         for(var line:lines) {originals.put(id(line,"shipment_line_id"),source(scope,id(line,"shipment_line_id"),true));}
         inventory.lockKeys(scope,lines.stream().map(line->new Key(warehouse,id(line,"sku_id"))).toList());
+        Long receiving=lines.stream().anyMatch(line->"passed".equals(line.get("quality_result")))
+                ? putawayTasks.receivingLocation(scope,warehouse) : null;
         BigDecimal total=BigDecimal.ZERO.setScale(2),tax=total,cost=total;
         var journal=new ArrayList<LedgerService.Line>();var orderIds=new TreeSet<Long>();
         for(var line:lines) {
             var original=originals.get(id(line,"shipment_line_id"));
             if(date.isBefore(((java.sql.Date)original.get("sign_date")).toLocalDate())) {throw invalid("退货过账日期不能早于原发货签收日期");}
-            var result=postLine(scope,returnId,warehouse,customer,date,period,line,original,journal);
+            var result=postLine(scope,returnId,warehouse,customer,date,period,line,original,journal,receiving);
             total=total.add(result[0]);tax=tax.add(result[1]);cost=cost.add(result[2]);orderIds.add(id(original,"order_id"));
         }
         if(!journal.isEmpty()) {ledger.post(scope,new LedgerService.Posting("sales_return",returnId,0,period,date,journal));}
@@ -225,6 +231,7 @@ public class SalesReturnService {
                 period_id=?,posted_by=?,posted_at=UTC_TIMESTAMP(3),version=version+1,updated_by=? WHERE id=?
                 """,total,tax,total.subtract(tax),cost,date,period,scope.userId(),scope.userId(),returnId);
         for(long order:orderIds) {orders.refreshProgress(scope,order);}
+        putawayTasks.createFromReceipt(scope,warehouse,"sales_return",returnId);
     }
 
     private void lockSources(CompanyAccess scope,List<Map<String,Object>> lines) {
@@ -241,7 +248,7 @@ public class SalesReturnService {
     }
 
     private BigDecimal[] postLine(CompanyAccess scope,long returnId,long warehouse,long customer,LocalDate date,long period,
-            Map<String,Object> line,Map<String,Object> original,List<LedgerService.Line> journal) {
+            Map<String,Object> line,Map<String,Object> original,List<LedgerService.Line> journal,Long receiving) {
         long lineId=id(line,"id"),sourceLine=id(line,"shipment_line_id"),sku=id(line,"sku_id");
         BigDecimal qty=decimal(line,"base_qty"),previous=decimal(original,"returned_base_qty"),signed=decimal(original,"signed_base_qty");
         if(decimal(original,"pending_return_base_qty").compareTo(qty)<0||previous.add(qty).compareTo(signed)>0) {throw new ApiException(422,"RETURN_QTY_EXCEEDED","退货占用与原发货行不一致");}
@@ -253,7 +260,7 @@ public class SalesReturnService {
         var posting=new Posting(new Key(warehouse,sku),new Source("sales_return_line",returnId,lineId),date,period,"sales_return_in");
         var origin=new Source("shipment_line",id(original,"shipment_id"),sourceLine);
         var signedSelection=inventory.decodeSelection(original.get("signed_serials"));
-        var selection=inventory.returnSelection(scope,posting.key(),origin,"sales_out",inventory.decodeSelection(line.get("stock_selection")),qty,null,
+        var selection=inventory.returnSelection(scope,posting.key(),origin,"sales_out",returnIntakeSelection(receiving,line),qty,null,
                 signedSelection==null?null:signedSelection.serials());
         inventory.receive(scope,posting,qty,cost,selection,"passed".equals(line.get("quality_result"))?null:"sales_reject");
         jdbc.update("""
@@ -278,6 +285,13 @@ public class SalesReturnService {
         add(journal,"INVENTORY","D",cost,warehouse,sku,lineId);
         add(journal,"COGS","C",cost,null,null,lineId);
         return new BigDecimal[]{credit,tax,cost};
+    }
+
+    private StockSelection returnIntakeSelection(Long receiving,Map<String,Object> line) {
+        var requested=inventory.decodeSelection(line.get("stock_selection"));
+        if(receiving==null || !"passed".equals(line.get("quality_result")) || (requested!=null && requested.locationId()!=null)) return requested;
+        if(requested==null) return new StockSelection(null,null,null,null,receiving,List.of());
+        return new StockSelection(requested.batchId(),requested.batchNo(),requested.productionDate(),requested.expiryDate(),receiving,requested.serials());
     }
 
     private void add(List<LedgerService.Line> lines,String account,String direction,BigDecimal amount,Long warehouse,Long sku,long line) {
