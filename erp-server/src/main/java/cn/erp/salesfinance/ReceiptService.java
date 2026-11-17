@@ -74,7 +74,7 @@ public class ReceiptService {
     public Map<String,Object> create(CompanyAccess scope,String key,FinanceModels.Receipt input) {
         return execute(scope,"receipt.create",key,input,201,()->{
             validate(scope,input);
-            long id=Ids.next();String no=numbers.next(scope,"RC",YearMonth.from(input.businessDate()));
+            long id=Ids.next();String no=numbers.next(scope,"RC",input.businessDate());
             jdbc.update("""
                     INSERT INTO receipt(id,tenant_id,company_id,receipt_no,receipt_type,partner_id,income_item_id,cash_account_id,
                     amount,business_date,related_order_id,bank_serial_no,remark,created_by,updated_by,owner_user_id,owner_department_id)

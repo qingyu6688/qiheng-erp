@@ -99,7 +99,7 @@ public class SalesReturnService {
     public Map<String,Object> create(CompanyAccess scope,String key,FinanceModels.ReturnInput input) {
         return execute(scope,"sales_return.create",key,input,201,()->{
             validateHeader(scope,input);
-            long id=Ids.next();String no=numbers.next(scope,"SR",YearMonth.from(input.businessDate()));
+            long id=Ids.next();String no=numbers.next(scope,"SR",input.businessDate());
             jdbc.update("INSERT INTO sales_return(id,tenant_id,company_id,return_no,customer_id,warehouse_id,business_date,reason,created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                     id,scope.tenantId(),scope.companyId(),no,input.customerId(),input.warehouseId(),input.businessDate(),input.reason(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             saveLines(scope,id,input);

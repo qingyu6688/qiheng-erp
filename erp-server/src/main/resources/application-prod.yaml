@@ -11,7 +11,8 @@ server:
         secure: true
 springdoc:
   api-docs:
-    enabled: false
+    enabled: true
+  enable-default-api-docs: false
 logging:
   file:
     name: ${ERP_LOG_FILE:./logs/erp-server.log}

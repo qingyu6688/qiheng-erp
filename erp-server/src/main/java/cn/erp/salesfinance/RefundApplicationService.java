@@ -84,7 +84,7 @@ public class RefundApplicationService {
     public Map<String,Object> create(CompanyAccess scope,String key,FinanceModels.Refund input) {
         return execute(scope,"refund_request.create",key,input,201,()->{
             validate(scope,input);
-            long id=Ids.next();String no=numbers.next(scope,"RF",YearMonth.from(input.businessDate()));
+            long id=Ids.next();String no=numbers.next(scope,"RF",input.businessDate());
             jdbc.update("""
                     INSERT INTO refund_request(id,tenant_id,company_id,refund_no,customer_id,original_receipt_id,cash_account_id,amount,business_date,
                     request_key,reason,credit_item_ids,created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)

@@ -37,7 +37,7 @@ public class StockTransferService {
     }
     public Map<String,Object> create(CompanyAccess scope,String key,StockTransferModels.Input input){
         return execute(scope,"create",key,input,201,()->{validate(scope,input);long id=Ids.next();
-            jdbc.update("INSERT INTO stock_transfer(id,tenant_id,company_id,transfer_no,from_warehouse_id,to_warehouse_id,business_date,remark,created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",id,scope.tenantId(),scope.companyId(),numbers.next(scope,"ST",YearMonth.from(input.businessDate())),input.fromWarehouseId(),input.toWarehouseId(),input.businessDate(),input.remark(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
+            jdbc.update("INSERT INTO stock_transfer(id,tenant_id,company_id,transfer_no,from_warehouse_id,to_warehouse_id,business_date,remark,created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",id,scope.tenantId(),scope.companyId(),numbers.next(scope,"ST",input.businessDate()),input.fromWarehouseId(),input.toWarehouseId(),input.businessDate(),input.remark(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             writeLines(scope,id,input.lines());return changed(scope,id,"create");});
     }
     public Map<String,Object> update(CompanyAccess scope,long id,StockTransferModels.Input input){

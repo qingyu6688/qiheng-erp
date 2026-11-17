@@ -24,7 +24,7 @@ public class AccessService {
                 SELECT u.tenant_id, u.id, u.username, u.display_name, u.must_change_password
                 FROM sys_user u JOIN tenant t ON t.id = u.tenant_id
                 WHERE u.tenant_id = ? AND u.id = ? AND u.status = 'active' AND t.status = 'active'
-                  AND %s = ?
+                  AND %s = ? %s
             )
             SELECT 0 AS row_kind, username, display_name, must_change_password, NULL AS permission_code,
                    NULL AS company_id, NULL AS company_code, NULL AS company_name,
@@ -40,7 +40,10 @@ public class AccessService {
             JOIN sys_user_data_scope s ON s.tenant_id = a.tenant_id AND s.user_id = a.id
             JOIN company c ON c.tenant_id = s.tenant_id AND c.id = s.company_id AND c.status = 'active'
             ORDER BY row_kind, company_id, warehouse_key
-            """.formatted(PASSWORD_REVISION, UserAccessMapper.ROLE_PERMISSIONS);
+            """;
+    private static final String HUMAN_PROFILE = PROFILE_SQL.formatted(PASSWORD_REVISION,
+            SessionChecks.PRIMARY + SessionChecks.MFA,UserAccessMapper.ROLE_PERMISSIONS);
+    private static final String BACKGROUND_PROFILE = PROFILE_SQL.formatted(PASSWORD_REVISION,"",UserAccessMapper.ROLE_PERMISSIONS);
     private final JdbcTemplate jdbc;
     private final OrgScopeResolver orgScopes;
 
@@ -96,7 +99,7 @@ public class AccessService {
     public CompanyAccess forUser(long tenant,long user,long companyId) {
         var revisions=jdbc.queryForList("SELECT "+PASSWORD_REVISION+" FROM sys_user u WHERE tenant_id=? AND id=? AND status='active'",Long.class,tenant,user);
         if(revisions.isEmpty()) return null;
-        UserView profile=jdbc.query(PROFILE_SQL,(ResultSetExtractor<UserView>) rows->readProfile(rows,user),tenant,user,revisions.getFirst());
+        UserView profile=jdbc.query(BACKGROUND_PROFILE,(ResultSetExtractor<UserView>) rows->readProfile(rows,user),tenant,user,revisions.getFirst());
         if(profile==null||profile.mustChangePassword()) return null;
         if(companyId==0) return new CompanyAccess(tenant,user,0,true,Set.of(),profile.permissions());
         var company=profile.companies().stream().filter(c->c.id().equals(Long.toString(companyId))).findFirst().orElse(null);if(company==null) return null;
@@ -114,9 +117,9 @@ public class AccessService {
         if (request.getAttribute(PROFILE) instanceof UserView profile) {
             return profile;
         }
-        UserView profile = jdbc.query(PROFILE_SQL,
+        UserView profile = jdbc.query(HUMAN_PROFILE,
                 (ResultSetExtractor<UserView>) rows -> readProfile(rows, actor.userId()),
-                actor.tenantId(), actor.userId(), actor.passwordRevision());
+                SessionChecks.args(actor,true));
         if (profile == null) {
             request.getSession(false).invalidate();
             throw SessionAccount.expired();
@@ -124,6 +127,8 @@ public class AccessService {
         request.setAttribute(PROFILE, profile);
         return profile;
     }
+
+    void clearCache(HttpServletRequest request) { request.removeAttribute(PROFILE); }
 
     private UserView readProfile(ResultSet rows, long userId) throws SQLException {
         if (!rows.next()) {

@@ -24,19 +24,23 @@ import cn.erp.salesorder.SalesOrderQueries;
 import cn.erp.shared.ApiException;
 import cn.erp.stockcount.StockCountService;
 import cn.erp.stocktransfer.StockTransferService;
+import cn.erp.workflow.GenericWorkflowBusiness;
 
 /** 附件与打印复用业务查询的数据范围和字段权限，类型只能来自服务端白名单。 */
 @Service
 public class DocumentAccess {
     private final JdbcTemplate jdbc;
     private final Map<String, BiFunction<CompanyAccess, Long, Map<String, Object>>> readers = new LinkedHashMap<>();
+    private final GenericWorkflowBusiness genericWorkflow;
 
     public DocumentAccess(JdbcTemplate jdbc, SalesOrderQueries sales, ShipmentQueries shipments,
             ReceiptService receipts, SalesReturnService salesReturns, RefundApplicationService refunds,
             RequisitionService requisitions, PurchaseOrderQueries purchases, ReceivingQueries receiving,
             PaymentService payments, AccountTransferService transfers, OpeningService opening,
-            StockCountService counts, StockTransferService stockTransfers, ReversalService reversals, InvoiceService invoices) {
+            StockCountService counts, StockTransferService stockTransfers, ReversalService reversals, InvoiceService invoices,
+            GenericWorkflowBusiness genericWorkflow) {
         this.jdbc = jdbc;
+        this.genericWorkflow = genericWorkflow;
         readers.put("sales_order", sales::get);
         readers.put("shipment", shipments::get);
         readers.put("receipt", receipts::get);
@@ -54,6 +58,7 @@ public class DocumentAccess {
         readers.put("stock_transfer", stockTransfers::get);
         readers.put("document_reversal", reversals::get);
         readers.put("invoice_registration", invoices::get);
+        readers.put("wf_generic_request", genericWorkflow::viewAttachments);
     }
 
     public String permission(String type, String action) {
@@ -74,6 +79,11 @@ public class DocumentAccess {
     }
 
     public void writable(CompanyAccess scope, String type, long id) {
+        if (type.equals("wf_generic_request")) {
+            view(scope,type,id);
+            genericWorkflow.modifyAttachments(scope,id);
+            return;
+        }
         require(scope, writePermission(type));
         view(scope, type, id);
     }

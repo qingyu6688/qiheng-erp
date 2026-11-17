@@ -31,16 +31,20 @@ public class ImportJobs {
     private final AuditService audit;
     private final BusinessCommands commands;
     private final TransactionTemplate tx;
+    private final cn.erp.customfield.CustomFields customFields;
     ImportJobs(JdbcTemplate jdbc,ObjectMapper json,ObjectFiles files,ObjectCompensation objects,ImportAccess access,AuditService audit,
-            BusinessCommands commands,PlatformTransactionManager manager) {
-        this.jdbc=jdbc;this.json=json;this.files=files;this.objects=objects;this.access=access;this.audit=audit;this.commands=commands;this.tx=new TransactionTemplate(manager);
+            BusinessCommands commands,PlatformTransactionManager manager,cn.erp.customfield.CustomFields customFields) {
+        this.jdbc=jdbc;this.json=json;this.files=files;this.objects=objects;this.access=access;this.audit=audit;this.commands=commands;this.tx=new TransactionTemplate(manager);this.customFields=customFields;
     }
+    byte[] template(CompanyAccess scope,String type) {return ImportCsv.template(type,customFields.importKeys(scope.tenantId(),type));}
     public Map<String,Object> create(CompanyAccess scope,String key,String type,Long warehouse,LocalDate date,String filename,byte[] bytes) {
         ImportCsv.headers(type);
         if(filename==null||!filename.toLowerCase(Locale.ROOT).endsWith(".csv"))throw ImportCsv.invalid("请选择 .csv 格式文件");
         var rows=ImportCsv.parse(type,bytes);
         boolean cost=type.equals("opening_stock")||(type.equals("sku")&&rows.stream().anyMatch(r->r.cells().size()>5&&!r.cells().get(5).isBlank()));
         ImportAccess.permissions(scope,type,cost);
+        if(!customFields.importKeys(scope.tenantId(),type).containsAll(rows.getFirst().keys()))
+            throw ImportCsv.invalid("文件含当前未启用或未授权导入的字段，请重新下载模板");
         var snapshot=access.snapshot(scope);
         var current=access.current(scope.tenantId(),scope.companyId(),scope.userId(),snapshot,type,cost);
         if(type.equals("opening_stock")) {
@@ -123,7 +127,7 @@ public class ImportJobs {
         var errors=jdbc.queryForList("SELECT row_no,column_name,message FROM import_job_error WHERE tenant_id=? AND company_id=? AND job_id=? ORDER BY row_no,id",scope.tenantId(),scope.companyId(),id);
         var byRow=new LinkedHashMap<Integer,List<String>>();
         for(var error:errors)byRow.computeIfAbsent(((Number)error.get("row_no")).intValue(),key->new ArrayList<>()).add(error.get("column_name")+"："+error.get("message"));
-        var output=new StringBuilder("\uFEFF");var header=new ArrayList<>(ImportCsv.headers(type));header.add("错误原因");csvLine(output,header);
+        var output=new StringBuilder("\uFEFF");var header=new ArrayList<>(ImportCsv.headers(type));header.addAll(rows.getFirst().keys());header.add("错误原因");csvLine(output,header);
         for(var row:rows)if(byRow.containsKey(row.rowNo())) {var cells=new ArrayList<>(row.cells());cells.add(String.join("；",byRow.get(row.rowNo())));csvLine(output,cells);}
         authorize(scope,id);return output.toString().getBytes(StandardCharsets.UTF_8);
     }

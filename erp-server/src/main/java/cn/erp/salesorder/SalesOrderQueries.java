@@ -1,5 +1,6 @@
 package cn.erp.salesorder;
 
+import cn.erp.customfield.CustomFields;
 import cn.erp.identity.CompanyAccess;
 import cn.erp.inventory.ReservationService;
 import cn.erp.shared.ApiException;
@@ -15,7 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly=true)
 public class SalesOrderQueries {
     private final JdbcTemplate jdbc;
-    public SalesOrderQueries(JdbcTemplate jdbc) {this.jdbc=jdbc;}
+    private final CustomFields customFields;
+    public SalesOrderQueries(JdbcTemplate jdbc,CustomFields customFields) {this.jdbc=jdbc;this.customFields=customFields;}
 
     public Map<String,Object> header(CompanyAccess scope,long id,boolean lock) {
         cn.erp.shared.OrgOwnership.require(jdbc,scope,"sales_order",id);
@@ -39,6 +41,7 @@ public class SalesOrderQueries {
     public Map<String,Object> get(CompanyAccess scope,long id) {
         var raw=header(scope,id,false);
         var result=camel(raw);
+        result.put("extJson",customFields.visible((String)raw.get("ext_json"),customFields.fields(scope.tenantId(),"sales_order")));
         result.put("documentNo",raw.get("order_no"));
         result.put("customer",reference("business_partner",scope,number(raw,"customer_id")));
         var details=lines(scope,id,false);
@@ -51,7 +54,8 @@ public class SalesOrderQueries {
             JOIN sales_order_line l ON l.tenant_id=r.tenant_id AND l.company_id=r.company_id AND l.id=r.order_line_id
             WHERE r.tenant_id=? AND r.company_id=? AND l.order_id=? ORDER BY r.id DESC
             """,scope.tenantId(),scope.companyId(),id)) {reserved.computeIfAbsent(number(row,"order_line_id"),unused->new ArrayList<>()).add(row);}
-        result.put("lines",details.stream().map(line->lineView(line,skus,units,warehouses,reserved.getOrDefault(number(line,"id"),List.of()))).toList());
+        var lineFields=customFields.fields(scope.tenantId(),"sales_order_line");
+        result.put("lines",details.stream().map(line->lineView(line,skus,units,warehouses,reserved.getOrDefault(number(line,"id"),List.of()),lineFields)).toList());
         result.put("fees",jdbc.queryForList("SELECT * FROM sales_order_fee WHERE tenant_id=? AND company_id=? AND order_id=? ORDER BY id",scope.tenantId(),scope.companyId(),id).stream().map(fee->{
             var row=camel(fee);row.put("recognized",fee.get("recognized_shipment_id")!=null);return row;
         }).toList());
@@ -62,8 +66,9 @@ public class SalesOrderQueries {
     }
 
     private Map<String,Object> lineView(Map<String,Object> line,Map<Long,Map<String,Object>> skus,
-            Map<Long,Map<String,Object>> units,Map<Long,Map<String,Object>> warehouses,List<Map<String,Object>> reservations) {
+            Map<Long,Map<String,Object>> units,Map<Long,Map<String,Object>> warehouses,List<Map<String,Object>> reservations,List<CustomFields.Field> fields) {
         var result=camel(line);
+        result.put("extJson",customFields.visible((String)line.get("ext_json"),fields));
         result.put("sku",ScopedReferences.get(skus,number(line,"sku_id")));
         result.put("unit",ScopedReferences.get(units,number(line,"unit_id")));
         result.put("warehouse",line.get("warehouse_id")==null?null:ScopedReferences.get(warehouses,number(line,"warehouse_id")));
@@ -85,6 +90,10 @@ public class SalesOrderQueries {
     }
 
     public Map<String,Object> list(CompanyAccess scope,String keyword,String status,String customerId,String cursor,int limit) {
+        return list(scope,keyword,status,customerId,cursor,limit,Map.of());
+    }
+
+    public Map<String,Object> list(CompanyAccess scope,String keyword,String status,String customerId,String cursor,int limit,Map<String,String[]> parameters) {
         if(limit<1 || limit>200) {throw invalid("每页条数须在1到200之间");}
         if(status!=null && !Set.of("draft","pending","approved","change_pending","closed","cancelled").contains(status)) {throw invalid("订单状态无效");}
         long last=cursor==null||cursor.isBlank()?Long.MAX_VALUE:identifier(cursor);
@@ -98,10 +107,12 @@ public class SalesOrderQueries {
             filter+=" AND NOT EXISTS(SELECT 1 FROM sales_order_line l WHERE l.order_id=sales_order.id AND l.is_deleted=0 AND (l.warehouse_id IS NULL OR l.warehouse_id NOT IN ("+marks+")))";
             args.addAll(scope.warehouseIds());
         }
-        filter+=cn.erp.shared.OrgOwnership.filter(scope,"sales_order");args.add(limit+1);
+        filter+=cn.erp.shared.OrgOwnership.filter(scope,"sales_order");
+        filter+=customFields.predicates(scope.tenantId(),"sales_order","sales_order",parameters,args);args.add(limit+1);
         var rows=jdbc.queryForList("SELECT * FROM sales_order"+filter+" ORDER BY id DESC LIMIT ?",args.toArray());
         var customers=ScopedReferences.load(jdbc,scope,"business_partner",rows.stream().limit(limit).map(row->number(row,"customer_id")).toList());
-        var items=rows.stream().limit(limit).map(row->{var item=camel(row);item.put("documentNo",row.get("order_no"));item.put("customer",ScopedReferences.get(customers,number(row,"customer_id")));item.put("allowedActions",actions(scope,row));return item;}).toList();
+        var fieldColumns=customFields.fields(scope.tenantId(),"sales_order");
+        var items=rows.stream().limit(limit).map(row->{var item=camel(row);item.put("extJson",customFields.visible((String)row.get("ext_json"),fieldColumns));item.put("documentNo",row.get("order_no"));item.put("customer",ScopedReferences.get(customers,number(row,"customer_id")));item.put("allowedActions",actions(scope,row));return item;}).toList();
         return page(items,rows.size()>limit?items.getLast().get("id").toString():null);
     }
 
@@ -174,6 +185,7 @@ public class SalesOrderQueries {
     public static Map<String,Object> camel(Map<String,Object> input) {
         var result=new LinkedHashMap<String,Object>();
         input.forEach((key,value)->{
+            if(key.equals("ext_json")||key.startsWith("cf_idx_")) return;
             StringBuilder field=new StringBuilder();boolean upper=false;
             for(char c:key.toCharArray()) {if(c=='_') {upper=true;} else {field.append(upper?Character.toUpperCase(c):c);upper=false;}}
             Object output=value;

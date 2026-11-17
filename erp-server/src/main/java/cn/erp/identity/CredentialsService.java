@@ -35,6 +35,8 @@ class CredentialsService {
                 """ + AccessService.PASSWORD_REVISION + """
                  FROM sys_user u JOIN tenant t ON t.id = u.tenant_id
                  WHERE t.code = ? AND u.username = ? AND u.status = 'active' AND t.status = 'active'
+                   AND u.user_type='human' AND COALESCE((SELECT p.password_login_allowed
+                        FROM tenant_security_policy p WHERE p.tenant_id=u.tenant_id),TRUE)
                  FOR UPDATE OF u
                 """, (r, n) -> new LoginRow(r.getLong(1), r.getLong(2), r.getString(3),
                 r.getBoolean(4), r.getInt(5), r.getLong(6)), tenant, username).stream().findFirst();
@@ -68,7 +70,7 @@ class CredentialsService {
         validateNewPassword(newPassword);
         var hashes = jdbc.queryForList("""
                 SELECT u.password_hash FROM sys_user u JOIN tenant t ON t.id = u.tenant_id
-                WHERE u.tenant_id = ? AND u.id = ? AND u.status = 'active' AND t.status = 'active' AND
+                WHERE u.tenant_id = ? AND u.id = ? AND u.status = 'active' AND t.status = 'active' AND u.user_type='human' AND
                 """ + AccessService.PASSWORD_REVISION + " = ? FOR UPDATE OF u", String.class,
                 actor.tenantId(), actor.userId(), actor.passwordRevision());
         if (hashes.isEmpty()) {
@@ -90,7 +92,7 @@ class CredentialsService {
                 """, passwords.encode(newPassword), actor.tenantId(), actor.userId());
         Long revision = jdbc.queryForObject("SELECT " + AccessService.PASSWORD_REVISION
                 + " FROM sys_user u WHERE tenant_id = ? AND id = ?", Long.class, actor.tenantId(), actor.userId());
-        return new SessionAccount(actor.tenantId(), actor.userId(), revision, actor.loginMillis());
+        return actor.withPasswordRevision(revision);
     }
 
     static void validateNewPassword(String value) {

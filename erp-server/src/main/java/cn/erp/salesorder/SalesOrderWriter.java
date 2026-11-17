@@ -1,5 +1,6 @@
 package cn.erp.salesorder;
 
+import cn.erp.customfield.CustomFields;
 import cn.erp.identity.CompanyAccess;
 import cn.erp.pricing.*;
 import cn.erp.shared.*;
@@ -18,7 +19,8 @@ class SalesOrderWriter {
     private final JdbcTemplate jdbc;
     private final PricingService pricing;
     private final cn.erp.sysadmin.AreaService areas;
-    SalesOrderWriter(JdbcTemplate jdbc,PricingService pricing,cn.erp.sysadmin.AreaService areas) {this.jdbc=jdbc;this.pricing=pricing;this.areas=areas;}
+    private final CustomFields customFields;
+    SalesOrderWriter(JdbcTemplate jdbc,PricingService pricing,cn.erp.sysadmin.AreaService areas,CustomFields customFields) {this.jdbc=jdbc;this.pricing=pricing;this.areas=areas;this.customFields=customFields;}
 
     PricingModels.Preview price(CompanyAccess scope,SalesOrderModels.Input input) {
         if(input.businessDate().isAfter(LocalDate.now(ZoneId.of("Asia/Shanghai")))) {throw invalid("业务日期不能晚于今天");}
@@ -50,12 +52,15 @@ class SalesOrderWriter {
             """,identifier(input.customerId()),input.businessDate(),input.deliveryDate(),preview.priceTaxInclusive(),
             preview.goodsAmount(),preview.lineDiscountAmount(),preview.orderDiscountAmount(),preview.feeAmount(),preview.totalAmount(),preview.untaxedAmount(),preview.taxAmount(),
             input.remark(),scope.userId(),scope.tenantId(),scope.companyId(),orderId);
+        customFields.write(scope,"sales_order",orderId,input.extJson(),newOrder);
+        var lineFields=customFields.fields(scope.tenantId(),"sales_order_line");
         // 新表头在本事务中刚插入，不存在旧明细；锁空范围会让不同新订单争用索引尾部间隙。
         List<Map<String,Object>> old=newOrder?List.of():jdbc.queryForList("SELECT * FROM sales_order_line WHERE tenant_id=? AND company_id=? AND order_id=? AND is_deleted=0 ORDER BY id FOR UPDATE",scope.tenantId(),scope.companyId(),orderId);
         Map<Long,Map<String,Object>> oldById=new HashMap<>();old.forEach(r->oldById.put(number(r,"id"),r));
         Set<Long> kept=new HashSet<>();
         int last=newOrder?0:jdbc.queryForObject("SELECT COALESCE(MAX(line_no),0) FROM sales_order_line WHERE order_id=?",Integer.class,orderId);
         var inserts=new ArrayList<Object[]>();
+        var newLineFields=new LinkedHashMap<Long,tools.jackson.databind.JsonNode>();
         for(int i=0;i<preview.lines().size();i++) {
             var source=input.lines().get(i);var line=preview.lines().get(i);
             Long id=null;
@@ -67,6 +72,7 @@ class SalesOrderWriter {
             if(id!=null && (!oldById.containsKey(id)||!kept.add(id))) {throw invalid("订单行不属于当前订单或重复");}
             if(id==null) {
                 id=Ids.next();kept.add(id);
+                if(!lineFields.isEmpty()) newLineFields.put(id,source.extJson());
                 inserts.add(new Object[]{id,scope.tenantId(),scope.companyId(),orderId,++last,identifier(line.skuId()),nullableId(line.warehouseId()),identifier(line.unitId()),line.unitRate(),
                     line.qty(),line.baseQty(),line.unitPrice(),line.priceTaxInclusive(),line.amount(),line.lineDiscountAmount(),line.lineNet(),line.orderDiscountAlloc(),
                     line.receivableNet(),line.taxRate(),line.untaxedAmount(),line.taxAmount(),scope.userId(),scope.userId()});
@@ -82,9 +88,11 @@ class SalesOrderWriter {
                     """,identifier(line.skuId()),nullableId(line.warehouseId()),identifier(line.unitId()),line.unitRate(),line.qty(),line.baseQty(),line.unitPrice(),line.priceTaxInclusive(),
                     line.amount(),line.lineDiscountAmount(),line.lineNet(),line.orderDiscountAlloc(),line.receivableNet(),line.taxRate(),line.untaxedAmount(),line.taxAmount(),
                     scope.userId(),scope.tenantId(),scope.companyId(),orderId,id);
+                customFields.write(scope,"sales_order_line",id,source.extJson(),false,lineFields);
             }
         }
         if(!inserts.isEmpty()) {jdbc.batchUpdate("INSERT INTO sales_order_line(id,tenant_id,company_id,order_id,line_no,sku_id,warehouse_id,unit_id,unit_rate,qty,base_qty,unit_price,price_tax_inclusive,amount,line_discount,line_net,order_discount_alloc,receivable_net,tax_rate,untaxed_amount,tax_amount,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",inserts);}
+        newLineFields.forEach((id,value)->customFields.write(scope,"sales_order_line",id,value,true,lineFields));
         for(var row:old) {if(!kept.contains(number(row,"id"))) {
             if(decimal(row,"shipped_base_qty").signum()>0 || decimal(row,"pending_ship_base_qty").signum()>0) {throw new ApiException(422,"CHANGE_NOT_ALLOWED","已发或待发的订单行不能删除");}
             jdbc.update("UPDATE sales_order_line SET is_deleted=1,version=version+1 WHERE id=?",number(row,"id"));

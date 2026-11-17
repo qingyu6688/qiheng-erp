@@ -50,7 +50,7 @@ public class PaymentService {
     @Transactional
     public Map<String,Object> create(CompanyAccess scope,String key,TreasuryModels.Payment input) {
         return execute(scope,"create",key,input,201,()->{
-            validate(scope,input);long id=Ids.next();String no=numbers.next(scope,"PY",YearMonth.from(input.businessDate()));
+            validate(scope,input);long id=Ids.next();String no=numbers.next(scope,"PY",input.businessDate());
             jdbc.update("""
                 INSERT INTO payment(id,tenant_id,company_id,payment_no,payment_type,partner_id,expense_item_id,cash_account_id,amount,business_date,related_order_id,bank_serial_no,remark,created_by,updated_by,owner_user_id,owner_department_id)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)

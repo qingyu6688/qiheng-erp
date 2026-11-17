@@ -56,7 +56,7 @@ public class ReceivingService {
     }
     private Map<String,Object> create(CompanyAccess scope,boolean returning,long supplier,long warehouse,LocalDate date,String note,List<Line> lines,Long buyerUserId) {
         validateHeader(scope,returning,supplier,warehouse,date,note);
-        long id=Ids.next();String no=numbers.next(scope,returning?"PR":"GR",YearMonth.from(date));
+        long id=Ids.next();String no=numbers.next(scope,returning?"PR_RETURN":"GR",date);
         jdbc.update("INSERT INTO "+table(returning)+"(id,tenant_id,company_id,"+(returning?"return_no":"receipt_no")+",supplier_id,warehouse_id,business_date,"+(returning?"reason":"remark")+",created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 id,scope.tenantId(),scope.companyId(),no,supplier,warehouse,date,note,scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
         writeLines(scope,returning,id,supplier,warehouse,date,lines);

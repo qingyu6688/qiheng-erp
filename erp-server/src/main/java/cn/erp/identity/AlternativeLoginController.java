@@ -38,9 +38,12 @@ class AlternativeLoginController {
     private final LoginCodeDispatch dispatch;
     private final AuthSessions sessions;
     private final LoginAudit audit;
+    private final SsoSettings sso;
+    private final SecurityPolicyService policies;
 
     AlternativeLoginController(LoginSettingsService settings, LoginIdentities identities, LoginCodeTokens codes,
-                               LoginCodeDelivery delivery, LoginCodeDispatch dispatch, AuthSessions sessions,LoginAudit audit) {
+                               LoginCodeDelivery delivery, LoginCodeDispatch dispatch, AuthSessions sessions,LoginAudit audit,
+                               SsoSettings sso,SecurityPolicyService policies) {
         this.settings = settings;
         this.identities = identities;
         this.codes = codes;
@@ -48,11 +51,18 @@ class AlternativeLoginController {
         this.dispatch = dispatch;
         this.sessions = sessions;
         this.audit=audit;
+        this.sso=sso;
+        this.policies=policies;
     }
 
     @GetMapping(AUTH + "/methods")
-    ApiResponse<Map<String,Boolean>> methods(@RequestParam @Size(max=32, message="企业编码过长") String tenantCode) {
-        return ApiResponse.success(settings.methods(tenantCode.strip()));
+    ApiResponse<Map<String,Object>> methods(@RequestParam @Size(max=32, message="企业编码过长") String tenantCode) {
+        String code=tenantCode.strip();
+        var methods=new java.util.LinkedHashMap<String,Object>(settings.methods(code));
+        Long tenant=identities.tenantId(code);
+        methods.put("password",tenant==null || policies.forTenant(tenant).passwordLoginAllowed());
+        methods.put("sso",tenant==null?java.util.List.of():sso.available(tenant));
+        return ApiResponse.success(methods);
     }
 
     @PostMapping(value=AUTH + "/code/send", consumes=MediaType.APPLICATION_JSON_VALUE)
@@ -125,7 +135,8 @@ class AlternativeLoginController {
 
     @DeleteMapping(value=ACCOUNT + "/{method}", consumes=MediaType.APPLICATION_JSON_VALUE)
     ApiResponse<Void> unbind(@PathVariable String method, @Valid @RequestBody Password input, HttpServletRequest request) {
-        LoginIdentities.requireMethod(method);
+        if (!java.util.Set.of("sms","email","wechat").contains(method))
+            throw new ApiException(400,"VALIDATION_FAILED","企业身份请由管理员解除绑定");
         identities.unbind(identities.reauthenticate(request, input.password()), method);
         return ApiResponse.success(null);
     }

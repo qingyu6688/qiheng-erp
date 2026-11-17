@@ -45,7 +45,7 @@ public class PurchaseOrderService {
     public Map<String,Object> create(CompanyAccess scope,String key,PurchaseOrderModels.Input input) {
         return execute(scope,"create",key,input,201,()->{
             var preview=writer.price(scope,input);
-            long id=Ids.next();String no=numbers.next(scope,"PO",YearMonth.from(input.businessDate()));
+            long id=Ids.next();String no=numbers.next(scope,"PO",input.businessDate());
             jdbc.update("INSERT INTO purchase_order(id,tenant_id,company_id,order_no,supplier_id,business_date,price_tax_inclusive,created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,1,?,?,?,?)",
                     id,scope.tenantId(),scope.companyId(),no,identifier(input.supplierId()),input.businessDate(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             writer.writeNew(scope,id,input,preview);
@@ -126,7 +126,7 @@ public class PurchaseOrderService {
                 throw new ApiException(422,"CHANGE_NOT_ALLOWED","审批后的订单不能更换供应商或含税价格口径");
             }
             boolean approval=requiresApproval(scope,before,rows,input,preview);
-            long changeId=Ids.next();String no=numbers.next(scope,"CH",YearMonth.from(input.businessDate()));
+            long changeId=Ids.next();String no=numbers.next(scope,"CH",input.businessDate());
             jdbc.update("""
                     INSERT INTO document_change(id,tenant_id,company_id,change_no,document_type,document_id,from_revision,to_revision,
                       requires_approval,status,before_snapshot,after_snapshot,reason,created_by)

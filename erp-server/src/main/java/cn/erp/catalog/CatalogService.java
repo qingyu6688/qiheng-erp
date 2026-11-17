@@ -1,5 +1,7 @@
 package cn.erp.catalog;
 
+import cn.erp.coderule.CodeRules;
+import cn.erp.customfield.CustomFields;
 import cn.erp.identity.CompanyAccess;
 import cn.erp.shared.ApiException;
 import cn.erp.shared.AuditService;
@@ -16,16 +18,22 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 class CatalogService {
     private final JdbcTemplate jdbc;
+    private final CodeRules codeRules;
+    private final CustomFields customFields;
     private final CatalogQueries queries;
     private final AuditService audit;
     private final BusinessCommands commands;
 
-    CatalogService(JdbcTemplate jdbc,CatalogQueries queries,AuditService audit,BusinessCommands commands) {
-        this.jdbc=jdbc; this.queries=queries; this.audit=audit; this.commands=commands;
+    CatalogService(JdbcTemplate jdbc,CatalogQueries queries,AuditService audit,BusinessCommands commands,CodeRules codeRules,CustomFields customFields) {
+        this.jdbc=jdbc; this.queries=queries; this.audit=audit; this.commands=commands;this.codeRules=codeRules;this.customFields=customFields;
     }
 
     CatalogModels.Page list(CompanyAccess scope,String kind,String keyword,String status,int limit,String cursor) {
-        return kind.equals("product_category") ? queries.categories(scope) : queries.list(scope,kind,keyword,status,limit,cursor);
+        return list(scope,kind,keyword,status,limit,cursor,Map.of());
+    }
+
+    CatalogModels.Page list(CompanyAccess scope,String kind,String keyword,String status,int limit,String cursor,Map<String,String[]> parameters) {
+        return kind.equals("product_category") ? queries.categories(scope) : queries.list(scope,kind,keyword,status,limit,cursor,parameters);
     }
 
     CatalogModels.Detail detail(CompanyAccess scope,String kind,long id) { return queries.detail(scope,kind,id); }
@@ -82,9 +90,10 @@ class CatalogService {
         jdbc.update("""
                 INSERT INTO sku(id,tenant_id,product_id,code,name,spec,default_tax_rate,purchase_price,sale_price,status,created_by,updated_by,min_sale_price)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """,id,scope.tenantId(),v.productId(),v.code().trim(),v.name().trim(),v.spec(),
+                """,id,scope.tenantId(),v.productId(),newSkuCode(scope,v,product),v.name().trim(),v.spec(),
                 v.defaultTaxRate()==null?"0.130000":v.defaultTaxRate(),v.purchasePrice(),v.salePrice(),
                 status(v.status()),scope.userId(),scope.userId(),v.minSalePrice()==null?"0":v.minSalePrice());
+        customFields.write(scope,"sku",id,v.extJson(),true);
         jdbc.update("""
                 INSERT INTO unit_conversion(id,tenant_id,sku_id,unit_id,rate_to_base,is_base,created_by,updated_by)
                 VALUES(?,?,?,?,1,1,?,?)
@@ -155,8 +164,19 @@ class CatalogService {
         jdbc.update("""
                 UPDATE sku SET code=?,name=?,spec=?,default_tax_rate=?,purchase_price=COALESCE(?,purchase_price),sale_price=?,status=?,min_sale_price=COALESCE(?,min_sale_price),
                 version=version+1,updated_by=? WHERE tenant_id=? AND id=? AND version=?
-                """,v.code().trim(),v.name().trim(),v.spec(),v.defaultTaxRate()==null?"0.130000":v.defaultTaxRate(),
+                """,requiredSkuCode(v.code()),v.name().trim(),v.spec(),v.defaultTaxRate()==null?"0.130000":v.defaultTaxRate(),
                 v.purchasePrice(),v.salePrice(),status(v.status()),v.minSalePrice(),scope.userId(),scope.tenantId(),id,v.version());
+        customFields.write(scope,"sku",id,v.extJson(),false);
+    }
+
+    private String newSkuCode(CompanyAccess scope,CatalogModels.SkuInput input,CatalogModels.Detail product) {
+        return input.code()!=null&&!input.code().isBlank() ? input.code().strip()
+                : codeRules.master(scope,"sku",null,Long.valueOf(product.categoryId()));
+    }
+
+    private String requiredSkuCode(String code) {
+        if(code==null||code.isBlank()) throw invalid("请输入 SKU 编码");
+        return code.strip();
     }
 
     @Transactional

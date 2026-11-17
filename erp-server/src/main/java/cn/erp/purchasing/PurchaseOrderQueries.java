@@ -1,5 +1,6 @@
 package cn.erp.purchasing;
 
+import cn.erp.customfield.CustomFields;
 import cn.erp.identity.CompanyAccess;
 import cn.erp.shared.ApiException;
 import java.math.BigDecimal;
@@ -13,7 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly=true)
 public class PurchaseOrderQueries {
     private final JdbcTemplate jdbc;
-    public PurchaseOrderQueries(JdbcTemplate jdbc) {this.jdbc=jdbc;}
+    private final CustomFields customFields;
+    public PurchaseOrderQueries(JdbcTemplate jdbc,CustomFields customFields) {this.jdbc=jdbc;this.customFields=customFields;}
 
     public Map<String,Object> header(CompanyAccess scope,long id,boolean lock) {
         cn.erp.shared.OrgOwnership.require(jdbc,scope,"purchase_order",id);
@@ -37,6 +39,7 @@ public class PurchaseOrderQueries {
     public Map<String,Object> get(CompanyAccess scope,long id) {
         var raw=header(scope,id,false);
         var result=camel(raw);
+        result.put("extJson",customFields.visible((String)raw.get("ext_json"),customFields.fields(scope.tenantId(),"purchase_order")));
         result.put("documentNo",raw.get("order_no"));
         result.put("supplier",reference("business_partner",scope,number(raw,"supplier_id")));
         result.put("lines",lines(scope,id,false).stream().map(line->lineView(scope,line)).toList());
@@ -68,6 +71,10 @@ public class PurchaseOrderQueries {
     }
 
     public Map<String,Object> list(CompanyAccess scope,String keyword,String status,String supplierId,String cursor,int limit) {
+        return list(scope,keyword,status,supplierId,cursor,limit,Map.of());
+    }
+
+    public Map<String,Object> list(CompanyAccess scope,String keyword,String status,String supplierId,String cursor,int limit,Map<String,String[]> parameters) {
         if(limit<1 || limit>200) {throw invalid("每页条数须在1到200之间");}
         if(status!=null && !Set.of("draft","pending","approved","change_pending","closed","cancelled").contains(status)) {throw invalid("订单状态无效");}
         long last=cursor==null||cursor.isBlank()?Long.MAX_VALUE:identifier(cursor);
@@ -81,10 +88,12 @@ public class PurchaseOrderQueries {
             filter+=" AND NOT EXISTS(SELECT 1 FROM purchase_order_line l WHERE l.order_id=purchase_order.id AND l.is_deleted=0 AND (l.warehouse_id IS NULL OR l.warehouse_id NOT IN ("+marks+")))";
             args.addAll(scope.warehouseIds());
         }
-        filter+=cn.erp.shared.OrgOwnership.filter(scope,"purchase_order");args.add(limit+1);
+        filter+=cn.erp.shared.OrgOwnership.filter(scope,"purchase_order");
+        filter+=customFields.predicates(scope.tenantId(),"purchase_order","purchase_order",parameters,args);args.add(limit+1);
         var rows=jdbc.queryForList("SELECT * FROM purchase_order"+filter+" ORDER BY id DESC LIMIT ?",args.toArray());
         var suppliers=cn.erp.shared.ScopedReferences.load(jdbc,scope,"business_partner",rows.stream().limit(limit).map(row->number(row,"supplier_id")).toList());
-        var items=rows.stream().limit(limit).map(row->{var item=camel(row);item.put("documentNo",row.get("order_no"));item.put("supplier",cn.erp.shared.ScopedReferences.get(suppliers,number(row,"supplier_id")));item.put("allowedActions",actions(scope,row));return item;}).toList();
+        var fieldColumns=customFields.fields(scope.tenantId(),"purchase_order");
+        var items=rows.stream().limit(limit).map(row->{var item=camel(row);item.put("extJson",customFields.visible((String)row.get("ext_json"),fieldColumns));item.put("documentNo",row.get("order_no"));item.put("supplier",cn.erp.shared.ScopedReferences.get(suppliers,number(row,"supplier_id")));item.put("allowedActions",actions(scope,row));return item;}).toList();
         return page(items,rows.size()>limit?items.getLast().get("id").toString():null);
     }
 
@@ -155,6 +164,7 @@ public class PurchaseOrderQueries {
     public static Map<String,Object> camel(Map<String,Object> input) {
         var result=new LinkedHashMap<String,Object>();
         input.forEach((key,value)->{
+            if(key.equals("ext_json")||key.startsWith("cf_idx_")) return;
             StringBuilder field=new StringBuilder();boolean upper=false;
             for(char c:key.toCharArray()) {if(c=='_') {upper=true;} else {field.append(upper?Character.toUpperCase(c):c);upper=false;}}
             Object output=value;

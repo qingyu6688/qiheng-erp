@@ -46,6 +46,26 @@ public class MessageService implements TodoInbox {
         var plans=jdbc.queryForList("SELECT open_item_id FROM ar_collection_plan WHERE tenant_id=? AND company_id=? AND id=? AND owner_id=? AND status='open'",event.tenantId(),event.companyId(),event.planId(),event.userId());if(plans.isEmpty())return;
         OrgOwnership.requireItem(jdbc,actor,plans.getFirst().get("open_item_id"));create(actor,"collection.remind","催收计划到期提醒","请进入催收计划核对未清余额并登记跟进。","/ar/collections?planId="+event.planId(),"alert","ar_collection_plan",event.planId(),null,null,event.eventKey(),0);
     }
+
+    @org.springframework.context.event.EventListener
+    public void openWebhookDisabled(OpenWebhookDisabled event) {
+        if (event.companyId()==null) return;
+        var users=jdbc.queryForList("""
+                SELECT DISTINCT s.user_id FROM sys_user_data_scope s
+                JOIN sys_user u ON u.tenant_id=s.tenant_id AND u.id=s.user_id AND u.status='active' AND u.user_type='human'
+                JOIN sys_user_role ur ON ur.tenant_id=s.tenant_id AND ur.user_id=s.user_id
+                JOIN sys_role r ON r.tenant_id=ur.tenant_id AND r.id=ur.role_id AND r.status='active'
+                JOIN sys_role_permission rp ON rp.tenant_id=r.tenant_id AND rp.role_id=r.id
+                JOIN sys_permission p ON p.id=rp.permission_id AND p.code='open_platform:manage'
+                WHERE s.tenant_id=? AND s.company_id=? AND s.scope_type='company' ORDER BY s.user_id LIMIT 200
+                """,Long.class,event.tenantId(),event.companyId());
+        for (long user:users) {
+            var actor=access.forUser(event.tenantId(),user,event.companyId());
+            if (actor==null || !actor.allWarehouses() || !actor.orgScope().allDepartments()) continue;
+            create(actor,"open.webhook.disabled","开放平台推送已停用","连续推送失败达到 50 次，请检查接收服务后重新启用。",
+                    "/open-platform","alert",null,null,null,null,"open:hook:"+event.webhookId()+":v"+event.version(),event.version());
+        }
+    }
     public void sync(CompanyAccess actor) {
         if(actor.companyId()==0) return;
         // 铃铛、工作台和收件箱会同时补齐消息，先锁收件人，避免空范围更新与去重插入互相死锁。

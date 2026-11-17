@@ -20,7 +20,7 @@ public class RequisitionService {
     @SuppressWarnings({"unchecked","rawtypes"})
     public Map<String,Object> create(CompanyAccess scope,String key,RequisitionModels.Input input) {
         return commands.execute(scope,"purchase_requisition.create",key,input,201,()->{
-            date(input.businessDate());long id=Ids.next();String no=numbers.next(scope,"PR",YearMonth.from(input.businessDate()));
+            date(input.businessDate());long id=Ids.next();String no=numbers.next(scope,"PR",input.businessDate());
             jdbc.update("INSERT INTO purchase_requisition(id,tenant_id,company_id,requisition_no,requester_id,business_date,remark,created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)",id,scope.tenantId(),scope.companyId(),no,scope.userId(),input.businessDate(),input.remark(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             write(scope,id,input);var result=get(scope,id);audit.record(scope,"purchase_requisition.create","purchase_requisition",id,null,result);return result;
         },(Class)Map.class);

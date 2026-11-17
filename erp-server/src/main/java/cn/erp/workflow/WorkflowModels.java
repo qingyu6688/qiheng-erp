@@ -273,7 +273,8 @@ public class WorkflowModels {
     public Map<String, Object> bind(CompanyAccess actor, Long id, String key, Binding input) {
         manage(actor, "workflow_binding:update", true);
         company(actor, input.companyId());
-        if (!SimpleModel.TYPES.contains(input.businessType())) throw SimpleModel.invalid("业务类型无效");
+        if (!SimpleModel.TYPES.contains(input.businessType()) || input.businessType().equals(GenericWorkflowBusiness.TYPE))
+            throw SimpleModel.invalid("请选择业务单据类型，通用审批通过表单关联流程");
         if (input.condition() != null)
             SimpleModel.validateFields(input.condition(), input.businessType());
         var model = head(actor, input.modelId(), true);
@@ -374,6 +375,15 @@ public class WorkflowModels {
             return row;
         }
         return null;
+    }
+
+    Map<String,Object> genericBinding(CompanyAccess actor,long modelId) {
+        var matches = jdbc.queryForList("""
+                SELECT id AS model_id,published_version FROM wf_model
+                WHERE tenant_id=? AND company_id IN (0,?) AND id=?
+                  AND business_type='wf_generic_request' AND status='published' AND published_version>0
+                """,actor.tenantId(),actor.companyId(),modelId);
+        return matches.isEmpty() ? null : matches.getFirst();
     }
 
     Map<String, Object> published(long tenant, long model, int version) {

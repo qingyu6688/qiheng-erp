@@ -10,7 +10,7 @@ public final class ApiRows {
     public static Map<String,Object> row(Map<String,Object> raw) {
         var result=new LinkedHashMap<String,Object>();
         raw.forEach((key,value)->{
-            if(Set.of("tenant_id","company_id").contains(key)) return;
+            if(Set.of("tenant_id","company_id","ext_json").contains(key)||key.startsWith("cf_idx_")) return;
             StringBuilder field=new StringBuilder();boolean upper=false;
             for(char c:key.toCharArray()) {if(c=='_') upper=true;else {field.append(upper?Character.toUpperCase(c):c);upper=false;}}
             Object output=value;

@@ -31,11 +31,13 @@ public class ImportProcessor {
     private final PartnerImportFacade partners;
     private final OpeningService opening;
     private final AuditService audit;
+    private final cn.erp.customfield.CustomFields customFields;
     private final TransactionTemplate tx;
     ImportProcessor(JdbcTemplate jdbc,ObjectMapper json,ObjectFiles files,ImportAccess access,ImportJobs jobs,
-            CatalogImportFacade catalog,PartnerImportFacade partners,OpeningService opening,AuditService audit,PlatformTransactionManager manager) {
+            CatalogImportFacade catalog,PartnerImportFacade partners,OpeningService opening,AuditService audit,PlatformTransactionManager manager,
+            cn.erp.customfield.CustomFields customFields) {
         this.jdbc=jdbc;this.json=json;this.files=files;this.access=access;this.jobs=jobs;this.catalog=catalog;
-        this.partners=partners;this.opening=opening;this.audit=audit;this.tx=new TransactionTemplate(manager);
+        this.partners=partners;this.opening=opening;this.audit=audit;this.tx=new TransactionTemplate(manager);this.customFields=customFields;
     }
     public boolean processNext() {
         return processNext(Integer.MAX_VALUE);
@@ -97,15 +99,17 @@ public class ImportProcessor {
         long id=number(job,"id");var locked=lock(id,owner);
         if(((Number)locked.get("checkpoint_row")).intValue()>=row.rowNo()-1)return;
         var scope=authorize(job);var values=row.cells();
-        if(values.size()!=ImportCsv.headers(type).size())throw rowError("表头","本行列数与模板不一致");
+        int baseSize=ImportCsv.headers(type).size();
+        if(values.size()!=baseSize+row.keys().size())throw rowError("表头","本行列数与模板不一致");
+        var extension=customFields.importValues(scope,type,row.keys(),values.subList(baseSize,values.size()));
         String target;
         switch(type) {
             case "sku" -> target=catalog.create(scope,"imp_"+id+"_"+row.rowNo(),new CatalogImportFacade.Input(
-                    required(values,0,"productCode"),required(values,1,"code"),required(values,2,"name"),optional(values,3),
-                    optional(values,4),optional(values,5),optional(values,6),optional(values,7)));
+                    required(values,0,"productCode"),optional(values,1),required(values,2,"name"),optional(values,3),
+                    optional(values,4),optional(values,5),optional(values,6),optional(values,7),extension));
             case "partner" -> {
                 var roles=new LinkedHashSet<>(Arrays.asList(required(values,4,"roles").split("\\|",-1)));
-                target=partners.create(scope,new PartnerImportFacade.Input(required(values,0,"code"),required(values,1,"name"),optional(values,2),optional(values,3),roles));
+                target=partners.create(scope,new PartnerImportFacade.Input(optional(values,0),required(values,1,"name"),optional(values,2),optional(values,3),roles,extension));
             }
             case "opening_stock" -> target=createOpening(scope,job,row);
             default -> throw ImportCsv.invalid("导入类型无效");

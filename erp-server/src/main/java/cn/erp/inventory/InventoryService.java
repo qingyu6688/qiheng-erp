@@ -21,6 +21,10 @@ public class InventoryService {
     private final InventoryStore store;
     private final JdbcTemplate jdbc;
     private final ReservationService reservations;
+    private org.springframework.context.ApplicationEventPublisher events = unused -> {};
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void events(org.springframework.context.ApplicationEventPublisher events) { this.events=events; }
 
     public InventoryService(InventoryStore store,JdbcTemplate jdbc,ReservationService reservations) {this.store=store;this.jdbc=jdbc;this.reservations=reservations;}
 
@@ -170,6 +174,12 @@ public class InventoryService {
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,Ids.next(),scope.tenantId(),scope.companyId(),p.key().warehouseId(),p.key().skuId(),p.movementType(),
                 quantity,blocked,unitCost,cost,p.source().type(),p.source().id(),p.source().lineId(),p.businessDate(),p.periodId(),Timestamp.from(Instant.now()),scope.userId());
+        changed(scope,List.of(p.key()));
+    }
+
+    public void changed(CompanyAccess scope,List<Key> keys) {
+        if (!keys.isEmpty()) events.publishEvent(new cn.erp.shared.InventoryBalanceChanged(scope.tenantId(),scope.companyId(),
+                keys.stream().map(Key::skuId).distinct().sorted().toList()));
     }
 
     private void adjustment(CompanyAccess scope,Posting p,String type,BigDecimal amount) {

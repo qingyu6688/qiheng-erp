@@ -16,14 +16,20 @@ final class ImportCsv {
             "sku",List.of("productCode","code","name","spec","defaultTaxRate","purchasePrice","salePrice","status"),
             "partner",List.of("code","name","shortName","taxNo","roles"),
             "opening_stock",List.of("skuCode","unitName","qty","totalCost","reason"));
-    record Row(int rowNo,List<String> cells) {}
+    record Row(int rowNo,List<String> cells,List<String> keys) {
+        Row(int rowNo,List<String> cells) {this(rowNo,cells,List.of());}
+    }
     private ImportCsv() {}
     static List<String> headers(String type) {
         var values=HEADERS.get(type);if(values==null)throw invalid("导入类型无效");return values;
     }
     static byte[] template(String type) {
+        return template(type,List.of());
+    }
+    static byte[] template(String type,List<String> extra) {
         // 模板仅含固定英文字段，无公式和长整型编号，中文业务名称在页面说明。
-        return ("\uFEFF"+String.join(",",headers(type))+"\r\n").getBytes(StandardCharsets.UTF_8);
+        var columns=new ArrayList<>(headers(type));columns.addAll(extra);
+        return ("\uFEFF"+String.join(",",columns)+"\r\n").getBytes(StandardCharsets.UTF_8);
     }
     static List<Row> parse(String type,byte[] bytes) {
         if(bytes.length==0||bytes.length>MAX_BYTES)throw invalid("CSV 文件须大于 0 且不超过 20MB");
@@ -59,10 +65,15 @@ final class ImportCsv {
         }
         if(quoted)throw invalid("CSV 存在未闭合的引号");
         if(!fields.isEmpty()||!field.isEmpty()||closed){fields.add(field.toString());records.add(new Row(rowNo,List.copyOf(fields)));}
-        if(records.isEmpty()||!records.getFirst().cells().equals(headers(type)))throw invalid("CSV 表头不匹配，请重新下载导入模板");
+        var base=headers(type);
+        var header=records.isEmpty()?List.<String>of():records.getFirst().cells();
+        if(header.size()<base.size()||!header.subList(0,base.size()).equals(base))throw invalid("CSV 表头不匹配，请重新下载导入模板");
+        var keys=List.copyOf(header.subList(base.size(),header.size()));
+        if ((!keys.isEmpty()&&type.equals("opening_stock"))||keys.size()>30||keys.stream().anyMatch(k->!k.matches("cf_[a-z][a-z0-9_]{0,31}"))
+                ||keys.stream().distinct().count()!=keys.size()) throw invalid("CSV 自定义字段表头无效");
         if(records.size()==1)throw invalid("CSV 至少需要一条数据行");
         if(records.size()>MAX_ROWS+1)throw invalid("CSV 最多允许 10000 条数据行");
-        return List.copyOf(records.subList(1,records.size()));
+        return records.subList(1,records.size()).stream().map(row->new Row(row.rowNo(),row.cells(),keys)).toList();
     }
     static ApiException invalid(String message){return new ApiException(400,"VALIDATION_FAILED",message);}
 }

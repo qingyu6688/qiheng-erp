@@ -32,11 +32,17 @@ class IdentitySecurity {
     static final String AUTH = "/api/v1/auth";
     private static final String HEALTH = "/actuator/health";
     private static final Set<String> PUBLIC_POSTS = Set.of(
-            AUTH + "/login", AUTH + "/code/send", AUTH + "/code/login", AUTH + "/wechat/start");
-    private static final Set<String> PUBLIC_GETS = Set.of(HEALTH, AUTH + "/methods", AUTH + "/wechat/callback");
-    private static final RequestMatcher PUBLIC_AUTH = request ->
+            AUTH + "/login", AUTH + "/code/send", AUTH + "/code/login", AUTH + "/wechat/start", AUTH + "/ldap/login");
+    private static final Set<String> PUBLIC_GETS = Set.of(HEALTH, AUTH + "/methods", AUTH + "/wechat/callback",
+            AUTH + "/sso/callback");
+    private static final Set<String> MFA_POSTS = Set.of(AUTH+"/mfa/setup",AUTH+"/mfa/activate",AUTH+"/mfa/verify");
+    private static final RequestMatcher PUBLIC_FIRST_FACTOR = request ->
             ("POST".equals(request.getMethod()) && PUBLIC_POSTS.contains(request.getServletPath())) ||
-            ("GET".equals(request.getMethod()) && PUBLIC_GETS.contains(request.getServletPath()));
+            ("GET".equals(request.getMethod()) && (PUBLIC_GETS.contains(request.getServletPath())
+                    || request.getServletPath().matches(AUTH+"/sso/(oidc|wecom|dingtalk|feishu)/start")));
+    private static final RequestMatcher PUBLIC_AUTH = request -> PUBLIC_FIRST_FACTOR.matches(request)
+            || ("GET".equals(request.getMethod()) && (AUTH+"/mfa/status").equals(request.getServletPath()))
+            || ("POST".equals(request.getMethod()) && MFA_POSTS.contains(request.getServletPath()));
 
     @Bean
     PasswordEncoder passwordEncoder() {
@@ -58,7 +64,7 @@ class IdentitySecurity {
         // Axios 把同域 Cookie 原值放入请求头，普通 GET 也需要下发令牌。
         csrf.setCsrfRequestAttributeName(null);
         http.csrf(c -> c.csrfTokenRepository(tokens).csrfTokenRequestHandler(csrf)
-                        .ignoringRequestMatchers(PUBLIC_AUTH))
+                        .ignoringRequestMatchers(PUBLIC_FIRST_FACTOR))
                 .requestCache(c -> c.disable())
                 .logout(c -> c.disable())
                 .formLogin(c -> c.disable())

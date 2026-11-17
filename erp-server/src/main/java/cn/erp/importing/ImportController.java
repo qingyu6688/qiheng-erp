@@ -24,7 +24,7 @@ class ImportController {
     ResponseEntity<byte[]> template(HttpServletRequest request,@PathVariable String jobType) {
         var scope=access.requireCompany(request,"import:"+jobType);ImportAccess.permissions(scope,jobType,jobType.equals("opening_stock"));
         return ResponseEntity.ok().contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
-                .header(HttpHeaders.CONTENT_DISPOSITION,"attachment; filename=\""+jobType+"-template.csv\"").body(ImportCsv.template(jobType));
+                .header(HttpHeaders.CONTENT_DISPOSITION,"attachment; filename=\""+jobType+"-template.csv\"").body(jobs.template(scope,jobType));
     }
     @PostMapping(value="/import-jobs",consumes=MediaType.MULTIPART_FORM_DATA_VALUE)
     ResponseEntity<?> create(HttpServletRequest request,@RequestHeader(value="Idempotency-Key",required=false) String key,

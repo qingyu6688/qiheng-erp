@@ -16,10 +16,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 class LoginIdentities {
-    static final Set<String> METHODS = Set.of("sms", "email", "wechat");
+    static final Set<String> METHODS = Set.of("sms", "email", "wechat", "oidc", "ldap", "wecom", "dingtalk", "feishu");
     private static final int BCRYPT_MAX_BYTES = 72;
     private static final String ELIGIBLE = """
-            t.status='active' AND u.status='active' AND u.must_change_password=0
+            t.status='active' AND u.status='active' AND u.user_type='human' AND u.must_change_password=0
             AND (u.locked_until IS NULL OR u.locked_until <= UTC_TIMESTAMP(3))
             """;
     private static final String TARGET = "SELECT i.id,u.id," + AccessService.PASSWORD_REVISION + """
@@ -93,7 +93,8 @@ class LoginIdentities {
                 UPDATE sys_user SET failed_login_count=0,locked_until=NULL,last_login_at=UTC_TIMESTAMP(3)
                 WHERE tenant_id=? AND id=?
                 """, tenantId, current.userId());
-        return new SessionAccount(tenantId, current.userId(), current.passwordRevision(), System.currentTimeMillis());
+        return new SessionAccount(tenantId, current.userId(), current.passwordRevision(), System.currentTimeMillis())
+                .withIdentity(current.identityId(),0);
     }
 
     SessionAccount reauthenticate(HttpServletRequest request, String password) {

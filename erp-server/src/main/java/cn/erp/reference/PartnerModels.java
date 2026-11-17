@@ -2,17 +2,19 @@ package cn.erp.reference;
 
 import jakarta.validation.constraints.*;
 import java.util.Set;
+import tools.jackson.databind.JsonNode;
 
 final class PartnerModels {
     private PartnerModels() {}
 
     record Partner(
-        @NotBlank(message="请输入单位编码") @Size(max=32,message="编码最多32字") String code,
+        @Size(max=32,message="编码最多32字") String code,
         @NotBlank(message="请输入单位名称") @Size(max=100,message="名称最多100字") String name,
         @Size(max=50,message="简称最多50字") String shortName,
         @Size(max=32,message="税号最多32字") String taxNo,
         @NotEmpty(message="请选择客户或供应商角色") Set<@Pattern(regexp="customer|supplier",message="往来角色无效") String> roles,
-        Long version,@Positive(message="省市区编号无效") Long areaId,@Size(max=64,message="客户来源编码过长") String sourceCode) {
+        Long version,@Positive(message="省市区编号无效") Long areaId,@Size(max=64,message="客户来源编码过长") String sourceCode,@com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) JsonNode extJson) {
+        Partner(String code,String name,String shortName,String taxNo,Set<String> roles,Long version,Long areaId,String sourceCode) {this(code,name,shortName,taxNo,roles,version,areaId,sourceCode,null);}
         Partner(String code,String name,String shortName,String taxNo,Set<String> roles,Long version) {this(code,name,shortName,taxNo,roles,version,null,null);}
     }
     record Contact(

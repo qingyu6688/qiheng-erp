@@ -18,8 +18,12 @@ public final class SimpleModel {
             Timeout timeout,
             List<Branch> branches,
             Node child,
-            Boolean priceApproval,Boolean creditApproval) {
+            Boolean priceApproval,Boolean creditApproval,
+            Node subprocess, Integer delaySeconds, String triggerEvent, Map<String,String> fieldAccess) {
         public Node(String id,String type,String name,Assignee assignee,String multi,Timeout timeout,List<Branch> branches,Node child,Boolean priceApproval) {this(id,type,name,assignee,multi,timeout,branches,child,priceApproval,null);}
+        public Node(String id,String type,String name,Assignee assignee,String multi,Timeout timeout,List<Branch> branches,Node child,Boolean priceApproval,Boolean creditApproval) {
+            this(id,type,name,assignee,multi,timeout,branches,child,priceApproval,creditApproval,null,null,null,null);
+        }
     }
 
     public record Assignee(
@@ -62,7 +66,9 @@ public final class SimpleModel {
                     "purchase_order",
                     "refund_request",
                     "document_reversal",
-                    "stock_adjustment","credit_increase");
+                    "stock_adjustment","credit_increase","wf_generic_request");
+    static final Set<String> TRIGGERS = Set.of("checkpoint", "review_required");
+    private static final Set<String> SELECTIVE = Set.of("condition_branch", "route_branch", "inclusive_branch");
     public static final Set<String> STRATEGIES =
             Set.of(
                     "users",
@@ -102,6 +108,12 @@ public final class SimpleModel {
                     && (!businessType.equals("sales_order") || !node.type().equals("approver")))
                 throw invalid("人工价格审批只适用于销售订单的审批节点");
         for (var node : nodes.values()) {
+            if (node.fieldAccess() != null && (!businessType.equals("wf_generic_request")
+                    || !Set.of("approver", "handler").contains(node.type())
+                    || node.fieldAccess().size() > 50
+                    || node.fieldAccess().entrySet().stream().anyMatch(entry -> !WorkflowFormSchema.validKey(entry.getKey())
+                            || !Set.of("read", "write", "hidden").contains(Objects.toString(entry.getValue(), "")))))
+                throw invalid("字段读写权限仅适用于通用表单的审批或办理节点");
             if (node.assignee() != null
                     && node.assignee().strategy().equals("field_user")
                     && !fields(businessType).contains(node.assignee().field()))
@@ -122,16 +134,25 @@ public final class SimpleModel {
                 || nodes.size() >= 100
                 || node.id() == null
                 || !node.id().matches("[A-Za-z][A-Za-z0-9_]{0,39}")
-                || node.id().matches("(?:wf_|prepare_|join_|flow_|available_).*?")
+                || node.id().matches("(?:wf_|prepare_|join_|flow_|available_|resume_).*?")
                 || nodes.putIfAbsent(node.id(), node) != null)
             throw invalid("节点编号重复、使用保留前缀或无效，最多100个节点、30层");
         safeLabel(node.name());
-        if (!Set.of("start", "approver", "handler", "copy", "condition_branch", "parallel_branch")
+        if (!Set.of("start", "approver", "handler", "copy", "condition_branch", "parallel_branch",
+                        "inclusive_branch", "route_branch", "subprocess", "delay", "trigger")
                         .contains(node.type())
                 || depth > 0 && node.type().equals("start")) throw invalid("节点类型不支持或发起人位置无效");
         if (Set.of("approver", "handler", "copy").contains(node.type())) validateAssignee(node);
         else if (node.assignee() != null || node.timeout() != null || node.multi() != null)
             throw invalid("发起人和分支节点不能配置处理人或超时");
+        if (node.type().equals("subprocess") != (node.subprocess() != null))
+            throw invalid("子流程必须配置内部环节");
+        if (node.type().equals("delay") != (node.delaySeconds() != null)
+                || node.delaySeconds() != null && (node.delaySeconds() < 1 || node.delaySeconds() > 604800))
+            throw invalid("延迟时间须为1至604800秒");
+        if (node.type().equals("trigger") != (node.triggerEvent() != null)
+                || node.triggerEvent() != null && !TRIGGERS.contains(node.triggerEvent()))
+            throw invalid("请选择预定义的流程事件");
         if (node.type().equals("approver") || node.type().equals("handler")) {
             if (node.multi() != null && !Set.of("and", "or", "sequential").contains(node.multi()))
                 throw invalid("请选择会签、或签或依次审批");
@@ -165,14 +186,15 @@ public final class SimpleModel {
                         || item.name().isBlank()
                         || item.name().length() > 100) throw invalid("请填写分支名称");
                 if (Boolean.TRUE.equals(item.defaultBranch())) defaults++;
-                else if (node.type().equals("condition_branch"))
+                else if (SELECTIVE.contains(node.type()))
                     validateCondition(item.condition(), 0);
                 walk(item.child(), nodes, depth + 1);
             }
-            if (node.type().equals("condition_branch") && defaults != 1)
+            if (SELECTIVE.contains(node.type()) && defaults != 1)
                 throw invalid("条件分支须有且仅有一条默认分支");
         } else if (node.branches() != null && !node.branches().isEmpty())
             throw invalid("普通节点不能携带分支");
+        walk(node.subprocess(), nodes, depth + 1);
         walk(node.child(), nodes, depth + 1);
     }
 
@@ -216,7 +238,7 @@ public final class SimpleModel {
     private static int minimumReviews(Node node) {
         if (node == null) return 0;
         int own = node.type().equals("approver") ? 1 : 0;
-        if (node.type().equals("condition_branch"))
+        if (SELECTIVE.contains(node.type()))
             own +=
                     node.branches().stream()
                             .mapToInt(b -> minimumReviews(b.child()))
@@ -224,7 +246,7 @@ public final class SimpleModel {
                             .orElse(0);
         if (node.type().equals("parallel_branch"))
             own += node.branches().stream().mapToInt(b -> minimumReviews(b.child())).sum();
-        return own + minimumReviews(node.child());
+        return own + minimumReviews(node.subprocess()) + minimumReviews(node.child());
     }
 
     public static void validateCondition(Condition c, int depth) {
@@ -259,6 +281,7 @@ public final class SimpleModel {
     }
 
     public static Set<String> fields(String type) {
+        if (type.equals("wf_generic_request")) return Set.of("ownerDeptId","createdBy");
         var result = new HashSet<>(Set.of("totalAmount", "ownerDeptId", "createdBy"));
         result.addAll(
                 switch (type) {
@@ -290,26 +313,15 @@ public final class SimpleModel {
         var result = new ArrayList<Node>();
         if (node == null) return result;
         result.add(node);
-        if (node.type().equals("condition_branch")) {
-            var selected =
-                    node.branches().stream()
-                            .filter(
-                                    b ->
-                                            !Boolean.TRUE.equals(b.defaultBranch())
-                                                    && matches(b.condition(), summary))
-                            .findFirst()
-                            .orElseGet(
-                                    () ->
-                                            node.branches().stream()
-                                                    .filter(
-                                                            b ->
-                                                                    Boolean.TRUE.equals(
-                                                                            b.defaultBranch()))
-                                                    .findFirst()
-                                                    .orElseThrow());
-            result.addAll(reachable(selected.child(), summary));
+        if (SELECTIVE.contains(node.type())) {
+            var selected = node.branches().stream().filter(branch -> !Boolean.TRUE.equals(branch.defaultBranch())
+                    && matches(branch.condition(),summary));
+            var matched = (node.type().equals("inclusive_branch") ? selected : selected.limit(1)).toList();
+            if (matched.isEmpty()) matched = node.branches().stream().filter(branch -> Boolean.TRUE.equals(branch.defaultBranch())).toList();
+            matched.forEach(branch -> result.addAll(reachable(branch.child(), summary)));
         } else if (node.type().equals("parallel_branch"))
             node.branches().forEach(b -> result.addAll(reachable(b.child(), summary)));
+        result.addAll(reachable(node.subprocess(), summary));
         result.addAll(reachable(node.child(), summary));
         return result;
     }

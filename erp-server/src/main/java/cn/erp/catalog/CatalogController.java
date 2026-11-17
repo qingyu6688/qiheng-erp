@@ -122,7 +122,7 @@ class CatalogController {
     ApiResponse<CatalogModels.Page> listSkuInput(HttpServletRequest request,
             @RequestParam(required=false) String keyword,@RequestParam(required=false) String status,
             @RequestParam(defaultValue="20") int limit,@RequestParam(required=false) String cursor) {
-        return ApiResponse.success(catalog.list(access.requireTenant(request,"sku:view"),"sku",keyword,status,limit,cursor));
+        return ApiResponse.success(catalog.list(access.requireTenant(request,"sku:view"),"sku",keyword,status,limit,cursor,request.getParameterMap()));
     }
 
     @GetMapping("/skus/{id}")

@@ -23,12 +23,19 @@ public class WorkflowTasks {
             @Size(max = 20, message = "每次最多选择20项")
                     List<@Positive(message = "编号必须大于0") Long> taskIds,
             @Pattern(regexp = "before|after", message = "请选择前加签或后加签") String position,
-            String targetNodeKey) {}
+            String targetNodeKey,
+            @Size(max = 50, message = "每次最多修改50项表单字段") Map<String,Object> fields) {
+        public Decision(Long version,String comment,Long userId,List<Long> userIds,List<Long> taskIds,String position,String targetNodeKey) {
+            this(version,comment,userId,userIds,taskIds,position,targetNodeKey,null);
+        }
+    }
 
     private final WorkflowRuntime runtime;
     private final WorkflowState state;
     private final BusinessCommands commands;
     private final org.flowable.engine.ProcessEngine engine;
+    @org.springframework.beans.factory.annotation.Autowired
+    private WorkflowForms forms;
 
     public WorkflowTasks(
             WorkflowRuntime runtime,
@@ -65,6 +72,10 @@ public class WorkflowTasks {
                     if (task.get("owner_id") != null
                             && !Set.of("approve", "reject").contains(action))
                         throw new ApiException(409, "WORKFLOW_DELEGATED", "被委派人只可反馈处理意见，不能转交或变更加签");
+                    if (input.fields() != null && !input.fields().isEmpty()) {
+                        if (!action.equals("approve")) throw SimpleModel.invalid("仅同意或办理时可提交字段修改");
+                        forms.patchTask(actor,instance,task,input.fields());
+                    }
                     switch (action) {
                         case "approve" -> approve(actor, instance, task, input.comment());
                         case "reject" -> reject(actor, instance, task, input);
@@ -291,6 +302,7 @@ public class WorkflowTasks {
                     + " tenant_id=? AND id=?",
                 actor.tenantId(),
                 instance.get("id"));
+        state.jdbc.update("DELETE FROM wf_delay WHERE tenant_id=? AND instance_id=?",actor.tenantId(),instance.get("id"));
         engine.getRuntimeService()
                 .createChangeActivityStateBuilder()
                 .processInstanceId(instance.get("flowable_instance_id").toString())

@@ -19,6 +19,10 @@ public class ReservationService {
     private static final Set<String> RELEASES = Set.of("release_close", "release_cancel", "release_change", "release_revoke");
     private final InventoryStore store;
     private final JdbcTemplate jdbc;
+    private org.springframework.context.ApplicationEventPublisher events = unused -> {};
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void events(org.springframework.context.ApplicationEventPublisher events) { this.events=events; }
 
     public ReservationService(InventoryStore store, JdbcTemplate jdbc) { this.store = store; this.jdbc = jdbc; }
 
@@ -83,6 +87,7 @@ public class ReservationService {
                     """,inserts);
         jdbc.batchUpdate("INSERT INTO inventory_reservation_change(id,tenant_id,company_id,reservation_id,change_type,qty_delta,source_type,source_id,source_line_id,created_by) VALUES(?,?,?,?,'reserve',?,'sales_order',?,?,?)",changes);
         jdbc.batchUpdate("UPDATE sales_order_line SET reservation_state='reserved',version=version+1 WHERE tenant_id=? AND company_id=? AND id=?",lineUpdates);
+        changed(scope,requests.stream().map(ReservationRequest::key).toList());
         return List.copyOf(result);
     }
 
@@ -135,7 +140,13 @@ public class ReservationService {
                 """,quantity,reason.equals("expire")?"expired":"released",id,quantity);
         store.reservationChange(scope,id,reason,quantity.negate(),source);
         refreshLineState(scope,lineId);
+        changed(scope,List.of(key));
         return quantity;
+    }
+
+    private void changed(CompanyAccess scope,List<Key> keys) {
+        events.publishEvent(new cn.erp.shared.InventoryBalanceChanged(scope.tenantId(),scope.companyId(),
+                keys.stream().map(Key::skuId).distinct().sorted().toList()));
     }
 
     /** 调用方已持有订单行锁；只读取真实预留结果，不为签收或冲销编造到期状态。 */

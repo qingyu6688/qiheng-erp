@@ -22,7 +22,7 @@ class PurchaseOrderController {
     @GetMapping("/purchase-orders")
     ApiResponse<?> list(HttpServletRequest req,@RequestParam(defaultValue="") String keyword,@RequestParam(required=false) String status,
             @RequestParam(required=false) String supplierId,@RequestParam(required=false) String cursor,@RequestParam(defaultValue="20") int limit) {
-        return ApiResponse.success(queries.list(access.requireCompany(req,"purchase_order:view"),keyword,status,supplierId,cursor,limit));
+        return ApiResponse.success(queries.list(access.requireCompany(req,"purchase_order:view"),keyword,status,supplierId,cursor,limit,req.getParameterMap()));
     }
     @GetMapping("/purchase-orders/{id}")
     ApiResponse<?> get(HttpServletRequest req,@PathVariable long id) {return ApiResponse.success(queries.get(access.requireCompany(req,"purchase_order:view"),id));}

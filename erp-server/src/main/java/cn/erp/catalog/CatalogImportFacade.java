@@ -11,7 +11,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class CatalogImportFacade {
     public record Input(String productCode,String code,String name,String spec,String defaultTaxRate,
-                        String purchasePrice,String salePrice,String status) {}
+                        String purchasePrice,String salePrice,String status,tools.jackson.databind.JsonNode extJson) {
+        public Input(String productCode,String code,String name,String spec,String defaultTaxRate,String purchasePrice,String salePrice,String status) {
+            this(productCode,code,name,spec,defaultTaxRate,purchasePrice,salePrice,status,null);
+        }
+    }
     private final JdbcTemplate jdbc;
     private final CatalogService service;
     private final Validator validator;
@@ -24,7 +28,7 @@ public class CatalogImportFacade {
         var products=jdbc.queryForList("SELECT id FROM product WHERE tenant_id=? AND code=?",Long.class,scope.tenantId(),input.productCode());
         if(products.isEmpty())throw new ApiException(400,"VALIDATION_FAILED","所属商品编码不存在",java.util.Map.of("columnName","productCode"));
         var value=new CatalogModels.SkuInput(products.getFirst(),input.code(),input.name(),input.spec(),
-                input.defaultTaxRate(),input.purchasePrice(),input.salePrice(),input.status(),null);
+                input.defaultTaxRate(),input.purchasePrice(),input.salePrice(),input.status(),null,null,input.extJson());
         var errors=validator.validate(value);
         if(!errors.isEmpty()) {
             var error=errors.stream().sorted(java.util.Comparator.comparing(v->v.getPropertyPath().toString())).findFirst().orElseThrow();

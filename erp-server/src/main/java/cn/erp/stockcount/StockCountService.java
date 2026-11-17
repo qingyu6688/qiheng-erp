@@ -39,7 +39,7 @@ public class StockCountService {
             jdbc.update("""
                 INSERT INTO stock_count(id,tenant_id,company_id,count_no,warehouse_id,count_mode,business_date,remark,created_by,updated_by,owner_user_id,owner_department_id)
                 VALUES(?,?,?,?,?,'watermark',?,?,?,?,?,?)
-                """,id,scope.tenantId(),scope.companyId(),numbers.next(scope,"SC",YearMonth.from(input.businessDate())),input.warehouseId(),input.businessDate(),input.remark(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
+                """,id,scope.tenantId(),scope.companyId(),numbers.next(scope,"SC",input.businessDate()),input.warehouseId(),input.businessDate(),input.remark(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             writeLines(scope,id,input.lines());return changed(scope,id,"create");
         });
     }
