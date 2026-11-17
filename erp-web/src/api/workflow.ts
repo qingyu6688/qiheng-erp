@@ -3,6 +3,9 @@ import type {
   WorkflowNode,
   BindingInput,
   Choice,
+  GenericWorkflowRequest,
+  WorkflowForm,
+  WorkflowFormValues,
   ModelInput,
   StartOptions,
   TaskDecision,
@@ -17,6 +20,47 @@ import type {
 } from '../types/workflow'
 export function workflowModels(): Promise<WorkflowModel[]> {
   return request({ method: 'GET', url: '/workflow/models' }, true)
+}
+export function workflowFormModels(): Promise<Choice[]> {
+  return request({ method: 'GET', url: '/workflow/forms/models' }, true)
+}
+export function workflowForms(manage: boolean): Promise<WorkflowForm[]> {
+  return request({ method: 'GET', url: '/workflow/forms', params: { manage } }, true)
+}
+export function saveWorkflowForm(
+  data: Omit<WorkflowForm, 'modelName'>,
+  key: string,
+): Promise<{ id: string; version: number }> {
+  const { id, ...input } = data
+  return request(
+    {
+      method: id ? 'PUT' : 'POST',
+      url: '/workflow/forms' + (id ? '/' + id : ''),
+      data: { ...input, enabled: Boolean(input.enabled) },
+      headers: { 'Idempotency-Key': key },
+    },
+    true,
+  )
+}
+export function startWorkflowRequest(
+  formId: string,
+  formVersion: number,
+  title: string,
+  fields: WorkflowFormValues,
+  key: string,
+): Promise<{ id: string; instanceId: string; requestNo: string }> {
+  return request(
+    {
+      method: 'POST',
+      url: '/workflow/requests',
+      data: { formId, formVersion, title, fields },
+      headers: { 'Idempotency-Key': key },
+    },
+    true,
+  )
+}
+export function workflowRequest(id: string, taskId?: string): Promise<GenericWorkflowRequest> {
+  return request({ method: 'GET', url: '/workflow/requests/' + id, params: { taskId } }, true)
 }
 export function workflowModel(id: string): Promise<WorkflowModel> {
   return request({ method: 'GET', url: '/workflow/models/' + id }, true)

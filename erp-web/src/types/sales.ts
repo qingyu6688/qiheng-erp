@@ -26,6 +26,7 @@ export interface SalesOrderChange {
   requiresApproval?: boolean
 }
 export interface SalesLine {
+  extJson?: import('../api/platform-rules').FieldValues
   id: string
   lineNo?: number
   skuId?: string
@@ -68,6 +69,7 @@ export interface SalesLine {
   [key: string]: unknown
 }
 export interface SalesDocument {
+  extJson?: import('../api/platform-rules').FieldValues
   workflowInstanceId?: string
   workflowStatus?: string
   salesUserId?: string

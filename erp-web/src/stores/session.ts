@@ -71,6 +71,11 @@ export const useSessionStore = defineStore('session', () => {
     accept(user)
   }
 
+  function acceptLogin(value: UserSession): void {
+    renewSessionScope()
+    accept(value)
+  }
+
   async function refresh(): Promise<void> {
     accept(await auth.currentUser())
   }
@@ -99,6 +104,7 @@ export const useSessionStore = defineStore('session', () => {
     refresh,
     signIn,
     signInByCode,
+    acceptLogin,
     signOut,
     selectCompany,
     clear,

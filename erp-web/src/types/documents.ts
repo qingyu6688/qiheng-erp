@@ -88,6 +88,16 @@ function labeled(value: unknown): string {
 function present(value: unknown): boolean {
   return value !== undefined && value !== null && value !== ''
 }
+function customPrintFields(row: Record<string, unknown>): Record<string, unknown> {
+  const fields = row.printCustomFields
+  return fields && typeof fields === 'object' && !Array.isArray(fields)
+    ? (fields as Record<string, unknown>)
+    : {}
+}
+function customPrintValue(value: unknown): unknown {
+  if (typeof value === 'boolean') return value ? '是' : '否'
+  return Array.isArray(value) ? value.join('、') : value
+}
 
 export function printMeta(document: Record<string, unknown>): PrintField[] {
   const fields: [string, unknown][] = [
@@ -134,6 +144,8 @@ export function printMeta(document: Record<string, unknown>): PrintField[] {
     ['原因', document.reason],
     ['备注', document.remark],
   ]
+  for (const [label, value] of Object.entries(customPrintFields(document)))
+    fields.push([label, customPrintValue(value)])
   return fields
     .filter(([, value]) => present(value))
     .map(([label, value]) => ({ label, value: printValue(value) }))
@@ -298,6 +310,12 @@ export function printTables(
     lines = printRecords(document.lines)
   if (lines.length) {
     const columns = lineColumns(type, canCost)
+    const customColumns =
+      type === 'sales_order'
+        ? [...new Set(lines.flatMap((line) => Object.keys(customPrintFields(line))))].map(
+            (label, index) => ({ key: `custom-field-${index}`, label }),
+          )
+        : []
     const rows = lines.map((line, index) => {
       const result: Record<string, string> = {}
       for (const column of columns) result[column.key] = printValue(line[column.key])
@@ -320,9 +338,14 @@ export function printTables(
         line.amount,
       )
       if (present(line.diffStatus)) result.diffStatus = labeled(line.diffStatus)
+      const custom = customPrintFields(line)
+      for (const column of customColumns) {
+        const value = Object.hasOwn(custom, column.label) ? custom[column.label] : undefined
+        result[column.key] = printValue(customPrintValue(value))
+      }
       return result
     })
-    tables.push({ title: '单据明细', columns, rows })
+    tables.push({ title: '单据明细', columns: [...columns, ...customColumns], rows })
   }
   const fees = [...printRecords(document.fees), ...printRecords(document.recognizedFees)]
   if (fees.length)

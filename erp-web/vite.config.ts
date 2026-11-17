@@ -47,6 +47,7 @@ export default defineConfig(({ command }) => ({
     strictPort: true,
     proxy: {
       '/api': env.ERP_API_ORIGIN || 'http://127.0.0.1:8080',
+      '/open/v1': env.ERP_API_ORIGIN || 'http://127.0.0.1:8080',
       '/ai/v1': env.ERP_AI_ORIGIN || 'http://127.0.0.1:18081',
       '/ws': { target: env.ERP_API_ORIGIN || 'http://127.0.0.1:8080', ws: true },
     },
@@ -54,6 +55,7 @@ export default defineConfig(({ command }) => ({
   preview: {
     proxy: {
       '/api': env.ERP_API_ORIGIN || 'http://127.0.0.1:8080',
+      '/open/v1': env.ERP_API_ORIGIN || 'http://127.0.0.1:8080',
       '/ai/v1': env.ERP_AI_ORIGIN || 'http://127.0.0.1:18081',
       '/ws': { target: env.ERP_API_ORIGIN || 'http://127.0.0.1:8080', ws: true },
     },

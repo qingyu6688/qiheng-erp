@@ -25,7 +25,16 @@ export interface LoginInput {
 
 export type CodeLoginMethod = 'sms' | 'email'
 export type AlternateLoginMethod = CodeLoginMethod | 'wechat'
-export type LoginAvailability = Record<AlternateLoginMethod, boolean>
+export type SsoType = 'oidc' | 'ldap' | 'wecom' | 'dingtalk' | 'feishu'
+export interface SsoMethod {
+  id: SsoType
+  type: SsoType
+  name: string
+}
+export type LoginAvailability = Record<AlternateLoginMethod, boolean> & {
+  password?: boolean
+  sso?: SsoMethod[]
+}
 
 export interface CodeRequest {
   tenantCode: string

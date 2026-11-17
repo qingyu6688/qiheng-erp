@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import DynamicFields from '../DynamicFields.vue'
+import { customFields } from '../../api/platform-rules'
+import type { CustomField, FieldValues } from '../../api/platform-rules'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { allRecords, record } from '../../api/admin'
 import { candidates, commandResult, pricePreview } from '../../api/sales'
@@ -22,6 +25,8 @@ const props = defineProps<{
 const emit = defineEmits<{ close: []; saved: [ProcurementDocument]; dirty: [boolean] }>()
 const session = useSessionStore(),
   spec = computed(() => procurementSpecs.find((s) => s.path === props.kind)!)
+const fields = ref<CustomField[]>([]),
+  ext = ref<FieldValues>({ ...props.original?.extJson })
 const form = reactive({
   buyerUserId: (props.original?.buyerUserId === '0' ? '' : props.original?.buyerUserId) ?? '',
   supplierId:
@@ -216,6 +221,7 @@ function body(): Record<string, unknown> {
   if (order.value)
     return {
       ...common,
+      extJson: fields.value.length ? ext.value : undefined,
       supplierId: form.supplierId,
       deliveryDate: form.deliveryDate || null,
       priceTaxInclusive: form.priceTaxInclusive,
@@ -351,6 +357,13 @@ onUnmounted(() => {
 })
 onMounted(async () => {
   try {
+    if (order.value && session.companyId) {
+      try {
+        fields.value = await customFields('purchase_order')
+      } catch (cause: unknown) {
+        if (!isCancelled(cause)) error.value = messageOf(cause)
+      }
+    }
     if (hasPartner.value || order.value || props.kind === 'opening-entries')
       partners.value = await allRecords('partners')
     if (products.value) {
@@ -589,6 +602,10 @@ async function verify(): Promise<void> {
         <el-form-item label="备注" for="purchase-remark"
           ><el-input id="purchase-remark" v-model="form.remark" maxlength="200"
         /></el-form-item>
+        <template v-if="fields.length"
+          ><h3>其他信息</h3>
+          <DynamicFields v-model="ext" :fields="fields" prefix="purchase-extra-"
+        /></template>
       </el-form>
       <div v-if="hasLines" class="sales-lines-scroll">
         <table class="sales-input-table">

@@ -74,9 +74,12 @@ const bindingFields = computed(() =>
       ([key]) =>
         !binding.value ||
         !metadata.value?.fieldsByType ||
-        metadata.value.fieldsByType[binding.value.businessType].includes(key),
+        metadata.value.fieldsByType[binding.value.businessType]?.includes(key),
     ),
   ),
+)
+const bindingLabels = Object.fromEntries(
+  Object.entries(businessLabels).filter(([type]) => type !== 'wf_generic_request'),
 )
 const actionKeys = new Map<string, { key: string; version: number }>()
 const dirty = computed(
@@ -286,7 +289,13 @@ async function saveBinding(): Promise<void> {
     busy.value = false
   }
 }
-function newCategory(): void { category.value = { code: '', name: '', sort: 0, version: 0 }; categoryKey = newIdempotencyKey(); frozenCategory = undefined; uncertain.value = false; categoryEditor.value = true }
+function newCategory(): void {
+  category.value = { code: '', name: '', sort: 0, version: 0 }
+  categoryKey = newIdempotencyKey()
+  frozenCategory = undefined
+  uncertain.value = false
+  categoryEditor.value = true
+}
 async function createCategory(): Promise<void> {
   if (busy.value) return
   busy.value = true
@@ -338,9 +347,7 @@ onScopeDispose(() => {
       <p>运行实例使用已发布版本；保存草稿不会改变正在审批的单据。</p>
     </div>
     <div class="row-actions">
-      <el-button
-        v-if="session.can('workflow_category:update')"
-        @click="newCategory"
+      <el-button v-if="session.can('workflow_category:update')" @click="newCategory"
         >新增分类</el-button
       ><el-button
         v-if="session.can('workflow_model:create')"
@@ -381,8 +388,7 @@ onScopeDispose(() => {
         ><template #default="{ row }"
           ><div class="row-actions">
             <button class="text-link" @click="edit(row)">
-              {{ session.can('workflow_model:update') ? '设计与历史' : '查看' }}</button
-            ><button
+              {{ session.can('workflow_model:update') ? '设计与历史' : '查看' }}</button><button
               v-if="session.can('workflow_model:publish')"
               class="text-link"
               :disabled="busy"
@@ -533,7 +539,7 @@ onScopeDispose(() => {
       ><el-form-item label="业务类型"
         ><el-select v-model="binding.businessType" :disabled="Boolean(bindingId)"
           ><el-option
-            v-for="(label, value) in businessLabels"
+            v-for="(label, value) in bindingLabels"
             :key="value"
             :value="value"
             :label="label" /></el-select></el-form-item

@@ -5,8 +5,19 @@ export type WorkflowBusinessType =
   | 'document_reversal'
   | 'stock_adjustment'
   | 'credit_increase'
+  | 'wf_generic_request'
 export type NodeType =
-  'start' | 'approver' | 'handler' | 'copy' | 'condition_branch' | 'parallel_branch'
+  | 'start'
+  | 'approver'
+  | 'handler'
+  | 'copy'
+  | 'condition_branch'
+  | 'parallel_branch'
+  | 'inclusive_branch'
+  | 'route_branch'
+  | 'subprocess'
+  | 'delay'
+  | 'trigger'
 export type AssigneeStrategy =
   | 'users'
   | 'role'
@@ -49,6 +60,10 @@ export interface WorkflowNode {
   child?: WorkflowNode
   creditApproval?: boolean
   priceApproval?: boolean
+  subprocess?: WorkflowNode
+  delaySeconds?: number
+  triggerEvent?: 'checkpoint' | 'review_required'
+  fieldAccess?: Record<string, 'read' | 'write' | 'hidden'>
 }
 export interface Choice {
   id: string
@@ -59,7 +74,7 @@ export interface Choice {
 }
 export interface WorkflowMetadata {
   businessTypes: WorkflowBusinessType[]
-  fieldsByType?: Record<WorkflowBusinessType, string[]>
+  fieldsByType?: Partial<Record<WorkflowBusinessType, string[]>>
   fields: Record<string, string>
   users: Choice[]
   roles: Choice[]
@@ -215,6 +230,32 @@ export interface TaskDecision {
   taskIds?: string[]
   position?: 'before' | 'after'
   targetNodeKey?: string
+  fields?: WorkflowFormValues
+}
+export type WorkflowFormValues = Record<string, string | boolean | null>
+export interface WorkflowFormField {
+  key: string
+  label: string
+  type: 'text' | 'number' | 'date' | 'select' | 'boolean'
+  required: boolean
+  options?: string[]
+}
+export interface WorkflowForm {
+  id: string
+  code: string
+  name: string
+  modelId: string
+  modelName: string
+  enabled: boolean | number
+  version: number
+  fields: WorkflowFormField[]
+}
+export interface GenericWorkflowRequest {
+  id: string
+  status: string
+  requestNo: string
+  canUpload: boolean
+  fields: { field: WorkflowFormField; value: string | boolean | null; access: 'read' | 'write' }[]
 }
 export interface StartOptions {
   nodes: { id: string; name: string; candidates: Choice[] }[]
@@ -227,6 +268,7 @@ export const businessLabels: Record<WorkflowBusinessType, string> = {
   document_reversal: '冲销申请',
   stock_adjustment: '库存调整',
   credit_increase: '临时信用额度调增',
+  wf_generic_request: '通用申请',
 }
 export const workflowStatus: Record<string, string> = {
   running: '审批中',
@@ -260,6 +302,10 @@ export const actionLabels: Record<string, string> = {
   timeout_reject: '超时驳回',
   timeout_terminate: '超时终止',
   empty_reject: '无有效审批人自动驳回',
+  delay_scheduled: '等待延迟节点到期',
+  delay_resumed: '延迟节点恢复',
+  trigger_enqueued: '流程事件已入队',
+  trigger_delivered: '流程事件已处理',
 }
 export const nodeLabels: Record<NodeType, string> = {
   start: '发起人',
@@ -268,6 +314,11 @@ export const nodeLabels: Record<NodeType, string> = {
   copy: '抄送',
   condition_branch: '条件分支',
   parallel_branch: '并行分支',
+  inclusive_branch: '包容分支',
+  route_branch: '优先路由',
+  subprocess: '子流程',
+  delay: '延迟等待',
+  trigger: '触发事件',
 }
 export const fieldLabels: Record<string, string> = {
   totalAmount: '单据金额',
@@ -288,7 +339,7 @@ export const fieldLabels: Record<string, string> = {
   buyerUserId: '采购员',
   createdBy: '创建人',
 }
-export const businessRoutes: Record<WorkflowBusinessType, string> = {
+export const businessRoutes: Partial<Record<WorkflowBusinessType, string>> = {
   sales_order: 'sales-orders',
   purchase_order: 'purchase-orders',
   refund_request: 'refund-requests',

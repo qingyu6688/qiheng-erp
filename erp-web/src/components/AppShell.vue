@@ -92,6 +92,8 @@ const definitions = [
       { path: 'workflow/copies', title: '抄送我的' },
       { path: 'workflow/all', title: '全部流程', permission: 'workflow_instance:view_all' },
       { path: 'workflow/models', title: '流程模型与绑定', permission: 'workflow_model:view' },
+      { path: 'workflow/forms', title: '表单设计', permission: 'workflow_form:manage' },
+      { path: 'workflow/start', title: '发起通用审批', permission: 'wf_generic_request:create' },
     ],
   },
 
@@ -197,6 +199,10 @@ const definitions = [
       { path: 'organization', title: '部门与岗位', any: ['org_department:view', 'org_post:view'] },
       { path: 'users', title: '用户与角色', any: ['user:view', 'role:view'] },
       { path: 'login-settings', title: '登录方式设置', permission: 'tenant:login_settings' },
+      { path: 'security-policy', title: '企业安全策略', permission: 'tenant:security_policy' },
+      { path: 'custom-fields', title: '自定义字段', permission: 'custom_field:manage' },
+      { path: 'code-rules', title: '编码规则', permission: 'code_rule:manage' },
+      { path: 'open-platform', title: '开放平台', permission: 'open_platform:view' },
 
       { path: 'sys/dict-types', title: '数据字典', permission: 'dict:view' },
       { path: 'sys/notices', title: '通知公告', permission: 'notice:view' },
@@ -518,6 +524,15 @@ async function logout(): Promise<void> {
                 "
               >
                 <Lock class="icon" aria-hidden="true" />我的登录方式
+              </router-link>
+              <router-link
+                v-if="!session.user?.mustChangePassword"
+                to="/account/security"
+                @click="
+                  ($event.currentTarget as HTMLElement).closest('details')?.removeAttribute('open')
+                "
+              >
+                <Lock class="icon" aria-hidden="true" />账户安全
               </router-link>
             </div>
           </details>

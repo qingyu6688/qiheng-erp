@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, defineAsyncComponent, ref } from 'vue'
 import type {
   Condition,
   Assignee,
@@ -10,7 +10,13 @@ import type {
   WorkflowNode,
 } from '../../types/workflow'
 import { fieldLabels, nodeLabels } from '../../types/workflow'
-import { createNode, findNode, removeNode, updateTree } from '../../utils/workflow-designer'
+import {
+  createNode,
+  findNode,
+  removeNode,
+  selective,
+  updateTree,
+} from '../../utils/workflow-designer'
 import SimpleNodeCard from './SimpleNodeCard.vue'
 import ConditionEditor from './ConditionEditor.vue'
 const props = defineProps<{
@@ -22,6 +28,8 @@ const props = defineProps<{
 const emit = defineEmits<{ 'update:modelValue': [value: WorkflowNode] }>()
 const selected = ref(''),
   drawer = ref(false)
+const diagram = ref(false)
+const BpmnCanvas = defineAsyncComponent(() => import('./BpmnCanvas.vue'))
 const node = computed(() =>
   selected.value ? findNode(props.modelValue, selected.value) : undefined,
 )
@@ -30,7 +38,7 @@ const fields = computed(() =>
     Object.entries(props.metadata.fields).filter(
       ([key]) =>
         !props.metadata.fieldsByType ||
-        props.metadata.fieldsByType[props.businessType].includes(key),
+        props.metadata.fieldsByType[props.businessType]?.includes(key),
     ),
   ),
 )
@@ -73,7 +81,7 @@ function strategy(value: AssigneeStrategy): void {
   })
 }
 function insert(id: string, type: NodeType): void {
-  const next = createNode(type)
+  const next = newNode(type)
   emit(
     'update:modelValue',
     updateTree(props.modelValue, id, (value) => {
@@ -84,7 +92,7 @@ function insert(id: string, type: NodeType): void {
   select(next.id)
 }
 function branch(id: string, index: number, type: NodeType): void {
-  const next = createNode(type)
+  const next = newNode(type)
   emit(
     'update:modelValue',
     updateTree(props.modelValue, id, (value) => {
@@ -97,15 +105,57 @@ function branch(id: string, index: number, type: NodeType): void {
   )
   select(next.id)
 }
+function subprocess(id: string, type: NodeType): void {
+  const next = newNode(type)
+  emit(
+    'update:modelValue',
+    updateTree(props.modelValue, id, (value) => {
+      value.subprocess = next
+    }),
+  )
+  select(next.id)
+}
+function newNode(type: NodeType): WorkflowNode {
+  return createNode(
+    type,
+    props.businessType === 'wf_generic_request' ? 'ownerDeptId' : 'totalAmount',
+  )
+}
 function remove(): void {
   if (!node.value || node.value.type === 'start' || props.readonly) return
   if (
-    node.value.branches?.some((item) => item.child) &&
+    (node.value.subprocess || node.value.branches?.some((item) => item.child)) &&
     !window.confirm('删除该分支节点及其分支内环节？后续环节会保留。')
   )
     return
   emit('update:modelValue', removeNode(props.modelValue, node.value.id))
   drawer.value = false
+}
+function reorderBranch(index: number, offset: number): void {
+  if (!node.value?.branches) return
+  const branches = [...node.value.branches],
+    other = index + offset
+  if (other < 0 || other >= branches.length) return
+  const current = branches[index]
+  branches[index] = branches[other]
+  branches[other] = current
+  update({ branches })
+}
+const accessLabels = { read: '只读', write: '可编辑', hidden: '隐藏' } as const
+type AccessMode = keyof typeof accessLabels
+function fieldKeys(mode: AccessMode): string[] {
+  return Object.entries(node.value?.fieldAccess ?? {})
+    .filter(([, value]) => value === mode)
+    .map(([key]) => key)
+}
+function setFieldKeys(mode: AccessMode, keys: string[]): void {
+  const access = Object.fromEntries(
+    Object.entries(node.value?.fieldAccess ?? {}).filter(([, value]) => value !== mode),
+  )
+  for (const key of keys)
+    if (/^[a-z][a-zA-Z0-9_]{0,39}$/.test(key) && !['constructor', 'prototype'].includes(key))
+      access[key] = mode
+  update({ fieldAccess: access })
 }
 function editBranch(
   index: number,
@@ -126,10 +176,13 @@ function addBranch(): void {
       ...node.value.branches,
       {
         name: '新分支',
-        condition:
-          node.value.type === 'condition_branch'
-            ? { field: 'totalAmount', op: '>', value: '50000' }
-            : undefined,
+        condition: selective(node.value.type)
+          ? {
+              field: props.businessType === 'wf_generic_request' ? 'ownerDeptId' : 'totalAmount',
+              op: '>',
+              value: props.businessType === 'wf_generic_request' ? '0' : '50000',
+            }
+          : undefined,
       },
     ],
   })
@@ -142,10 +195,17 @@ function timeout(patch: Partial<NonNullable<WorkflowNode['timeout']>>): void {
 }
 </script>
 <template>
-  <section class="flow-designer" aria-label="SIMPLE 流程设计器">
+  <section class="flow-designer" aria-label="流程设计器">
+    <el-switch
+      v-model="diagram"
+      inactive-text="SIMPLE"
+      active-text="BPMN"
+      aria-label="切换 BPMN 画布"
+    />
     <p class="muted">
       点击节点配置；分支内添加审批后统一汇合。人工复核、单据权限和期间规则始终由服务端校验。
     </p>
+    <BpmnCanvas v-if="diagram" :tree="modelValue" @select="select" />
     <div class="flow-canvas">
       <SimpleNodeCard
         :node="modelValue"
@@ -154,6 +214,7 @@ function timeout(patch: Partial<NonNullable<WorkflowNode['timeout']>>): void {
         @select="select"
         @insert="insert"
         @branch="branch"
+        @subprocess="subprocess"
       /><span class="flow-end">结束并执行原业务审批</span>
     </div>
   </section>
@@ -335,6 +396,41 @@ function timeout(patch: Partial<NonNullable<WorkflowNode['timeout']>>): void {
               " /></el-form-item
         ></template>
       </template>
+      <el-form-item v-if="node.type === 'delay'" label="延迟秒数">
+        <el-input-number
+          :model-value="node.delaySeconds"
+          :min="1"
+          :max="604800"
+          @change="(value: number | undefined) => update({ delaySeconds: value })"
+        />
+      </el-form-item>
+      <el-form-item v-if="node.type === 'trigger'" label="触发事件">
+        <el-select
+          :model-value="node.triggerEvent"
+          @change="(value: WorkflowNode['triggerEvent']) => update({ triggerEvent: value })"
+        >
+          <el-option value="checkpoint" label="流程到达检查点" />
+          <el-option value="review_required" label="通知需要关注" />
+        </el-select>
+      </el-form-item>
+      <template
+        v-if="businessType === 'wf_generic_request' && ['approver', 'handler'].includes(node.type)"
+      >
+        <p class="muted">填写表单字段编码并回车。未配置的字段对审批人隐藏。</p>
+        <el-form-item v-for="(label, mode) in accessLabels" :key="mode" :label="label + '字段'">
+          <el-select
+            :model-value="fieldKeys(mode)"
+            multiple
+            filterable
+            allow-create
+            default-first-option
+            :multiple-limit="50"
+            @change="(values: string[]) => setFieldKeys(mode, values)"
+          >
+            <el-option v-for="key in fieldKeys(mode)" :key="key" :value="key" :label="key" />
+          </el-select>
+        </el-form-item>
+      </template>
       <template v-if="node.branches"
         ><div v-for="(item, index) in node.branches" :key="index" class="flow-branch-settings">
           <el-form-item :label="'分支' + (index + 1) + '名称'"
@@ -345,19 +441,30 @@ function timeout(patch: Partial<NonNullable<WorkflowNode['timeout']>>): void {
                 (value: unknown) => editBranch(index, { name: String(value) })
               " /></el-form-item
           ><el-checkbox
-            v-if="node.type === 'condition_branch'"
+            v-if="selective(node.type)"
             :model-value="item.default"
             @update:model-value="(value: unknown) => editBranch(index, { default: Boolean(value) })"
             >其他情况走此分支</el-checkbox
           ><ConditionEditor
-            v-if="node.type === 'condition_branch' && !item.default"
+            v-if="selective(node.type) && !item.default"
             :model-value="item.condition"
             :fields="fields"
             :disabled="readonly"
             @update:model-value="
               (value: unknown) => editBranch(index, { condition: value as Condition | undefined })
             "
-          /><el-button
+          />
+          <template v-if="!readonly && node.type === 'route_branch'">
+            <el-button :disabled="index === 0" @click="reorderBranch(index, -1)"
+              >提高优先级</el-button
+            >
+            <el-button
+              :disabled="index === (node.branches?.length ?? 0) - 1"
+              @click="reorderBranch(index, 1)"
+              >降低优先级</el-button
+            >
+          </template>
+          <el-button
             v-if="!readonly && node.branches.length > 2"
             @click="update({ branches: node?.branches?.filter((_, at) => at !== index) })"
             >删除此分支</el-button

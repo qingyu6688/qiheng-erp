@@ -30,7 +30,11 @@ let saved: LoginSettings | undefined
 
 function accept(result: LoginSettings): void {
   saved = result
-  settings.value = { sms: { ...result.sms }, email: { ...result.email }, wechat: { ...result.wechat } }
+  settings.value = {
+    sms: { ...result.sms },
+    email: { ...result.email },
+    wechat: { ...result.wechat },
+  }
   loaded.value = true
 }
 
@@ -119,6 +123,7 @@ onBeforeUnmount(() => controller.abort())
       <h1>登录方式设置</h1>
       <p>设置本企业员工可使用的登录方式。员工可在账户菜单绑定已启用的方式。</p>
     </div>
+    <router-link to="/login-settings/sso" class="text-link">企业单点登录</router-link>
   </div>
   <el-alert
     v-if="error"

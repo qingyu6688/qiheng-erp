@@ -61,7 +61,11 @@ export const router = createRouter({
         {
           path: 'ai/admin',
           component: () => import('../pages/ai/AiAdminPage.vue'),
-          meta: { title: 'AI 管理', company: true, anyPermissions: ['ai_admin:view', 'ai_admin:manage'] },
+          meta: {
+            title: 'AI 管理',
+            company: true,
+            anyPermissions: ['ai_admin:view', 'ai_admin:manage'],
+          },
         },
         {
           path: 'ai/evaluations',
@@ -329,6 +333,54 @@ export const router = createRouter({
           name: 'login-settings',
           component: () => import('../pages/LoginSettingsPage.vue'),
           meta: { title: '登录方式设置', permission: 'tenant:login_settings' },
+        },
+        {
+          path: 'login-settings/sso',
+          name: 'login-settings-sso',
+          component: () => import('../pages/AuthPlatformPage.vue'),
+          meta: { title: '企业单点登录', permission: 'tenant:login_settings' },
+        },
+        {
+          path: 'security-policy',
+          name: 'security-policy',
+          component: () => import('../pages/AuthPlatformPage.vue'),
+          meta: { title: '企业安全策略', permission: 'tenant:security_policy' },
+        },
+        {
+          path: 'account/security',
+          name: 'account-security',
+          component: () => import('../pages/AccountSecurityPage.vue'),
+          meta: { title: '账户安全' },
+        },
+        {
+          path: 'custom-fields',
+          name: 'custom-fields',
+          component: () => import('../pages/CustomFieldsPage.vue'),
+          meta: { title: '自定义字段', company: true, permission: 'custom_field:manage' },
+        },
+        {
+          path: 'code-rules',
+          name: 'code-rules',
+          component: () => import('../pages/CodeRulesPage.vue'),
+          meta: { title: '编码规则', company: true, permission: 'code_rule:manage' },
+        },
+        {
+          path: 'open-platform',
+          name: 'open-platform',
+          component: () => import('../pages/OpenPlatformPage.vue'),
+          meta: { title: '开放平台', permission: 'open_platform:view' },
+        },
+        {
+          path: 'workflow/forms',
+          name: 'workflow-forms',
+          component: () => import('../pages/workflow/WorkflowFormsPage.vue'),
+          meta: { title: '表单设计', company: true, permission: 'workflow_form:manage' },
+        },
+        {
+          path: 'workflow/start',
+          name: 'workflow-start',
+          component: () => import('../pages/workflow/WorkflowFormsPage.vue'),
+          meta: { title: '发起通用审批', company: true, permission: 'wf_generic_request:create' },
         },
         {
           path: 'account/password',

@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import { allRecords } from '../api/admin'
+import { customFields, exportOrderFields, formatField } from '../api/platform-rules'
+import type { CustomField } from '../api/platform-rules'
 import { browseDocuments } from '../api/document-browser'
 import { isCancelled, messageOf } from '../api/http'
 import { documentSpec, documentStateLabel, documentStateTag } from '../types/document-ui'
@@ -57,6 +59,8 @@ const rows = ref<SalesDocument[]>([]),
   counts = ref<Record<string, number>>({}),
   next = ref<string | null>(null)
 const cursors = ref<string[]>([''])
+const fieldColumns = ref<CustomField[]>([]),
+  customFilters = reactive<Record<string, string>>({})
 const filter = reactive({
   keyword: '',
   status: '',
@@ -108,12 +112,21 @@ function query(): Record<string, unknown> {
     ...Object.fromEntries(
       Object.entries(filter).filter(([, value]) => value !== '' && value !== false),
     ),
+    ...Object.fromEntries(
+      Object.entries(customFilters)
+        .filter(([, value]) => value)
+        .map(([key, value]) => ['cf.' + key, value]),
+    ),
     cursor: cursors.value.at(-1) || undefined,
     limit: 20,
     withTotal: true,
   }
 }
 function readQuery(): void {
+  for (const key of Object.keys(customFilters)) delete customFilters[key]
+  if (order.value)
+    for (const [key, value] of Object.entries(route.query))
+      if (key.startsWith('cf.') && typeof value === 'string') customFilters[key.slice(3)] = value
   for (const key of [
     'keyword',
     'status',
@@ -193,6 +206,7 @@ function search(): void {
   void saveQuery()
 }
 function reset(): void {
+  for (const key of Object.keys(customFilters)) delete customFilters[key]
   Object.assign(filter, {
     keyword: '',
     status: '',
@@ -216,18 +230,36 @@ function page(forward: boolean): void {
   else return
   void saveQuery()
 }
+async function downloadFields(): Promise<void> {
+  try {
+    const file = await exportOrderFields(props.kind, query())
+    const url = URL.createObjectURL(file)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = '订单扩展字段.csv'
+    link.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (cause: unknown) {
+    if (!isCancelled(cause)) error.value = messageOf(cause)
+  }
+}
 async function options(): Promise<void> {
   const kind = props.kind,
     company = session.companyId
+  fieldColumns.value = []
   const result = await Promise.allSettled([
+    order.value
+      ? customFields(kind === 'sales-orders' ? 'sales_order' : 'purchase_order')
+      : Promise.resolve([]),
     hasPartner.value && session.can('partner:view') ? allRecords('partners') : Promise.resolve([]),
     hasWarehouse.value && session.can('warehouse:view')
       ? allRecords('warehouses', true)
       : Promise.resolve([]),
   ])
   if (kind !== props.kind || company !== session.companyId) return
-  partners.value = result[0].status === 'fulfilled' ? result[0].value : []
-  warehouses.value = result[1].status === 'fulfilled' ? result[1].value : []
+  fieldColumns.value = result[0].status === 'fulfilled' ? result[0].value : []
+  partners.value = result[1].status === 'fulfilled' ? result[1].value : []
+  warehouses.value = result[2].status === 'fulfilled' ? result[2].value : []
 }
 watch(
   () => [props.kind, session.companyId],
@@ -334,7 +366,36 @@ onBeforeUnmount(() => {
         <el-button native-type="submit" type="primary" :icon="Search" :loading="loading"
           >查询</el-button
         >
+        <div
+          v-for="field in fieldColumns.filter((entry) => entry.indexSlot)"
+          :key="field.fieldKey"
+          class="filter-field"
+        >
+          <label :for="'browse-' + field.fieldKey">{{ field.label }}</label>
+          <el-select
+            v-if="field.type === 'select' || field.type === 'bool'"
+            v-model="customFilters[field.fieldKey]"
+            :id="'browse-' + field.fieldKey"
+            clearable
+          >
+            <el-option
+              v-for="item in field.type === 'bool' ? ['true', 'false'] : field.choices"
+              :key="item"
+              :value="item"
+              :label="field.type === 'bool' ? (item === 'true' ? '是' : '否') : item"
+            />
+          </el-select>
+          <el-input
+            v-else
+            v-model="customFilters[field.fieldKey]"
+            :id="'browse-' + field.fieldKey"
+            clearable
+          />
+        </div>
         <el-button :icon="Refresh" @click="reset">重置</el-button>
+        <el-button v-if="fieldColumns.some((field) => field.importExport)" @click="downloadFields"
+          >导出本页</el-button
+        >
       </div>
     </form>
     <el-alert v-if="error" type="error" :title="error" :closable="false" />
@@ -412,6 +473,14 @@ onBeforeUnmount(() => {
         align="right"
         ><template #default="{ row }">{{ amount(row) }}</template></el-table-column
       >
+      <el-table-column
+        v-for="field in fieldColumns.filter((entry) => entry.listVisible)"
+        :key="field.fieldKey"
+        :label="field.label"
+        min-width="140"
+      >
+        <template #default="{ row }">{{ formatField(row.extJson?.[field.fieldKey]) }}</template>
+      </el-table-column>
       <el-table-column label="操作" width="90"
         ><template #default="{ row }"
           ><router-link class="text-link" :to="'/' + kind + '/' + row.id"

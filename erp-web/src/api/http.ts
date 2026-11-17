@@ -32,6 +32,11 @@ const publicAuthPaths = [
   '/auth/code/send',
   '/auth/code/login',
   '/auth/wechat/start',
+  '/auth/ldap/login',
+  '/auth/mfa/status',
+  '/auth/mfa/setup',
+  '/auth/mfa/verify',
+  '/auth/mfa/activate',
 ]
 
 export function renewSessionScope(active = true): void {
