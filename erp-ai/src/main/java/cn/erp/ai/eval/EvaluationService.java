@@ -19,6 +19,7 @@ import tools.jackson.databind.ObjectMapper;
 import cn.erp.ai.assistant.AssistantCatalog;
 import cn.erp.ai.assistant.AssistantRuntime;
 import cn.erp.ai.assistant.BusinessToolPlanner;
+import cn.erp.ai.assistant.DocumentExplanationService;
 import cn.erp.ai.common.AiActor;
 import cn.erp.ai.common.AiException;
 import cn.erp.ai.common.AiInputs;
@@ -34,25 +35,29 @@ class EvaluationService {
     private final ObjectMapper json;
     private final EvaluationSet set;
     private final BusinessEvaluationSet businessSet;
+    private final ExplanationEvaluationSet explanationSet;
     private final AiRequest requests;
     private final AssistantCatalog assistants;
     private final AssistantRuntime runtime;
     private final BusinessToolPlanner planner;
+    private final DocumentExplanationService explanations;
     private final ModelCatalog models;
     private final ExecutorService executor=Executors.newVirtualThreadPerTaskExecutor();
     private final Semaphore capacity=new Semaphore(2);
 
     EvaluationService(JdbcTemplate jdbc,ObjectMapper json,EvaluationSet set,BusinessEvaluationSet businessSet,
-            AiRequest requests,AssistantCatalog assistants,AssistantRuntime runtime,BusinessToolPlanner planner,
-            ModelCatalog models) {
+            ExplanationEvaluationSet explanationSet,AiRequest requests,AssistantCatalog assistants,
+            AssistantRuntime runtime,BusinessToolPlanner planner,DocumentExplanationService explanations,ModelCatalog models) {
         this.jdbc=jdbc;
         this.json=json;
         this.set=set;
         this.businessSet=businessSet;
+        this.explanationSet=explanationSet;
         this.requests=requests;
         this.assistants=assistants;
         this.runtime=runtime;
         this.planner=planner;
+        this.explanations=explanations;
         this.models=models;
     }
 
@@ -63,13 +68,16 @@ class EvaluationService {
             id,status,total,correct_rate,citation_rate,refusal_rate,security_rate,passed,created_at,set_code,
             tool_selection_rate,parameter_rate,report_agreement_rate
             """;
-    record StartInput(JsonNode reportBaseline) {}
+    record StartInput(JsonNode reportBaseline,JsonNode documentBaseline) {
+        StartInput(JsonNode reportBaseline) { this(reportBaseline,null); }
+    }
 
     List<Map<String,Object>> sets(AiActor actor) {
         actor.require("ai_admin:evaluate");
         return List.of(setView(actor,EvaluationSet.ID,EvaluationSet.NAME,set.cases().size()),
                 setView(actor,BusinessEvaluationSet.ID,BusinessEvaluationSet.NAME,
-                        businessSet.cases(LocalDate.now(BusinessEvaluationSet.BUSINESS_ZONE)).size()));
+                        businessSet.cases(LocalDate.now(BusinessEvaluationSet.BUSINESS_ZONE)).size()),
+                setView(actor,ExplanationEvaluationSet.ID,ExplanationEvaluationSet.NAME,explanationSet.scenarios().size()));
     }
 
     private Map<String,Object> setView(AiActor actor,String id,String name,int count) {
@@ -82,10 +90,13 @@ class EvaluationService {
         return document;
     }
 
-    List<BusinessEvaluationSet.Case> cases(AiActor actor,String id) {
+    List<?> cases(AiActor actor,String id) {
         actor.require("ai_admin:evaluate");
-        if (!BusinessEvaluationSet.ID.equals(id)) throw AiException.missing();
-        return businessSet.cases(LocalDate.now(BusinessEvaluationSet.BUSINESS_ZONE));
+        return switch (id) {
+            case BusinessEvaluationSet.ID -> businessSet.cases(LocalDate.now(BusinessEvaluationSet.BUSINESS_ZONE));
+            case ExplanationEvaluationSet.ID -> explanationSet.cases();
+            default -> throw AiException.missing();
+        };
     }
 
     List<Run> runs(AiActor actor,String setId) {
@@ -133,8 +144,9 @@ class EvaluationService {
         var config=assistants.require(actor,"internal");
         var route=models.evaluationConfiguration(actor);
         boolean business=BusinessEvaluationSet.ID.equals(setId);
+        boolean explain=ExplanationEvaluationSet.ID.equals(setId);
         var date=LocalDate.now(BusinessEvaluationSet.BUSINESS_ZONE);
-        var baseline=input==null?null:input.reportBaseline();
+        var baseline=input==null?null:explain?input.documentBaseline():input.reportBaseline();
         if (business) {
             boolean ready=assistants.visible(actor).stream().anyMatch(
                     view -> "internal".equals(view.code()) && view.toolCodes().containsAll(businessSet.toolCodes()));
@@ -142,15 +154,22 @@ class EvaluationService {
             BusinessEvaluationGrader.validateBaseline(baseline,businessSet.scenarioIds());
             businessSet.requireRepresentativeBaseline(baseline);
         }
+        if (explain) {
+            requireExplanationEvaluation(actor,config);
+            explanationSet.validate(baseline);
+        }
         var scopes=business?currentScopes(access):Map.<String,String>of();
-        var snapshot=configuration(route,config,business?baseline:null,date);
+        var snapshot=configuration(route,config,setId,baseline,date);
         if (!capacity.tryAcquire()) throw new AiException(429,"AI_EVALUATION_BUSY","评测正在运行，请稍后再试");
         try {
             String run=insert(actor,setId,snapshot);
             executor.submit(() -> {
                 try {
-                    if (business) evaluateBusiness(access,run,route,config,baseline,date,scopes);
-                    else evaluateKnowledge(access,run,route,config);
+                    switch (setId) {
+                        case BusinessEvaluationSet.ID -> evaluateBusiness(access,run,route,config,baseline,date,scopes);
+                        case ExplanationEvaluationSet.ID -> evaluateExplanation(access,run,route,config,baseline);
+                        default -> evaluateKnowledge(access,run,route,config);
+                    }
                 } catch (RuntimeException failure) {
                     fail(actor,run);
                 } finally {
@@ -161,6 +180,40 @@ class EvaluationService {
         } catch (RuntimeException failure) {
             capacity.release();
             throw failure;
+        }
+    }
+
+    private void requireExplanationEvaluation(AiActor actor,AssistantCatalog.Config config) {
+        var permissions=Set.of("sales_order:view","shipment:view","period:view","period:close");
+        if (!actor.allWarehouses() || !actor.permissions().containsAll(permissions)
+                || !config.toolCodes().contains(ExplanationEvaluationSet.TOOL))
+            throw AiException.invalid("单据解释评测需要整家公司范围、销售订单、发货、关账预检权限和已授权的工具");
+    }
+
+    private void evaluateExplanation(AiRequest.Access access,String run,Map<String,Object> route,
+                                     AssistantCatalog.Config config,JsonNode baseline) {
+        var results=new ArrayList<EvaluationGrader.Result>();
+        long started=System.nanoTime();
+        for (var scenario:explanationSet.scenarios()) {
+            checkTime(started);
+            var current=checkConfiguration(access,route,config);
+            var result=gradeExplanation(access,config,baseline.path(scenario.scenarioId()),scenario);
+            checkConfiguration(access,route,config);
+            store(current,run,result);
+            results.add(result);
+        }
+        finishExplanation(access.actor(),run,results);
+    }
+
+    private EvaluationGrader.Result gradeExplanation(AiRequest.Access access,AssistantCatalog.Config config,
+            JsonNode basis,ExplanationEvaluationSet.Scenario scenario) {
+        var arguments=explanationSet.arguments(scenario,basis);
+        try {
+            var answer=explanations.explain(access,config,arguments);
+            return ExplanationEvaluationGrader.score(scenario,basis,answer);
+        } catch (AiException rejected) {
+            if (!Set.of(400,403,404).contains(rejected.status())) throw rejected;
+            return ExplanationEvaluationGrader.refusal(scenario,scenario.expectedRefusal() && scenario.denialMatches(rejected.status()));
         }
     }
 
@@ -310,20 +363,36 @@ class EvaluationService {
             actor.tenantId(),actor.companyId(),run);
     }
 
+    private void finishExplanation(AiActor actor,String run,List<EvaluationGrader.Result> values) {
+        var business=values.stream().filter(v -> !v.expectedRefusal()).toList();
+        var security=values.stream().filter(EvaluationGrader.Result::expectedRefusal).toList();
+        var correct=rate(business,EvaluationGrader.Result::correct);
+        var citations=rate(business,EvaluationGrader.Result::citationCorrect);
+        var safety=rate(security,EvaluationGrader.Result::refused);
+        boolean passed=List.of(correct,citations,safety).stream().allMatch(value -> value.compareTo(BigDecimal.ONE)==0);
+        jdbc.update("""
+            UPDATE eval_run SET status='completed',total=?,correct_rate=?,citation_rate=?,refusal_rate=?,security_rate=?,
+              passed=?,finished_at=UTC_TIMESTAMP(3) WHERE tenant_id=? AND company_id=? AND id=?
+            """,values.size(),correct,citations,safety,safety,passed,actor.tenantId(),actor.companyId(),run);
+    }
+
     private BigDecimal rate(List<EvaluationGrader.Result> values,java.util.function.Predicate<EvaluationGrader.Result> test) {
         if (values.isEmpty()) return BigDecimal.ZERO;
         return BigDecimal.valueOf(values.stream().filter(test).count()).divide(BigDecimal.valueOf(values.size()),4,RoundingMode.HALF_UP);
     }
 
-    private String configuration(Map<String,Object> route,AssistantCatalog.Config config,JsonNode baseline,
+    private String configuration(Map<String,Object> route,AssistantCatalog.Config config,String setId,JsonNode baseline,
             LocalDate date) {
         var value=new LinkedHashMap<String,Object>(route);
         value.put("assistantCode",config.code());
         value.put("libraryIds",config.libraryIds());
-        if (baseline!=null) {
+        if (BusinessEvaluationSet.ID.equals(setId)) {
             value.put("toolCodes",config.toolCodes());
             value.put("referenceDate",date.toString());
             value.put("reportBaselineSha256",sha256(baseline.toString()));
+        } else if (ExplanationEvaluationSet.ID.equals(setId)) {
+            value.put("toolCodes",config.toolCodes());
+            value.put("documentBaselineSha256",sha256(baseline.toString()));
         }
         return json.writeValueAsString(value);
     }
@@ -365,7 +434,7 @@ class EvaluationService {
     }
 
     private void requireSet(String code) {
-        if (!Set.of(EvaluationSet.ID,BusinessEvaluationSet.ID).contains(code)) throw AiException.missing();
+        if (!Set.of(EvaluationSet.ID,BusinessEvaluationSet.ID,ExplanationEvaluationSet.ID).contains(code)) throw AiException.missing();
     }
 
     @PreDestroy

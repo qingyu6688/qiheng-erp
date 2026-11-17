@@ -17,6 +17,7 @@ import cn.erp.ai.common.BoundedHttp;
 @Service
 public class ModelGateway {
     private static final Duration BUSINESS_PLAN_TIMEOUT = Duration.ofSeconds(20);
+    private static final Duration EXPLANATION_TIMEOUT = Duration.ofSeconds(8);
     private final ModelCatalog catalog;
     private final UsageLedger ledger;
     private final BoundedHttp http;
@@ -40,6 +41,10 @@ public class ModelGateway {
 
     public ModelResult planBusinessQuery(AiActor actor,String scene,String system,String user,Runnable authorize) {
         return generate(actor,scene,system,user,authorize,text->false,BUSINESS_PLAN_TIMEOUT);
+    }
+
+    public ModelResult prioritizeExplanation(AiActor actor,String scene,String system,String user,Runnable authorize) {
+        return generate(actor,scene,system,user,authorize,text->false,EXPLANATION_TIMEOUT);
     }
 
     private ModelResult generate(AiActor actor,String scene,String system,String user,Runnable authorize,

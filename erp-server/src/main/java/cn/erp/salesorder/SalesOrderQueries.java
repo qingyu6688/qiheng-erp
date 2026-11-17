@@ -3,6 +3,7 @@ package cn.erp.salesorder;
 import cn.erp.customfield.CustomFields;
 import cn.erp.identity.CompanyAccess;
 import cn.erp.inventory.ReservationService;
+import cn.erp.inventory.OrderLineOccupancy;
 import cn.erp.shared.ApiException;
 import cn.erp.shared.ScopedReferences;
 import java.math.BigDecimal;
@@ -79,7 +80,7 @@ public class SalesOrderQueries {
         result.put("progress",Map.of("baseQty",decimal(line,"base_qty").toPlainString(),"closedQty",decimal(line,"closed_base_qty").toPlainString(),
             "shippedQty",decimal(line,"shipped_base_qty").toPlainString(),"signedQty",decimal(line,"signed_base_qty").toPlainString(),
             "pendingShipQty",decimal(line,"pending_ship_base_qty").toPlainString(),"returnedQty",decimal(line,"returned_base_qty").toPlainString(),
-            "shippableQty",decimal(line,"base_qty").subtract(decimal(line,"closed_base_qty")).subtract(decimal(line,"shipped_base_qty")).subtract(decimal(line,"pending_ship_base_qty")).toPlainString()));
+            "shippableQty",OrderLineOccupancy.remaining(line).toPlainString()));
         return result;
     }
 

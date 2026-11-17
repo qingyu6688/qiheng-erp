@@ -32,6 +32,25 @@ class InventoryDimensions {
     }
     record Pick(Coordinates at,List<String> serials) {}
     record HoldChange(String reason,Source source,BigDecimal delta) {}
+    private record PickPosition(Key key,Coordinates at) {}
+
+    static final class PickPreview {
+        private final Map<PickPosition,BigDecimal> quantities=new HashMap<>();
+        private final Map<Key,Set<String>> serials=new HashMap<>();
+
+        void add(Key key,Pick pick,BigDecimal quantity) {
+            quantities.merge(new PickPosition(key,pick.at()),quantity,BigDecimal::add);
+            serials.computeIfAbsent(key,unused->new HashSet<>()).addAll(pick.serials());
+        }
+
+        BigDecimal quantity(Key key,Coordinates at) {
+            return quantities.getOrDefault(new PickPosition(key,at),BigDecimal.ZERO);
+        }
+
+        Set<String> serials(Key key) {
+            return serials.getOrDefault(key,Set.of());
+        }
+    }
 
     Config config(CompanyAccess scope,Key key) {
         if (!scope.allowsWarehouse(key.warehouseId())) throw missing();
@@ -108,6 +127,10 @@ class InventoryDimensions {
     }
 
     Pick outgoing(CompanyAccess actor,Posting posting,BigDecimal qty,StockSelection input,String hold,boolean includeOwnPick) {
+        return outgoing(actor,posting,qty,input,hold,includeOwnPick,null);
+    }
+
+    Pick outgoing(CompanyAccess actor,Posting posting,BigDecimal qty,StockSelection input,String hold,boolean includeOwnPick,PickPreview preview) {
         Key key=posting.key();Config cfg=config(actor,key);
         if(!cfg.tracked()){rejectUnused(input);return new Pick(Coordinates.empty(),List.of());}
         if(input!=null&&(input.batchNo()!=null||input.productionDate()!=null||input.expiryDate()!=null))throw invalid("出库请选择已有批次");
@@ -118,12 +141,12 @@ class InventoryDimensions {
         if(batch!=null)requireBatch(actor,key.skuId(),batch);
         if(place!=null)location(actor,key,cfg.location(),place);
         var serials=serials(cfg,input,qty,false);
-        var selected=pick(actor,posting,qty,cfg,batch,place,hold,includeOwnPick,serials);
-        if(serials.isEmpty()&&cfg.serial())serials=availableSerials(actor,key,selected,qty);
+        var selected=pick(actor,posting,qty,cfg,batch,place,hold,includeOwnPick,serials,preview);
+        if(serials.isEmpty()&&cfg.serial())serials=availableSerials(actor,key,selected,qty,preview);
         return new Pick(selected,serials);
     }
 
-    private Coordinates pick(CompanyAccess actor,Posting posting,BigDecimal qty,Config cfg,Long batch,Long place,String hold,boolean includeOwnPick,List<String> serials) {
+    private Coordinates pick(CompanyAccess actor,Posting posting,BigDecimal qty,Config cfg,Long batch,Long place,String hold,boolean includeOwnPick,List<String> serials,PickPreview preview) {
         Key key=posting.key();
         // 序列号列表可以定位批次与库位。锁内再次检查，防止并发占用相同货物。
         var values=new ArrayList<Object>(Arrays.asList(actor.tenantId(),actor.companyId(),key.warehouseId(),key.skuId()));
@@ -156,13 +179,15 @@ class InventoryDimensions {
             }
             sql.append("COALESCE((SELECT x.pick_sequence FROM wms_location x WHERE x.tenant_id=b.tenant_id AND x.company_id=b.company_id AND x.warehouse_id=b.warehouse_id AND x.id=CAST(b.location_key AS UNSIGNED)),0),");
         }
-        sql.append("b.created_at,b.id LIMIT 500 FOR UPDATE OF b");
+        sql.append("b.created_at,b.id LIMIT 500");
+        if(preview==null) sql.append(" FOR UPDATE OF b");
         var rows=jdbc.queryForList(sql.toString(),values.toArray());
         for(var row:rows){
             var at=new Coordinates(asLong(row.get("id")),(String)row.get("lot_key"),(String)row.get("location_key"));
             BigDecimal available=hold==null?decimal(row,"on_hand_qty").subtract(decimal(row,"blocked_qty")):held(row.get("balance_id"),hold);
-            if(hold==null)available=available.subtract(picked(actor,key,at,includeOwnPick?posting.source().lineId():0));
-            if(available.compareTo(qty)>=0&&(serials.isEmpty()||validSerialPlace(actor,key,at,serials,hold,includeOwnPick)))return at;
+            if(hold==null)available=available.subtract(picked(actor,key,at,includeOwnPick?posting.source().lineId():0,preview==null));
+            if(preview!=null)available=available.subtract(preview.quantity(key,at));
+            if(available.compareTo(qty)>=0&&(serials.isEmpty()||validSerialPlace(actor,key,at,serials,hold,includeOwnPick,preview)))return at;
         }
         throw new ApiException(422,"PICK_UNAVAILABLE","符合批次、效期和库位的可用数量不足，请拆分发货或选择其他批次");
     }
@@ -174,10 +199,14 @@ class InventoryDimensions {
     }
 
     private BigDecimal picked(CompanyAccess actor,Key key,Coordinates at,long ignore) {
+        return picked(actor,key,at,ignore,true);
+    }
+
+    private BigDecimal picked(CompanyAccess actor,Key key,Coordinates at,long ignore,boolean lock) {
         return sum(jdbc.queryForList("""
                 SELECT qty FROM inv_shipment_pick WHERE tenant_id=? AND company_id=? AND warehouse_id=? AND sku_id=?
-                  AND location_key=? AND lot_key=? AND shipment_line_id<>? FOR SHARE
-                """,BigDecimal.class,actor.tenantId(),actor.companyId(),key.warehouseId(),key.skuId(),at.location(),at.lot(),ignore));
+                  AND location_key=? AND lot_key=? AND shipment_line_id<>?
+                """+(lock?" FOR SHARE":""),BigDecimal.class,actor.tenantId(),actor.companyId(),key.warehouseId(),key.skuId(),at.location(),at.lot(),ignore));
     }
 
     void requireUnpicked(CompanyAccess actor,Key key,Coordinates at,BigDecimal quantity){
@@ -195,9 +224,10 @@ class InventoryDimensions {
 
     private BigDecimal sum(List<BigDecimal> values){return values.stream().reduce(BigDecimal.ZERO,BigDecimal::add);}
 
-    private boolean validSerialPlace(CompanyAccess actor,Key key,Coordinates at,List<String> serials,String hold,boolean ownPick) {
+    private boolean validSerialPlace(CompanyAccess actor,Key key,Coordinates at,List<String> serials,String hold,boolean ownPick,PickPreview preview) {
         for(String serial:serials) {
-            var found=serialRow(actor,key.skuId(),serial,true);
+            if(preview!=null&&preview.serials(key).contains(serial)) return false;
+            var found=serialRow(actor,key.skuId(),serial,preview==null);
             if(found==null || !Objects.equals(asLong(found.get("batch_id")),at.batch()) || !at.location().equals(found.get("location_key"))
                     || ((Number)found.get("warehouse_id")).longValue()!=key.warehouseId()
                     || !Set.of("in_stock","returned","reserved","quality_hold").contains(found.get("status"))
@@ -207,11 +237,14 @@ class InventoryDimensions {
         return true;
     }
 
-    private List<String> availableSerials(CompanyAccess actor,Key key,Coordinates at,BigDecimal qty) {
+    private List<String> availableSerials(CompanyAccess actor,Key key,Coordinates at,BigDecimal qty,PickPreview preview) {
+        var excluded=preview==null?Set.<String>of():preview.serials(key);
         var rows=jdbc.queryForList("""
                 SELECT serial_no FROM inv_serial WHERE tenant_id=? AND company_id=? AND warehouse_id=? AND sku_id=?
-                  AND batch_id<=>? AND location_key=? AND status IN('in_stock','returned') ORDER BY id LIMIT ? FOR UPDATE
-                """,String.class,actor.tenantId(),actor.companyId(),key.warehouseId(),key.skuId(),at.batch(),at.location(),qty.intValueExact());
+                  AND batch_id<=>? AND location_key=? AND status IN('in_stock','returned') ORDER BY id LIMIT ?
+                """+(preview==null?" FOR UPDATE":""),String.class,actor.tenantId(),actor.companyId(),key.warehouseId(),key.skuId(),
+                at.batch(),at.location(),qty.intValueExact()+excluded.size()).stream().filter(code->!excluded.contains(code))
+                .limit(qty.intValueExact()).toList();
         if(rows.size()!=qty.intValueExact())throw insufficient();
         return rows;
     }

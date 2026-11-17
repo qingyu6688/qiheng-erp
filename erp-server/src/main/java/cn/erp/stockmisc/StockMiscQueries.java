@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 import static cn.erp.salesfinance.FinanceSupport.*;
 
 @Component
-class StockMiscQueries {
+public class StockMiscQueries {
     static final String RESOURCE="stock_misc_doc";
     private static final Set<String> STATES=Set.of("draft","pending","approved","posted","reversed","voided");
     private final JdbcTemplate jdbc;
@@ -18,10 +18,19 @@ class StockMiscQueries {
     StockMiscQueries(JdbcTemplate jdbc,InventoryService inventory){this.jdbc=jdbc;this.inventory=inventory;}
 
     Map<String,Object> head(CompanyAccess actor,long document,boolean lock){
+        return visibleHead(actor,document,lock).orElseThrow(cn.erp.salesfinance.FinanceSupport::missing);
+    }
+
+    public Optional<String> visibleNumber(CompanyAccess actor,long document,String direction) {
+        if(!actor.hasPermission(RESOURCE+":view")) return Optional.empty();
+        return visibleHead(actor,document,false).filter(header->direction.equals(header.get("direction")))
+                .map(header->header.get("document_no").toString());
+    }
+
+    private Optional<Map<String,Object>> visibleHead(CompanyAccess actor,long document,boolean lock) {
         var rows=jdbc.queryForList("SELECT h.* FROM stock_misc_doc h WHERE h.tenant_id=? AND h.company_id=? AND h.id=?"
                 +OrgOwnership.filter(actor,"h")+(lock?" FOR UPDATE":""),actor.tenantId(),actor.companyId(),document);
-        if(rows.isEmpty()||!actor.allowsWarehouse(id(rows.getFirst(),"warehouse_id")))throw missing();
-        return rows.getFirst();
+        return rows.stream().findFirst().filter(row->actor.allowsWarehouse(id(row,"warehouse_id")));
     }
 
     List<Map<String,Object>> lines(CompanyAccess actor,long document,boolean lock){

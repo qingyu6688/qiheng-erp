@@ -6,6 +6,17 @@ export interface AiAssistantOption {
   toolCodes?: string[]
 }
 
+export type AiExplainDocumentType = 'sales_order' | 'shipment' | 'accounting_period'
+
+export interface AiDocumentReference {
+  documentType: AiExplainDocumentType
+  documentId: Id
+}
+
+export interface AiDocumentContext extends AiDocumentReference {
+  label: string
+}
+
 export interface AiConversation {
   id: Id
   assistantCode: string
@@ -53,6 +64,7 @@ export interface AiMessage {
   citations: AiCitation[]
   tools: AiToolResult[]
   createdAt: string
+  plainText?: boolean
 }
 
 export type AiChatEvent =
@@ -278,5 +290,7 @@ export interface AiEvalCase {
   scenarioId?: string
   toolCode?: string
   arguments?: Record<string, unknown>
+  documentType?: AiExplainDocumentType
+  baselineRequired?: boolean
   expectedRefusal: boolean
 }

@@ -21,6 +21,14 @@ class InventoryStore {
 
     /** 按唯一维度索引统一锁序；缺失项先创建，避免对空范围反复加间隙锁。 */
     Map<Key,Map<String,Object>> lockMany(CompanyAccess scope,List<Key> keys,boolean cost) {
+        return inventoryRows(scope,keys,cost,true);
+    }
+
+    Map<Key,Map<String,Object>> readMany(CompanyAccess scope,List<Key> keys,boolean cost) {
+        return inventoryRows(scope,keys,cost,false);
+    }
+
+    private Map<Key,Map<String,Object>> inventoryRows(CompanyAccess scope,List<Key> keys,boolean cost,boolean lock) {
         var ordered=keys.stream().distinct().sorted().toList();
         if(ordered.isEmpty()) {return Map.of();}
         for(var key:ordered) {if(!scope.allowsWarehouse(key.warehouseId())) {throw missing();}}
@@ -33,13 +41,15 @@ class InventoryStore {
         for(var key:ordered) {visibleArgs.add(key.warehouseId());visibleArgs.add(key.skuId());}
         Long visible=jdbc.queryForObject("SELECT COUNT(*) FROM warehouse w JOIN sku s ON s.tenant_id=w.tenant_id WHERE w.tenant_id=? AND w.company_id=? AND (w.id,s.id) IN ("+String.join(",",Collections.nCopies(ordered.size(),"(?,?)"))+")",Long.class,visibleArgs.toArray());
         if(visible==null || visible!=ordered.size()) {throw missing();}
-        var existing=new HashSet<Key>();
-        for(var row:jdbc.queryForList("SELECT warehouse_id,sku_id FROM "+table+" WHERE "+filter,args.toArray())) {existing.add(key(row));}
-        var inserts=new ArrayList<Object[]>();
-        for(var key:ordered) {if(!existing.contains(key)) {inserts.add(new Object[]{Ids.next(),scope.tenantId(),scope.companyId(),key.warehouseId(),key.skuId()});}}
-        if(!inserts.isEmpty()) {jdbc.batchUpdate("INSERT INTO "+table+"(id,tenant_id,company_id,warehouse_id,sku_id) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE id=id",inserts);}
+        if(lock) {
+            var existing=new HashSet<Key>();
+            for(var row:jdbc.queryForList("SELECT warehouse_id,sku_id FROM "+table+" WHERE "+filter,args.toArray())) {existing.add(key(row));}
+            var inserts=new ArrayList<Object[]>();
+            for(var key:ordered) {if(!existing.contains(key)) {inserts.add(new Object[]{Ids.next(),scope.tenantId(),scope.companyId(),key.warehouseId(),key.skuId()});}}
+            if(!inserts.isEmpty()) {jdbc.batchUpdate("INSERT INTO "+table+"(id,tenant_id,company_id,warehouse_id,sku_id) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE id=id",inserts);}
+        }
         var result=new LinkedHashMap<Key,Map<String,Object>>();
-        for(var row:jdbc.queryForList("SELECT * FROM "+table+" FORCE INDEX ("+(cost?"uk_inventory_cost":"uk_inventory_balance")+") WHERE "+filter+" ORDER BY warehouse_id,sku_id FOR UPDATE",args.toArray())) {result.put(key(row),row);}
+        for(var row:jdbc.queryForList("SELECT * FROM "+table+" FORCE INDEX ("+(cost?"uk_inventory_cost":"uk_inventory_balance")+") WHERE "+filter+" ORDER BY warehouse_id,sku_id"+(lock?" FOR UPDATE":""),args.toArray())) {result.put(key(row),row);}
         return result;
     }
 

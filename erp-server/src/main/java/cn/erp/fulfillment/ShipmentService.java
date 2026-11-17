@@ -48,6 +48,105 @@ public class ShipmentService {
         this.reference=reference;this.ledger=ledger;this.settlement=settlement;this.numbers=numbers;this.commands=commands;this.audit=audit;this.orders=orders;this.reservations=reservations;this.stockPosting=stockPosting;
     }
 
+    public record Blocker(String code,String message,Long orderId) {}
+    public record Readiness(String number,String status,List<String> allowedActions,List<Blocker> blockers) {}
+
+    @Transactional(readOnly=true)
+    public Readiness explainOrderShipment(CompanyAccess scope,long orderId) {
+        var order=orders.header(scope,orderId,false);
+        String status=order.get("status").toString();
+        var blockers=new ArrayList<Blocker>();
+        capture(blockers,()->validateSourceState(status,false),orderId,
+                "cancelled".equals(status)?"销售订单已取消":"销售订单尚未审核通过");
+        if(blockers.isEmpty()) {
+            var shippableLines=orders.lines(scope,orderId,false).stream().filter(line->OrderLineOccupancy.remaining(line).signum()>0).toList();
+            if(shippableLines.isEmpty()) blockers.add(new Blocker("SHIP_QTY_EXCEEDED","订单没有可继续发货的明细数量",orderId));
+            else {
+                var warehouses=new HashMap<Long,Boolean>();
+                var usableLines=shippableLines.stream().filter(line->line.get("warehouse_id")!=null
+                        && warehouses.computeIfAbsent(id(line,"warehouse_id"),warehouse->shipmentWarehouse(scope,warehouse))).toList();
+                if(usableLines.isEmpty()) blockers.add(new Blocker("NOT_FOUND","可发货明细没有可用仓库",orderId));
+                else if(!catalog.hasActiveSku(scope,skuUnits(usableLines)))
+                    blockers.add(new Blocker("MASTER_DATA_DISABLED","可发货明细的商品或单位不可用",orderId));
+                long customer=id(order,"customer_id");
+                capture(blockers,()->reference.checkPartner(scope,customer,"customer"),orderId,null);
+                capture(blockers,()->credit.checkShipment(scope,customer),orderId,null);
+                capture(blockers,()->OrgOwnership.department(scope),null,null);
+            }
+        }
+        if(!scope.hasPermission("shipment:create")) blockers.add(new Blocker("FORBIDDEN","当前账户没有创建发货单的权限",null));
+        var actions=new ArrayList<>(orders.actions(scope,order));
+        if(blockers.isEmpty()) actions.add("create_shipment");
+        return new Readiness(order.get("order_no").toString(),status,List.copyOf(actions),List.copyOf(blockers));
+    }
+
+    @Transactional(readOnly=true)
+    public Readiness explainShipment(CompanyAccess scope,long shipmentId) {
+        var header=queries.header(scope,shipmentId,false);
+        String status=header.get("status").toString();
+        var blockers=new ArrayList<Blocker>();
+        if("draft".equals(status)||"submitted".equals(status)) {
+            boolean posting="submitted".equals(status);
+            String action=posting?"post":"submit";
+            if(!scope.hasPermission("shipment:"+action)) {
+                blockers.add(new Blocker("FORBIDDEN",posting?"当前账户没有发货过账权限":"当前账户没有提交发货单的权限",null));
+            }
+            shipmentBlockers(scope,shipmentId,header,posting,blockers);
+        } else blockers.add(new Blocker(state().getErrorCode(),shipmentStateMessage(status),null));
+        return new Readiness(header.get("shipment_no").toString(),status,queries.actions(scope,status),List.copyOf(blockers));
+    }
+
+    private void shipmentBlockers(CompanyAccess scope,long shipmentId,Map<String,Object> header,boolean posting,List<Blocker> blockers) {
+        LocalDate day=date(header,"business_date");
+        long periodId;
+        try {periodId=period(scope,day,false);}
+        catch(ApiException blocked) {blockers.add(blocker(blocked,null,null));return;}
+        capture(blockers,()->credit.checkShipment(scope,id(header,"customer_id")),null,null);
+        var lines=jdbc.queryForList("SELECT * FROM shipment_line WHERE tenant_id=? AND company_id=? AND shipment_id=? ORDER BY order_line_id,id",
+                scope.tenantId(),scope.companyId(),shipmentId);
+        Map<Long,Map<String,Object>> sourceLines;
+        try {sourceLines=sources(scope,lines.stream().map(line->id(line,"order_line_id")).toList(),false);}
+        catch(ApiException blocked) {blockers.add(blocker(blocked,null,null));return;}
+        if(!posting) capture(blockers,()->catalog.checkActiveSkus(scope,skuUnits(lines)),null,null);
+        int beforeLineChecks=blockers.size();
+        for(var line:lines) {
+            var source=sourceLines.get(id(line,"order_line_id"));
+            long order=id(source,"order_id");
+            capture(blockers,()->validateSource(scope,header,source,posting),order,"来源销售订单当前状态不支持发货");
+            capture(blockers,()->OrderLineOccupancy.checkShipmentQuantity(source,decimal(line,"base_qty"),posting),order,null);
+        }
+        if(lines.isEmpty()) blockers.add(new Blocker("VALIDATION_FAILED","发货单没有可处理的明细",null));
+        if(beforeLineChecks==blockers.size()) {
+            var reservations=posting?activeReservations(scope,shipmentId):Map.<Long,Long>of();
+            var picks=lines.stream().map(line->shipmentIssue(header,line,periodId,reservations.get(id(line,"order_line_id")))).toList();
+            if(posting) capture(blockers,()->stockPosting.checkIssue(scope,picks),null,null);
+            else capture(blockers,()->inventory.checkShipmentPicks(scope,picks,false),null,null);
+        }
+    }
+
+    private List<CatalogAvailability.SkuUnit> skuUnits(List<Map<String,Object>> lines) {
+        return lines.stream().map(line->new CatalogAvailability.SkuUnit(id(line,"sku_id"),id(line,"unit_id"))).toList();
+    }
+
+    private void capture(List<Blocker> blockers,Runnable check,Long order,String stateMessage) {
+        try {check.run();}
+        catch(ApiException error) {blockers.add(blocker(error,order,stateMessage));}
+    }
+
+    private Blocker blocker(ApiException error,Long order,String stateMessage) {
+        String message=error.getMessage();
+        if("STATE_CONFLICT".equals(error.getErrorCode())&&stateMessage!=null) message=stateMessage;
+        return new Blocker(error.getErrorCode(),message,order);
+    }
+
+    private String shipmentStateMessage(String status) {
+        return switch(status) {
+            case "voided" -> "发货单已经作废，无法继续发货";
+            case "reversed" -> "发货单已经冲销，无法继续发货";
+            default -> "发货单已完成出库，无需再次发货";
+        };
+    }
+
     public Map<String,Object> create(CompanyAccess scope,String key,ShipmentModels.Input input) {
         if(input==null || input.warehouseId()==null || !scope.allowsWarehouse(input.warehouseId())) {throw missing();}
         return command(scope,"create",key,input,201,()->{
@@ -91,15 +190,14 @@ public class ShipmentService {
             if(!"draft".equals(before.get("status"))) {throw state();}
             var lines=lockLines(scope,id);
             var sources=sources(scope,lines.stream().map(line->id(line,"order_line_id")).toList(),true);
-            catalog.requireActiveSkus(scope,lines.stream().map(line->new CatalogAvailability.SkuUnit(id(line,"sku_id"),id(line,"unit_id"))).toList());
+            catalog.requireActiveSkus(scope,skuUnits(lines));
             var occupied=new LinkedHashMap<Long,BigDecimal>();
             var picks=new ArrayList<SalesStockPosting.Issue>();
             for(var line:lines) {
                 var source=sources.get(id(line,"order_line_id"));
                 validateSource(scope,before,source);
                 occupied.put(id(line,"order_line_id"),decimal(line,"base_qty"));
-                var posting=new Posting(new Key(id(before,"warehouse_id"),id(line,"sku_id")),new Source("shipment_line",id,id(line,"id")),date(before,"business_date"),period,"sales_out");
-                picks.add(new SalesStockPosting.Issue(posting,decimal(line,"base_qty"),null,inventory.decodeSelection(line.get("stock_selection"))));
+                picks.add(shipmentIssue(before,line,period,null));
             }
             occupancy.occupyAll(scope,occupied);
             inventory.reserveShipmentPicks(scope,picks);
@@ -134,14 +232,12 @@ public class ShipmentService {
             if(id(snapshot,"customer_id")!=id(before,"customer_id"))throw invalid("客户已变化，请刷新后重试");credit.shipment(scope,id(before,"customer_id"));
             if(!"submitted".equals(before.get("status"))) {throw state();}
             var lines=lockLines(scope,id);
-            var activeReservations=new HashMap<Long,Long>();
-            for(var row:jdbc.queryForList("SELECT r.order_line_id,r.id FROM inventory_reservation r JOIN shipment_line sl ON sl.tenant_id=r.tenant_id AND sl.company_id=r.company_id AND sl.order_line_id=r.order_line_id WHERE r.tenant_id=? AND r.company_id=? AND sl.shipment_id=? AND r.status='active' ORDER BY r.id",scope.tenantId(),scope.companyId(),id)) {activeReservations.putIfAbsent(id(row,"order_line_id"),id(row,"id"));}
+            var activeReservations=activeReservations(scope,id);
             var issues=new ArrayList<SalesStockPosting.Issue>();
             var sources=sources(scope,lines.stream().map(line->id(line,"order_line_id")).toList(),true);
             for(var line:lines) {
                 var source=sources.get(id(line,"order_line_id"));validateSource(scope,before,source,true);
-                var posting=new Posting(new Key(id(before,"warehouse_id"),id(line,"sku_id")),new Source("shipment_line",id,id(line,"id")),date(before,"business_date"),period,"sales_out");
-                issues.add(new SalesStockPosting.Issue(posting,decimal(line,"base_qty"),activeReservations.get(id(line,"order_line_id")),inventory.decodeSelection(line.get("stock_selection"))));
+                issues.add(shipmentIssue(before,line,period,activeReservations.get(id(line,"order_line_id"))));
             }
             var costs=stockPosting.issue(scope,issues);int costIndex=0;
             var completed=new LinkedHashMap<Long,BigDecimal>();
@@ -362,9 +458,13 @@ public class ShipmentService {
     private void validateInput(CompanyAccess scope,ShipmentModels.Input input) {
         if(input==null || input.customerId()==null || input.warehouseId()==null || input.lines()==null || input.lines().isEmpty() || input.lines().size()>500) {throw invalid("请填写客户、仓库及发货明细");}
         date(input.businessDate());reference.requirePartner(scope,input.customerId(),"customer");
-        if(!scope.allowsWarehouse(input.warehouseId()) || jdbc.queryForObject("SELECT COUNT(*) FROM warehouse WHERE tenant_id=? AND company_id=? AND id=? AND status='active'",
-                Long.class,scope.tenantId(),scope.companyId(),input.warehouseId())==0) {throw missing();}
+        if(!shipmentWarehouse(scope,input.warehouseId())) {throw missing();}
         if(input.deliveryMethod()!=null && !Set.of("delivery","pickup").contains(input.deliveryMethod())) {throw invalid("交货方式无效");}
+    }
+
+    private boolean shipmentWarehouse(CompanyAccess scope,long warehouseId) {
+        return scope.allowsWarehouse(warehouseId)&&jdbc.queryForObject("SELECT COUNT(*) FROM warehouse WHERE tenant_id=? AND company_id=? AND id=? AND status='active'",
+                Long.class,scope.tenantId(),scope.companyId(),warehouseId)>0;
     }
 
     private Map<String,Object> source(CompanyAccess scope,long line,boolean lock) {
@@ -384,11 +484,15 @@ public class ShipmentService {
         if(!Objects.equals(((Number)header.get("customer_id")).longValue(),id(source,"customer_id")) ||
                 source.get("warehouse_id")==null || id(header,"warehouse_id")!=id(source,"warehouse_id") ||
                 !scope.allowsWarehouse(id(source,"warehouse_id"))) {throw invalid("发货行须属于当前客户和仓库");}
-        if("change_pending".equals(source.get("order_status"))) {
+        validateSourceState(source.get("order_status").toString(),alreadySubmitted);
+    }
+
+    private void validateSourceState(String status,boolean alreadySubmitted) {
+        if("change_pending".equals(status)) {
             if(alreadySubmitted) {return;}
             throw new ApiException(422,"CHANGE_PENDING","订单有待审核变更，暂不能发货");
         }
-        if(!Set.of("approved","closed").contains(source.get("order_status"))) {throw state();}
+        if(!Set.of("approved","closed").contains(status)) {throw state();}
     }
 
     private void lockOrders(CompanyAccess scope,List<Long> lineIds) {
@@ -420,10 +524,33 @@ public class ShipmentService {
     }
 
     private long period(CompanyAccess scope,LocalDate day) {
+        return period(scope,day,true);
+    }
+
+    private long period(CompanyAccess scope,LocalDate day,boolean lock) {
         date(day);
         var ids=jdbc.queryForList("SELECT id FROM accounting_period WHERE tenant_id=? AND company_id=? AND start_date<=? AND end_date>=?",Long.class,scope.tenantId(),scope.companyId(),day,day);
         if(ids.size()!=1) {throw new ApiException(422,"PERIOD_CLOSED","业务日期没有开放的会计期间");}
-        ledger.lockOpenPeriod(scope,ids.getFirst(),day);return ids.getFirst();
+        long id=ids.getFirst();
+        if(lock) ledger.lockOpenPeriod(scope,id,day);
+        else ledger.checkOpenPeriod(scope,id,day);
+        return id;
+    }
+
+    private SalesStockPosting.Issue shipmentIssue(Map<String,Object> header,Map<String,Object> line,long period,Long reservation) {
+        var posting=new Posting(new Key(id(header,"warehouse_id"),id(line,"sku_id")),
+                new Source("shipment_line",id(header,"id"),id(line,"id")),date(header,"business_date"),period,"sales_out");
+        return new SalesStockPosting.Issue(posting,decimal(line,"base_qty"),reservation,inventory.decodeSelection(line.get("stock_selection")));
+    }
+
+    private Map<Long,Long> activeReservations(CompanyAccess scope,long shipmentId) {
+        var result=new HashMap<Long,Long>();
+        for(var row:jdbc.queryForList("""
+                SELECT r.order_line_id,r.id FROM inventory_reservation r
+                JOIN shipment_line sl ON sl.tenant_id=r.tenant_id AND sl.company_id=r.company_id AND sl.order_line_id=r.order_line_id
+                WHERE r.tenant_id=? AND r.company_id=? AND sl.shipment_id=? AND r.status='active' ORDER BY r.id
+                """,scope.tenantId(),scope.companyId(),shipmentId)) result.putIfAbsent(id(row,"order_line_id"),id(row,"id"));
+        return result;
     }
 
     private void validateAttachments(CompanyAccess scope,long shipment,List<Long> ids) {

@@ -1,6 +1,7 @@
 package cn.erp.ai.common;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
@@ -23,6 +24,7 @@ public record ApiResponse<T>(int code, String message, T data, String errorCode)
         @ExceptionHandler(AiException.class)
         ResponseEntity<ApiResponse<Void>> known(AiException error) {
             return ResponseEntity.status(error.status())
+                    .contentType(MediaType.APPLICATION_JSON)
                     .body(new ApiResponse<>(error.status(), error.getMessage(), null, error.code()));
         }
 

@@ -2,10 +2,11 @@
 import { computed } from 'vue'
 import type { AiToolResult } from '../types/ai'
 import { reportLabels } from '../types/reporting'
+import { actionLabels, salesStatusLabel } from '../types/sales'
 import { formatDateTime } from '../utils/format'
 
 const props = defineProps<{ runs: AiToolResult[] }>()
-const emit = defineEmits<{ clarify: [text: string] }>()
+const emit = defineEmits<{ clarify: [text: string]; source: [] }>()
 const columnLabels: Record<string, string> = {
   ...reportLabels,
   id: '编号',
@@ -39,6 +40,11 @@ const columnLabels: Record<string, string> = {
   netAvailableQty: '扣减需求后可用量',
 }
 const metadata = new Set(['detailUrl', 'sourceUrl', 'detailPath', 'link', 'lines'])
+const periodActionLabels: Record<string, string> = {
+  close: '关账',
+  close_check: '关账预检查',
+  reopen: '重开期间',
+}
 const progressFields = [
   'baseQty',
   'pendingShipQty',
@@ -51,6 +57,32 @@ const progressFields = [
   'returnedQty',
   'closedQty',
 ]
+const reportPaths = new Set([
+  'reports',
+  'inventory-balances',
+  'sales-orders',
+  'shipments',
+  'sales-returns',
+  'purchase-orders',
+  'purchase-requisitions',
+  'purchase-returns',
+  'goods-receipts',
+  'receipts',
+  'payments',
+  'account-transfers',
+  'refund-requests',
+  'inventory-trace',
+  'opening-entries',
+  'stock-transfers',
+  'stock-counts',
+  'stock-adjustments',
+  'invoice-registrations',
+  'document-reversals',
+  'stock-misc-in',
+  'stock-misc-out',
+  'document-browser',
+  'accounting-periods',
+])
 const results = computed(() =>
   props.runs.map((run) => ({
     ...run,
@@ -64,32 +96,7 @@ function localLink(value: unknown): string | undefined {
   if (typeof value !== 'string' || !/^\/[a-z0-9-]+(?:\/[a-z0-9-]+)*(?:\?[^#\\\s]*)?$/.test(value))
     return undefined
   const path = value.split('?')[0]
-  const allowed = new Set([
-    'reports',
-    'inventory-balances',
-    'sales-orders',
-    'shipments',
-    'sales-returns',
-    'purchase-orders',
-    'purchase-requisitions',
-    'purchase-returns',
-    'goods-receipts',
-    'receipts',
-    'payments',
-    'account-transfers',
-    'refund-requests',
-    'inventory-trace',
-    'opening-entries',
-    'stock-transfers',
-    'stock-counts',
-    'stock-adjustments',
-    'invoice-registrations',
-    'document-reversals',
-    'stock-misc-in',
-    'stock-misc-out',
-    'document-browser',
-  ])
-  return allowed.has(path?.split('/')[1] ?? '') ? value : undefined
+  return reportPaths.has(path?.split('/')[1] ?? '') ? value : undefined
 }
 function rowLink(row: Record<string, unknown>): string | undefined {
   return localLink(row.detailUrl ?? row.sourceUrl ?? row.detailPath ?? row.link)
@@ -99,6 +106,40 @@ function fields(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {}
+}
+function explanationStatus(summary?: Record<string, unknown>): string {
+  const status = summary?.documentStatus
+  if (typeof status !== 'string') return '—'
+  if (summary?.documentType === 'accounting_period') return status === 'closed' ? '已关闭' : '开放'
+  return salesStatusLabel(
+    summary?.documentType === 'shipment' ? 'shipments' : 'sales-orders',
+    status,
+  )
+}
+function explanationActions(summary?: Record<string, unknown>): string {
+  const actions: unknown = summary?.allowedActions
+  if (!Array.isArray(actions)) return ''
+  return actions
+    .filter((action): action is string => typeof action === 'string')
+    .map((action) => {
+      if (summary?.documentType === 'accounting_period') return periodActionLabels[action] ?? action
+      if (action === 'create_shipment') return '创建发货单'
+      return actionLabels[action] ?? action
+    })
+    .join('、')
+}
+function explanationLinks(row: Record<string, unknown>): { label: string; to: string }[] {
+  const links = new Map<string, string>()
+  const primary = rowLink(row)
+  if (primary) links.set(primary, '查看关联事项')
+  if (Array.isArray(row.links)) {
+    for (const value of row.links as unknown[]) {
+      const link = fields(value)
+      const to = localLink(link.detailUrl)
+      if (to && typeof link.label === 'string') links.set(to, link.label)
+    }
+  }
+  return Array.from(links, ([to, label]) => ({ to, label }))
 }
 function orderLines(row: Record<string, unknown>): Record<string, unknown>[] {
   if (!Array.isArray(row.lines)) return []
@@ -135,68 +176,105 @@ function displayValue(value: unknown): string {
   <section v-for="(result, index) in results" :key="result.code + index" class="ai-tool-result">
     <header class="ai-tool-header">
       <h4>{{ result.label }}</h4>
-      <router-link v-if="result.detail" :to="result.detail" class="text-link">查看来源</router-link>
+      <router-link
+        v-if="result.detail"
+        :to="result.detail"
+        class="text-link"
+        @click="result.code === 'document_explain' && emit('source')"
+        >查看来源</router-link
+      >
     </header>
     <p v-if="result.asOf" class="ai-data-time">数据时间 {{ formatDateTime(result.asOf) }}</p>
-    <template v-if="result.status === 'ambiguous'">
-      <p>找到多个候选，请补充编码后重新查询。</p>
-      <ul v-if="result.candidates?.length" class="ai-candidates">
-        <li v-for="(candidate, candidateIndex) in result.candidates" :key="candidateIndex">
-          <el-button
-            link
-            type="primary"
-            v-if="candidate.code"
-            @click="emit('clarify', candidate.code)"
+    <template v-if="result.code === 'document_explain'">
+      <dl class="ai-tool-totals">
+        <div>
+          <dt>状态</dt>
+          <dd>{{ explanationStatus(result.summary) }}</dd>
+        </div>
+        <div v-if="typeof result.summary?.checkPassed === 'boolean'">
+          <dt>检查结果</dt>
+          <dd>{{ result.summary.checkPassed ? '通过' : '未通过' }}</dd>
+        </div>
+        <div v-if="explanationActions(result.summary)">
+          <dt>可用操作</dt>
+          <dd>{{ explanationActions(result.summary) }}</dd>
+        </div>
+      </dl>
+      <ul v-if="result.rows.length" class="ai-explain-blockers" aria-label="业务校验原因">
+        <li v-for="(row, rowIndex) in result.rows" :key="rowIndex">
+          <p>{{ row.message }}</p>
+          <router-link
+            v-for="link in explanationLinks(row)"
+            :key="link.to"
+            :to="link.to"
+            class="text-link ai-explain-source"
+            @click="emit('source')"
+            >{{ link.label }}</router-link
           >
-            {{ candidate.code ? candidate.code + ' · ' : '' }}{{ candidate.name }}
-          </el-button>
-          <span v-else>{{ candidate.name }}</span>
         </li>
       </ul>
     </template>
-    <dl v-if="result.totals.length" class="ai-tool-totals">
-      <div v-for="[key, value] in result.totals" :key="key">
-        <dt>{{ columnLabels[key] }}</dt>
-        <dd>{{ displayValue(value) }}</dd>
-      </div>
-    </dl>
-    <el-table
-      v-if="result.status !== 'ambiguous' && result.rows.length"
-      :data="result.rows"
-      size="small"
-      max-height="320"
-    >
-      <el-table-column v-if="result.rows.some((row) => orderLines(row).length)" type="expand">
-        <template #default="{ row }">
-          <el-table :data="orderLines(row)" size="small" empty-text="暂无订单明细">
-            <el-table-column
-              v-for="column in orderColumns(row)"
-              :key="column"
-              :label="columnLabels[column]"
-              min-width="106"
+    <template v-else>
+      <template v-if="result.status === 'ambiguous'">
+        <p>找到多个候选，请补充编码后重新查询。</p>
+        <ul v-if="result.candidates?.length" class="ai-candidates">
+          <li v-for="(candidate, candidateIndex) in result.candidates" :key="candidateIndex">
+            <el-button
+              link
+              type="primary"
+              v-if="candidate.code"
+              @click="emit('clarify', candidate.code)"
             >
-              <template #default="{ row: line }">{{ displayValue(line[column]) }}</template>
-            </el-table-column>
-          </el-table>
-        </template>
-      </el-table-column>
-      <el-table-column
-        v-for="column in result.columns"
-        :key="column"
-        :label="columnLabels[column] ?? column"
-        min-width="100"
+              {{ candidate.code ? candidate.code + ' · ' : '' }}{{ candidate.name }}
+            </el-button>
+            <span v-else>{{ candidate.name }}</span>
+          </li>
+        </ul>
+      </template>
+      <dl v-if="result.totals.length" class="ai-tool-totals">
+        <div v-for="[key, value] in result.totals" :key="key">
+          <dt>{{ columnLabels[key] }}</dt>
+          <dd>{{ displayValue(value) }}</dd>
+        </div>
+      </dl>
+      <el-table
+        v-if="result.status !== 'ambiguous' && result.rows.length"
+        :data="result.rows"
+        size="small"
+        max-height="320"
       >
-        <template #default="{ row }">{{ displayValue(row[column]) }}</template>
-      </el-table-column>
-      <el-table-column v-if="result.rows.some(rowLink)" label="来源" width="100">
-        <template #default="{ row }">
-          <router-link v-if="rowLink(row)" :to="rowLink(row)!" class="text-link"
-            >查看单据</router-link
-          >
-        </template>
-      </el-table-column>
-    </el-table>
-    <p v-else-if="result.status !== 'ambiguous' && !result.totals.length">查询无结果。</p>
+        <el-table-column v-if="result.rows.some((row) => orderLines(row).length)" type="expand">
+          <template #default="{ row }">
+            <el-table :data="orderLines(row)" size="small" empty-text="暂无订单明细">
+              <el-table-column
+                v-for="column in orderColumns(row)"
+                :key="column"
+                :label="columnLabels[column]"
+                min-width="106"
+              >
+                <template #default="{ row: line }">{{ displayValue(line[column]) }}</template>
+              </el-table-column>
+            </el-table>
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-for="column in result.columns"
+          :key="column"
+          :label="columnLabels[column] ?? column"
+          min-width="100"
+        >
+          <template #default="{ row }">{{ displayValue(row[column]) }}</template>
+        </el-table-column>
+        <el-table-column v-if="result.rows.some(rowLink)" label="来源" width="100">
+          <template #default="{ row }">
+            <router-link v-if="rowLink(row)" :to="rowLink(row)!" class="text-link"
+              >查看单据</router-link
+            >
+          </template>
+        </el-table-column>
+      </el-table>
+      <p v-else-if="result.status !== 'ambiguous' && !result.totals.length">查询无结果。</p>
+    </template>
     <p v-if="result.hasMore">仅显示本次查询返回的部分结果。</p>
   </section>
 </template>
@@ -234,5 +312,15 @@ function displayValue(value: unknown): string {
 .ai-candidates {
   margin: 0;
   padding-left: 18px;
+}
+.ai-explain-blockers {
+  margin-bottom: 0;
+  padding-left: 18px;
+}
+.ai-explain-blockers p {
+  margin: 6px 0 3px;
+}
+.ai-explain-source {
+  margin-inline-end: 12px;
 }
 </style>

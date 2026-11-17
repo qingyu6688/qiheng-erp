@@ -15,12 +15,21 @@ public class ReferenceAvailability {
 
     @Transactional(readOnly=true)
     public void requirePartner(CompanyAccess scope,long id,String role) {
+        validatePartner(scope,id,role,true);
+    }
+
+    @Transactional(readOnly=true,noRollbackFor=ApiException.class)
+    public void checkPartner(CompanyAccess scope,long id,String role) {
+        validatePartner(scope,id,role,false);
+    }
+
+    private void validatePartner(CompanyAccess scope,long id,String role,boolean lock) {
         if (!Set.of("customer","supplier").contains(role)) {throw ReferenceRows.invalid("往来单位角色无效");}
         var rows=jdbc.queryForList("""
                 SELECT p.status,r.status AS role_status FROM business_partner p
                 JOIN partner_role r ON r.tenant_id=p.tenant_id AND r.partner_id=p.id AND r.role=?
-                WHERE p.tenant_id=? AND p.id=? FOR SHARE
-                """,role,scope.tenantId(),id);
+                WHERE p.tenant_id=? AND p.id=?
+                """+(lock?" FOR SHARE":""),role,scope.tenantId(),id);
         if (rows.isEmpty()) {throw new ApiException(404,"NOT_FOUND","往来单位或业务角色不存在");}
         if(!"active".equals(rows.getFirst().get("status")) || !"active".equals(rows.getFirst().get("role_status"))) {
             throw new ApiException(422,"MASTER_DATA_DISABLED","往来单位或业务角色已停用");

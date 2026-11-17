@@ -35,6 +35,20 @@ public class CatalogAvailability {
     /** 同一单据批量校验启用状态并读取换算、税率和参考价，资料共享锁持续到单据提交。 */
     @Transactional(readOnly=true)
     public Map<SkuUnit,Map<String,Object>> requireActiveSkus(CompanyAccess scope,Collection<SkuUnit> requested) {
+        return activeSkus(scope,requested,true,true);
+    }
+
+    @Transactional(readOnly=true,noRollbackFor=ApiException.class)
+    public void checkActiveSkus(CompanyAccess scope,Collection<SkuUnit> requested) {
+        activeSkus(scope,requested,false,true);
+    }
+
+    @Transactional(readOnly=true,noRollbackFor=ApiException.class)
+    public boolean hasActiveSku(CompanyAccess scope,Collection<SkuUnit> requested) {
+        return !activeSkus(scope,requested,false,false).isEmpty();
+    }
+
+    private Map<SkuUnit,Map<String,Object>> activeSkus(CompanyAccess scope,Collection<SkuUnit> requested,boolean lock,boolean requireAll) {
         var keys=requested.stream().distinct().sorted(Comparator.comparingLong(SkuUnit::skuId).thenComparingLong(SkuUnit::unitId)).toList();
         if(keys.isEmpty()) {return Map.of();}
         if(keys.size()>2000) {throw new ApiException(400,"VALIDATION_FAILED","商品校验范围过大");}
@@ -48,11 +62,14 @@ public class CatalogAvailability {
             JOIN unit_conversion cv ON cv.tenant_id=s.tenant_id AND cv.sku_id=s.id
             JOIN unit u ON u.tenant_id=cv.tenant_id AND u.id=cv.unit_id
             WHERE s.tenant_id=? AND (s.id,cv.unit_id) IN (
-            """+String.join(",",Collections.nCopies(keys.size(),"(?,?)"))+") ORDER BY s.id,cv.unit_id FOR SHARE",args.toArray())) {
-            if(!List.of("sku_status","product_status","category_status","unit_status").stream().allMatch(column->"active".equals(row.get(column)))) {throw new ApiException(422,"MASTER_DATA_DISABLED","商品、分类或单位已停用");}
+            """+String.join(",",Collections.nCopies(keys.size(),"(?,?)"))+") ORDER BY s.id,cv.unit_id"+(lock?" FOR SHARE":""),args.toArray())) {
+            if(!List.of("sku_status","product_status","category_status","unit_status").stream().allMatch(column->"active".equals(row.get(column)))) {
+                if(requireAll) throw new ApiException(422,"MASTER_DATA_DISABLED","商品、分类或单位已停用");
+                continue;
+            }
             result.put(new SkuUnit(((Number)row.get("sku_id")).longValue(),((Number)row.get("unit_id")).longValue()),row);
         }
-        if(result.size()!=keys.size()) {throw new ApiException(404,"NOT_FOUND","商品或单位不存在");}
+        if(requireAll&&result.size()!=keys.size()) {throw new ApiException(404,"NOT_FOUND","商品或单位不存在");}
         return result;
     }
 }

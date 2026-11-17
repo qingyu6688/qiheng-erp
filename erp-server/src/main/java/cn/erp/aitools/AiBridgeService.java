@@ -68,4 +68,10 @@ class AiBridgeService {
         var tool=AiBusinessTools.Tool.parse(code);
         return Map.of("scopeFingerprint",tools.scope(actor,tool));
     }
+
+    Map<String,String> documentScope(HttpServletRequest request,byte[] body) {
+        var actor=access.requireCompany(request,USE_PERMISSION);
+        var input=AiBusinessInput.parse(body,AiBusinessTools.Tool.DOCUMENT_EXPLAIN.fields);
+        return Map.of("scopeFingerprint",tools.documentScope(actor,input));
+    }
 }

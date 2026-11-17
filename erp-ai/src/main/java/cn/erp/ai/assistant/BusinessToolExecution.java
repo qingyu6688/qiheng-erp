@@ -88,7 +88,7 @@ class BusinessToolExecution {
         return List.copyOf(values);
     }
 
-    private String reportLink(JsonNode link) {
+    static String reportLink(JsonNode link) {
         if (link.isMissingNode() || link.isNull()) return null;
         if (!link.isString()) throw invalidResponse();
         String value=link.stringValue();
@@ -102,7 +102,7 @@ class BusinessToolExecution {
         return value;
     }
 
-    private AiException invalidResponse() {
+    private static AiException invalidResponse() {
         return new AiException(502,"AI_TOOL_RESPONSE","业务查询结果格式无效");
     }
 

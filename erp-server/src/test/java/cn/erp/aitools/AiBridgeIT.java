@@ -104,6 +104,8 @@ class AiBridgeIT {
         jdbc.update("DELETE FROM sys_api_access_log WHERE tenant_id=?", tenant);
         jdbc.update("DELETE FROM sys_login_log WHERE tenant_id=?", tenant);
         jdbc.update("DELETE FROM audit_log WHERE tenant_id=?", tenant);
+        jdbc.update("DELETE FROM sales_order WHERE tenant_id=?", tenant);
+        jdbc.update("DELETE FROM business_partner WHERE tenant_id=?", tenant);
         jdbc.update("DELETE FROM org_user_department WHERE tenant_id=?", tenant);
         jdbc.update("DELETE FROM org_user_company WHERE tenant_id=?", tenant);
         jdbc.update("DELETE FROM org_department WHERE tenant_id=?", tenant);
@@ -233,6 +235,35 @@ class AiBridgeIT {
                   AND before_data IS NULL AND JSON_EXTRACT(after_data,'$.outcome') IS NOT NULL
                   AND JSON_EXTRACT(after_data,'$.query') IS NULL
                 """,Long.class,tenant)).isEqualTo(3L);
+    }
+
+    @Test
+    void explanationScopeBindsTheVisibleDocumentAndRechecksCurrentFacts() throws Exception {
+        long order=Ids.next();
+        long partner=Ids.next();
+        jdbc.update("INSERT INTO business_partner(id,tenant_id,code,name) VALUES(?,?,'C','解释测试客户')",partner,tenant);
+        jdbc.update("""
+                INSERT INTO sales_order(id,tenant_id,company_id,order_no,customer_id,business_date,price_tax_inclusive)
+                VALUES(?,?,?,'AI-EXPLAIN',?,'2026-11-15',1)
+                """,order,tenant,alternateCompany,partner);
+        addRole(Ids.next(),"EXPLAIN_SALES","active","sales_order:view");
+        String path="/api/v1/ai-tools/query/document_explain";
+        String scopePath="/api/v1/ai-tools/scope/document_explain";
+        String body="{\"documentType\":\"sales_order\",\"documentId\":\""+order+"\"}";
+        String changed=body.replace(Long.toString(order),Long.toString(order+1));
+        var result=data(signedQuery(path,alternateCompany,body,body,csrf),200);
+        assertThat(result.path("summary").path("documentNo").asString()).isEqualTo("AI-EXPLAIN");
+        String original=result.path("scopeFingerprint").asString();
+        assertThat(data(signedQuery(scopePath,alternateCompany,body,body,csrf),200).path("scopeFingerprint").asString()).isEqualTo(original);
+        data(signedQuery(scopePath,alternateCompany,body,changed,csrf),403);
+        data(signedQuery(scopePath,alternateCompany,body,body,null),403);
+        data(signedGet(scopePath,alternateCompany),400);
+        data(signedQuery(path,company,body,body,csrf),404);
+        data(signedQuery(scopePath,foreignCompany,body,body,csrf),403);
+        jdbc.update("UPDATE sales_order SET status='change_pending',revision=1,approved_at=UTC_TIMESTAMP(3) WHERE id=?",order);
+        assertThat(data(signedQuery(scopePath,alternateCompany,body,body,csrf),200).path("scopeFingerprint").asString()).isNotEqualTo(original);
+        jdbc.update("UPDATE sys_role SET status='disabled' WHERE tenant_id=? AND code='EXPLAIN_SALES'",tenant);
+        data(signedQuery(scopePath,alternateCompany,body,body,csrf),403);
     }
 
     private void addCompany(long tenantId, long companyId, String code) {

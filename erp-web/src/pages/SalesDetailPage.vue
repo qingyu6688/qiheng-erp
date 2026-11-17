@@ -11,6 +11,7 @@ import DocumentEditor from '../components/sales/DocumentEditor.vue'
 import CommandDialog from '../components/sales/CommandDialog.vue'
 import { useSessionStore } from '../stores/session'
 import DocumentFilesPanel from '../components/DocumentFilesPanel.vue'
+import AiDocumentButton from '../components/AiDocumentButton.vue'
 import { documentStateTag } from '../types/document-ui'
 import { formatDateTime, formatMoney, formatQuantity } from '../utils/format'
 const props = defineProps<{ kind: SalesKind }>()
@@ -164,6 +165,14 @@ function closeEditor(): void {
       <h1>{{ value?.documentNo ?? value?.invoiceNo ?? spec.singular }}</h1>
     </div>
     <div v-if="value" class="sales-actions">
+      <AiDocumentButton
+        v-if="kind === 'sales-orders' || kind === 'shipments'"
+        :document="{
+          documentType: kind === 'sales-orders' ? 'sales_order' : 'shipment',
+          documentId: value.id,
+          label: value.documentNo ?? value.id,
+        }"
+      />
       <template v-for="name in value.allowedActions" :key="name"
         ><el-button
           v-if="name !== 'change_approve' && name !== 'change_reject'"

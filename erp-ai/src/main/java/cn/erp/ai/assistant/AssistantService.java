@@ -10,6 +10,7 @@ import cn.erp.ai.common.AiException;
 import cn.erp.ai.common.AiInputs;
 import cn.erp.ai.common.AiRequest;
 import cn.erp.ai.common.BusinessToolSpec;
+import cn.erp.ai.common.DocumentExplainSpec;
 
 @Service
 class AssistantService {
@@ -21,16 +22,18 @@ class AssistantService {
     private final ConversationStore store;
     private final BusinessToolPlanner planner;
     private final BusinessToolExecution business;
+    private final DocumentExplanationService explanation;
     private final ObjectMapper json;
 
     AssistantService(AiRequest requests,AssistantCatalog catalog,AssistantRuntime runtime,ConversationStore store,
-                     BusinessToolPlanner planner,BusinessToolExecution business,ObjectMapper json) {
+                     BusinessToolPlanner planner,BusinessToolExecution business,DocumentExplanationService explanation,ObjectMapper json) {
         this.requests=requests;
         this.catalog=catalog;
         this.runtime=runtime;
         this.store=store;
         this.planner=planner;
         this.business=business;
+        this.explanation=explanation;
         this.json=json;
     }
 
@@ -98,6 +101,7 @@ class AssistantService {
             throw AiException.invalid("当前模式不接受指定工具参数");
         String token=store.acquire(actor,id);
         try {
+            if (DocumentExplainSpec.CODE.equals(code)) return explain(currentAccess,config,id,token,question,input.toolArguments());
             if (dataQuery) return query(currentAccess,config,id,token,question,code,input.toolArguments());
             AssistantRuntime.Answer answer;
             if (code==null) {
@@ -119,6 +123,17 @@ class AssistantService {
         } finally {
             store.release(actor,id,token);
         }
+    }
+
+    private Completed explain(AiRequest.Access access,AssistantCatalog.Config config,String id,String token,
+                              String question,JsonNode arguments) {
+        var result=explanation.explain(access,config,arguments);
+        var answer=new AssistantRuntime.Answer(result.text(),List.of(),List.of(),List.of(result.tool()),
+                result.modelId(),result.tokens(),false);
+        var history=new AssistantRuntime.Answer("单据解释仅在本次请求中展示，需要时请重新查询。",
+                List.of(),List.of(),List.of(),result.modelId(),result.tokens(),false);
+        String message=store.complete(access.actor(),id,token,question,history);
+        return new Completed(message,answer);
     }
 
     private Completed query(AiRequest.Access access,AssistantCatalog.Config config,String id,String token,

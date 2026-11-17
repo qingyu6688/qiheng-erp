@@ -19,10 +19,13 @@ import java.time.LocalDate;
 import java.util.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.SerializationFeature;
+import tools.jackson.databind.json.JsonMapper;
 import static cn.erp.aitools.AiBusinessLookup.Kind.*;
 
 @Service
 class AiBusinessTools {
+    private static final JsonMapper SCOPE_JSON=JsonMapper.builder().enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS).build();
     private static final int LIMIT=20;
     private static final int MAX_ORDER_LINES=50;
     private static final String STOCK="/inventory-balances";
@@ -49,9 +52,10 @@ class AiBusinessTools {
     private final PurchaseOrderQueries purchases;
     private final DocumentBrowser browser;
     private final DocumentAccess documents;
+    private final AiDocumentExplanation explanations;
 
     AiBusinessTools(AiBusinessLookup lookup,ReportService reports,SalesInventoryQueries inventory,SalesOrderQueries sales,
-                    PurchaseOrderQueries purchases,DocumentBrowser browser,DocumentAccess documents) {
+                    PurchaseOrderQueries purchases,DocumentBrowser browser,DocumentAccess documents,AiDocumentExplanation explanations) {
         this.lookup=lookup;
         this.reports=reports;
         this.inventory=inventory;
@@ -59,6 +63,7 @@ class AiBusinessTools {
         this.purchases=purchases;
         this.browser=browser;
         this.documents=documents;
+        this.explanations=explanations;
     }
 
     enum Tool {
@@ -70,7 +75,8 @@ class AiBusinessTools {
         SALES_SUMMARY("report:sales_summary",Set.of("dateFrom","dateTo","groupBy","customer","sku","warehouse")),
         GROSS_MARGIN("report:gross_margin",Set.of("dateFrom","dateTo","groupBy","customer","sku","warehouse")),
         CASH_BALANCE("report:cash_journal",Set.of("account","date")),
-        DOCUMENT_SEARCH(null,Set.of("type","keyword","status","dateFrom","dateTo"));
+        DOCUMENT_SEARCH(null,Set.of("type","keyword","status","dateFrom","dateTo")),
+        DOCUMENT_EXPLAIN(null,Set.of("documentType","documentId"));
 
         final String permission;
         final Set<String> fields;
@@ -96,19 +102,32 @@ class AiBusinessTools {
                 case GROSS_MARGIN -> commerce(actor,input,ReportType.GROSS_MARGIN);
                 case CASH_BALANCE -> cash(actor,input);
                 case DOCUMENT_SEARCH -> search(actor,input);
+                case DOCUMENT_EXPLAIN -> explanations.query(actor,input);
             };
         } catch (AiBusinessLookup.Ambiguous ambiguous) {
             result=empty(Instant.now().toString(),null);
             result.put("status","ambiguous");
             result.put("candidates",ambiguous.candidates());
         }
-        result.put("scopeFingerprint",fingerprint(actor,tool));
+        String scope=fingerprint(actor,tool);
+        if(tool==Tool.DOCUMENT_EXPLAIN) {
+            var facts=new LinkedHashMap<>(result);
+            facts.remove("asOf");
+            scope=digest(scope+":"+SCOPE_JSON.writeValueAsString(facts));
+        }
+        result.put("scopeFingerprint",scope);
         return result;
     }
 
     String scope(CompanyAccess actor,Tool tool) {
+        if(tool==Tool.DOCUMENT_EXPLAIN) throw AiBusinessInput.invalid("单据解释须提供单据标识");
         authorize(actor,tool);
         return fingerprint(actor,tool);
+    }
+
+    @Transactional(readOnly=true)
+    public String documentScope(CompanyAccess actor,AiBusinessInput input) {
+        return query(actor,Tool.DOCUMENT_EXPLAIN,input).get("scopeFingerprint").toString();
     }
 
     private void authorize(CompanyAccess actor,Tool tool) {
@@ -118,6 +137,7 @@ class AiBusinessTools {
             case PAYABLE_BALANCE -> ReportType.PAYABLE_AGING.authorize(actor,false);
             case CASH_BALANCE -> ReportType.CASH_JOURNAL.authorize(actor,false);
             case GROSS_MARGIN -> ReportType.GROSS_MARGIN.authorize(actor,false);
+            case DOCUMENT_EXPLAIN -> AiDocumentExplanation.authorize(actor);
             case DOCUMENT_SEARCH -> {
                 if (DocumentBrowser.SPECS.keySet().stream().noneMatch(type->actor.hasPermission(browser.permission(type)))) {
                     throw new ApiException(403,"FORBIDDEN","没有可查询的单据权限");
@@ -305,6 +325,10 @@ class AiBusinessTools {
     private static String fingerprint(CompanyAccess actor,Tool tool) {
         String value=actor.tenantId()+":"+actor.userId()+":"+actor.companyId()+":"+tool.code()+":"+actor.allWarehouses()
                 +":"+new TreeSet<>(actor.warehouseIds())+":"+actor.orgScope().signature()+":"+new TreeSet<>(actor.permissions());
+        return digest(value);
+    }
+
+    private static String digest(String value) {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
         } catch(NoSuchAlgorithmException error) {

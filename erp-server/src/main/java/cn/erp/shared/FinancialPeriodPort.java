@@ -11,6 +11,8 @@ public interface FinancialPeriodPort {
 
     List<Map<String, Object>> checks(ActorScope actor, long period);
 
+    default List<Map<String, Object>> closeReadiness(ActorScope actor, long period) {return List.of();}
+
     void close(ActorScope actor, long period);
 
     void reopen(ActorScope actor, long period, String reason);

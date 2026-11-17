@@ -76,9 +76,13 @@ public class CreditService implements CreditPort {
     }
 
     private Map<String, Object> policy(ActorScope a, long customer, long exclude) {
+        return policy(a,customer,exclude,true);
+    }
+
+    private Map<String, Object> policy(ActorScope a, long customer, long exclude,boolean lock) {
         if (s.jdbc.queryForList(
                         "SELECT id FROM ar_credit_limit WHERE tenant_id=? AND company_id=? AND"
-                                + " partner_id=? FOR SHARE",
+                                + " partner_id=?"+(lock?" FOR SHARE":""),
                         Long.class,
                         a.tenantId(),
                         a.companyId(),
@@ -167,7 +171,16 @@ public class CreditService implements CreditPort {
     }
 
     public void shipment(ActorScope a, long customer) {
-        var p = policy(a, customer, 0);
+        checkShipment(a,customer,true);
+    }
+
+    @Override
+    public void checkShipment(ActorScope a, long customer) {
+        checkShipment(a,customer,false);
+    }
+
+    private void checkShipment(ActorScope a,long customer,boolean lock) {
+        var p = policy(a, customer, 0,lock);
         if (p == null) return;
         var info = result(a, customer, 0, p, BigDecimal.ZERO);
         if (Boolean.TRUE.equals(info.get("overCreditLimit"))

@@ -1,6 +1,6 @@
 import type { AxiosRequestConfig } from 'axios'
 import type { ApiErrorBody, Id } from '../types/api'
-import type { AiChatEvent } from '../types/ai'
+import type { AiChatEvent, AiDocumentReference } from '../types/ai'
 import { ApiError, companyStreamScope, notifySessionFailure, request } from './http'
 
 const prefix = '/ai/v1'
@@ -80,6 +80,7 @@ export async function sendAiMessage(
   signal: AbortSignal,
   onEvent: (event: AiChatEvent) => void,
   toolCode?: string,
+  toolArguments?: AiDocumentReference,
 ): Promise<void> {
   const scope = companyStreamScope(signal)
   const headers = new Headers({
@@ -99,7 +100,7 @@ export async function sendAiMessage(
         headers,
         credentials: 'same-origin',
         signal: scope.signal,
-        body: JSON.stringify({ content, toolCode }),
+        body: JSON.stringify({ content, toolCode, toolArguments }),
       },
     )
   } catch (cause: unknown) {

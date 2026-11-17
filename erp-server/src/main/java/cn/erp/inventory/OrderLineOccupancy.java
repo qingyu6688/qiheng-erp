@@ -42,12 +42,23 @@ public class OrderLineOccupancy {
         if(quantities.isEmpty() || quantities.size()>500) {throw new ApiException(400,"VALIDATION_FAILED","发货占用明细无效");}
         quantities.values().forEach(InventoryNumbers::quantity);
         var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId()));args.addAll(new TreeSet<>(quantities.keySet()));
-        var lines=jdbc.queryForList("SELECT id,warehouse_id FROM sales_order_line FORCE INDEX(uk_sales_order_line_scope) WHERE tenant_id=? AND company_id=? AND id IN ("+String.join(",",Collections.nCopies(quantities.size(),"?"))+") ORDER BY id FOR UPDATE",args.toArray());
+        var lines=jdbc.queryForList("SELECT id,warehouse_id,base_qty,closed_base_qty,shipped_base_qty,pending_ship_base_qty FROM sales_order_line FORCE INDEX(uk_sales_order_line_scope) WHERE tenant_id=? AND company_id=? AND id IN ("+String.join(",",Collections.nCopies(quantities.size(),"?"))+") ORDER BY id FOR UPDATE",args.toArray());
         if(lines.size()!=quantities.size() || lines.stream().anyMatch(row->row.get("warehouse_id")==null || !scope.allowsWarehouse(((Number)row.get("warehouse_id")).longValue()))) {throw InventoryStore.missing();}
+        for(var line:lines) checkShipmentQuantity(line,quantities.get(((Number)line.get("id")).longValue()),complete);
         String sql=complete?"UPDATE sales_order_line SET pending_ship_base_qty=pending_ship_base_qty-?,shipped_base_qty=shipped_base_qty+?,version=version+1 WHERE tenant_id=? AND company_id=? AND id=? AND pending_ship_base_qty>=?":"UPDATE sales_order_line SET pending_ship_base_qty=pending_ship_base_qty+?,version=version+1 WHERE tenant_id=? AND company_id=? AND id=? AND base_qty-closed_base_qty-shipped_base_qty-pending_ship_base_qty>=?";
         var updates=new ArrayList<Object[]>();
         new TreeMap<>(quantities).forEach((id,qty)->updates.add(complete?new Object[]{qty,qty,scope.tenantId(),scope.companyId(),id,qty}:new Object[]{qty,scope.tenantId(),scope.companyId(),id,qty}));
         for(int changed:jdbc.batchUpdate(sql,updates)) {if(changed!=1) {throw exceeded();}}
+    }
+
+    public static BigDecimal remaining(Map<String,Object> line) {
+        return InventoryStore.decimal(line,"base_qty").subtract(InventoryStore.decimal(line,"closed_base_qty"))
+                .subtract(InventoryStore.decimal(line,"shipped_base_qty")).subtract(InventoryStore.decimal(line,"pending_ship_base_qty"));
+    }
+
+    public static void checkShipmentQuantity(Map<String,Object> line,BigDecimal quantity,boolean complete) {
+        var available=complete?InventoryStore.decimal(line,"pending_ship_base_qty"):remaining(line);
+        if(available.compareTo(quantity)<0) throw exceeded();
     }
 
     private void change(CompanyAccess scope,long lineId,BigDecimal quantity,boolean complete) {

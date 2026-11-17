@@ -10,6 +10,7 @@ import cn.erp.ai.common.AiActor;
 import cn.erp.ai.common.AiException;
 import cn.erp.ai.common.AiInputs;
 import cn.erp.ai.common.BusinessToolSpec;
+import cn.erp.ai.common.DocumentExplainSpec;
 
 @Service
 public class AssistantCatalog {
@@ -46,6 +47,7 @@ public class AssistantCatalog {
     boolean toolAllowed(AiActor actor,Config config,String code) {
         if (!config.toolCodes().contains(code)) return false;
         if (WAREHOUSES.equals(code)) return actor.has("warehouse:view");
+        if (DocumentExplainSpec.CODE.equals(code)) return DocumentExplainSpec.allowed(actor);
         var tool=BusinessToolSpec.find(code);
         return tool!=null && tool.allowed(actor);
     }
@@ -75,7 +77,8 @@ public class AssistantCatalog {
                 throw AiException.missing();
         }
         var tools=input.toolCodes() == null ? Set.<String>of() : Set.copyOf(input.toolCodes());
-        if (tools.stream().anyMatch(tool->!WAREHOUSES.equals(tool) && BusinessToolSpec.find(tool)==null))
+        if (tools.stream().anyMatch(tool->!WAREHOUSES.equals(tool) && !DocumentExplainSpec.CODE.equals(tool)
+                && BusinessToolSpec.find(tool)==null))
             throw AiException.invalid("工具不在只读白名单中");
         if (input.id() == null) {
             jdbc.update("""
@@ -102,6 +105,8 @@ public class AssistantCatalog {
         actor.requireAdminView();
         var tools=new ArrayList<Map<String,String>>();
         tools.add(Map.of("code",WAREHOUSES,"label","查看可访问仓库","description","读取当前公司的授权仓库编码和名称"));
+        tools.add(Map.of("code",DocumentExplainSpec.CODE,"label",DocumentExplainSpec.LABEL,
+                "description","解释当前销售订单、发货单和期间的业务校验结果"));
         for (var tool:BusinessToolSpec.all())
             tools.add(Map.of("code",tool.code(),"label",tool.label(),"description",tool.description()));
         return List.copyOf(tools);
@@ -127,6 +132,7 @@ public class AssistantCatalog {
     private View view(AiActor actor,Config config) {
         var tools=new LinkedHashSet<String>();
         if (toolAllowed(actor,config,WAREHOUSES)) tools.add(WAREHOUSES);
+        if (toolAllowed(actor,config,DocumentExplainSpec.CODE)) tools.add(DocumentExplainSpec.CODE);
         businessTools(actor,config).forEach(tool->tools.add(tool.code()));
         return new View(config.code(),config.name(),Collections.unmodifiableSet(tools));
     }

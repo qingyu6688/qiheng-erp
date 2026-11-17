@@ -15,13 +15,16 @@ const busy = ref(false)
 const session = useSessionStore()
 const canEvaluate = computed(() => session.can('ai_admin:evaluate'))
 const businessSet = computed(() => setId.value === 'erp-data-m15')
+const explanationSet = computed(() => setId.value === 'erp-explain-m15')
+const baselineLabel = computed(() => (explanationSet.value ? '单据解释基准' : '报表基准'))
+const needsBaseline = computed(() => businessSet.value || explanationSet.value)
 const baseline = ref<Record<string, unknown>>()
 const baselineName = ref('')
 const canRun = computed(
   () =>
     canEvaluate.value &&
     setId.value &&
-    (!businessSet.value || baseline.value) &&
+    (!needsBaseline.value || baseline.value) &&
     !runs.value.some((item) => item.status === 'running'),
 )
 const businessMetrics = [
@@ -47,6 +50,9 @@ const categoryLabels: Record<string, string> = {
   refusal: '拒答',
   security: '安全',
   tool: '工具调用',
+  shipping: '发货解释',
+  closing: '关账解释',
+  company: '公司访问',
   injection: '提示注入',
   tenant: '租户隔离',
   role: '角色访问',
@@ -65,12 +71,13 @@ async function readBaseline(event: Event): Promise<void> {
   const file = input.files?.[0]
   const currentSet = setId.value
   const currentCompany = session.companyId
+  const label = baselineLabel.value
   baseline.value = undefined
   baselineName.value = ''
   error.value = ''
   if (!file) return
   try {
-    if (file.size > 2 * 1024 * 1024) throw new Error('报表基准文件须小于 2 MB。')
+    if (file.size > 2 * 1024 * 1024) throw new Error(`${label}文件须小于 2 MB。`)
     const parsed: unknown = JSON.parse(await file.text())
     if (
       !parsed ||
@@ -78,9 +85,9 @@ async function readBaseline(event: Event): Promise<void> {
       Array.isArray(parsed) ||
       !Object.keys(parsed).length
     )
-      throw new Error('报表基准须是以场景编号为键的 JSON 对象。')
+      throw new Error(`${label}须是以场景编号为键的 JSON 对象。`)
     if (JSON.stringify(parsed).length > 500000)
-      throw new Error('压缩后的报表基准不能超过 50 万字符。')
+      throw new Error(`压缩后的${label}不能超过 50 万字符。`)
     if (
       !active ||
       currentSet !== setId.value ||
@@ -99,10 +106,10 @@ async function readBaseline(event: Event): Promise<void> {
     )
       error.value =
         cause instanceof SyntaxError
-          ? '报表基准 JSON 格式无效。'
+          ? `${label} JSON 格式无效。`
           : cause instanceof Error
             ? cause.message
-            : '无法读取报表基准。'
+            : `无法读取${label}。`
   }
 }
 
@@ -117,7 +124,7 @@ async function downloadCases(): Promise<void> {
     )
     const link = document.createElement('a')
     link.href = url
-    link.download = '智能查数评测用例.json'
+    link.download = explanationSet.value ? '单据解释评测用例.json' : '智能查数评测用例.json'
     link.click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   })
@@ -185,7 +192,11 @@ async function start(): Promise<void> {
   await perform(async () => {
     const result = await aiWrite<AiEvalRun>(
       `/admin/evals/${encodeURIComponent(setId.value)}/run`,
-      businessSet.value ? { reportBaseline: baseline.value } : {},
+      businessSet.value
+        ? { reportBaseline: baseline.value }
+        : explanationSet.value
+          ? { documentBaseline: baseline.value }
+          : {},
     )
     if (!active) return
     run.value = result
@@ -205,7 +216,7 @@ onScopeDispose(() => {
     <div class="page-heading">
       <div>
         <h1>AI 评测</h1>
-        <p>检查知识回答、智能查数和权限隔离。</p>
+        <p>检查知识回答、智能查数、单据解释和权限隔离。</p>
       </div>
       <div class="ai-actions">
         <el-button :disabled="busy" @click="perform(load)">刷新</el-button>
@@ -232,10 +243,10 @@ onScopeDispose(() => {
           :label="`${item.name}（${item.totalCases} 条）`"
         />
       </el-select>
-      <div v-if="businessSet" class="ai-eval-baseline">
+      <div v-if="needsBaseline" :key="setId" class="ai-eval-baseline">
         <el-button :disabled="busy" @click="downloadCases">下载评测用例</el-button>
         <template v-if="canEvaluate">
-          <label for="ai-eval-baseline">报表基准文件</label>
+          <label for="ai-eval-baseline">{{ baselineLabel }}文件</label>
           <input
             id="ai-eval-baseline"
             type="file"
@@ -244,7 +255,11 @@ onScopeDispose(() => {
             @change="readBaseline"
           />
           <p v-if="baselineName" role="status">已读取 {{ baselineName }}</p>
-          <p>
+          <p v-if="explanationSet">
+            按用例场景编号填写现有单据的
+            ID、状态、检查结果、原因码及来源路径。详情见单据解释验收文档。
+          </p>
+          <p v-else>
             以用例中的场景编号为键，填入同一公司对应报表的 status、items 和
             summary。金额与数量使用字符串。
           </p>
@@ -270,10 +285,16 @@ onScopeDispose(() => {
         >
           <template #default="{ row }">{{ rate(row[metric.key]) }}</template>
         </el-table-column>
-        <el-table-column v-if="!businessSet" label="正确率" width="110"
+        <el-table-column
+          v-if="!businessSet"
+          :label="explanationSet ? '解释正确率' : '正确率'"
+          width="110"
           ><template #default="{ row }">{{ rate(row.correctRate) }}</template></el-table-column
         >
-        <el-table-column v-if="!businessSet" label="引用准确率" width="120"
+        <el-table-column
+          v-if="!businessSet"
+          :label="explanationSet ? '来源一致率' : '引用准确率'"
+          width="120"
           ><template #default="{ row }">{{ rate(row.citationRate) }}</template></el-table-column
         >
         <el-table-column label="拒答率" width="100"
@@ -319,12 +340,12 @@ onScopeDispose(() => {
         >
           <template #default="{ row }">{{ marked(row[check.key]) }}</template>
         </el-table-column>
-        <el-table-column v-if="!businessSet" label="答案" width="100"
+        <el-table-column v-if="!businessSet" :label="explanationSet ? '解释' : '答案'" width="100"
           ><template #default="{ row }">{{
             row.correct ? '通过' : '未通过'
           }}</template></el-table-column
         >
-        <el-table-column v-if="!businessSet" label="引用" width="100"
+        <el-table-column v-if="!businessSet" :label="explanationSet ? '来源' : '引用'" width="100"
           ><template #default="{ row }">{{
             row.citationCorrect ? '通过' : '未通过'
           }}</template></el-table-column
