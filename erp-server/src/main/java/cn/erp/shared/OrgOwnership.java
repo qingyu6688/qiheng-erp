@@ -5,7 +5,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 /** 归属只在新建时写入，后续审批、移部门和调整人员任职都不回写历史单据。 */
 public final class OrgOwnership {
-    public static final Set<String> TABLES=Set.of("sales_order","shipment","receipt","sales_return","refund_request","purchase_requisition","purchase_order","goods_receipt","purchase_return","payment","account_transfer","opening_entry","stock_adjustment","stock_count","stock_transfer","stock_misc_doc","qc_inspection","document_reversal","invoice_registration");
+    public static final Set<String> TABLES=Set.of("sales_order","shipment","receipt","sales_return","refund_request","purchase_requisition","purchase_order","goods_receipt","purchase_return","payment","account_transfer","opening_entry","stock_adjustment","stock_count","stock_transfer","stock_misc_doc","qc_inspection","document_reversal","invoice_registration","mfg_work_order","mfg_issue_doc","mfg_receipt_doc");
     private OrgOwnership() {}
     public static OrgScope scope(ActorScope actor) { return actor instanceof OrgScoped org?org.orgScope():OrgScope.all(); }
     public static String filter(ActorScope actor,String alias) { return scope(actor).allDepartments()?"":" AND ("+scope(actor).ownerFilter(alias)+")"; }
@@ -40,6 +40,7 @@ public final class OrgOwnership {
         for(String table:TABLES.stream().sorted().toList()) {result.put(table,table);result.put(table+"_line",table);}
         result.put("sales_order_fee","shipment");result.put("purchase_order_fee","goods_receipt");
         result.put("stock_misc_line","stock_misc_doc");
+        result.put("mfg_issue_line","mfg_issue_doc");result.put("mfg_receipt_line","mfg_receipt_doc");
         result.put("shipment_diff","shipment");result.put("stock_transfer_event","stock_transfer");return Map.copyOf(result);
     }
     public static String sourceCondition(ActorScope actor,String type,String id) {
@@ -47,7 +48,8 @@ public final class OrgOwnership {
         var parts=new ArrayList<String>();
         for(String table:TABLES.stream().sorted().toList()) {
             String kinds=SOURCE_TABLES.entrySet().stream().filter(entry->entry.getValue().equals(table)).map(entry->"'"+entry.getKey()+"'").sorted().reduce((a,b)->a+","+b).orElseThrow();
-            parts.add("("+type+" IN ("+kinds+") AND EXISTS(SELECT 1 FROM "+table+" od WHERE od.tenant_id="+actor.tenantId()+" AND od.company_id="+actor.companyId()+" AND od.id="+id+filter(actor,"od")+"))");
+            String scope=ManufacturingReversalPort.supports(table)?" AND "+ManufacturingScope.stockCondition(actor,"od"):filter(actor,"od");
+            parts.add("("+type+" IN ("+kinds+") AND EXISTS(SELECT 1 FROM "+table+" od WHERE od.tenant_id="+actor.tenantId()+" AND od.company_id="+actor.companyId()+" AND od.id="+id+scope+"))");
         }
         return "("+String.join(" OR ",parts)+")";
     }

@@ -481,7 +481,8 @@ public class WorkflowRuntime implements WorkflowPort {
                         "payment",
                         "account_transfer",
                         "stock_adjustment",
-                        "stock_misc_doc")) permissions.add(source + ":view");
+                        "stock_misc_doc", "mfg_issue_doc", "mfg_receipt_doc"))
+            permissions.add(cn.erp.shared.ManufacturingReversalPort.viewPermission(source));
         return new CompanyAccess(tenant, 0, company, true, Set.of(), permissions);
     }
 }

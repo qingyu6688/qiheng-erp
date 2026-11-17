@@ -12,6 +12,12 @@ public class CommandResultAccess {
     public CommandResultAccess(JdbcTemplate jdbc) {this.jdbc=jdbc;}
 
     public void verify(ActorScope actor,String operation,Object response) {
+        int separator=operation.indexOf('.');
+        String prefix=separator>0?operation.substring(0,separator):operation;
+        if(ManufacturingReversalPort.supports(prefix)) {
+            verifyProduction(actor,prefix,response instanceof Map<?,?> fields?fields.get("id"):response);
+            return;
+        }
         if(!(actor instanceof WarehouseScope scope) || !(response instanceof Map<?,?> row)) {return;}
         if(operation.startsWith("credit_limit.")||operation.startsWith("credit_increase.")||operation.startsWith("bad_debt.")||operation.startsWith("aging_config.")) {
             String action=operation.substring(operation.indexOf('.')+1);String permission=operation.startsWith("bad_debt.")?(java.util.Set.of("approve","reject").contains(action)?"bad_debt:approve":"bad_debt:edit"):operation.startsWith("aging_config.")?"aging_config:edit":java.util.Set.of("approve","reject").contains(action)||action.equals("cancel")&&row.get("approvedBy")!=null?"credit_limit:approve":"credit_limit:edit";
@@ -42,6 +48,7 @@ public class CommandResultAccess {
         if(java.util.Set.of("period.close","period.reopen","outbox.replay","reconciliation.run").contains(operation)&&(!scope.allWarehouses()||!OrgOwnership.scope(actor).allDepartments())) {throw new ApiException(403,"FORBIDDEN","操作结果需要整家公司数据范围");}
         if(operation.startsWith("reversal.")) {
             String type=String.valueOf(row.get("sourceType"));
+            if(ManufacturingReversalPort.supports(type)) {verifyProduction(actor,type,row.get("sourceId"));return;}
             if(!(actor instanceof PermissionScope permissions)||!permissions.hasPermission(type+":view")) {throw new ApiException(403,"FORBIDDEN","没有查看冲销来源单据的权限");}
             if(!scope.allWarehouses()) {
                 if(java.util.Set.of("shipment","sales_return","goods_receipt","purchase_return","stock_adjustment","stock_misc_doc").contains(type)) {
@@ -74,6 +81,14 @@ public class CommandResultAccess {
             warehouse(scope,warehouses.getFirst());
             if(row.containsKey("warehouseId")) {warehouse(scope,row.get("warehouseId"));}
         }
+    }
+
+    private void verifyProduction(ActorScope actor,String type,Object id) {
+        if(!(actor instanceof PermissionScope permission)||!permission.hasPermission(ManufacturingReversalPort.viewPermission(type)))
+            throw new ApiException(403,"FORBIDDEN","没有查看生产单据的权限");
+        var rows=jdbc.queryForList("SELECT d.id FROM "+type+" d WHERE d.tenant_id=? AND d.company_id=? AND d.id=? AND "+ManufacturingScope.stockCondition(actor,"d"),
+                Long.class,actor.tenantId(),actor.companyId(),id);
+        if(rows.isEmpty())throw missing();
     }
 
     private void warehouse(WarehouseScope scope,Object id) {

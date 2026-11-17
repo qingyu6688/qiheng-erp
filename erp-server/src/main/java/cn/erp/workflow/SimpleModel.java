@@ -66,7 +66,7 @@ public final class SimpleModel {
                     "purchase_order",
                     "refund_request",
                     "document_reversal",
-                    "stock_adjustment","credit_increase","wf_generic_request","crm_contract");
+                    "stock_adjustment","credit_increase","wf_generic_request","crm_contract","mfg_issue_doc");
     static final Set<String> TRIGGERS = Set.of("checkpoint", "review_required");
     private static final Set<String> SELECTIVE = Set.of("condition_branch", "route_branch", "inclusive_branch");
     public static final Set<String> STRATEGIES =
@@ -95,6 +95,7 @@ public final class SimpleModel {
                     Map.entry("sourceType", "string"),
                     Map.entry("crossPeriod", "boolean"),
                     Map.entry("adjustType", "string"),
+                    Map.entry("overIssue", "boolean"),
                     Map.entry("salesUserId", "id"),
                     Map.entry("buyerUserId", "id"),
                     Map.entry("createdBy", "id"));
@@ -297,6 +298,7 @@ public final class SimpleModel {
                     case "refund_request" -> Set.of("customerId", "refundMethod");
                     case "document_reversal" -> Set.of("sourceType", "crossPeriod");
                     case "stock_adjustment" -> Set.of("adjustType");
+                    case "mfg_issue_doc" -> Set.of("overIssue");
                     case "crm_contract" -> Set.of("discountRate", "customerLevel", "belowMinPrice", "customerId", "salesUserId");
                     default -> Set.of();
                 });

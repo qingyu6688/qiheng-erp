@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import WorkflowProgressPanel from '../components/workflow/WorkflowProgressPanel.vue'
-import { computed, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { document, candidates, financeWrite, commandResult, saveShipmentLogistics } from '../api/sales'
 import { ApiError, isCancelled, messageOf, newIdempotencyKey } from '../api/http'
 import type { SalesKind, SalesDocument } from '../types/sales'
+import type { WorkOrder } from '../types/manufacturing'
 import { salesSpecs, actionLabels, statusLabels, salesStatusLabel } from '../types/sales'
 import OrderEditor from '../components/sales/OrderEditor.vue'
 import DocumentEditor from '../components/sales/DocumentEditor.vue'
@@ -26,6 +27,13 @@ const value = ref<SalesDocument>(),
   changing = ref(false),
   action = ref('')
 const history = ref<Record<string, unknown>[]>([])
+const WorkOrderEditor = defineAsyncComponent(() => import('./mfg/WorkOrderEditor.vue'))
+const generatingWork = ref(false)
+const generatedWork = ref<WorkOrder>()
+function workOrderSaved(order: WorkOrder): void {
+  generatedWork.value = order
+  generatingWork.value = false
+}
 const commandWarnings = ref<{ message: string }[]>([])
 const logisticsOpen = ref(false), logisticsNumber = ref(''), carrierCode = ref(''), logisticsBusy = ref(false), logisticsError = ref('')
 function editLogistics(): void {
@@ -184,6 +192,7 @@ function closeEditor(): void {
       <h1>{{ value?.documentNo ?? value?.invoiceNo ?? spec.singular }}</h1>
     </div>
     <div v-if="value" class="sales-actions">
+      <el-button v-if="kind === 'sales-orders' && value.status === 'approved' && session.can('mfg_work_order:create')" @click="generatingWork = true">生成工单</el-button>
       <router-link
         v-if="kind === 'receipts' && value.status !== 'reversed' && session.can('crm_receivable:view') && session.can('crm_receivable:manage')"
         class="text-link"
@@ -216,6 +225,10 @@ function closeEditor(): void {
     </div>
   </div>
   <el-alert v-if="error" type="error" :title="error" :closable="false" />
+  <p v-if="generatedWork" role="status">
+    已生成生产工单 {{ generatedWork.documentNo }}。
+    <router-link v-if="session.can('mfg_work_order:view')" class="text-link" :to="'/mfg/work-orders/' + generatedWork.id">查看生产工单</router-link>
+  </p>
   <p v-if="loading" role="status">正在加载单据…</p>
   <template v-if="value">
     <section class="panel sales-detail-header">
@@ -410,6 +423,7 @@ function closeEditor(): void {
     @close="closeEditor"
     @saved="saved"
   />
+  <WorkOrderEditor v-if="generatingWork && value" :sales="value" @close="generatingWork = false" @saved="workOrderSaved" />
   <DocumentEditor
     v-if="editing && value && kind !== 'sales-orders'"
     :kind="kind"

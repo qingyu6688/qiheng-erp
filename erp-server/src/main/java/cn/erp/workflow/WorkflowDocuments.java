@@ -32,7 +32,12 @@ public class WorkflowDocuments {
     }
 
     public static String permission(String type, String action) {
-        return (type.equals("document_reversal") ? "reversal" : type.equals("credit_increase") ? "credit_limit" : type) + ":" + action;
+        return switch (type) {
+            case "document_reversal" -> "reversal:" + action;
+            case "credit_increase" -> "credit_limit:" + action;
+            case "mfg_issue_doc" -> "mfg_issue:" + action;
+            default -> type + ":" + action;
+        };
     }
 
     public Map<String, Object> snapshot(CompanyAccess actor, String type, long id) {
@@ -59,7 +64,8 @@ public class WorkflowDocuments {
             var source = snapshot(actor, type, id);
             if (review
                     && separate(tenant, company, type)
-                    && number(source.get("createdBy")) == user) return null;
+                    && (number(source.get("createdBy")) == user
+                            || type.equals("mfg_issue_doc") && number(source.get("submittedBy")) == user)) return null;
             return actor;
         } catch (ApiException error) {
             if (Set.of(403, 404).contains(error.getStatus())) return null;

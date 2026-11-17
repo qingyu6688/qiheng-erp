@@ -29,6 +29,8 @@ export const reversalTypes = [
   { value: 'account_transfer', label: '账户转账', permission: 'account_transfer:view' },
   { value: 'stock_adjustment', label: '库存调整单', permission: 'stock_adjustment:view' },
   { value: 'stock_misc_doc', label: '其他出入库单', permission: 'stock_misc_doc:view' },
+  { value: 'mfg_issue_doc', label: '生产领退料单', permission: 'mfg_issue:view' },
+  { value: 'mfg_receipt_doc', label: '完工入库单', permission: 'mfg_receipt:view' },
 ]
 export const stockActionLabels: Record<string, string> = { update: '编辑', submit: '提交', start: '开始盘点', record_counts: '录入实盘', ship: '确认调出', receive: '登记调入', resolve_diff: '处理调拨差异', 'resolve-diff': '处理调拨差异', approve: '审批通过', reject: '驳回', post: '过账', void: '作废' }
 export const stockStatusLabels: Record<string, string> = { draft: '草稿', submitted: '已提交', shipped: '在途', received_with_diff: '调入差异待处理', received: '已调入', voided: '已作废', counting: '盘点中', approved: '已批准', posted: '已过账', pending: '待审核', rejected: '已驳回' }

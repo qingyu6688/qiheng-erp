@@ -30,6 +30,7 @@ import NotificationBell from './NotificationBell.vue'
 import { reportSpecs, reportPermission } from '../types/reporting'
 import { importSpecs } from '../types/file-jobs'
 import { crmCoreNavigation, crmCycleNavigation } from '../types/crm-navigation'
+import { manufacturingNavigation } from '../types/manufacturing'
 import { confirmCompanyLeave } from '../utils/unsaved'
 const route = useRoute(),
   router = useRouter(),
@@ -85,6 +86,7 @@ interface NavigationItem {
   title: string
   permission?: string
   any?: string[]
+  all?: string[]
 }
 const definitions = [
   {
@@ -157,6 +159,12 @@ const definitions = [
       { path: 'goods-receipts', title: '采购收货', permission: 'goods_receipt:view' },
       { path: 'purchase-returns', title: '采购退货', permission: 'purchase_return:view' },
     ],
+  },
+  {
+    title: '生产',
+    icon: Box,
+    items: manufacturingNavigation.map(({ area, title, permission }) => ({ path: 'mfg/' + area, title, permission,
+      all: area === 'cost-periods' ? ['cost:view'] : undefined })),
   },
   {
     title: '库存',
@@ -283,11 +291,11 @@ const groups = computed(() =>
           ...group,
           items: (group.items as NavigationItem[])
             .filter((item) =>
-              item.permission
+              (!item.all || item.all.every(session.can)) && (item.permission
                 ? session.can(item.permission)
                 : item.any
                   ? item.any.some(session.can)
-                  : true,
+                  : true),
             )
             .map((item) => ({
               ...item,

@@ -42,6 +42,7 @@ const movementNames: Record<string, string> = {
   location_move_out: '库位移出', location_move_in: '库位移入',
   adjust_in: '调整入库', adjust_out: '调整出库', block: '冻结', unblock: '解冻',
   scrap: '报废', stock_misc_in: '其他入库', stock_misc_out: '其他出库', stock_misc_return_in: '借出归还',
+  mfg_issue_out: '生产领料', mfg_return_in: '生产退料', mfg_receipt_in: '完工入库',
 }
 const historyTitle = computed(() => detail.value || (active.value === 'customer' ? '签收记录' : '库存流水'))
 

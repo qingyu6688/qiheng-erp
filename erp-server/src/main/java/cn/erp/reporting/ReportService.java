@@ -209,6 +209,7 @@ public class ReportService {
         types.put("receipt","receipt_no");types.put("payment","payment_no");types.put("opening_entry","entry_no");types.put("account_transfer","transfer_no");types.put("document_reversal","reversal_no");
         types.put("stock_adjustment","adjust_no");types.put("stock_count","count_no");types.put("stock_transfer","transfer_no");types.put("refund_request","refund_no");
         types.put("stock_misc_doc","document_no");
+        types.put("mfg_issue_doc","document_no");types.put("mfg_receipt_doc","document_no");
         for(var type:types.entrySet()) {
             var ids=new HashSet<Object>();
             for(var row:rows) { if(row.get("source_no")==null && type.getKey().equals(documentType(row.get("source_type"))) && row.get("source_id")!=null) { ids.add(row.get("source_id")); } }
@@ -236,6 +237,8 @@ public class ReportService {
             case "purchase_return_line" -> "purchase_return";
             case "stock_transfer_out","stock_transfer_in","stock_transfer_diff" -> "stock_transfer";
             case "stock_misc_line" -> "stock_misc_doc";
+            case "mfg_issue_line" -> "mfg_issue_doc";
+            case "mfg_receipt_line" -> "mfg_receipt_doc";
             default -> value.toString();
         };
     }

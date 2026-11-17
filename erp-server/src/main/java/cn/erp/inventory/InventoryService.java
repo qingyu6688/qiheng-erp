@@ -14,9 +14,9 @@ import static cn.erp.inventory.InventoryStore.*;
 @Service
 @Transactional
 public class InventoryService {
-    private static final Set<String> INBOUND=Set.of("opening_in","purchase_in","sales_return_in","sales_reject_in","transfer_in","count_gain","adjust_in","stock_misc_in","stock_misc_return_in");
-    private static final Set<String> OUTBOUND=Set.of("sales_out","transfer_out","count_loss","adjust_out","scrap","purchase_return_out","stock_misc_out");
-    private static final Set<String> DOCUMENT_LINES=Set.of("shipment_line","goods_receipt_line","purchase_return_line","sales_return_line","stock_misc_line");
+    private static final Set<String> INBOUND=Set.of("opening_in","purchase_in","sales_return_in","sales_reject_in","transfer_in","count_gain","adjust_in","stock_misc_in","stock_misc_return_in","mfg_return_in","mfg_receipt_in");
+    private static final Set<String> OUTBOUND=Set.of("sales_out","transfer_out","count_loss","adjust_out","scrap","purchase_return_out","stock_misc_out","mfg_issue_out");
+    private static final Set<String> DOCUMENT_LINES=Set.of("shipment_line","goods_receipt_line","purchase_return_line","sales_return_line","stock_misc_line","mfg_issue_line","mfg_receipt_line");
     private final InventoryStore store;
     private final JdbcTemplate jdbc;
     private final ReservationService reservations;
@@ -266,11 +266,11 @@ public class InventoryService {
         List<String> selected=List.of();
         if(dimensions.config(scope,key).serial()){
             var statuses=switch(movementType){
-                case "sales_out","stock_misc_out" -> List.of("shipped");
+                case "sales_out","stock_misc_out","mfg_issue_out" -> List.of("shipped");
                 case "transfer_out" -> List.of("in_transit");
                 default -> "quality_hold".equals(hold)?List.of("quality_hold"):List.of("in_stock","returned");
             };
-            var available=dimensions.sourceSerials(scope,origin,statuses,Set.of("sales_out","transfer_out","stock_misc_out").contains(movementType));
+            var available=dimensions.sourceSerials(scope,origin,statuses,Set.of("sales_out","transfer_out","stock_misc_out","mfg_issue_out").contains(movementType));
             if(allowedSerials!=null)available=available.stream().filter(allowedSerials::contains).toList();
             if(requested!=null&&requested.serials()!=null&&!requested.serials().isEmpty()){
                 if(!available.containsAll(requested.serials()))throw invalid("序列号必须来自原单据且处于可退货状态");
@@ -411,6 +411,22 @@ public class InventoryService {
     public StockSelection decodeSelection(Object raw){return dimensions.decode(raw);}
     public String encodeSelection(StockSelection selection){return dimensions.encode(selection);}
     public Object viewSelection(Object raw){return dimensions.view(raw);}
+
+    /** 数量不变的完工成本差异也进入原库存对账流水。调用者先锁定期间与全部库存键。 */
+    public void productionVariance(CompanyAccess scope,Posting posting,BigDecimal amount) {
+        if (!scope.allowsWarehouse(posting.key().warehouseId()) || !"mfg_cost_posting".equals(posting.source().type()))
+            throw invalid("生产差异的库存范围无效");
+        if (amount.signum()==0) return;
+        store.lockPeriod(scope,posting);
+        var current=store.lockCost(scope,posting.key());
+        var next=decimal(current,"total_cost").add(amount);
+        if (decimal(current,"qty").signum()<=0 || next.signum()<0)
+            throw new ApiException(422,"MFG_COST_STOCK_CHANGED","库存已变化，不能过账或冲回本期生产差异");
+        InventoryNumbers.money(next);
+        jdbc.update("UPDATE inventory_cost SET total_cost=?,version=version+1 WHERE id=?",next,current.get("id"));
+        adjustment(scope,posting,"production_variance",amount);
+        changed(scope,List.of(posting.key()));
+    }
 
     public void changed(CompanyAccess scope,List<Key> keys) {
         if (!keys.isEmpty()) events.publishEvent(new cn.erp.shared.InventoryBalanceChanged(scope.tenantId(),scope.companyId(),

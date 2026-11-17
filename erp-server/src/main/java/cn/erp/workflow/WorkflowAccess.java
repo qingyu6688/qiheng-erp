@@ -5,6 +5,8 @@ import java.util.*;
 import org.springframework.stereotype.Component;
 
 import cn.erp.identity.CompanyAccess;
+import cn.erp.shared.ManufacturingReversalPort;
+import cn.erp.shared.ManufacturingScope;
 import cn.erp.shared.OrgOwnership;
 
 /** 消息计数及流程列表在分页前使用同一公司、仓库、部门与操作权限交集。 */
@@ -48,6 +50,10 @@ public class WorkflowAccess {
             } else if (review) where += " AND h.created_by<>" + actor.userId();
             if (type.equals("stock_adjustment") && !actor.allWarehouses())
                 where += " AND NOT (" + outside(actor, "h.warehouse_id") + ")";
+            if (type.equals("mfg_issue_doc")) {
+                where += " AND " + ManufacturingScope.stockCondition(actor, "h");
+                if (review) where += " AND h.submitted_by<>" + actor.userId();
+            }
             if (type.equals("document_reversal")) {
                 var sources = new ArrayList<String>();
                 for (String source :
@@ -60,12 +66,16 @@ public class WorkflowAccess {
                                 "payment",
                                 "account_transfer",
                                 "stock_adjustment",
-                                "stock_misc_doc"))
-                    if (actor.hasPermission(source + ":view")) {
+                                "stock_misc_doc",
+                                "mfg_issue_doc",
+                                "mfg_receipt_doc"))
+                    if (actor.hasPermission(ManufacturingReversalPort.viewPermission(source))) {
                         String predicate =
                                 "s.tenant_id=h.tenant_id AND s.company_id=h.company_id AND"
                                     + " s.id=h.source_id"
                                         + OrgOwnership.filter(actor, "s");
+                        if (ManufacturingReversalPort.supports(source))
+                            predicate += " AND " + ManufacturingScope.stockCondition(actor, "s");
                         if (!actor.allWarehouses()
                                 && Set.of(
                                                 "shipment",

@@ -32,6 +32,7 @@ class ReversalPosting {
         // 原单已被排他锁定，凭证只需读取当前已提交的事实。
         for(long journal:jdbc.queryForList("SELECT id FROM journal WHERE tenant_id=? AND company_id=? AND source_id=? AND source_type IN("+journals+") AND posting_action='post' ORDER BY id FOR SHARE",Long.class,scope.tenantId(),scope.companyId(),source))ledger.reverse(scope,journal,"document_reversal",reversal,revision++,period,day);
         progress.reverse(scope,type,source,head);
+        sources.restoreProgress(scope,type,head);
         jdbc.update("UPDATE "+type+" SET status='reversed',version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?",scope.userId(),scope.tenantId(),scope.companyId(),source);
         progress.refresh(scope,type,source,head);
     }

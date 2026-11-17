@@ -32,6 +32,8 @@ public class InventoryReversalService {
             case "purchase_return" -> "'purchase_return_line'";
             case "stock_adjustment" -> "'stock_adjustment'";
             case "stock_misc_doc" -> "'stock_misc_line'";
+            case "mfg_issue_doc" -> "'mfg_issue_line'";
+            case "mfg_receipt_doc" -> "'mfg_receipt_line'";
             default -> null;
         };
         if(types==null)return;

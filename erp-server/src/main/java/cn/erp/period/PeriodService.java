@@ -32,8 +32,12 @@ public class PeriodService {
     }
 
     private FinancialPeriodPort financial;
+    private ProductionCostPort productionCost;
     @org.springframework.beans.factory.annotation.Autowired
     void financial(FinancialPeriodPort financial) {this.financial=financial;}
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void productionCost(ProductionCostPort productionCost) {this.productionCost=productionCost;}
 
     public Map<String,Object> closeCheck(CompanyAccess scope,long id) {
         companyScope(scope);var period=find(scope,id);return report(scope,id,period);
@@ -126,6 +130,7 @@ public class PeriodService {
             ) residues
             """,Long.class,scope.tenantId(),scope.companyId(),scope.tenantId(),scope.companyId());
         items.add(Map.of("check","cost_residue","passed",residues==0,"count",residues,"message",residues==0?"数量归零的成本尾差已处理":"存在数量归零但成本未归零的流水"));
+        if(productionCost!=null) items.addAll(productionCost.closingChecks(scope,id));
         if(financial!=null) items.addAll(financial.checks(scope,id));
         return items;
     }

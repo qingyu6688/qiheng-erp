@@ -14,6 +14,7 @@ final class DeviceRoutes {
                     "/api/v1/warehouses"+ID+"/locations(?:/balances)?",
                     "/api/v1/wms/(?:tasks|picks|waves|packs|moves|count-tasks)(?:"+ID+")?",
                     "/api/v1/wms/(?:warehouses|scan/resolve|task-admin/statistics)",
+                    "/api/v1/mfg/(?:work-orders|issues)(?:"+ID+")?",
                     "/api/v1/workflow/(?:tasks/todo|todo-count|instances"+ID+")"),
             "POST",paths("/api/v1/goods-receipts(?:"
                             +ID+"/(?:submit|post))?",
@@ -21,8 +22,9 @@ final class DeviceRoutes {
                     "/api/v1/wms/count-tasks"+ID+"/(?:claim|confirm)",
                     "/api/v1/wms/waves"+ID+"/claim", "/api/v1/wms/packs",
                     "/api/v1/wms/moves(?:"+ID+"/post)?","/api/v1/wms/replenishments"+ID+"/post",
+                    "/api/v1/mfg/issues(?:"+ID+"/(?:submit|post))?",
                     "/api/v1/labels/print-jobs", "/api/v1/workflow/tasks"+ID+"/(?:approve|reject)"),
-            "PUT",paths("/api/v1/goods-receipts"+ID, "/api/v1/wms/moves"+ID),
+            "PUT",paths("/api/v1/goods-receipts"+ID, "/api/v1/wms/moves"+ID, "/api/v1/mfg/issues"+ID),
             "DELETE",paths("/api/v1/auth/devices/current"));
 
     private DeviceRoutes() {}

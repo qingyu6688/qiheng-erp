@@ -6,6 +6,7 @@ export type WorkflowBusinessType =
   | 'stock_adjustment'
   | 'credit_increase'
   | 'crm_contract'
+  | 'mfg_issue_doc'
   | 'wf_generic_request'
 export type NodeType =
   | 'start'
@@ -270,6 +271,7 @@ export const businessLabels: Record<WorkflowBusinessType, string> = {
   stock_adjustment: '库存调整',
   credit_increase: '临时信用额度调增',
   crm_contract: 'CRM 合同',
+  mfg_issue_doc: '生产领退料',
   wf_generic_request: '通用申请',
 }
 export const workflowStatus: Record<string, string> = {
@@ -338,6 +340,7 @@ export const fieldLabels: Record<string, string> = {
   sourceType: '冲销来源类型',
   crossPeriod: '是否跨月',
   adjustType: '调整类型',
+  overIssue: '是否超领',
   salesUserId: '销售员',
   buyerUserId: '采购员',
   createdBy: '创建人',
@@ -350,4 +353,5 @@ export const businessRoutes: Partial<Record<WorkflowBusinessType, string>> = {
   stock_adjustment: 'stock-adjustments',
   credit_increase: 'ar/credit',
   crm_contract: 'crm/contracts',
+  mfg_issue_doc: 'mfg/issues',
 }

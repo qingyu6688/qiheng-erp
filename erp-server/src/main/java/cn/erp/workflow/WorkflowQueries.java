@@ -198,7 +198,7 @@ public class WorkflowQueries {
         if (!actor.hasPermission("cost:view")
                 && (instance.get("business_type").equals("stock_adjustment")
                         || instance.get("business_type").equals("document_reversal")
-                                && Set.of("stock_adjustment", "stock_misc_doc", "goods_receipt", "purchase_return")
+                                && Set.of("stock_adjustment", "stock_misc_doc", "goods_receipt", "purchase_return", "mfg_issue_doc", "mfg_receipt_doc")
                                         .contains(Objects.toString(summary.get("sourceType"), ""))))
             summary.remove("totalAmount");
         result.put("summary", summary);

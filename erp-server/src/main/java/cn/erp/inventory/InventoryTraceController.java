@@ -13,7 +13,8 @@ class InventoryTraceController {
     private static final Set<String> PICK_PERMISSIONS=Set.of("inventory:view","goods_receipt:create","goods_receipt:update",
             "purchase_return:create","purchase_return:update","sales_return:create","sales_return:update","shipment:create","shipment:update",
             "stock_adjustment:create","stock_adjustment:update","stock_transfer:create","stock_transfer:update","stock_transfer:receive",
-            "stock_count:create","stock_count:update","stock_count:record_counts","stock_misc_doc:create","stock_misc_doc:update");
+            "stock_count:create","stock_count:update","stock_count:record_counts","stock_misc_doc:create","stock_misc_doc:update",
+            "mfg_issue:create","mfg_issue:update","mfg_receipt:create","mfg_receipt:update");
     private final AccessService access;
     private final InventoryTraceQueries queries;
 

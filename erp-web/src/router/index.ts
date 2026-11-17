@@ -10,6 +10,7 @@ import { reportSpecs, reportPermission } from '../types/reporting'
 import { documentPermission } from '../types/documents'
 import { importSpecs } from '../types/file-jobs'
 import { crmCoreNavigation, crmCycleNavigation } from '../types/crm-navigation'
+import { manufacturingNavigation } from '../types/manufacturing'
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -44,6 +45,15 @@ export const router = createRouter({
       path: '/',
       component: () => import('../components/AppShell.vue'),
       children: [
+        ...manufacturingNavigation.flatMap(({ area, title, permission }) =>
+          [area, ...(['work-orders', 'issues', 'receipts'].includes(area) ? [area + '/:id'] : [])].map((path) => ({
+            path: 'mfg/' + path,
+            name: 'mfg-' + area + (path.endsWith('/:id') ? '-detail' : ''),
+            component: () => import('../pages/mfg/ManufacturingPage.vue'),
+            props: { area },
+            meta: { company: true, title, permission, allPermissions: area === 'cost-periods' ? ['cost:view'] : [] },
+          })),
+        ),
         ...crmCoreNavigation.map(({ kind, title, permission }) => ({
           path: 'crm/' + kind,
           name: 'crm-' + kind,

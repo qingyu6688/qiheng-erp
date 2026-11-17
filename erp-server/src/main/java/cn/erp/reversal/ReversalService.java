@@ -34,7 +34,8 @@ public class ReversalService {
         date(input.businessDate());
         sources.head(scope,input.sourceType(),input.sourceId(),false);
         return execute(scope,"create",key,input,201,()->{
-            finance.period(scope,input.businessDate());
+            long period=finance.period(scope,input.businessDate());
+            sources.prepare(scope,input.sourceType(),input.sourceId(),period,input.businessDate());
             var head=sources.head(scope,input.sourceType(),input.sourceId(),true);sources.posted(head,input.sourceType());
             putaway.requireReversible(scope,input.sourceType(),input.sourceId());
             progress.lock(scope,input.sourceType(),input.sourceId());sources.dependencies(scope,input.sourceType(),input.sourceId());
@@ -56,7 +57,9 @@ public class ReversalService {
         return execute(scope,action,key,List.of(id,input),200,()->{
             workflow.guard(scope,"document_reversal",id,action);
             var snapshot=find(scope,id,false);String type=snapshot.get("source_type").toString();long source=id(snapshot,"source_id");
-            long period=action.equals("post")?finance.period(scope,((java.sql.Date)snapshot.get("business_date")).toLocalDate()):0;
+            var day=((java.sql.Date)snapshot.get("business_date")).toLocalDate();
+            long period=action.equals("post")?finance.period(scope,day):0;
+            if(action.equals("post"))sources.prepare(scope,type,source,period,day);
             var head=sources.head(scope,type,source,true);progress.lock(scope,type,source);
             var before=find(scope,id,true);version(before,input.version());
             if(action.equals("approve")||action.equals("reject")) {
@@ -86,11 +89,13 @@ public class ReversalService {
     @Transactional(readOnly=true)
     public Map<String,Object> list(CompanyAccess scope,String status,Long cursor,int limit) {
         long before=cursor(cursor,limit);if(status!=null&&!Set.of("pending","approved","posted","rejected").contains(status))throw invalid("冲销状态无效");
-        var allowed=ReversalSources.TYPES.stream().filter(type->scope.hasPermission(type+":view")).sorted().toList();
+        var allowed=ReversalSources.TYPES.stream().filter(type->scope.hasPermission(ManufacturingReversalPort.viewPermission(type))).sorted().toList();
         var parts=new ArrayList<String>();var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),before));
         if(status!=null){args.add(status);}
         for(String type:allowed) {
-            if(scope.allWarehouses()||Set.of("receipt","payment","account_transfer").contains(type))parts.add("r.source_type='"+type+"'");
+            if(ManufacturingReversalPort.supports(type)) {
+                parts.add("(r.source_type='"+type+"' AND EXISTS(SELECT 1 FROM "+type+" h WHERE h.tenant_id=r.tenant_id AND h.company_id=r.company_id AND h.id=r.source_id AND "+ManufacturingScope.stockCondition(scope,"h")+"))");
+            } else if(scope.allWarehouses()||Set.of("receipt","payment","account_transfer").contains(type))parts.add("r.source_type='"+type+"'");
             else if(!scope.warehouseIds().isEmpty()) {
                 parts.add("(r.source_type='"+type+"' AND EXISTS(SELECT 1 FROM "+type+" h WHERE h.tenant_id=r.tenant_id AND h.company_id=r.company_id AND h.id=r.source_id AND h.warehouse_id IN("+String.join(",",Collections.nCopies(scope.warehouseIds().size(),"?"))+")))");
                 args.addAll(scope.warehouseIds());
@@ -98,7 +103,7 @@ public class ReversalService {
         }
         if(parts.isEmpty())return page(List.of(),limit);
         args.add(limit+1);
-        var rows=jdbc.queryForList("SELECT r.id FROM document_reversal r WHERE r.tenant_id=? AND r.company_id=? AND r.id<?"+(status==null?"":" AND r.status=?")+" AND ("+String.join(" OR ",parts)+") ORDER BY r.id DESC LIMIT ?",args.toArray());
+        var rows=jdbc.queryForList("SELECT r.id FROM document_reversal r WHERE r.tenant_id=? AND r.company_id=? AND r.id<?"+(status==null?"":" AND r.status=?")+OrgOwnership.filter(scope,"r")+" AND ("+String.join(" OR ",parts)+") ORDER BY r.id DESC LIMIT ?",args.toArray());
         var items=rows.stream().limit(limit).map(candidate->get(scope,id(candidate,"id"))).toList();
         var result=new LinkedHashMap<String,Object>();result.put("items",items);result.put("nextCursor",rows.size()>limit?items.getLast().get("id"):null);return result;
     }

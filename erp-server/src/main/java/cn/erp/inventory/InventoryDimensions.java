@@ -394,7 +394,7 @@ class InventoryDimensions {
             }else{
                 if(old==null)throw missing();
                 if(inbound&&!("reversed".equals(prior)||"in_transit".equals(prior)&&"transfer_in".equals(posting.movementType())
-                        ||"shipped".equals(prior)&&Set.of("sales_return_in","sales_reject_in","stock_misc_return_in").contains(posting.movementType())
+                        ||"shipped".equals(prior)&&Set.of("sales_return_in","sales_reject_in","stock_misc_return_in","mfg_return_in").contains(posting.movementType())
                         ||"supplier_returned".equals(prior)&&"purchase_in".equals(posting.movementType())))throw serialConflict();
                 if(!inbound&&(!Set.of("in_stock","returned","reserved","quality_hold").contains(prior)
                         ||"quality_hold".equals(prior)&&!"quality_hold".equals(hold)

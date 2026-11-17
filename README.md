@@ -15,6 +15,7 @@
 | 采购 | 从请购转采购订单，经审批后收货入库并确认应付。支持采购退货、供应商退款、付款和核销。 |
 | 库存 | 查询在库、可用、预留和冻结数量。支持调拨、盘点、库存调整及移动加权成本核算。 |
 | 仓储作业（候选） | 按仓启用上架、波次拣货和发货复核，支持移库、补货、库位盘点、标签打印及 PDA 扫码。手机 H5 可执行仓储作业和审批。 [仓储操作手册](docs/用户使用手册.md#m17-仓储作业与移动端本机候选) |
+| 生产一期（候选） | 多版本 BOM、替代料与生产工单，支持领退料、分批完工入库、月末费用分摊及生产差异过账。 [生产操作手册](docs/用户使用手册.md#m18-生产一期本机候选) |
 | 往来与资金 | 导入或录入期初数据，管理应收应付、收付款、资金账户和内部转账。支持单据冲销、八类对账及期间关账、重开。 |
 | 财务总账（候选） | 公司独立人民币账套、两套准则样例、七维辅助、手工及业务凭证、三表指标、期末结转；支持信用、催收和坏账，见[M12使用说明](docs/M12财务总账使用说明.md)。 |
 | 内部 AI 助手（候选） | 按企业、角色和部门检索内部资料，回答附可核对的引用。知识维护人员可导入资料、调整片段和审核 Wiki，管理员可配置模型、只读工具和用量。见 [M13 使用与验收说明](docs/M13人工智能使用与验收.md)。 |
@@ -123,6 +124,7 @@ M11 workflow work adds Flowable 8.0.0 with a SIMPLE designer, immutable model re
 | Purchasing | Convert requisitions into purchase orders, approve orders, and post receipts to inventory and accounts payable. Process returns, vendor refunds, supplier payments, and settlement. |
 | Inventory | View on-hand, available, reserved, and blocked quantities. Record transfers, stock counts, and adjustments. The system calculates costs using a moving weighted average. |
 | Warehouse operations (candidate) | Configure putaway, wave picking, and packing checks per warehouse. Manage bin moves, replenishment, bin counts, and labels. Mobile web supports scanning and approvals, and Android PDA resources support device pairing. [Warehouse guide (Chinese)](docs/用户使用手册.md#m17-仓储作业与移动端本机候选) |
+| Manufacturing (candidate) | Maintain BOM versions and substitutes, release work orders, issue or return material, receive finished goods in batches, and post month-end cost variances. [Manufacturing guide (Chinese)](docs/用户使用手册.md#m18-生产一期本机候选) |
 | Finance | Enter or import opening balances, manage receivables and payables, and record receipts, payments, and transfers between accounts. Reverse transactions, run eight reconciliation checks, and close or reopen accounting periods. |
 | Internal AI assistant (candidate) | Ask questions with verifiable citations scoped to the tenant, roles, and departments. Maintain document segments and review Wiki revisions. Admins can set model routes, read-only tools, and usage limits. See the [M13 guide and acceptance checklist (Chinese)](docs/M13人工智能使用与验收.md). |
 | Platform phase two (candidate) | Enterprise SSO, role-enforced MFA, custom fields, numbering rules, signed API and webhook integrations, and general approvals with dynamic forms. See the [M14 guide and acceptance checklist (Chinese)](docs/M14平台二期使用与验收.md). |

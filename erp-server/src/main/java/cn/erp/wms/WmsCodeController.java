@@ -14,7 +14,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/wms/scan")
 class WmsCodeController {
     private static final Set<String> SCANNERS=Set.of("wms_task:view","wms_move:view","wms_pack:view",
-            "goods_receipt:create","goods_receipt:update","stock_count:record_counts","inventory:view","label:print");
+            "goods_receipt:create","goods_receipt:update","stock_count:record_counts","inventory:view","label:print",
+            "mfg_issue:create","mfg_issue:update","mfg_receipt:create","mfg_receipt:update");
     private final AccessService access;
     private final WmsCodes codes;
 

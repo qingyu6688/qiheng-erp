@@ -6,6 +6,7 @@ import CountPanel from '../../components/CountPanel.vue'
 import OutboundPanel from '../../components/OutboundPanel.vue'
 import MovePanel from '../../components/MovePanel.vue'
 import ReceiptPanel from '../../components/ReceiptPanel.vue'
+import ProductionIssuePanel from '../../components/ProductionIssuePanel.vue'
 import StockPanel from '../../components/StockPanel.vue'
 import ApprovalPanel from '../../components/ApprovalPanel.vue'
 import LabelPanel from '../../components/LabelPanel.vue'
@@ -17,9 +18,10 @@ import type { TaskStatistics } from '../../types/work'
 
 defineOptions({ name: 'MobileWorkspace' })
 
-type Menu = 'home' | 'receive' | 'putaway' | 'pick' | 'wave' | 'pack' | 'move' | 'replenish' | 'count' | 'labels' | 'stock' | 'approval' | 'pair'
-const operations: { key: Menu; title: string; permission?: string }[] = [
+type Menu = 'home' | 'receive' | 'production-issue' | 'putaway' | 'pick' | 'wave' | 'pack' | 'move' | 'replenish' | 'count' | 'labels' | 'stock' | 'approval' | 'pair'
+const operations: { key: Menu; title: string; permission?: string; related?: string }[] = [
   { key: 'receive', title: '采购收货', permission: 'goods_receipt:view' },
+  { key: 'production-issue', title: '生产领料', permission: 'mfg_issue:view', related: 'mfg_work_order:view' },
   { key: 'putaway', title: '上架', permission: 'wms_task:view' },
   { key: 'pick', title: '拣货', permission: 'wms_task:view' },
   { key: 'wave', title: '波次', permission: 'wms_wave:view' },
@@ -44,7 +46,7 @@ const doneToday = ref<number>()
 const pendingToday = ref<number>()
 const statisticsError = ref('')
 const displayed = computed(() => operations.filter(
-  (item) => !item.permission || session.profile?.permissions.includes(item.permission),
+  (item) => (!item.permission || session.profile?.permissions.includes(item.permission)) && (!item.related || session.profile?.permissions.includes(item.related)),
 ))
 const company = computed(() => session.profile?.companies.find((item) => item.id === session.company))
 const index = computed(() => session.profile?.companies.findIndex((item) => item.id === session.company) ?? 0)
@@ -166,6 +168,7 @@ function copyPairingCode(): void {
           </template>
         </view>
         <ReceiptPanel v-else-if="menu === 'receive'" />
+        <ProductionIssuePanel v-else-if="menu === 'production-issue'" />
         <TaskPanel v-else-if="menu === 'putaway' || menu === 'pick'" :key="menu" :type="menu" />
         <OutboundPanel v-else-if="menu === 'wave' || menu === 'pack'" :key="menu" :type="menu" />
         <MovePanel v-else-if="menu === 'move' || menu === 'replenish'" :key="menu" :type="menu" />
