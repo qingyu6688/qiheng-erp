@@ -2,13 +2,13 @@ import { expect, test, type Page } from '@playwright/test'
 import { createHmac } from 'node:crypto'
 import { env } from 'node:process'
 
-async function credentials(page: Page): Promise<void> {
+async function credentials(page: Page, username = 'admin'): Promise<void> {
   if (!env.ERP_E2E_PASSWORD || !/^E2E-[a-f0-9]{12}$/.test(env.ERP_E2E_TENANT_CODE ?? '')) {
     throw new Error('平台二期验收需要随机测试企业和临时口令')
   }
   await page.goto('/login')
   await page.getByLabel('企业编码').fill(env.ERP_E2E_TENANT_CODE!)
-  await page.getByLabel('用户名').fill('admin')
+  await page.getByLabel('用户名').fill(username)
   await page.locator('#password').fill(env.ERP_E2E_PASSWORD)
   await page.getByRole('button', { name: '登录', exact: true }).click()
 }
@@ -51,7 +51,8 @@ test('平台二期可从工作台访问并预览新编号', async ({ page }) => 
 })
 
 test('首次绑定验证器后，密码登录要求一次性恢复码或验证码', async ({ page }) => {
-  await credentials(page)
+  const username = 'mfa_tester'
+  await credentials(page, username)
   await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
   await page.goto('/account/security')
   await page.getByRole('button', { name: '绑定验证器' }).click()
@@ -64,7 +65,7 @@ test('首次绑定验证器后，密码登录要求一次性恢复码或验证�
   await page.getByRole('button', { name: '已保存', exact: true }).click()
   await page.getByRole('button', { name: '退出登录' }).click()
   await expect(page.getByRole('heading', { name: '登录工作台' })).toBeVisible()
-  await credentials(page)
+  await credentials(page, username)
   await expect(page.getByRole('heading', { name: '账号安全验证' })).toBeVisible()
   await page.getByLabel('验证码或恢复码').fill(recovery)
   await page.getByRole('button', { name: '验证', exact: true }).click()
