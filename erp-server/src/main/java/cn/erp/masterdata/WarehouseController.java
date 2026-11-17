@@ -72,6 +72,21 @@ class WarehouseController {
             @RequestParam String operation, @RequestParam String key) {
         if (!operation.startsWith("warehouse.")) {
             String permission = switch (operation) {
+                case "gl_config.create", "gl_config.save" -> "gl_config:edit";
+                case "gl_config.confirm" -> "gl_config:confirm";
+                case "gl_opening.save" -> "gl_opening:edit";
+                case "gl_opening.activate", "gl_opening.deactivate" -> "gl_opening:activate";
+                case "gl_voucher.save", "gl_voucher.submit", "gl_voucher.withdraw", "gl_voucher.delete", "gl_voucher.organize" -> "gl_voucher:edit";
+                case "gl_voucher.approve", "gl_voucher.reject" -> "gl_voucher:approve";
+                case "gl_voucher.post" -> "gl_voucher:post";
+                case "gl_voucher.reverse" -> "gl_voucher:reverse";
+                case "gl_sync.run" -> "gl_sync:run";
+                case "credit_limit.save", "credit_increase.create", "credit_increase.submit", "credit_increase.cancel" -> "credit_limit:edit";
+                case "credit_increase.approve", "credit_increase.reject" -> "credit_limit:approve";
+                case "bad_debt.create", "bad_debt.submit" -> "bad_debt:edit";
+                case "bad_debt.approve", "bad_debt.reject" -> "bad_debt:approve";
+                case "aging_config.save" -> "aging_config:edit";
+                case "collection.create", "collection.follow" -> "collection:edit";
                 case "partner.create" -> "partner:create";
                 case "partner.enable", "partner.disable" -> "partner:update";
                 case "partner_contact.create" -> "partner_contact:create";
@@ -124,7 +139,7 @@ class WarehouseController {
                      "invoice_registration.create", "invoice_registration.void" -> operation.replace('.', ':');
                 default -> throw new ApiException(404, "NOT_FOUND", "未找到该操作结果");
             };
-            var scope = operation.startsWith("cash_account.") || operation.startsWith("period.") || operation.equals("reconciliation.run")
+            var scope = operation.matches("(?:gl_config|gl_opening|gl_voucher|gl_sync|credit_limit|credit_increase|bad_debt|aging_config|collection)\\..+") || operation.startsWith("cash_account.") || operation.startsWith("period.") || operation.equals("reconciliation.run")
                     || operation.equals("outbox.replay") || operation.startsWith("org_department.") || operation.equals("user.assign_organization") || operation.equals("role.assign_data_scope")
                     || operation.matches("(?:sales_order|shipment|receipt|sales_return|refund_request|settlement|invoice_registration)\\..+")
                     || operation.matches("(?:purchase_requisition|purchase_order|goods_receipt|purchase_return|payment|account_transfer|stock_adjustment|opening_entry|stock_transfer|stock_count|reversal)\\..+")

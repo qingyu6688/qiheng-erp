@@ -63,6 +63,8 @@ export function modelProblems(root: WorkflowNode): string[] {
   visitNodes(root, (node) => {
     if (ids.has(node.id)) problems.push('节点编号重复：' + node.name)
     ids.add(node.id)
+    if (node.creditApproval && node.type !== 'approver')
+      problems.push(node.name + '信用放行必须使用人工审批节点')
     if (!node.name.trim()) problems.push('请填写节点名称')
     if (node.type === 'approver' && node.assignee?.emptyHandler === 'skip')
       problems.push(node.name + '不能跳过人工复核')

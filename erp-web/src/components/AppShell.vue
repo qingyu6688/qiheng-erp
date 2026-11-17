@@ -48,6 +48,22 @@ interface NavigationItem {
 }
 const definitions = [
   {
+    title: '财务总账',
+    icon: Wallet,
+    items: [
+      { path: 'gl/book', title: '账套与期初', permission: 'gl_config:view' },
+      { path: 'gl/config', title: '财务基础配置', permission: 'gl_config:view' },
+      { path: 'gl/vouchers', title: '总账凭证', permission: 'gl_voucher:view' },
+      { path: 'gl/ledgers', title: '财务账簿', permission: 'gl_ledger:view' },
+      { path: 'gl/reports', title: '财务报表', permission: 'gl_report:view' },
+      { path: 'gl/closing', title: '财务结账', permission: 'gl_closing:close' },
+      { path: 'ar/credit', title: '客户信用', permission: 'credit_limit:view' },
+      { path: 'ar/aging', title: '账龄区间', permission: 'credit_limit:view' },
+      { path: 'ar/collections', title: '催收计划', permission: 'collection:view' },
+      { path: 'ar/bad-debt', title: '坏账处理', permission: 'bad_debt:view' },
+    ],
+  },
+  {
     title: '审批中心',
     icon: Tickets,
     items: [
@@ -124,6 +140,7 @@ const definitions = [
         title: '导入与导出',
         any: [
           ...importSpecs.map((spec) => 'import:' + spec.type),
+          'gl_export:create',
           ...reportSpecs.map((spec) => reportPermission(spec.type, 'export')),
         ],
       },

@@ -3,12 +3,12 @@ package cn.erp.shared;
 /** 仅限服务器同线程的业务回调凭据，客户端不能通过请求字段构造。 */
 public final class WorkflowContext implements AutoCloseable {
     private record Permit(
-            long tenant, long company, long user, String type, long id, String priceFingerprint) {}
+            long tenant, long company, long user, String type, long id, String priceFingerprint,String creditFingerprint) {}
 
     private static final ThreadLocal<Permit> CURRENT = new ThreadLocal<>();
     private final Permit previous;
 
-    private WorkflowContext(ActorScope actor, String type, long id, String fingerprint) {
+    private WorkflowContext(ActorScope actor, String type, long id, String fingerprint,String creditFingerprint) {
         previous = CURRENT.get();
         CURRENT.set(
                 new Permit(
@@ -17,16 +17,19 @@ public final class WorkflowContext implements AutoCloseable {
                         actor.userId(),
                         type,
                         id,
-                        fingerprint));
+                        fingerprint,creditFingerprint));
     }
 
     public static WorkflowContext open(ActorScope actor, String type, long id) {
-        return new WorkflowContext(actor, type, id, null);
+        return new WorkflowContext(actor, type, id, null,null);
     }
 
     public static WorkflowContext open(ActorScope actor, String type, long id, String fingerprint) {
-        return new WorkflowContext(actor, type, id, fingerprint);
+        return new WorkflowContext(actor, type, id, fingerprint,null);
     }
+
+    public static WorkflowContext open(ActorScope actor,String type,long id,String priceFingerprint,String creditFingerprint) {return new WorkflowContext(actor,type,id,priceFingerprint,creditFingerprint);}
+    public static boolean creditApproved(ActorScope actor,long id,String fingerprint) {return fingerprint!=null&&allows(actor,"sales_order",id)&&fingerprint.equals(CURRENT.get().creditFingerprint());}
 
     public static boolean allows(ActorScope actor, String type, long id) {
         var permit = CURRENT.get();

@@ -19,6 +19,9 @@ import static cn.erp.salesorder.SalesOrderQueries.*;
 @Service
 @Transactional
 public class SalesOrderService {
+    private CreditPort credit=new CreditPort() {};
+    @org.springframework.beans.factory.annotation.Autowired
+    void credit(CreditPort credit) {this.credit=credit;}
     private WorkflowPort workflow;
     private MinimumSalePrice minimumPrices;
     @org.springframework.beans.factory.annotation.Autowired
@@ -82,15 +85,14 @@ public class SalesOrderService {
     public Map<String,Object> command(CompanyAccess scope,long id,String action,String key,SalesOrderModels.Command input) {
         queries.header(scope,id,false);
         return execute(scope,action,key,List.of(id,input),200,()->{
-            var before=queries.header(scope,id,true);version(input.version(),before);
-            workflow.guard(scope,"sales_order",id,action);
+            var before=creditHeader(scope,id,action);version(input.version(),before);
             var rows=queries.lines(scope,id,true);
             switch(action) {
-                case "submit" -> {state(before,"draft");active(scope,before,rows,false);minimumPrices.submitting(scope,id);changeState(scope,id,"pending");workflow.start(scope,"sales_order",id,input.workflowAssignees());approval(scope,id,before,"submit",input.comment());}
+                case "submit" -> {state(before,"draft");active(scope,before,rows,false);minimumPrices.submitting(scope,id);credit.order(scope,id,"submit");changeState(scope,id,"pending");workflow.start(scope,"sales_order",id,input.workflowAssignees());approval(scope,id,before,"submit",input.comment());}
                 case "withdraw" -> {state(before,"pending");changeState(scope,id,"draft");approval(scope,id,before,"withdraw",input.comment());}
                 case "reject" -> {state(before,"pending");reason(input.comment());changeState(scope,id,"draft");approval(scope,id,before,"reject",input.comment());}
                 case "approve" -> {
-                    state(before,"pending");separateApprover(scope,before);minimumPrices.approving(scope,id);active(scope,before,rows,true);reserveRows(scope,before,rows);
+                    state(before,"pending");separateApprover(scope,before);minimumPrices.approving(scope,id);credit.order(scope,id,"approve");active(scope,before,rows,true);reserveRows(scope,before,rows);
                     jdbc.update("UPDATE sales_order SET status='approved',revision=revision+1,approved_by=?,approved_at=UTC_TIMESTAMP(3),version=version+1,updated_by=? WHERE id=? AND tenant_id=? AND company_id=?",
                             scope.userId(),scope.userId(),id,scope.tenantId(),scope.companyId());
                     approval(scope,id,before,"approve",input.comment());
@@ -145,7 +147,7 @@ public class SalesOrderService {
     public Map<String,Object> change(CompanyAccess scope,long id,String key,SalesOrderModels.Input input) {
         queries.header(scope,id,false);
         return execute(scope,"change",key,List.of(id,input),200,()->{
-            var before=queries.header(scope,id,true);version(input.version(),before);state(before,"approved","closed");reason(input.reason());
+            var before=creditHeader(scope,id,"change");version(input.version(),before);state(before,"approved","closed");reason(input.reason());
             BusinessPeople.assign(jdbc,scope,"sales_order",id,input.salesUserId());
             var rows=queries.lines(scope,id,true);var preview=writer.price(scope,input);
             if(number(before,"customer_id")!=identifier(input.customerId())||flag(before.get("price_tax_inclusive"))!=preview.priceTaxInclusive()) {
@@ -171,7 +173,7 @@ public class SalesOrderService {
         return execute(scope,"change_"+action,key,List.of(changeId,input),200,()->{
             var changes=jdbc.queryForList("SELECT * FROM document_change WHERE tenant_id=? AND company_id=? AND id=? AND document_type='sales_order'",scope.tenantId(),scope.companyId(),changeId);
             if(changes.isEmpty()) {throw missing();}
-            long id=number(changes.getFirst(),"document_id");var before=queries.header(scope,id,true);state(before,"change_pending");
+            long id=number(changes.getFirst(),"document_id");var before=creditHeader(scope,id,"change_"+action);state(before,"change_pending");
             var change=jdbc.queryForMap("SELECT * FROM document_change WHERE id=? FOR UPDATE",changeId);
             version(input.version(),change);
             if(!change.get("status").equals("pending")) {throw conflict("变更单已处理");}
@@ -192,7 +194,7 @@ public class SalesOrderService {
             SalesOrderModels.Input input,PricingModels.Preview preview,long changeId) {
         writer.write(scope,id,input,preview);
         jdbc.update("UPDATE sales_order SET status='approved',revision=revision+1,version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?",scope.userId(),scope.tenantId(),scope.companyId(),id);
-        var current=queries.header(scope,id,false);var lines=queries.lines(scope,id,true);active(scope,current,lines,true);
+        var current=queries.header(scope,id,false);if(decimal(current,"total_amount").compareTo(decimal(before,"total_amount"))>0)credit.order(scope,id,"change");var lines=queries.lines(scope,id,true);active(scope,current,lines,true);
         boolean deliveryChanged=!Objects.equals(date(before.get("delivery_date")),input.deliveryDate());
         orderReservations.adjust(scope,rows,lines,changeId,expiry(scope,current),deliveryChanged);queries.refreshProgress(scope,id);
     }
@@ -287,6 +289,7 @@ public class SalesOrderService {
 
     private List<Map<String,Object>> warnings(CompanyAccess scope,long id) {
         var result=new ArrayList<Map<String,Object>>();
+        var info=credit.inspect(scope,id);if(Boolean.TRUE.equals(info.get("overCreditLimit"))&&"warn".equals(info.get("creditPolicy")))result.add(Map.of("type","CREDIT_WARNING","message","客户信用已超额或超期，当前策略允许提交，请及时收款并关注发货时的复核"));
         for(var row:queries.lines(scope,id,false)) {if(row.get("warehouse_id")!=null) {
             var key=new Key(number(row,"warehouse_id"),number(row,"sku_id"));var stock=inventory.balance(scope,key);
             if(stock.available().compareTo(decimal(row,"base_qty"))<0) {
@@ -327,6 +330,10 @@ public class SalesOrderService {
         jdbc.update("UPDATE sales_order SET status=?,version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?",state,scope.userId(),scope.tenantId(),scope.companyId(),id);
     }
     private void touch(CompanyAccess scope,long id) {jdbc.update("UPDATE sales_order SET version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?",scope.userId(),scope.tenantId(),scope.companyId(),id);}
+    private Map<String,Object> creditHeader(CompanyAccess scope,long id,String action) {
+        var snapshot=queries.header(scope,id,false);workflow.guard(scope,"sales_order",id,action);credit.lock(scope,number(snapshot,"customer_id"));var current=queries.header(scope,id,true);
+        if(number(snapshot,"customer_id")!=number(current,"customer_id")||number(snapshot,"wf_instance_id")!=number(current,"wf_instance_id"))throw conflict("订单客户或审批实例已变化，请刷新重试");return current;
+    }
     private Map<String,Object> summary(CompanyAccess scope,long id) {var row=queries.header(scope,id,false);return new LinkedHashMap<>(Map.of("id",Long.toString(id),"documentNo",row.get("order_no"),"status",row.get("status"),"version",row.get("version"),"revision",row.get("revision")));}
     private void version(Long requested,Map<String,Object> row) {if(requested==null||requested<0) {throw invalid("请提供有效版本号");}if(requested!=number(row,"version")) {throw new ApiException(409,"VERSION_CONFLICT","订单已被他人修改，请刷新",Map.of("currentVersion",row.get("version")));}}
     private void state(Map<String,Object> row,String... states) {if(!Arrays.asList(states).contains(row.get("status"))) {throw conflict("当前订单状态不允许执行此操作");}}

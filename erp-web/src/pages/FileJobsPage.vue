@@ -29,8 +29,10 @@ const allowedImports = computed(() =>
         (item.type !== 'opening_stock' || session.can('cost:view')),
     ),
   ),
-  canExport = computed(() =>
-    reportSpecs.some((item) => session.can(reportPermission(item.type, 'export'))),
+  canExport = computed(
+    () =>
+      session.can('gl_export:create') ||
+      reportSpecs.some((item) => session.can(reportPermission(item.type, 'export'))),
   )
 const type = ref(''),
   file = ref<File>(),
@@ -62,6 +64,20 @@ function title(job: FileJob): string {
   return (
     importSpecs.find((item) => item.type === job.jobType)?.title ??
     reportSpecs.find((item) => item.type.replaceAll('-', '_') === job.exportType)?.title ??
+    (
+      {
+        'gl-vouchers': '财务凭证',
+        'gl-balance': '科目余额表',
+        'gl-general': '总账',
+        'gl-detail': '明细账',
+        'gl-multi_column': '多栏账',
+        'gl-quantity': '数量金额账',
+        'gl-auxiliary': '辅助核算余额表',
+        'gl-balance_sheet': '资产负债表',
+        'gl-income_statement': '利润表',
+        'gl-cash_flow': '现金流量表',
+      } as Record<string, string>
+    )[job.exportType || ''] ??
     '文件任务'
   )
 }
@@ -458,7 +474,7 @@ onBeforeUnmount(() => {
       使用 UTF-8 编码 CSV，每份最多 10,000
       行、20MB。库存期初每个有效行生成一张草稿，需在库存调整中审核过账；错误行修正后另存文件重传。
     </p>
-    <p v-else>在各报表中选择条件并点击“导出报表”。完成后 24 小时内可下载 CSV 文件。</p>
+    <p v-else>在凭证、账簿或报表页面创建导出任务，完成后 24 小时内可下载 CSV 或 Excel 文件。</p>
   </section>
   <section class="panel table-panel">
     <el-table :data="rows" row-key="id"

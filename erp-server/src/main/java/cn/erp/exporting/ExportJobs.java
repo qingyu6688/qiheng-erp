@@ -27,13 +27,17 @@ public class ExportJobs {
     public ExportJobs(JdbcTemplate jdbc,ObjectMapper json,ExportAccess access,BusinessCommands commands,AuditService audit,ObjectFiles files,ObjectCompensation compensation) {
         this.jdbc=jdbc;this.json=json;this.access=access;this.commands=commands;this.audit=audit;this.files=files;this.compensation=compensation;
     }
-    public record Input(String exportType,ReportQuery query) {}
-    public record Claimed(long id,long tenant,long company,long user,String owner,ReportType type,ReportQuery query,ExportAccess.Scope initial) {}
-    public record Download(String fileName,byte[] bytes) {}
+    private FinancialExportPort financial;
+    @org.springframework.beans.factory.annotation.Autowired
+    void financial(FinancialExportPort financial) {this.financial=financial;}
+    public record Input(String exportType,ReportQuery query,Map<String,Object> financeQuery) {public Input(String exportType,ReportQuery query){this(exportType,query,null);}}
+    public record Claimed(long id,long tenant,long company,long user,String owner,ReportType type,ReportQuery query,ExportAccess.Scope initial,String financialType,Map<String,Object> financialQuery) {public Claimed(long id,long tenant,long company,long user,String owner,ReportType type,ReportQuery query,ExportAccess.Scope initial){this(id,tenant,company,user,owner,type,query,initial,null,null);}}
+    public record Download(String fileName,byte[] bytes,String contentType) {public Download(String fileName,byte[] bytes){this(fileName,bytes,"text/csv");}}
 
     @Transactional
     public Map<String,Object> create(CompanyAccess actor,String key,Input input) {
         if(input==null) { throw new ApiException(400,"VALIDATION_FAILED","请填写导出条件"); }
+        if(FinancialExportPort.supports(input.exportType())) return createFinancial(actor,key,input);
         var type=ReportType.parse(input.exportType());type.authorize(actor,true);
         var query=(input.query()==null?new ReportQuery(null,null,null,null,null,null,false):input.query()).normalized();
         if(query.warehouseId()!=null && !actor.allowsWarehouse(query.warehouseId())) { throw missing(); }
@@ -65,17 +69,20 @@ public class ExportJobs {
     public void ready(CompanyAccess actor,long id) { authorize(actor,find(actor,id),true); }
     public Download download(CompanyAccess actor,long id) {
         var row=find(actor,id);authorize(actor,row,true);
-        var attachments=jdbc.queryForList("SELECT file_name,storage_key FROM attachment WHERE tenant_id=? AND company_id=? AND id=? AND owner_type='export_job' AND owner_id=? AND status='active'",actor.tenantId(),actor.companyId(),row.get("attachment_id"),id);
+        var attachments=jdbc.queryForList("SELECT file_name,storage_key,content_type FROM attachment WHERE tenant_id=? AND company_id=? AND id=? AND owner_type='export_job' AND owner_id=? AND status='active'",actor.tenantId(),actor.companyId(),row.get("attachment_id"),id);
         if(attachments.isEmpty()) { throw missing(); }
         var attachment=attachments.getFirst();
         byte[] bytes=files.read(attachment.get("storage_key").toString());
         // 文件读取之后再次获取即时权限，避免远端对象读取期间撤权仍交付文件。
         authorize(access.current(actor.tenantId(),actor.companyId(),actor.userId()),row,true);
-        return new Download(attachment.get("file_name").toString(),bytes);
+        return new Download(attachment.get("file_name").toString(),bytes,attachment.get("content_type").toString());
     }
     private void authorize(CompanyAccess actor,Map<String,Object> row,boolean download) {
-        var type=ReportType.parse(row.get("export_type").toString());type.authorize(actor,true);
-        if(row.get("result_scope")!=null) { access.covers(actor,decode(row.get("result_scope"),ExportAccess.Scope.class),type); }
+        String exportType=row.get("export_type").toString();
+        boolean finance=FinancialExportPort.supports(exportType);
+        var type=finance?null:ReportType.parse(exportType);
+        if(finance) {financial.authorize(actor,exportType);financialScope(decode(row.get("request_scope"),ExportAccess.Scope.class));if(row.get("result_scope")!=null)financialScope(decode(row.get("result_scope"),ExportAccess.Scope.class));}else type.authorize(actor,true);
+        if(!finance&&row.get("result_scope")!=null) { access.covers(actor,decode(row.get("result_scope"),ExportAccess.Scope.class),type); }
         if(expired(row)) { if(download) { throw new ApiException(410,"EXPORT_EXPIRED","导出文件已过期，请重新导出"); }return; }
         if(!"succeeded".equals(row.get("status")) && download) { throw new ApiException(409,"EXPORT_NOT_READY","导出文件尚未生成成功"); }
     }
@@ -106,15 +113,20 @@ public class ExportJobs {
         if(rows.isEmpty()) { return null; }
         var row=rows.getFirst();String owner=UUID.randomUUID().toString();
         jdbc.update("UPDATE export_job SET status='running',attempts=attempts+1,lease_owner=?,lease_until=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 2 MINUTE),error_message=NULL WHERE id=?",owner,row.get("id"));
+        if(FinancialExportPort.supports(row.get("export_type").toString())) return new Claimed(number(row,"id"),number(row,"tenant_id"),number(row,"company_id"),number(row,"created_by"),owner,null,null,decode(row.get("request_scope"),ExportAccess.Scope.class),row.get("export_type").toString(),json.readValue(row.get("query_params").toString(),new tools.jackson.core.type.TypeReference<Map<String,Object>>(){}));
         return new Claimed(number(row,"id"),number(row,"tenant_id"),number(row,"company_id"),number(row,"created_by"),owner,ReportType.parse(row.get("export_type").toString()),decode(row.get("query_params"),ReportQuery.class),decode(row.get("request_scope"),ExportAccess.Scope.class));
     }
     @Transactional
     public boolean complete(Claimed job,ExportAccess.Scope scope,String storageKey,String checksum,int size,int rows,String asOf) {
-        var current=access.current(job.tenant(),job.company(),job.user());access.covers(current,scope,job.type());
+        return completeFile(job,scope,storageKey,checksum,size,rows,asOf,job.type().code()+"-"+job.id()+".csv","text/csv");
+    }
+    @Transactional
+    public boolean completeFile(Claimed job,ExportAccess.Scope scope,String storageKey,String checksum,int size,int rows,String asOf,String fileName,String contentType) {
+        var current=access.current(job.tenant(),job.company(),job.user());if(job.financialType()!=null) {financial.authorize(current,job.financialType());financialScope(scope);}else access.covers(current,scope,job.type());
         var owned=jdbc.queryForList("SELECT id FROM export_job WHERE tenant_id=? AND id=? AND lease_owner=? AND status='running' AND lease_until>=UTC_TIMESTAMP(3) AND expire_at>UTC_TIMESTAMP(3) FOR UPDATE",job.tenant(),job.id(),job.owner());
         if(owned.isEmpty()) { return false; }
         long attachment=Ids.next();
-        jdbc.update("INSERT INTO attachment(id,tenant_id,company_id,owner_type,owner_id,storage_key,file_name,content_type,size_bytes,sha256,created_by) VALUES(?,?,?,'export_job',?,?,?,'text/csv',?,?,?)",attachment,job.tenant(),job.company(),job.id(),storageKey,job.type().code()+"-"+job.id()+".csv",size,checksum,job.user());
+        jdbc.update("INSERT INTO attachment(id,tenant_id,company_id,owner_type,owner_id,storage_key,file_name,content_type,size_bytes,sha256,created_by) VALUES(?,?,?,'export_job',?,?,?,?,?,?,?)",attachment,job.tenant(),job.company(),job.id(),storageKey,fileName,contentType,size,checksum,job.user());
         jdbc.update("UPDATE export_job SET status='succeeded',attachment_id=?,row_count=?,result_scope=?,checksum=?,as_of=?,finished_at=UTC_TIMESTAMP(3),expire_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 24 HOUR),lease_owner=NULL,lease_until=NULL WHERE tenant_id=? AND id=? AND lease_owner=?",
                 attachment,rows,encode(scope),checksum,Timestamp.from(Instant.parse(asOf)),job.tenant(),job.id(),job.owner());
         compensation.associated(storageKey);
@@ -144,6 +156,16 @@ public class ExportJobs {
     }
     @Transactional
     public void removed(String key) { jdbc.update("UPDATE export_job j JOIN attachment a ON a.id=j.attachment_id SET j.object_deleted_at=UTC_TIMESTAMP(3) WHERE j.status='expired' AND a.storage_key=?",key); }
+    @SuppressWarnings({"unchecked","rawtypes"})
+    private Map<String,Object> createFinancial(CompanyAccess actor,String key,Input input) {
+        financial.authorize(actor,input.exportType());var frozen=financial.freeze(actor,input.exportType(),input.financeQuery());
+        return commands.execute(actor,"export.create",key,input,202,()->{
+            if(jdbc.queryForList("SELECT id FROM sys_user WHERE tenant_id=? AND id=? AND status='active' FOR UPDATE",actor.tenantId(),actor.userId()).isEmpty())throw new ApiException(403,"FORBIDDEN","账号不可用");
+            if(jdbc.queryForObject("SELECT COUNT(*) FROM export_job WHERE tenant_id=? AND created_by=? AND status IN('pending','running') AND expire_at>UTC_TIMESTAMP(3)",Long.class,actor.tenantId(),actor.userId())>=3)throw new ApiException(409,"EXPORT_LIMIT","同时最多运行3个导出任务，请稍后重试");
+            long id=Ids.next();jdbc.update("INSERT INTO export_job(id,tenant_id,company_id,export_type,query_params,request_scope,created_by,expire_at) VALUES(?,?,?,?,?,?,?,DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 24 HOUR))",id,actor.tenantId(),actor.companyId(),input.exportType(),encode(frozen),encode(access.capture(actor)),actor.userId());audit.record(actor,"export.create","export_job",id,null,Map.of("exportType",input.exportType()));return Map.of("taskId",Long.toString(id),"taskType","export","statusUrl","/api/v1/export-jobs/"+id);
+        },(Class)Map.class);
+    }
+    private static void financialScope(ExportAccess.Scope scope) {if(!scope.allWarehouses()||!scope.cost()||!scope.organization().allDepartments())throw new ApiException(403,"FORBIDDEN","财务导出需要可信的整家公司数据范围");}
     private String encode(Object value) {
         try { return json.writeValueAsString(value); }
         catch(JacksonException error) { throw new IllegalStateException("导出参数无法保存",error); }

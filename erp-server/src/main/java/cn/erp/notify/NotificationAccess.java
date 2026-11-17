@@ -28,6 +28,11 @@ public class NotificationAccess {
         if(!imports.isEmpty()) {params.put("importTypes",imports);sources.add("(m.source_type='import_job' AND EXISTS(SELECT 1 FROM import_job j WHERE j.tenant_id=:tenant AND j.company_id=:company AND j.id=m.source_id AND j.created_by=:user AND j.job_type IN(:importTypes)))");}
         var exports=actor.permissions().stream().filter(p->p.startsWith("export:")&&actor.hasPermission("report:"+p.substring(7))).map(p->p.substring(7)).toList();
         if(!exports.isEmpty()) {params.put("exportTypes",exports);sources.add("(m.source_type='export_job' AND EXISTS(SELECT 1 FROM export_job j WHERE j.tenant_id=:tenant AND j.company_id=:company AND j.id=m.source_id AND j.created_by=:user AND j.export_type IN(:exportTypes)))");}
+        if(actor.allWarehouses()&&actor.hasPermission("collection:view"))sources.add("(m.source_type='ar_collection_plan' AND EXISTS(SELECT 1 FROM ar_collection_plan p JOIN partner_open_item oi ON oi.tenant_id=p.tenant_id AND oi.company_id=p.company_id AND oi.id=p.open_item_id WHERE p.tenant_id=:tenant AND p.company_id=:company AND p.id=m.source_id AND p.owner_id=:user AND p.status='open' AND "+cn.erp.shared.OrgOwnership.itemCondition(actor,"oi")+"))");
+        if(actor.allWarehouses()&&actor.orgScope().allDepartments()&&actor.hasPermission("cost:view")&&actor.hasPermission("gl_export:create")) {
+            var financial=new ArrayList<String>();for(String type:cn.erp.shared.FinancialExportPort.TYPES)if(actor.hasPermission(type.equals("gl-vouchers")?"gl_voucher:view":Set.of("gl-balance_sheet","gl-income_statement","gl-cash_flow").contains(type)?"gl_report:view":"gl_ledger:view"))financial.add(type);
+            if(!financial.isEmpty()) {params.put("financialTypes",financial);sources.add("(m.source_type='export_job' AND EXISTS(SELECT 1 FROM export_job j WHERE j.tenant_id=:tenant AND j.company_id=:company AND j.id=m.source_id AND j.created_by=:user AND j.export_type IN(:financialTypes)))");}
+        }
         sources.add("(m.category IN('system','alert') AND m.source_type IS NULL AND m.notice_id IS NULL)");
         return new Filter("m.tenant_id=:tenant AND m.company_id IN(0,:company) AND m.user_id=:user AND m.state='open' AND ("+String.join(" OR ",sources)+")",params);
     }

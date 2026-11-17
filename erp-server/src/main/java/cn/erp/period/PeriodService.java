@@ -31,6 +31,10 @@ public class PeriodService {
         this.jdbc=jdbc;this.checks=checks;this.projections=projections;this.commands=commands;this.audit=audit;
     }
 
+    private FinancialPeriodPort financial;
+    @org.springframework.beans.factory.annotation.Autowired
+    void financial(FinancialPeriodPort financial) {this.financial=financial;}
+
     public Map<String,Object> closeCheck(CompanyAccess scope,long id) {
         companyScope(scope);var period=find(scope,id);return report(scope,id,period);
     }
@@ -38,11 +42,12 @@ public class PeriodService {
     @Transactional(isolation=Isolation.READ_COMMITTED)
     @SuppressWarnings({"unchecked","rawtypes"})
     public Map<String,Object> close(CompanyAccess scope,long id,String key,Version input) {
-        companyScope(scope);
+        companyScope(scope);if(financial!=null)financial.authorize(scope,"close");
         return commands.execute(scope,"period.close",key,List.of(id,input),200,()->{
             var before=find(scope,id);version(before,input.version());state(before,"open");
             // 投影在短事务内完成，不能拿着期间排他锁等待后台消费者。
             for(long event:projections.pending(scope)) {projections.project(scope,event);}
+            if(financial!=null) financial.prepare(scope,id);
             var initial=report(scope,id,before);requirePassed(initial);
             var periods=lockPeriods(scope);var current=periods.stream().filter(p->id(p,"id")==id).findFirst().orElseThrow(()->missing());
             version(current,input.version());state(current,"open");
@@ -54,6 +59,7 @@ public class PeriodService {
             if(!projections.pending(scope).isEmpty()) {
                 throw new ApiException(422,"PERIOD_CLOSE_CHECK_FAILED","有新凭证尚未汇总，请重新执行关账",latest.get("items"));
             }
+            if(financial!=null) financial.close(scope,id);
             jdbc.update("UPDATE accounting_period SET status='closed',closed_by=?,closed_at=UTC_TIMESTAMP(3),version=version+1 WHERE tenant_id=? AND company_id=? AND id=?",scope.userId(),scope.tenantId(),scope.companyId(),id);
             var result=view(find(scope,id));audit.record(scope,"period.close","accounting_period",id,view(before),result);return result;
         },(Class)Map.class);
@@ -62,7 +68,7 @@ public class PeriodService {
     @Transactional(isolation=Isolation.READ_COMMITTED)
     @SuppressWarnings({"unchecked","rawtypes"})
     public Map<String,Object> reopen(CompanyAccess scope,long id,String key,Version input) {
-        companyScope(scope);
+        companyScope(scope);if(financial!=null)financial.authorize(scope,"reopen");
         if(input.reason()==null||input.reason().isBlank()) {throw invalid("请填写重新打开期间的原因");}
         return commands.execute(scope,"period.reopen",key,List.of(id,input),200,()->{
             var periods=lockPeriods(scope);var before=periods.stream().filter(p->id(p,"id")==id).findFirst().orElseThrow(()->missing());
@@ -71,6 +77,7 @@ public class PeriodService {
                 throw new ApiException(422,"PERIOD_ORDER_INVALID","只能重新打开最近一个已关闭期间");
             }
             jdbc.update("UPDATE accounting_period SET status='open',closed_by=NULL,closed_at=NULL,reopen_count=reopen_count+1,version=version+1 WHERE tenant_id=? AND company_id=? AND id=?",scope.tenantId(),scope.companyId(),id);
+            if(financial!=null) financial.reopen(scope,id,input.reason());
             var result=view(find(scope,id));audit.record(scope,"period.reopen","accounting_period",id,view(before),Map.of("period",result,"reason",input.reason()));return result;
         },(Class)Map.class);
     }
@@ -94,6 +101,7 @@ public class PeriodService {
             ) residues
             """,Long.class,scope.tenantId(),scope.companyId(),scope.tenantId(),scope.companyId());
         items.add(Map.of("check","cost_residue","passed",residues==0,"count",residues,"message",residues==0?"数量归零的成本尾差已处理":"存在数量归零但成本未归零的流水"));
+        if(financial!=null) items.addAll(financial.checks(scope,id));
         return Map.of("id",Long.toString(id),"period",period.get("period"),"version",period.get("version"),"passed",items.stream().allMatch(item->Boolean.TRUE.equals(item.get("passed"))),"items",items);
     }
     private void add(List<Map<String,Object>> items,String type,List<ReconciliationChecks.Difference> differences,String success,CompanyAccess scope,Map<String,Object> period) {

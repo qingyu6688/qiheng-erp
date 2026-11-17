@@ -40,6 +40,12 @@ public class MessageService implements TodoInbox {
     private final JdbcTemplate jdbc;private final NamedParameterJdbcTemplate named;private final TodoQueries todos;private final NotificationAccess visibility;private final OutboxService outbox;private final ApplicationEventPublisher events;private final AccessService access;private final TemplateService templates;
     private final TransactionTemplate refreshTransaction;
     public MessageService(JdbcTemplate jdbc,NamedParameterJdbcTemplate named,TodoQueries todos,NotificationAccess visibility,OutboxService outbox,ApplicationEventPublisher events,AccessService access,TemplateService templates,PlatformTransactionManager transactions) {this.jdbc=jdbc;this.named=named;this.todos=todos;this.visibility=visibility;this.outbox=outbox;this.events=events;this.access=access;this.templates=templates;refreshTransaction=new TransactionTemplate(transactions);refreshTransaction.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);}
+    @org.springframework.context.event.EventListener
+    public void collection(cn.erp.shared.CollectionNotice event) {
+        var actor=access.forUser(event.tenantId(),event.userId(),event.companyId());if(actor==null||!actor.allWarehouses()||!actor.hasPermission("collection:view"))return;
+        var plans=jdbc.queryForList("SELECT open_item_id FROM ar_collection_plan WHERE tenant_id=? AND company_id=? AND id=? AND owner_id=? AND status='open'",event.tenantId(),event.companyId(),event.planId(),event.userId());if(plans.isEmpty())return;
+        OrgOwnership.requireItem(jdbc,actor,plans.getFirst().get("open_item_id"));create(actor,"collection.remind","催收计划到期提醒","请进入催收计划核对未清余额并登记跟进。","/ar/collections?planId="+event.planId(),"alert","ar_collection_plan",event.planId(),null,null,event.eventKey(),0);
+    }
     public void sync(CompanyAccess actor) {
         if(actor.companyId()==0) return;
         // 铃铛、工作台和收件箱会同时补齐消息，先锁收件人，避免空范围更新与去重插入互相死锁。

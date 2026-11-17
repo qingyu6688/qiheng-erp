@@ -18,7 +18,9 @@ public final class SimpleModel {
             Timeout timeout,
             List<Branch> branches,
             Node child,
-            Boolean priceApproval) {}
+            Boolean priceApproval,Boolean creditApproval) {
+        public Node(String id,String type,String name,Assignee assignee,String multi,Timeout timeout,List<Branch> branches,Node child,Boolean priceApproval) {this(id,type,name,assignee,multi,timeout,branches,child,priceApproval,null);}
+    }
 
     public record Assignee(
             String strategy,
@@ -60,7 +62,7 @@ public final class SimpleModel {
                     "purchase_order",
                     "refund_request",
                     "document_reversal",
-                    "stock_adjustment");
+                    "stock_adjustment","credit_increase");
     public static final Set<String> STRATEGIES =
             Set.of(
                     "users",
@@ -77,6 +79,7 @@ public final class SimpleModel {
                     Map.entry("totalAmount", "decimal"),
                     Map.entry("discountRate", "decimal"),
                     Map.entry("belowMinPrice", "boolean"),
+                    Map.entry("overCreditLimit","boolean"),Map.entry("creditExposure","decimal"),Map.entry("creditLimit","decimal"),
                     Map.entry("ownerDeptId", "id"),
                     Map.entry("customerId", "id"),
                     Map.entry("supplierId", "id"),
@@ -109,6 +112,7 @@ public final class SimpleModel {
                         validateFields(branch.condition(), businessType);
         }
         if (minimumReviews(root) < 1) throw invalid("每条可达路径至少保留一个人工审批节点");
+        for(var node:nodes.values()) if(Boolean.TRUE.equals(node.creditApproval())&&(!businessType.equals("sales_order")||!node.type().equals("approver")))throw invalid("人工信用审批仅适用于销售订单审批节点");
         return nodes;
     }
 

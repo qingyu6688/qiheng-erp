@@ -17,6 +17,7 @@ public class WorkflowAccess {
                     || review
                             && !actor.hasPermission(WorkflowDocuments.permission(type, "approve")))
                 continue;
+            if(type.equals("credit_increase")&&(!actor.allWarehouses()||!actor.orgScope().allDepartments()||!actor.hasPermission("cost:view")))continue;
             String where =
                     "h.tenant_id="
                             + instance
@@ -100,6 +101,7 @@ public class WorkflowAccess {
     }
 
     public String task(CompanyAccess actor, String task, String instance) {
+        String creditFilter=WorkflowDocuments.creditEligible(actor)?"":" AND "+task+".credit_approval=0";
         return task
                 + ".tenant_id="
                 + actor.tenantId()
@@ -113,7 +115,7 @@ public class WorkflowAccess {
                 + actor.userId()
                 + " AND "
                 + task
-                + ".status='pending' AND "
+                + ".status='pending'"+creditFilter+" AND "
                 + instance
                 + ".status='running' AND (("
                 + task

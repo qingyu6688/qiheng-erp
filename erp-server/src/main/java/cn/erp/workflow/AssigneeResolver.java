@@ -116,7 +116,7 @@ class AssigneeResolver {
             default -> throw SimpleModel.invalid("审批人策略无效");
         }
         boolean review = node.type().equals("approver"),
-                price = Boolean.TRUE.equals(node.priceApproval());
+                price = Boolean.TRUE.equals(node.priceApproval()),credit=Boolean.TRUE.equals(node.creditApproval());
         String type = instance.get("business_type").toString();
         long business = number(instance.get("business_id"));
         var active =
@@ -127,7 +127,7 @@ class AssigneeResolver {
                                                 && user > 0
                                                 && documents.eligible(
                                                                 tenant, company, user, type,
-                                                                business, review, price)
+                                                                business, review, price,credit)
                                                         != null)
                         .toList();
         if (a.strategy().equals("starter_select") && active.size() != result.size())
@@ -151,7 +151,7 @@ class AssigneeResolver {
                                     user ->
                                             documents.eligible(
                                                             tenant, company, user, type, business,
-                                                            review, price)
+                                                            review, price,credit)
                                                     != null)
                             .toList();
             if (!fallback.isEmpty()) return fallback;
@@ -164,7 +164,8 @@ class AssigneeResolver {
     }
 
     List<Map<String, Object>> candidates(
-            CompanyAccess actor, String type, long id, boolean review, boolean price) {
+            CompanyAccess actor, String type, long id, boolean review, boolean price) {return candidates(actor,type,id,review,price,false);}
+    List<Map<String,Object>> candidates(CompanyAccess actor,String type,long id,boolean review,boolean price,boolean credit) {
         return jdbc
                 .queryForList(
                         "SELECT DISTINCT u.id,u.display_name FROM sys_user u JOIN"
@@ -183,7 +184,7 @@ class AssigneeResolver {
                                                 type,
                                                 id,
                                                 review,
-                                                price)
+                                                price,credit)
                                         != null)
                 .map(
                         row ->

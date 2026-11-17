@@ -10,6 +10,9 @@ import org.springframework.stereotype.Component;
 class LedgerProjectionHandler implements EventHandler {
     private final JdbcTemplate jdbc;
     LedgerProjectionHandler(JdbcTemplate jdbc) {this.jdbc=jdbc;}
+    private cn.erp.shared.FinancialJournalPort financial=(tenant,company,journal)->{};
+    @org.springframework.beans.factory.annotation.Autowired
+    void financial(cn.erp.shared.FinancialJournalPort financial) {this.financial=financial;}
     public String eventType() {return "journal.posted";}
     public String consumer() {return "ledger_projection";}
 
@@ -52,5 +55,6 @@ class LedgerProjectionHandler implements EventHandler {
                       AND b.cash_account_key=? AND b.warehouse_key=? AND later.start_date>current_period.start_date
                     """,row.get("period_id"),movement,event.tenantId(),company,row.get("account_code"),row.get("partner_key"),row.get("cash_key"),row.get("warehouse_key"));
         }
+        financial.projected(event.tenantId(),company,event.aggregateId());
     }
 }

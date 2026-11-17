@@ -35,6 +35,10 @@ public class ReportService {
         result.put("summary",snapshot.summary());result.put("rowCount",snapshot.items().size());return result;
     }
 
+    private cn.erp.shared.AgingPolicyPort aging=actor->List.of(30,60,90,180);
+    @org.springframework.beans.factory.annotation.Autowired
+    void aging(cn.erp.shared.AgingPolicyPort aging) {this.aging=aging;}
+
     public record Snapshot(String asOf,List<Map<String,Object>> items,Map<String,Object> summary) {}
 
     public Snapshot snapshot(CompanyAccess actor,ReportType type,ReportQuery input) {
@@ -62,10 +66,12 @@ public class ReportService {
             if(type!=ReportType.CASH_JOURNAL) { throw invalid("此报表不支持资金账户筛选"); }
             params.put("cash",query.cashAccountId());sql+=" AND cash_account_id=:cash";
         }
+        boolean agingReport=Set.of(ReportType.RECEIVABLE_AGING,ReportType.PAYABLE_AGING).contains(type);
+        if("department".equals(query.groupBy())&&!agingReport)throw invalid("按部门汇总仅用于账龄报表");
         boolean commercial=Set.of(ReportType.SALES_SUMMARY,ReportType.PURCHASE_SUMMARY).contains(type);
-        boolean byBusinessUser="business_user".equals(query.groupBy());
+        boolean byBusinessUser="business_user".equals(query.groupBy())&&!agingReport;
         if(query.businessUserId()!=null||byBusinessUser) {
-            if(!commercial&&type!=ReportType.GROSS_MARGIN) throw invalid("此报表不支持业务员汇总或筛选");
+            if(!commercial&&!agingReport&&type!=ReportType.GROSS_MARGIN) throw invalid("此报表不支持业务员汇总或筛选");
             if(query.businessUserId()!=null) {sql+=" AND business_user_id=:businessUser";params.put("businessUser",query.businessUserId());}
         }
         if(Boolean.TRUE.equals(query.feesOnly())) {
@@ -91,11 +97,13 @@ public class ReportService {
         if(type==ReportType.PARTNER_STATEMENT || type==ReportType.CASH_JOURNAL) { raw=balances(raw,query,type); }
         names(actor,raw);
         documentNumbers(actor,raw);
+        var agingBounds=agingReport?aging.bounds(actor):List.<Integer>of();
+        if(agingReport) {for(var row:raw)agingBuckets(row,agingBounds);if(Set.of("business_user","department").contains(query.groupBy()))raw=groupAging(raw,query.groupBy());}
         var totals=new LinkedHashMap<String,BigDecimal>();var items=new ArrayList<Map<String,Object>>();
         for(var row:raw) {
             if(!actor.hasPermission("cost:view")) { row.keySet().removeIf(ReportService::costField); }
             if(type!=ReportType.GROSS_MARGIN) { row.remove("gross_margin"); }
-            if(type==ReportType.RECEIVABLE_AGING || type==ReportType.PAYABLE_AGING) { agingBuckets(row); }
+
             row.forEach((key,value)->{ if(value instanceof BigDecimal decimal) { totals.merge(key,decimal,BigDecimal::add); } });
             var item=FinanceSupport.row(row);source(item);
             if(byBusinessUser) {
@@ -120,6 +128,7 @@ public class ReportService {
             for(var row:raw) { closing.put(row.get(type==ReportType.CASH_JOURNAL?"cash_account_id":"partner_id"),(BigDecimal)row.get("running_balance")); }
             summary.remove("runningBalance");summary.put("closingBalance",closing.values().stream().reduce(BigDecimal.ZERO,BigDecimal::add).toPlainString());
         }
+        if(agingReport)summary.put("agingBounds",agingBounds);
         summary.put("dateFrom",query.dateFrom().toString());summary.put("dateTo",query.dateTo().toString());
         summary.put("basis",switch(type) {
             case INVENTORY_SUMMARY,UNSIGNED_SHIPMENTS,RECEIVABLE_AGING,PAYABLE_AGING -> "current_snapshot";
@@ -134,6 +143,7 @@ public class ReportService {
             for(var user:jdbc.queryForList("SELECT id,display_name FROM sys_user WHERE tenant_id=:tenant AND id IN (:ids)",Map.of("tenant",actor.tenantId(),"ids",userIds))) users.put(user.get("id").toString(),user.get("display_name").toString());
             for(var row:rows) if(row.get("business_user_id")!=null) row.put("business_user_name",users.getOrDefault(row.get("business_user_id").toString(),"未分配"));
         }
+        var departmentIds=new HashSet<Object>();for(var row:rows)if(row.get("department_id")!=null)departmentIds.add(row.get("department_id"));if(!departmentIds.isEmpty()) {var names=new HashMap<String,String>();for(var department:jdbc.queryForList("SELECT id,name FROM org_department WHERE tenant_id=:t AND company_id=:c AND id IN(:ids)",Map.of("t",actor.tenantId(),"c",actor.companyId(),"ids",departmentIds)))names.put(department.get("id").toString(),department.get("name").toString());for(var row:rows)if(row.get("department_id")!=null)row.put("department_name",names.getOrDefault(row.get("department_id").toString(),"未归属部门"));}
         for(String table:List.of("warehouse","sku","business_partner","cash_account")) {
             String field=table.equals("business_partner")?"partner":table;
             var ids=new HashSet<Object>();for(var row:rows) { if(row.get(field+"_id")!=null) { ids.add(row.get(field+"_id")); } }
@@ -202,10 +212,15 @@ public class ReportService {
         }
         return result;
     }
-    private static void agingBuckets(Map<String,Object> row) {
+    private static void agingBuckets(Map<String,Object> row,List<Integer> bounds) {
         int age=((Number)row.get("age_days")).intValue();
+        var labels=new LinkedHashMap<String,String>();int lower=0;for(int i=0;i<=bounds.size();i++) {Integer upper=i==bounds.size()?null:bounds.get(i);String key="aging_"+i;labels.put(key,upper==null?lower+"天及以上":lower+"—"+upper+"天");row.put(key,age>=lower&&(upper==null||age<=upper)?row.get("open_amount"):BigDecimal.ZERO);if(upper!=null)lower=upper+1;}row.put("aging_labels",labels);
         String bucket=age<=30?"age_0_30":age<=60?"age_31_60":age<=90?"age_61_90":age<=180?"age_91_180":"age_over_180";
         for(String key:List.of("age_0_30","age_31_60","age_61_90","age_91_180","age_over_180")) { row.put(key,key.equals(bucket)?row.get("open_amount"):BigDecimal.ZERO); }
+    }
+    private static List<Map<String,Object>> groupAging(List<Map<String,Object>> rows,String by) {
+        String field=by.equals("department")?"department_id":"business_user_id";var groups=new LinkedHashMap<Object,Map<String,Object>>();for(var row:rows) {Object key=row.get(field);var total=groups.get(key);if(total==null) {total=new LinkedHashMap<>(row);for(var e:row.entrySet())if(e.getValue() instanceof BigDecimal)total.put(e.getKey(),BigDecimal.ZERO);total.remove("source_type");total.remove("source_id");total.remove("source_line_id");total.remove("source_no");total.remove("partner_id");total.remove("partner_name");total.remove("direction");total.put("source_count",0L);if(by.equals("department")) {total.remove("business_user_id");total.put("business_user_name","多位业务员");}else {total.remove("department_id");total.put("department_name","按业务员汇总");}groups.put(key,total);}for(var e:row.entrySet())if(e.getValue() instanceof BigDecimal value)total.put(e.getKey(),((BigDecimal)total.get(e.getKey())).add(value));total.put("source_count",((Long)total.get("source_count"))+1);}
+        return new ArrayList<>(groups.values());
     }
     private static boolean costField(String key) { return key.contains("cost") || key.equals("gross_margin"); }
     private static String camel(String key) { return FinanceSupport.row(Map.of(key,0)).keySet().iterator().next(); }

@@ -9,14 +9,19 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public class ReconciliationChecks {
-    public static final Set<String> TYPES=Set.of("inventory_balance","inventory_cost","reservation","cash_balance","open_item","journal_balance","ledger_inventory","period_close");
+    public static final Set<String> TYPES=Set.of("inventory_balance","inventory_cost","reservation","cash_balance","open_item","journal_balance","ledger_inventory","period_close","gl_trial","gl_operational");
     public record Difference(String objectType,String key,BigDecimal expected,BigDecimal actual) {}
     private final NamedParameterJdbcTemplate jdbc;
 
     public ReconciliationChecks(NamedParameterJdbcTemplate jdbc) {this.jdbc=jdbc;}
 
+    private cn.erp.shared.FinancialReconciliationPort financial;
+    @org.springframework.beans.factory.annotation.Autowired
+    void financial(cn.erp.shared.FinancialReconciliationPort financial) {this.financial=financial;}
+
     public List<Difference> check(ActorScope scope,String type,Long period) {
         if(!TYPES.contains(type)) {throw new ApiException(400,"VALIDATION_FAILED","对账类型无效");}
+        if(type.startsWith("gl_")) {if(financial==null)throw new ApiException(503,"SERVICE_UNAVAILABLE","财务对账尚未就绪");return financial.check(scope,type).stream().map(d->new Difference(type,d.key(),d.expected(),d.actual())).toList();}
         var params=new HashMap<String,Object>();params.put("t",scope.tenantId());params.put("c",scope.companyId());params.put("p",period);
         if(type.equals("period_close")) {
             if(period==null || jdbc.queryForObject("SELECT COUNT(*) FROM accounting_period WHERE tenant_id=:t AND company_id=:c AND id=:p",params,Long.class)==0) {

@@ -28,7 +28,7 @@ class WorkflowBridgeConfiguration {
     WorkflowBusiness salesWorkflow(
             SalesOrderQueries queries,
             SalesOrderService service,
-            MinimumSalePrice prices,
+            MinimumSalePrice prices,CreditPort credit,
             JdbcTemplate jdbc) {
         return adapter(
                 "sales_order",
@@ -42,7 +42,7 @@ class WorkflowBridgeConfiguration {
                                 key,
                                 new SalesOrderModels.Command(
                                         version(jdbc, "sales_order", actor, id), comment, null)),
-                (actor, id) -> prices.inspect(actor, id, false),
+                (actor, id) -> {var info=new LinkedHashMap<>(prices.inspect(actor,id,false));info.putAll(credit.inspect(actor,id));return info;},
                 jdbc);
     }
 
