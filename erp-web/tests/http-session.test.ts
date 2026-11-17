@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import axios from 'axios'
-import { request, renewSessionScope, setCompanyScope } from '../src/api/http'
+import { request, renewSessionScope, replaceSession, setCompanyScope } from '../src/api/http'
 
 const { clientRequest } = vi.hoisted(() => ({ clientRequest: vi.fn() }))
 vi.mock('axios', async importOriginal => {
@@ -8,6 +8,17 @@ vi.mock('axios', async importOriginal => {
   return { ...actual, default: { ...actual.default, create: () => ({ request: clientRequest }) } }
 })
 const expired = vi.fn()
+
+function deferred(): { promise: Promise<unknown>; resolve: (value: unknown) => void; reject: (error: unknown) => void } {
+  let resolve!: (value: unknown) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<unknown>((success, failure) => {
+    resolve = success
+    reject = failure
+  })
+  return { promise, resolve, reject }
+}
+
 beforeEach(() => {
   renewSessionScope()
   clientRequest.mockReset()
@@ -39,6 +50,37 @@ it('切换会话代次后新请求可正常执行', async () => {
   renewSessionScope()
   clientRequest.mockResolvedValueOnce({ data: { data: { username: 'new-user' } } })
   await expect(request({ method: 'GET', url: '/auth/me' })).resolves.toEqual({ username: 'new-user' })
+})
+
+it('MFA 轮换期间发出的通知请求返回旧会话 401 时保留新会话', async () => {
+  const rotation = deferred()
+  const unreadCount = deferred()
+  clientRequest.mockReturnValueOnce(rotation.promise).mockReturnValueOnce(unreadCount.promise)
+  const activation = replaceSession(() => request({ method: 'POST', url: '/account/mfa/activate' }))
+  const pending = request({ method: 'GET', url: '/notify/unread-count' })
+  const rejected = expect(pending).rejects.toSatisfy(axios.isCancel)
+
+  rotation.resolve({ data: { data: { enabled: true } } })
+  await expect(activation).resolves.toEqual({ enabled: true })
+  unreadCount.reject({ isAxiosError: true, response: { status: 401, data: { errorCode: 'UNAUTHENTICATED' } } })
+  await rejected
+  expect(expired).not.toHaveBeenCalled()
+
+  clientRequest.mockResolvedValueOnce({ data: { data: { enabled: true } } })
+  await expect(request({ method: 'GET', url: '/account/mfa' })).resolves.toEqual({ enabled: true })
+})
+
+it('退出后结束 MFA 轮换时仍保持退出状态', async () => {
+  const rotation = deferred()
+  clientRequest.mockReturnValueOnce(rotation.promise)
+  const activation = replaceSession(() => request({ method: 'POST', url: '/account/mfa/activate' }))
+  const rejected = expect(activation).rejects.toSatisfy(axios.isCancel)
+
+  renewSessionScope(false)
+  rotation.resolve({ data: { data: { enabled: true } } })
+  await rejected
+  await expect(request({ method: 'GET', url: '/account/mfa' })).rejects.toSatisfy(axios.isCancel)
+  expect(clientRequest).toHaveBeenCalledTimes(1)
 })
 
 it('已退出时旧保存流程后续发起的业务查询直接取消', async () => {

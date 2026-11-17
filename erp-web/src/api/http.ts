@@ -47,15 +47,17 @@ export function renewSessionScope(active = true): void {
   sessionRequests = new AbortController()
 }
 
-/** 用户主动更新认证状态时，旧会话的在途响应不能覆盖新 Cookie。 */
+/** 主动轮换会话时，丢弃仍可能携带旧 Cookie 的在途响应。 */
 export async function replaceSession<T>(perform: () => Promise<T>): Promise<T> {
   if (!sessionActive) throw new axios.CanceledError('会话已退出')
   if (replacingSession) throw new ApiError(409, 'SESSION_TRANSITION', '安全状态正在更新，请稍后重试。')
   replacingSession = true
   renewSessionScope()
+  const revision = sessionRevision
   try {
     return await perform()
   } finally {
+    if (revision === sessionRevision) renewSessionScope()
     replacingSession = false
   }
 }
@@ -129,6 +131,7 @@ export async function request<T>(config: AxiosRequestConfig, companyScoped = fal
       } catch {
         body = undefined
       }
+      if (revision !== sessionRevision) throw new axios.CanceledError('会话已变更')
     }
     const status = cause.response?.status ?? 0
     if (!publicAuth) notifySessionFailure(status, body?.errorCode, config.url === '/auth/me')
