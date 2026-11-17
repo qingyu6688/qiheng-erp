@@ -117,7 +117,7 @@ jobs:
           CREATE USER 'erp_ai_ci'@'%' IDENTIFIED BY '$ERP_AI_DB_PASSWORD';
           GRANT ALL PRIVILEGES ON erp_ai_test.* TO 'erp_ai_ci'@'%';
           SQL
-          export ERP_AI_DB_URL='jdbc:mysql://127.0.0.1:3306/erp_ai_test?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8&sslMode=DISABLED'
+          export ERP_AI_DB_URL='jdbc:mysql://127.0.0.1:3306/erp_ai_test?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8&sslMode=REQUIRED'
           export ERP_AI_DB_USER=erp_ai_ci
           export ERP_AI_SEARCH_MODE=local
           export ERP_AI_KB_STORAGE="$RUNNER_TEMP/erp-ai-knowledge"
