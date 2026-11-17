@@ -1,0 +1,41 @@
+spring:
+  application:
+    name: erp-ai
+  datasource:
+    url: ${ERP_AI_DB_URL:jdbc:mysql://127.0.0.1:3306/erp_ai?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8}
+    username: ${ERP_AI_DB_USER:erp_ai}
+    password: ${ERP_AI_DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 12
+      minimum-idle: 0
+  flyway:
+    enabled: ${ERP_AI_MIGRATE:true}
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 21MB
+  mvc:
+    async:
+      request-timeout: 120s
+server:
+  port: ${ERP_AI_PORT:18081}
+  address: ${ERP_AI_BIND:127.0.0.1}
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+erp:
+  ai:
+    erp-origin: ${ERP_AI_ERP_ORIGIN:http://127.0.0.1:8080}
+    signing-key: ${ERP_AI_SIGNING_KEY:}
+    provider-key: ${ERP_AI_PROVIDER_KEY:}
+    provider-endpoints: ${ERP_AI_PROVIDER_ENDPOINTS:}
+    allow-overseas: ${ERP_AI_ALLOW_OVERSEAS:false}

@@ -14,7 +14,8 @@ import tools.jackson.databind.ObjectMapper;
 
 @Service
 @Transactional(readOnly = true)
-class WarehouseService {
+public class WarehouseService {
+    private static final int ACTIVE_SELECTION_LIMIT = 20;
     private final JdbcTemplate jdbc;
     private final WarehouseQueries queries;
     private final WarehouseCommands commands;
@@ -31,6 +32,18 @@ class WarehouseService {
                               String cursor, boolean withTotal) {
         return queries.list(scope, keyword, status, limit, cursor, withTotal);
     }
+
+    public ActiveSelections listActiveSelections(CompanyAccess scope) {
+        var page = list(scope, null, "active", ACTIVE_SELECTION_LIMIT, null, false);
+        var items = page.items().stream()
+                .map(row -> new ActiveSelection(row.id(), row.code(), row.name()))
+                .toList();
+        return new ActiveSelections(items, page.hasMore());
+    }
+
+    public record ActiveSelection(String id, String code, String name) {}
+
+    public record ActiveSelections(List<ActiveSelection> items, boolean hasMore) {}
 
     WarehouseModels.View get(CompanyAccess scope, long id) {
         return queries.find(scope, id, false);
