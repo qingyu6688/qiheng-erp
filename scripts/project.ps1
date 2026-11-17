@@ -5,7 +5,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$settingsFile = Join-Path $projectRoot '.env'
+$settingsFile = if ($env:ERP_PROJECT_SETTINGS_FILE) {
+    [IO.Path]::GetFullPath($env:ERP_PROJECT_SETTINGS_FILE, $projectRoot)
+} else { Join-Path $projectRoot '.env' }
 if (!(Test-Path -LiteralPath $settingsFile)) { throw '请先按部署说明创建项目根目录下的 .env。' }
 $frontend = $Action -in 'web','e2e','e2e-web'
 if ($frontend) {

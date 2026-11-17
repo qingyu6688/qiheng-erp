@@ -67,6 +67,8 @@ jobs:
         env:
           CI_DB_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
+          $ciLoginSettingsKey = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+          Write-Output "::add-mask::$ciLoginSettingsKey"
           @(
             'APP_ENV=ci'
             "JAVA_HOME=$env:JAVA_HOME"
@@ -82,6 +84,7 @@ jobs:
             'REDIS_HOST=127.0.0.1'
             'REDIS_PORT=6380'
             'REDIS_PASSWORD='
+            "ERP_LOGIN_SETTINGS_KEY=$ciLoginSettingsKey"
           ) | Set-Content -LiteralPath .env -Encoding utf8NoBOM
       - name: 后端测试与构建
         shell: pwsh
