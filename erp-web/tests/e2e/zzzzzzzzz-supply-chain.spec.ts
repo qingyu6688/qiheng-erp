@@ -8,7 +8,7 @@ async function login(page: Page): Promise<void> {
   }
   await page.goto('/login')
   await page.getByLabel('企业编码').fill(env.ERP_E2E_TENANT_CODE!)
-  await page.getByLabel('用户名').fill('admin')
+  await page.getByLabel('用户名').fill('supply_tester')
   await page.locator('#password').fill(env.ERP_E2E_PASSWORD)
   await page.getByRole('button', { name: '登录', exact: true }).click()
   await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
