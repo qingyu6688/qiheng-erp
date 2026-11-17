@@ -327,4 +327,17 @@ class GlHttpIT {
                                 .statusCode())
                 .isEqualTo(400);
     }
+    @Test void financialAuditSnapshotsRequireCurrentDomainAndCostPermissions() throws Exception {
+        login();
+        String id=json.readTree(request("POST","/gl/vouchers",input(),true,d.company,key()).body()).get("data").get("id").asString();
+        String path="/audit-logs?entityType=gl_voucher&entityId="+id+"&companyId="+d.company;
+        var visible=request("GET",path,null,false,d.company,null);
+        assertThat(visible.statusCode()).isEqualTo(200);assertThat(json.readTree(visible.body()).get("data").get("items").size()).isEqualTo(1);
+        jdbc.update("DELETE rp FROM sys_role_permission rp JOIN sys_permission p ON p.id=rp.permission_id WHERE rp.tenant_id=? AND rp.role_id=? AND p.code='gl_voucher:view'",d.tenant,role);
+        assertThat(json.readTree(request("GET",path,null,false,d.company,null).body()).get("data").get("items").size()).isZero();
+        jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) SELECT ?,?,?,id FROM sys_permission WHERE code='gl_voucher:view'",Ids.next(),d.tenant,role);
+        jdbc.update("DELETE rp FROM sys_role_permission rp JOIN sys_permission p ON p.id=rp.permission_id WHERE rp.tenant_id=? AND rp.role_id=? AND p.code='cost:view'",d.tenant,role);
+        assertThat(json.readTree(request("GET",path,null,false,d.company,null).body()).get("data").get("items").size()).isZero();
+    }
+
 }

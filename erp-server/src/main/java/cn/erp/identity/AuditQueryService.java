@@ -18,6 +18,18 @@ class AuditQueryService {
     private final ObjectMapper json;
     AuditQueryService(JdbcTemplate jdbc,ObjectMapper json) {this.jdbc=jdbc;this.json=json;}
 
+    private static final Map<String,List<String>> FINANCIAL_READS=Map.ofEntries(
+        Map.entry("gl_config.",List.of("gl_config:view","cost:view")),
+        Map.entry("gl_opening.",List.of("gl_opening:view","cost:view")),
+        Map.entry("gl_voucher.",List.of("gl_voucher:view","cost:view")),
+        Map.entry("gl_business.",List.of("gl_voucher:view","cost:view")),
+        Map.entry("gl_closing.",List.of("gl_report:view","cost:view")),
+        Map.entry("credit_limit.",List.of("credit_limit:view","cost:view")),
+        Map.entry("credit_increase.",List.of("credit_limit:view","cost:view")),
+        Map.entry("bad_debt.",List.of("bad_debt:view","cost:view")),
+        Map.entry("aging_config.",List.of("credit_limit:view","cost:view")),
+        Map.entry("collection.",List.of("collection:view")));
+
     AdminModels.Page<Map<String,Object>> list(CompanyAccess actor,Filter filter,String cursor,int limit) {
         if(limit<1||limit>200) throw invalid("查询条数为 1 到 200");
         var args=new ArrayList<Object>(List.of(actor.tenantId(),cursor(cursor),actor.userId()));
@@ -26,6 +38,7 @@ class AuditQueryService {
         var restricted=new ArrayList<Long>();var resolver=new OrgScopeResolver(jdbc);
         for(long company:companies) if(!resolver.resolve(actor.tenantId(),company,actor.userId()).allDepartments()) restricted.add(company);
         if(!restricted.isEmpty()) {sql.append(" AND (a.company_id IS NULL OR a.company_id NOT IN ("+String.join(",",Collections.nCopies(restricted.size(),"?"))+"))");args.addAll(restricted);}
+        financialVisibility(actor,sql,args);
         add(sql,args,"a.action",text(filter.action(),64));add(sql,args,"a.object_type",text(filter.entityType(),32));
         add(sql,args,"a.object_id",positive(filter.entityId()));add(sql,args,"a.operator_id",positive(filter.operatorId()));
         add(sql,args,"a.company_id",positive(filter.companyId()));add(sql,args,"a.request_id",text(filter.requestId(),64));
@@ -44,6 +57,34 @@ class AuditQueryService {
         },args.toArray());
         boolean more=rows.size()>limit;var items=List.copyOf(rows.subList(0,Math.min(limit,rows.size())));
         return new AdminModels.Page<>(items,more?items.getLast().get("id").toString():null);
+    }
+
+    /** 财务快照中的金额无法只靠字段名识别，须在分页前过滤整条记录。 */
+    private void financialVisibility(CompanyAccess actor, StringBuilder sql, List<Object> args) {
+        var masks = new ArrayList<>(List.of(
+            "LEFT(a.object_type,3) IN('gl_','ar_')",
+            "a.object_type='credit_increase'",
+            "LEFT(a.action,3) IN('gl_','ar_')"));
+        var visible = new ArrayList<String>();
+        var maskArgs = new ArrayList<Object>();
+        var visibleArgs = new ArrayList<Object>();
+        for (var rule : FINANCIAL_READS.entrySet()) {
+            String predicate = "LEFT(a.action," + rule.getKey().length() + ")=?";
+            masks.add(predicate);
+            maskArgs.add(rule.getKey());
+            if (rule.getValue().stream().allMatch(actor::hasPermission)) {
+                visible.add(predicate);
+                visibleArgs.add(rule.getKey());
+            }
+        }
+        sql.append(" AND (NOT (").append(String.join(" OR ", masks)).append(")");
+        args.addAll(maskArgs);
+        if (!visible.isEmpty()) {
+            sql.append(" OR (c.status='active' AND (")
+                .append(String.join(" OR ", visible)).append("))");
+            args.addAll(visibleArgs);
+        }
+        sql.append(")");
     }
 
     private Object snapshot(CompanyAccess actor,String value) {return value==null?null:redact(actor,json.readValue(value,Object.class));}

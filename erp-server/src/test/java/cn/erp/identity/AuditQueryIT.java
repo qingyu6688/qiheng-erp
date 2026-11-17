@@ -67,4 +67,22 @@ class AuditQueryIT {
         assertThatThrownBy(()->service.list(actor,filter(null,null),"错误",20)).isInstanceOf(ApiException.class);
         assertThatThrownBy(()->service.list(actor,new AuditQueryService.Filter(null,null,null,null,null,today,today.plusYears(2),null),null,20)).isInstanceOf(ApiException.class);
     }
+    @Test void financeAuditUsesDomainPermissionsAndDefaultsUnknownFinanceActionsToHidden() {
+        var actions=Map.of("gl_config.save","gl_subject","gl_opening.save","gl_account_book","gl_voucher.save","gl_voucher","gl_business.generated","gl_voucher","gl_closing.close","gl_period_close","credit_limit.save","ar_credit_limit","credit_increase.approve","credit_increase","bad_debt.approve","ar_bad_debt","aging_config.save","company","collection.follow","ar_collection_plan");
+        for(var entry:actions.entrySet())jdbc.update("INSERT INTO audit_log(id,tenant_id,company_id,operator_id,action,object_type,after_data) VALUES(?,?,?,?,?,?,?)",Ids.next(),tenant,company,user,entry.getKey(),entry.getValue(),"{\"amount\":\"123.45\"}");
+        jdbc.update("INSERT INTO audit_log(id,tenant_id,company_id,action,object_type) VALUES(?,?,?,'gl_future.review','gl_future')",Ids.next(),tenant,company);
+        jdbc.update("INSERT INTO audit_log(id,tenant_id,company_id,action,object_type) VALUES(?,?,?,'gl_future.review','company')",Ids.next(),tenant,company);
+        jdbc.update("INSERT INTO audit_log(id,tenant_id,action,object_type) VALUES(?,?,'gl_voucher.save','gl_voucher')",Ids.next(),tenant);
+        assertThat(service.list(actor,filter(null,null),null,100).items()).hasSize(1);
+        var voucherReader=new CompanyAccess(tenant,user,0,true,Set.of(),Set.of("audit:view","cost:view","gl_voucher:view"));
+        assertThat(service.list(voucherReader,filter(null,null),null,100).items()).extracting(r->r.get("action")).containsExactlyInAnyOrder("shipment.sign","gl_voucher.save","gl_business.generated");
+        var collector=new CompanyAccess(tenant,user,0,true,Set.of(),Set.of("audit:view","collection:view"));
+        assertThat(service.list(collector,filter(null,null),null,100).items()).extracting(r->r.get("action")).containsExactlyInAnyOrder("shipment.sign","collection.follow");
+        var all=new CompanyAccess(tenant,user,0,true,Set.of(),new HashSet<>(jdbc.queryForList("SELECT code FROM sys_permission",String.class)));
+        assertThat(service.list(all,filter(null,null),null,100).items()).hasSize(11);
+        jdbc.update("UPDATE company SET status='disabled' WHERE tenant_id=? AND id=?",tenant,company);
+        assertThat(service.list(all,filter(null,company),null,100).items())
+            .extracting(r->r.get("action")).containsExactly("shipment.sign");
+    }
+
 }
