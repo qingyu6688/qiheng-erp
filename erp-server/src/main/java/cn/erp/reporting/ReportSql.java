@@ -22,7 +22,7 @@ final class ReportSql {
     private static String inventorySummary() {
         return """
             WITH b AS (SELECT warehouse_id,sku_id,SUM(on_hand_qty) on_hand_qty,SUM(reserved_qty) reserved_qty,SUM(blocked_qty) blocked_qty
-              FROM inventory_balance WHERE tenant_id=:t AND company_id=:c GROUP BY warehouse_id,sku_id),
+              FROM inventory_balance WHERE tenant_id=:t AND company_id=:c AND location_key='' AND lot_key='' GROUP BY warehouse_id,sku_id),
             k AS (SELECT warehouse_id,sku_id FROM b UNION SELECT warehouse_id,sku_id FROM inventory_cost WHERE tenant_id=:t AND company_id=:c)
             SELECT k.warehouse_id,k.sku_id,COALESCE(b.on_hand_qty,0) on_hand_qty,COALESCE(b.reserved_qty,0) reserved_qty,
               COALESCE(b.blocked_qty,0) blocked_qty,COALESCE(b.on_hand_qty-b.reserved_qty-b.blocked_qty,0) available_qty,COALESCE(c.total_cost,0) cost_amount

@@ -419,6 +419,7 @@ onScopeDispose(() => {
               'cashAccountId',
               'cashAccountType',
               'receiptType',
+              'incomeExpenseItemId',
               'paymentType',
               'partnerId',
               'skuId',

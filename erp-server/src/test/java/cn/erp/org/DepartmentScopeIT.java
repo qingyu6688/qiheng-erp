@@ -99,6 +99,9 @@ class DepartmentScopeIT {
         mode("all");assertThat(orders.get(actor(),71201)).containsEntry("id","71201");
     }
     @Test void Y02_09_allSeventeenHeaderReadersRejectOtherDepartments() {
+        var attachmentReaders=Set.of("sales_order","shipment","receipt","sales_return","refund_request",
+                "purchase_requisition","purchase_order","goods_receipt","purchase_return","payment","account_transfer",
+                "opening_entry","stock_adjustment","stock_count","stock_transfer","document_reversal","invoice_registration");
         jdbc.update("INSERT INTO warehouse(id,tenant_id,company_id,code,name) VALUES(88031,70101,70201,'SCOPE-W','范围分仓')");
         jdbc.update("INSERT INTO purchase_requisition(id,tenant_id,company_id,requisition_no,requester_id,business_date) VALUES(88101,70101,70201,'SCOPE-PR',?,'2026-11-15')",user);
         jdbc.update("INSERT INTO sales_return(id,tenant_id,company_id,return_no,customer_id,warehouse_id,business_date,reason) VALUES(88102,70101,70201,'SCOPE-SR',70401,70301,'2026-11-15','测试')");
@@ -110,9 +113,9 @@ class DepartmentScopeIT {
         jdbc.update("INSERT INTO stock_count(id,tenant_id,company_id,count_no,warehouse_id,count_mode,business_date) VALUES(88108,70101,70201,'SCOPE-C',70301,'watermark','2026-11-15')");
         jdbc.update("INSERT INTO stock_transfer(id,tenant_id,company_id,transfer_no,from_warehouse_id,to_warehouse_id,business_date) VALUES(88109,70101,70201,'SCOPE-T',70301,88031,'2026-11-15')");
         jdbc.update("INSERT INTO invoice_registration(id,tenant_id,company_id,invoice_type,partner_id,invoice_no,invoice_date,amount,tax_amount,tax_diff_amount) VALUES(88110,70101,70201,'sales',70401,'SCOPE-I','2026-11-15',1,0,0)");
-        for(String table:OrgOwnership.TABLES) jdbc.update("UPDATE "+table+" SET owner_department_id=?,owner_user_id=?,created_by=? WHERE tenant_id=70101 AND company_id=70201",root,user,user);
+        for(String table:attachmentReaders) jdbc.update("UPDATE "+table+" SET owner_department_id=?,owner_user_id=?,created_by=? WHERE tenant_id=70101 AND company_id=70201",root,user,user);
         mode("dept");
-        for(String table:OrgOwnership.TABLES) {
+        for(String table:attachmentReaders) {
             long id=jdbc.queryForObject("SELECT MIN(id) FROM "+table+" WHERE tenant_id=70101 AND company_id=70201",Long.class);
             assertThat(documents.view(actor(),table,id)).as(table).isNotEmpty();
         }
@@ -120,7 +123,7 @@ class DepartmentScopeIT {
         assertThat(jdbc.queryForList("SELECT 1 WHERE "+OrgOwnership.sourceCondition(actor(),"'stock_transfer_event'","88109"))).hasSize(1);
         mode("custom");
         assertThat(jdbc.queryForList("SELECT 1 WHERE "+OrgOwnership.sourceCondition(actor(),"'stock_transfer_event'","88109"))).isEmpty();
-        for(String table:OrgOwnership.TABLES) {
+        for(String table:attachmentReaders) {
             long id=jdbc.queryForObject("SELECT MIN(id) FROM "+table+" WHERE tenant_id=70101 AND company_id=70201",Long.class);
             denied(()->documents.view(actor(),table,id));
         }

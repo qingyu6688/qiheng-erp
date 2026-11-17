@@ -1,5 +1,6 @@
 package cn.erp.salesfinance;
 
+import cn.erp.inventory.InventoryModels.StockSelection;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.time.LocalDate;
@@ -29,7 +30,10 @@ public final class FinanceModels {
     }
     public record ReturnLine(@NotNull(message="请选择原发货行") Long shipmentLineId,@NotNull(message="请选择退货单位") Long unitId,
         @NotBlank(message="请输入退货数量") String qty,
-        @NotNull(message="请选择质检结果") @Pattern(regexp="pending|passed|failed",message="质检结果无效") String qualityResult) {}
+        @NotNull(message="请选择质检结果") @Pattern(regexp="pending|passed|failed",message="质检结果无效") String qualityResult,
+        @Valid StockSelection stockSelection) {
+        public ReturnLine(Long shipmentLineId,Long unitId,String qty,String qualityResult){this(shipmentLineId,unitId,qty,qualityResult,null);}
+    }
     public record Refund(
         @NotNull(message="请选择客户") Long customerId,@NotNull(message="请选择原收款") Long originalReceiptId,
         @NotNull(message="请选择退款账户") Long cashAccountId,@NotBlank(message="请输入退款金额") String amount,

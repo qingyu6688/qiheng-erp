@@ -21,6 +21,17 @@ export const router = createRouter({
       meta: { company: true, permission: 'gl_print:view', title: '财务打印' },
     },
     { path: '/401', name: 'expired', component: StatusPage, props: { status: 401 } },
+    {
+      path: '/warehouse-locations/:warehouseId/labels/:id',
+      name: 'warehouse-location-label',
+      component: () => import('../pages/LocationLabelPage.vue'),
+      meta: {
+        company: true,
+        permission: 'wms_location:view',
+        allPermissions: ['warehouse:view'],
+        title: '库位标签',
+      },
+    },
     { path: '/403', name: 'forbidden', component: StatusPage, props: { status: 403 } },
     {
       path: '/service-unavailable',
@@ -243,6 +254,79 @@ export const router = createRouter({
           component: () => import('../pages/InventoryPage.vue'),
           meta: { permission: 'inventory:view', company: true, title: '实时库存' },
         },
+        {
+          path: 'inventory-trace',
+          name: 'inventory-trace',
+          component: () => import('../pages/InventoryTracePage.vue'),
+          meta: {
+            company: true,
+            anyPermissions: [
+              'batch:view',
+              'batch:trace',
+              'serial:trace',
+              'inventory_trace:customer',
+            ],
+            title: '批次与序列号',
+          },
+        },
+        {
+          path: 'quality',
+          name: 'quality',
+          component: () => import('../pages/QualityPage.vue'),
+          meta: {
+            company: true,
+            anyPermissions: ['qc_inspection:view', 'qc_setting:view'],
+            title: '来料质检',
+          },
+        },
+        ...(['in', 'out'] as const).flatMap((direction) =>
+          ['', '/:id'].map((suffix) => ({
+            path: 'stock-misc-' + direction + suffix,
+            name: 'stock-misc-' + direction + (suffix ? '-detail' : ''),
+            props: { direction },
+            component: () => import('../pages/StockMiscPage.vue'),
+            meta: {
+              company: true,
+              permission: 'stock_misc_doc:view',
+              title: direction === 'in' ? '其他入库' : '其他出库',
+            },
+          })),
+        ),
+        {
+          path: 'e-invoices',
+          name: 'e-invoices',
+          component: () => import('../pages/EInvoicePage.vue'),
+          meta: { company: true, permission: 'einv:view', title: '数电发票' },
+        },
+        {
+          path: 'supply-reconciliation',
+          name: 'supply-reconciliation',
+          component: () => import('../pages/SupplyReconciliationPage.vue'),
+          meta: { company: true, permission: 'reconciliation:view', title: '供应链对账' },
+        },
+        {
+          path: 'brands',
+          name: 'brands',
+          component: () => import('../pages/BrandsPage.vue'),
+          meta: { permission: 'brand:view', title: '品牌' },
+        },
+        {
+          path: 'skus/:id/tracking',
+          name: 'sku-tracking',
+          component: () => import('../pages/SkuTrackingPage.vue'),
+          meta: { permission: 'sku:view', title: 'SKU 供应链设置' },
+        },
+        {
+          path: 'warehouse-locations',
+          name: 'warehouse-locations',
+          component: () => import('../pages/WarehouseLocationsPage.vue'),
+          meta: {
+            company: true,
+            permission: 'wms_location:view',
+            allPermissions: ['warehouse:view'],
+            title: '库区库位',
+          },
+        },
         ...reportSpecs.map((spec) => ({
           path: 'reports/' + spec.type,
           name: 'report-' + spec.type,
@@ -417,6 +501,13 @@ router.beforeEach(async (to) => {
   if (
     Array.isArray(to.meta.anyPermissions) &&
     !to.meta.anyPermissions.some(
+      (permission) => typeof permission === 'string' && session.can(permission),
+    )
+  )
+    return { name: 'forbidden' }
+  if (
+    Array.isArray(to.meta.allPermissions) &&
+    !to.meta.allPermissions.every(
       (permission) => typeof permission === 'string' && session.can(permission),
     )
   )

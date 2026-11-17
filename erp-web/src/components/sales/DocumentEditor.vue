@@ -8,6 +8,8 @@ import type { SalesDocument, SalesKind } from '../../types/sales'
 import type { DataRow } from '../../types/admin'
 import { useSessionStore } from '../../stores/session'
 import BusinessUserSelect from '../BusinessUserSelect.vue'
+import StockSelectionFields from '../stock-operations/StockSelectionFields.vue'
+import type { StockSelection } from '../../types/inventory-tracking'
 
 const props = defineProps<{ kind: Exclude<SalesKind, 'sales-orders'>; original?: SalesDocument }>()
 const emit = defineEmits<{ close: []; saved: [SalesDocument] }>()
@@ -34,18 +36,22 @@ const form = reactive({
 })
 interface InputLine {
   sourceId: string
+  skuId: string
   unitId: string
   qty: string
   qualityResult: string
   amount: string
+  stockSelection?: StockSelection | null
 }
 const lines = ref<InputLine[]>(
   (props.original?.lines ?? []).map((l) => ({
     sourceId: String(l.orderLineId ?? l.shipmentLineId ?? l.receivableId ?? ''),
+    skuId: l.skuId ?? '',
     unitId: l.unitId ?? '',
     qty: l.qty ?? '',
     qualityResult: l.qualityResult ?? 'pending',
     amount: String(l.amount ?? ''),
+    stockSelection: l.stockSelection,
   })),
 )
 const partners = ref<DataRow[]>([]),
@@ -91,6 +97,8 @@ function sourceName(row: Record<string, unknown>): string {
 function chooseSource(line: InputLine): void {
   const row = sources.value.find((r) => r.id === line.sourceId)
   line.unitId = String(row?.unitId ?? '')
+  line.skuId = String(row?.skuId ?? '')
+  line.stockSelection = null
   if (!line.qty) line.qty = '1'
 }
 let revision = 0
@@ -174,7 +182,7 @@ onMounted(async () => {
   }
 })
 function addLine(): void {
-  lines.value.push({ sourceId: '', unitId: '', qty: '1', qualityResult: 'pending', amount: '' })
+  lines.value.push({ sourceId: '', skuId: '', unitId: '', qty: '1', qualityResult: 'pending', amount: '' })
 }
 function body(): Record<string, unknown> {
   const version = props.original?.version
@@ -187,7 +195,7 @@ function body(): Record<string, unknown> {
       businessDate: form.businessDate,
       deliveryMethod: form.deliveryMethod,
       remark: form.remark,
-      lines: lines.value.map((l) => ({ orderLineId: l.sourceId, unitId: l.unitId, qty: l.qty })),
+      lines: lines.value.map((l) => ({ orderLineId: l.sourceId, unitId: l.unitId, qty: l.qty, stockSelection: l.stockSelection ?? undefined })),
     }
   if (props.kind === 'sales-returns')
     return {
@@ -202,6 +210,7 @@ function body(): Record<string, unknown> {
         unitId: l.unitId,
         qty: l.qty,
         qualityResult: l.qualityResult,
+        stockSelection: l.stockSelection ?? undefined,
       })),
     }
   if (props.kind === 'receipts')
@@ -438,6 +447,13 @@ async function verify(): Promise<void> {
               label="合格" /><el-option value="failed" label="不合格"
           /></el-select>
           <el-button text @click="lines.splice(index, 1)">移除</el-button>
+          <StockSelectionFields
+            v-if="hasWarehouse && line.skuId"
+            v-model="line.stockSelection"
+            :warehouse-id="form.warehouseId"
+            :sku-id="line.skuId"
+            :mode="kind === 'shipments' ? 'out' : 'return'"
+          />
         </div>
         <el-button @click="addLine">添加来源行</el-button>
       </section>

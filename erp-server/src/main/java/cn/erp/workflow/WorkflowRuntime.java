@@ -480,7 +480,8 @@ public class WorkflowRuntime implements WorkflowPort {
                         "receipt",
                         "payment",
                         "account_transfer",
-                        "stock_adjustment")) permissions.add(source + ":view");
+                        "stock_adjustment",
+                        "stock_misc_doc")) permissions.add(source + ":view");
         return new CompanyAccess(tenant, 0, company, true, Set.of(), permissions);
     }
 }

@@ -1,5 +1,6 @@
 package cn.erp.fulfillment;
 
+import cn.erp.inventory.InventoryModels.StockSelection;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.time.LocalDate;
@@ -19,15 +20,22 @@ public final class ShipmentModels {
     }
     public record InputLine(@NotNull(message="请选择订单行") @Positive(message="订单行编号无效") Long orderLineId,
         @NotNull(message="请选择单位") @Positive(message="单位编号无效") Long unitId,
-        @NotBlank(message="请输入发货数量") String qty) {}
+        @NotBlank(message="请输入发货数量") String qty,@Valid StockSelection stockSelection) {
+        public InputLine(Long orderLineId,Long unitId,String qty) {this(orderLineId,unitId,qty,null);}
+    }
     public record Version(@NotNull(message="请提供版本号") @PositiveOrZero(message="版本号不能为负数") Long version) {}
     public record Signed(@NotNull(message="请提供版本号") Long version,@NotNull(message="请选择签收日期") LocalDate signDate,
         @NotEmpty(message="请登记每一行的签收数量") List<@NotNull @Valid SignedLine> lines,
         @Size(max=20,message="签收附件最多20份") List<@Positive(message="附件编号无效") Long> attachmentIds) {}
-    public record SignedLine(@NotNull(message="请选择发货行") Long lineId,@NotNull(message="请输入签收数量") String signedQty) {}
+    public record SignedLine(@NotNull(message="请选择发货行") Long lineId,@NotNull(message="请输入签收数量") String signedQty,
+        @Size(max=500,message="签收序列号最多500个") List<String> serials) {
+        public SignedLine(Long lineId,String signedQty){this(lineId,signedQty,null);}
+    }
     public record Resolution(@NotNull(message="请提供版本号") Long version,@NotNull(message="请选择处理日期") LocalDate businessDate,
         @NotEmpty(message="请选择差异行") List<@NotNull @Valid ResolveLine> lines) {}
     public record ResolveLine(@NotNull(message="请选择发货行") Long lineId,
         @Pattern(regexp="returned|lost",message="请选择拒收退回或运输损失") @NotNull String disposition,
-        @NotBlank(message="请输入处理原因") @Size(max=200,message="原因最多200字") String reason) {}
+        @NotBlank(message="请输入处理原因") @Size(max=200,message="原因最多200字") String reason,@Valid StockSelection stockSelection) {
+        public ResolveLine(Long lineId,String disposition,String reason){this(lineId,disposition,reason,null);}
+    }
 }

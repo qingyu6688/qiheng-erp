@@ -4,6 +4,8 @@ import cn.erp.accounting.*;
 import cn.erp.catalog.CatalogAvailability;
 import cn.erp.identity.CompanyAccess;
 import cn.erp.inventory.InventoryService;
+import cn.erp.inventory.InventoryModels.StockSelection;
+import cn.erp.inventory.InventoryModels.Source;
 import cn.erp.reference.ReferenceAvailability;
 import cn.erp.salesfinance.FinanceSupport;
 import cn.erp.shared.*;
@@ -29,7 +31,9 @@ public class OpeningService {
         @NotBlank(message="请填写调整原因") @Size(max=200,message="原因最多200字") String reason,
         @NotEmpty(message="请填写库存明细") @Size(max=200,message="每张调整单最多200行") List<@NotNull(message="商品行不能为空") @Valid StockLine> lines,Long version) {}
     public record StockLine(@NotNull(message="请选择商品") Long skuId,@NotNull(message="请选择单位") Long unitId,
-        @NotBlank(message="请填写数量") String qty,String inputTotalCost) {}
+        @NotBlank(message="请填写数量") String qty,String inputTotalCost,@Valid StockSelection stockSelection) {
+        public StockLine(Long skuId,Long unitId,String qty,String inputTotalCost){this(skuId,unitId,qty,inputTotalCost,null);}
+    }
     public record Entry(@NotBlank(message="请选择期初类型") @Pattern(regexp="receivable|payable|cash",message="期初类型无效") String entryType,
         Long partnerId,Long cashAccountId,@NotBlank(message="请选择借贷方向") @Pattern(regexp="D|C",message="借贷方向无效") String direction,
         @NotBlank(message="请填写期初金额") String amount,@NotNull(message="请选择业务日期") LocalDate businessDate,
@@ -49,10 +53,12 @@ public class OpeningService {
     private final LedgerService ledger;
     private final SettlementService settlement;
     private final cn.erp.pricing.PricingEngine pricing;
+    private final ReceiptQualityPort quality;
     public OpeningService(JdbcTemplate jdbc,FinanceSupport support,ReferenceAvailability references,CatalogAvailability catalog,
-            BusinessCommands commands,DocumentNumbers numbers,AuditService audit,InventoryService inventory,LedgerService ledger,SettlementService settlement,cn.erp.pricing.PricingEngine pricing) {
+            BusinessCommands commands,DocumentNumbers numbers,AuditService audit,InventoryService inventory,LedgerService ledger,SettlementService settlement,cn.erp.pricing.PricingEngine pricing,
+            ReceiptQualityPort quality) {
         this.jdbc=jdbc;this.support=support;this.references=references;this.catalog=catalog;this.commands=commands;
-        this.numbers=numbers;this.audit=audit;this.inventory=inventory;this.ledger=ledger;this.settlement=settlement;this.pricing=pricing;
+        this.numbers=numbers;this.audit=audit;this.inventory=inventory;this.ledger=ledger;this.settlement=settlement;this.pricing=pricing;this.quality=quality;
     }
 
     public Map<String,Object> createStock(CompanyAccess scope,String key,Stock input) {
@@ -123,6 +129,12 @@ public class OpeningService {
     private void postStock(CompanyAccess scope,long id,Map<String,Object> head,long period,LocalDate day) {
         long warehouse=id(head,"warehouse_id");warehouse(scope,warehouse);
         var lines=jdbc.queryForList("SELECT * FROM stock_adjustment_line WHERE tenant_id=? AND company_id=? AND adjustment_id=? ORDER BY sku_id,id FOR UPDATE",scope.tenantId(),scope.companyId(),id);
+        var holds=new HashMap<Long,ReceiptQualityPort.Hold>();
+        if("scrap".equals(head.get("adjust_type")))for(var line:lines) {
+            long lineId=id(line,"id");
+            var held=quality.beforeScrap(scope,id,lineId,decimal(line,"base_qty"));
+            if(held!=null)holds.put(lineId,held);
+        }
         inventory.lockKeys(scope,lines.stream().map(l->new cn.erp.inventory.InventoryModels.Key(warehouse,id(l,"sku_id"))).toList());
         var entries=new ArrayList<LedgerService.Line>();
         for(var line:lines) {
@@ -131,15 +143,20 @@ public class OpeningService {
             String movement=switch(type){case "opening"->"opening_in";case "gain"->"adjust_in";case "loss"->"adjust_out";default->type;};
             var posting=new cn.erp.inventory.InventoryModels.Posting(new cn.erp.inventory.InventoryModels.Key(warehouse,sku),
                 new cn.erp.inventory.InventoryModels.Source("stock_adjustment",id,lineId),day,period,movement);
+            var selection=inventory.decodeSelection(line.get("stock_selection"));
             BigDecimal unitCost,cost;
             if(Set.of("block","unblock").contains(type)) {
-                inventory.freeze(scope,posting,qty,type.equals("block"));unitCost=BigDecimal.ZERO.setScale(8);cost=BigDecimal.ZERO.setScale(2);
+                inventory.freeze(scope,posting,qty,type.equals("block"),selection,null);unitCost=BigDecimal.ZERO.setScale(8);cost=BigDecimal.ZERO.setScale(2);
             } else if(Set.of("opening","gain").contains(type)) {
-                cost=decimal(line,"input_total_cost");var result=inventory.receive(scope,posting,qty,cost);unitCost=result.unitCost();
+                cost=decimal(line,"input_total_cost");var result=inventory.receive(scope,posting,qty,cost,selection,null);unitCost=result.unitCost();
                 addStockEntry(entries,"INVENTORY","D",cost,warehouse,sku,lineId);
                 addStockEntry(entries,type.equals("opening")?"OPENING_EQUITY":"INVENTORY_ADJUSTMENT","C",cost,type.equals("opening")?null:warehouse,type.equals("opening")?null:sku,lineId);
             } else {
-                var result=inventory.issue(scope,posting,qty,null);unitCost=result.unitCost();cost=result.movementCost().subtract(result.adjustment());
+                var hold=holds.get(lineId);
+                Source origin=hold==null?null:new Source("goods_receipt_line",hold.sourceId(),hold.lineId());
+                if(origin!=null)selection=inventory.returnSelection(scope,posting.key(),origin,"purchase_in",selection,qty,"quality_hold");
+                var result=inventory.issue(scope,posting,qty,null,selection,origin==null?null:"quality_hold",origin);
+                unitCost=result.unitCost();cost=result.movementCost().subtract(result.adjustment());
                 addStockEntry(entries,"INVENTORY_ADJUSTMENT","D",result.movementCost(),warehouse,sku,lineId);
                 addStockEntry(entries,"INVENTORY","C",result.movementCost(),warehouse,sku,lineId);
                 addStockEntry(entries,"INVENTORY","D",result.adjustment(),warehouse,sku,lineId);
@@ -176,7 +193,9 @@ public class OpeningService {
                 SELECT l.*,s.name sku_name,u.name unit_name FROM stock_adjustment_line l
                 JOIN sku s ON s.tenant_id=l.tenant_id AND s.id=l.sku_id JOIN unit u ON u.tenant_id=l.tenant_id AND u.id=l.unit_id
                 WHERE l.tenant_id=? AND l.company_id=? AND l.adjustment_id=? ORDER BY l.line_no
-                """,scope.tenantId(),scope.companyId(),id).stream().map(FinanceSupport::row).toList();
+                """,scope.tenantId(),scope.companyId(),id).stream().map(line->{
+                    var view=row(line);view.put("stockSelection",inventory.viewSelection(line.get("stock_selection")));return view;
+                }).toList();
             if(!scope.hasPermission("cost:view"))for(var line:lines){line.remove("inputTotalCost");line.remove("unitCost");line.remove("costAmount");}
             result.put("lines",lines);
         } else {
@@ -228,8 +247,8 @@ public class OpeningService {
             BigDecimal rate=jdbc.queryForObject("SELECT rate_to_base FROM unit_conversion WHERE tenant_id=? AND sku_id=? AND unit_id=?",BigDecimal.class,scope.tenantId(),line.skuId(),line.unitId());
             BigDecimal base=new BigDecimal(pricing.convertQuantity(line.qty(),rate.toPlainString()));
             if(base.signum()<=0||base.precision()>24)throw invalid("换算后的数量超出允许范围");
-            jdbc.update("INSERT INTO stock_adjustment_line(id,tenant_id,company_id,adjustment_id,line_no,sku_id,unit_id,unit_rate,qty,base_qty,input_total_cost,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                Ids.next(),scope.tenantId(),scope.companyId(),id,++no,line.skuId(),line.unitId(),rate,quantity(line.qty()),base,line.inputTotalCost()==null?null:cost(line.inputTotalCost()),scope.userId(),scope.userId());
+            jdbc.update("INSERT INTO stock_adjustment_line(id,tenant_id,company_id,adjustment_id,line_no,sku_id,unit_id,unit_rate,qty,base_qty,input_total_cost,stock_selection,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                Ids.next(),scope.tenantId(),scope.companyId(),id,++no,line.skuId(),line.unitId(),rate,quantity(line.qty()),base,line.inputTotalCost()==null?null:cost(line.inputTotalCost()),inventory.encodeSelection(line.stockSelection()),scope.userId(),scope.userId());
         }
     }
     private Map<String,Object> find(CompanyAccess scope,boolean stock,long id,boolean lock) {

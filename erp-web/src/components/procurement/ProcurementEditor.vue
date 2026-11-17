@@ -15,6 +15,8 @@ import { today } from '../../types/sales'
 import { useSessionStore } from '../../stores/session'
 import DocumentEditorFrame from '../DocumentEditorFrame.vue'
 import BusinessUserSelect from '../BusinessUserSelect.vue'
+import StockSelectionFields from '../stock-operations/StockSelectionFields.vue'
+import type { StockSelection } from '../../types/inventory-tracking'
 
 const props = defineProps<{
   kind: ProcurementKind
@@ -63,6 +65,7 @@ interface InputLine {
   sourceId: string
   inputTotalCost: string
   needDate: string
+  stockSelection?: StockSelection | null
 }
 const lines = ref<InputLine[]>(
   (props.original?.lines ?? []).map((l) => ({
@@ -77,6 +80,7 @@ const lines = ref<InputLine[]>(
     sourceId: l.requisitionLineId ?? l.orderLineId ?? l.receiptLineId ?? '',
     inputTotalCost: l.inputTotalCost ?? '',
     needDate: l.needDate ?? '',
+    stockSelection: l.stockSelection,
   })),
 )
 const fees = ref((props.original?.fees ?? []).map((f) => ({ ...f })))
@@ -101,6 +105,12 @@ const order = computed(() => props.kind === 'purchase-orders'),
 const products = computed(() => order.value || requisition.value || stock.value),
   sourceLines = computed(() => ['goods-receipts', 'purchase-returns'].includes(props.kind))
 const inputCost = computed(() => stock.value && ['opening', 'gain'].includes(form.adjustType))
+const trackingMode = computed(() => {
+  if (props.kind === 'goods-receipts' || inputCost.value) return 'in' as const
+  if (props.kind === 'purchase-returns') return 'return' as const
+  if (form.adjustType === 'scrap') return 'scrap' as const
+  return ['block', 'unblock'].includes(form.adjustType) ? 'freeze' as const : 'out' as const
+})
 const hasLines = computed(() => products.value || sourceLines.value),
   warehouseHead = computed(() => stock.value || sourceLines.value)
 const hasPartner = computed(
@@ -130,7 +140,10 @@ function addLine(): void {
   })
 }
 async function chooseSku(line: InputLine, preferredUnit?: string): Promise<void> {
-  if (!preferredUnit) line.sourceId = ''
+  if (!preferredUnit) {
+    line.sourceId = ''
+    line.stockSelection = null
+  }
   try {
     const sku = await record('skus/' + line.skuId)
     units[line.skuId] = (sku.units as SalesSkuUnit[]) ?? []
@@ -158,8 +171,13 @@ function sourceLabel(row: Record<string, unknown>): string {
 }
 function chooseSource(line: InputLine): void {
   const source = sources.value.find((s) => String(s.id) === line.sourceId)
-  if (!source) return
+  line.stockSelection = null
+  if (!source) {
+    if (sourceLines.value) line.skuId = ''
+    return
+  }
   line.unitId = String(source?.unitId ?? '')
+  if (sourceLines.value) line.skuId = String(source.skuId ?? '')
   if (products.value) {
     line.skuId = String(source?.skuId ?? '')
     void chooseSku(line, line.unitId)
@@ -268,6 +286,7 @@ function body(): Record<string, unknown> {
         unitId: l.unitId,
         qty: l.qty,
         inputTotalCost: inputCost.value ? l.inputTotalCost : undefined,
+        stockSelection: l.stockSelection ?? undefined,
       })),
     }
   if (sourceLines.value)
@@ -280,6 +299,7 @@ function body(): Record<string, unknown> {
         [props.kind === 'goods-receipts' ? 'orderLineId' : 'receiptLineId']: l.sourceId,
         unitId: l.unitId,
         qty: l.qty,
+        stockSelection: l.stockSelection ?? undefined,
       })),
     }
   if (props.kind === 'payments')
@@ -629,7 +649,8 @@ async function verify(): Promise<void> {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(line, index) in lines" :key="index">
+            <template v-for="(line, index) in lines" :key="index">
+            <tr>
               <td v-if="sourceLines || (order && session.can('purchase_requisition:view'))">
                 <el-select
                   v-model="line.sourceId"
@@ -716,6 +737,17 @@ async function verify(): Promise<void> {
               </td>
               <td><el-button text @click="lines.splice(index, 1)">移除</el-button></td>
             </tr>
+            <tr v-if="(stock || sourceLines) && form.warehouseId && line.skuId">
+              <td :colspan="stock ? (inputCost ? 5 : 4) : 3">
+                <StockSelectionFields
+                  v-model="line.stockSelection"
+                  :warehouse-id="form.warehouseId"
+                  :sku-id="line.skuId"
+                  :mode="trackingMode"
+                />
+              </td>
+            </tr>
+            </template>
           </tbody>
         </table>
         <el-button @click="addLine">添加明细</el-button>

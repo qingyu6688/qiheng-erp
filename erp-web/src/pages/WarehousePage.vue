@@ -95,6 +95,9 @@ onMounted(load)
 <template>
   <div class="page-heading">
     <h1>仓库管理</h1>
+    <router-link v-if="session.can('wms_location:view')" class="text-link" to="/warehouse-locations"
+      >库区库位</router-link
+    >
     <el-button
       v-if="session.can('warehouse:create') && session.company?.allWarehouses"
       type="primary"
@@ -136,8 +139,7 @@ onMounted(load)
       @close="notice = ''"
     />
     <div v-if="error" class="load-error" role="alert">
-      <span>{{ error }}</span
-      ><el-button text type="primary" @click="load">重新加载</el-button>
+      <span>{{ error }}</span><el-button text type="primary" @click="load">重新加载</el-button>
     </div>
     <div class="table-scroll">
       <el-table :data="page.items" row-key="id" class="warehouse-table">

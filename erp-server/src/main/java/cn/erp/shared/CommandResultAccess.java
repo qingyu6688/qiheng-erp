@@ -44,7 +44,7 @@ public class CommandResultAccess {
             String type=String.valueOf(row.get("sourceType"));
             if(!(actor instanceof PermissionScope permissions)||!permissions.hasPermission(type+":view")) {throw new ApiException(403,"FORBIDDEN","没有查看冲销来源单据的权限");}
             if(!scope.allWarehouses()) {
-                if(java.util.Set.of("shipment","sales_return","goods_receipt","purchase_return","stock_adjustment").contains(type)) {
+                if(java.util.Set.of("shipment","sales_return","goods_receipt","purchase_return","stock_adjustment","stock_misc_doc").contains(type)) {
                     var values=jdbc.queryForList("SELECT warehouse_id FROM "+type+" WHERE tenant_id=? AND company_id=? AND id=?",Long.class,scope.tenantId(),scope.companyId(),row.get("sourceId"));
                     if(values.isEmpty()) {throw missing();}warehouse(scope,values.getFirst());
                 }
@@ -67,7 +67,7 @@ public class CommandResultAccess {
             if(values.isEmpty()) {throw missing();}
             warehouse(scope,values.getFirst().get("from_warehouse_id"));warehouse(scope,values.getFirst().get("to_warehouse_id"));
             warehouse(scope,row.get("fromWarehouseId"));warehouse(scope,row.get("toWarehouseId"));
-        } else if(operation.startsWith("shipment.") || operation.startsWith("sales_return.") || operation.startsWith("goods_receipt.") || operation.startsWith("purchase_return.") || operation.startsWith("stock_adjustment.") || operation.startsWith("stock_count.")) {
+        } else if(java.util.Set.of("shipment","sales_return","goods_receipt","purchase_return","stock_adjustment","stock_count","stock_misc_doc","qc_inspection").contains(document)) {
             String table=operation.substring(0,operation.indexOf('.'));
             var warehouses=jdbc.queryForList("SELECT warehouse_id FROM "+table+" WHERE tenant_id=? AND company_id=? AND id=?",Long.class,scope.tenantId(),scope.companyId(),id);
             if(warehouses.isEmpty()) {throw missing();}

@@ -34,6 +34,7 @@ class ReconciliationIT {
     void makeConsistentBusinessFacts() {
         // 约束夹具原先故意留下彼此不一致的余额，用真实期初流水与分录补成可核对闭环。
         jdbc.update("UPDATE inventory_movement SET movement_type='opening_in',on_hand_delta=10,blocked_delta=1,cost_delta=100 WHERE id=72301");
+        jdbc.update("INSERT INTO inv_block_detail(balance_id,tenant_id,company_id,reason,source_type,source_id,source_line_id,qty) VALUES(71901,70101,70201,'legacy','migration',0,0,1)");
         jdbc.update("UPDATE partner_open_item SET open_amount=90 WHERE id IN (72701,72702)");
         jdbc.update("UPDATE document_reversal SET status='rejected' WHERE tenant_id=70101 AND company_id=70201 AND status='pending'");
         jdbc.update("INSERT INTO cash_account_balance(id,tenant_id,company_id,cash_account_id,balance) VALUES(70512,70101,70201,70502,0),(70514,70101,70201,70504,0)");
@@ -47,7 +48,7 @@ class ReconciliationIT {
     }
 
     @ParameterizedTest
-    @ValueSource(strings={"inventory_balance","inventory_cost","reservation","cash_balance","open_item","journal_balance","ledger_inventory","period_close"})
+    @ValueSource(strings={"inventory_balance","inventory_cost","reservation","cash_balance","open_item","journal_balance","ledger_inventory","period_close","batch_balance","stock_blocks","location_balance"})
     void completeFactsAndProjectionsHaveZeroDifference(String type) {
         assertThat(checks.check(scope,type,type.equals("period_close")?PERIOD:null)).isEmpty();
     }

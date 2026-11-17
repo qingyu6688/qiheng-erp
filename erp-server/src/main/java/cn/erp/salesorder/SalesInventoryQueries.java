@@ -73,7 +73,7 @@ public class SalesInventoryQueries {
     }
     private static final String BALANCES="""
         WITH balances AS (SELECT warehouse_id,sku_id,SUM(on_hand_qty) on_hand_qty,SUM(reserved_qty) reserved_qty,SUM(blocked_qty) blocked_qty
-          FROM inventory_balance WHERE tenant_id=:t AND company_id=:c GROUP BY warehouse_id,sku_id),
+          FROM inventory_balance WHERE tenant_id=:t AND company_id=:c AND location_key='' AND lot_key='' GROUP BY warehouse_id,sku_id),
         demand AS (SELECT l.warehouse_id,l.sku_id,SUM(l.base_qty) pending_demand_qty FROM sales_order_line l
           JOIN sales_order h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.order_id
           WHERE l.tenant_id=:t AND l.company_id=:c AND l.is_deleted=0 AND h.is_deleted=0 AND h.status='pending' AND l.warehouse_id IS NOT NULL %s GROUP BY l.warehouse_id,l.sku_id),

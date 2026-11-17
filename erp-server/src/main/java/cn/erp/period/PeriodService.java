@@ -18,9 +18,9 @@ import static cn.erp.salesfinance.FinanceSupport.*;
 public class PeriodService {
     public record Version(@NotNull(message="请提供版本号") @PositiveOrZero(message="版本号无效") Long version,
         @Size(max=200,message="原因最多200字") String reason) {}
-    private static final Set<String> DOCUMENTS=Set.of("shipment","goods_receipt","sales_return","purchase_return","stock_transfer","stock_count","stock_adjustment","document_reversal");
+    private static final Set<String> DOCUMENTS=Set.of("shipment","goods_receipt","sales_return","purchase_return","stock_transfer","stock_count","stock_adjustment","stock_misc_doc","document_reversal");
     private static final Map<String,String> DOCUMENT_NUMBERS=Map.ofEntries(Map.entry("shipment","shipment_no"),Map.entry("goods_receipt","receipt_no"),Map.entry("sales_return","return_no"),Map.entry("purchase_return","return_no"),
-        Map.entry("stock_transfer","transfer_no"),Map.entry("stock_count","count_no"),Map.entry("stock_adjustment","adjust_no"),Map.entry("document_reversal","reversal_no"),Map.entry("receipt","receipt_no"),
+        Map.entry("stock_transfer","transfer_no"),Map.entry("stock_count","count_no"),Map.entry("stock_adjustment","adjust_no"),Map.entry("stock_misc_doc","document_no"),Map.entry("document_reversal","reversal_no"),Map.entry("receipt","receipt_no"),
         Map.entry("payment","payment_no"),Map.entry("refund_request","refund_no"),Map.entry("account_transfer","transfer_no"),Map.entry("opening_entry","entry_no"));
     private final JdbcTemplate jdbc;
     private final ReconciliationChecks checks;
@@ -86,11 +86,11 @@ public class PeriodService {
         var pending=checks.check(scope,"period_close",id);var items=new ArrayList<Map<String,Object>>();
         add(items,"unposted_documents",pending.stream().filter(d->DOCUMENTS.contains(d.key())).toList(),"已提交未过账的单据已处理",scope,period);
         add(items,"pending_money",pending.stream().filter(d->Set.of("receipt","payment","refund_request","account_transfer","opening_entry").contains(d.key())).toList(),"没有待确认资金及未完成退款",scope,period);
-        var inventory=new ArrayList<ReconciliationChecks.Difference>();
-        for(String type:List.of("inventory_balance","inventory_cost","reservation","ledger_inventory")) {inventory.addAll(checks.check(scope,type,null));}
-        add(items,"inventory_reconciliation",inventory,"库存、预留、成本及账本一致",scope,period);
-        var money=new ArrayList<ReconciliationChecks.Difference>();
-        for(String type:List.of("cash_balance","open_item","journal_balance")) {money.addAll(checks.check(scope,type,null));}
+        var inventory=new ArrayList<>(pending.stream().filter(d->Set.of("inventory_balance","inventory_cost","batch_balance","stock_blocks","location_balance").contains(d.objectType())).toList());
+        for(String type:List.of("reservation","ledger_inventory")) {inventory.addAll(checks.check(scope,type,null));}
+        add(items,"inventory_reconciliation",inventory,"库存、批次、库位、冻结、预留、成本及账本一致",scope,period);
+        var money=new ArrayList<>(pending.stream().filter(d->Set.of("cash_balance","open_item").contains(d.objectType())).toList());
+        money.addAll(checks.check(scope,"journal_balance",null));
         add(items,"money_reconciliation",money,"资金、往来与凭证一致",scope,period);
         long residues=jdbc.queryForObject("""
             SELECT COUNT(*) FROM (
@@ -112,14 +112,16 @@ public class PeriodService {
             String states=switch(table) {
                 case "stock_transfer" -> "'submitted','shipped','received_with_diff'";
                 case "stock_count" -> "'counting','submitted','approved'";
-                case "stock_adjustment","document_reversal" -> "'pending','approved'";
+                case "stock_adjustment","stock_misc_doc","document_reversal" -> "'pending','approved'";
                 case "refund_request" -> "'pending_review','pending_payment'";
                 case "opening_entry" -> "'approved'";
                 case "receipt","payment","account_transfer" -> "'pending_confirm'";
                 default -> "'submitted'";
             };
-            for(var raw:jdbc.queryForList("SELECT id,"+DOCUMENT_NUMBERS.get(table)+" document_no,status FROM "+table+" WHERE tenant_id=? AND company_id=? AND business_date BETWEEN ? AND ? AND status IN("+states+") ORDER BY business_date,id LIMIT 50",scope.tenantId(),scope.companyId(),period.get("start_date"),period.get("end_date"))) {
-                documents.add(Map.of("documentType",table,"documentId",raw.get("id").toString(),"documentNo",raw.get("document_no"),"status",raw.get("status")));
+            String extra=table.equals("stock_misc_doc")?",direction":"";
+            for(var raw:jdbc.queryForList("SELECT id,"+DOCUMENT_NUMBERS.get(table)+" document_no,status"+extra+" FROM "+table+" WHERE tenant_id=? AND company_id=? AND business_date BETWEEN ? AND ? AND status IN("+states+") ORDER BY business_date,id LIMIT 50",scope.tenantId(),scope.companyId(),period.get("start_date"),period.get("end_date"))) {
+                String documentType=table.equals("stock_misc_doc")?"stock_misc_"+raw.get("direction"):table;
+                documents.add(Map.of("documentType",documentType,"documentId",raw.get("id").toString(),"documentNo",raw.get("document_no"),"status",raw.get("status")));
             }
         }
         items.add(Map.of("check",type,"passed",differences.isEmpty(),"count",count,"message",differences.isEmpty()?success:"检查未通过，请处理相关单据或对账差异","documents",documents));

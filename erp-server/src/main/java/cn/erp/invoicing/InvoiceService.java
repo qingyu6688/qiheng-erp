@@ -34,6 +34,34 @@ public class InvoiceService {
         return commands.execute(scope,"invoice_registration.create",key,input,201,()->save(scope,input),(Class)Map.class);
     }
 
+    @Transactional
+    public long reserveElectronic(CompanyAccess scope,long requestId,Input input) {
+        var registered=save(scope,input);
+        long id=Long.parseLong(registered.get("id").toString());
+        jdbc.update("UPDATE invoice_registration SET einvoice_request_id=? WHERE tenant_id=? AND company_id=? AND id=?",
+                requestId,scope.tenantId(),scope.companyId(),id);
+        return id;
+    }
+
+    @Transactional
+    public void completeElectronic(CompanyAccess scope,long registration,long requestId,String number,LocalDate date) {
+        if(jdbc.update("""
+                UPDATE invoice_registration SET invoice_no=?,invoice_date=?,remark='数电发票已开具',updated_by=?,version=version+1
+                WHERE tenant_id=? AND company_id=? AND id=? AND einvoice_request_id=? AND status='registered'
+                """,number,date,scope.userId(),scope.tenantId(),scope.companyId(),registration,requestId)!=1)
+            throw new ApiException(409,"STATE_CONFLICT","数电发票对应的登记已变化");
+        audit.record(scope,"invoice_registration.electronic_issue","invoice_registration",registration,null,
+                Map.of("requestId",Long.toString(requestId),"invoiceNo",number));
+    }
+
+    @Transactional
+    public void voidElectronic(CompanyAccess scope,long registration,long requestId) {
+        Long version=jdbc.queryForList("""
+                SELECT version FROM invoice_registration WHERE tenant_id=? AND company_id=? AND id=? AND einvoice_request_id=?
+                """,Long.class,scope.tenantId(),scope.companyId(),registration,requestId).stream().findFirst().orElseThrow(InvoiceService::missing);
+        voidInvoice(scope,registration,version,"einv_void_"+requestId,requestId);
+    }
+
     private Map<String,Object> save(CompanyAccess scope,Input input) {
         BigDecimal amount=number(input.amount(),true),tax=number(input.taxAmount(),false);
         if(tax.compareTo(amount)>0 || input.invoiceDate().isAfter(LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")))) {throw invalid("发票金额、税额或日期无效");}
@@ -75,16 +103,25 @@ public class InvoiceService {
     @Transactional
     @SuppressWarnings({"unchecked","rawtypes"})
     public Map<String,Object> voidInvoice(CompanyAccess scope,long id,long version,String key) {
+        return voidInvoice(scope,id,version,key,null);
+    }
+
+    @SuppressWarnings({"unchecked","rawtypes"})
+    private Map<String,Object> voidInvoice(CompanyAccess scope,long id,long version,String key,Long electronicRequestId) {
         cn.erp.shared.OrgOwnership.require(jdbc,scope,"invoice_registration",id);
-        return commands.execute(scope,"invoice_registration.void",key,List.of(id,version),200,()->{
+        return commands.execute(scope,electronicRequestId==null?"invoice_registration.void":"invoice_registration.electronic_void",key,List.of(id,version),200,()->{
             // 与创建共享先锁应收、再锁发票的顺序。
             var ids=jdbc.queryForList("SELECT receivable_id FROM invoice_registration_line WHERE tenant_id=? AND company_id=? AND invoice_id=? ORDER BY receivable_id",Long.class,scope.tenantId(),scope.companyId(),id);
             for(Long ar:ids) {jdbc.queryForList("SELECT id FROM receivable WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",scope.tenantId(),scope.companyId(),ar);}
-            var rows=jdbc.queryForList("SELECT version,status FROM invoice_registration WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",scope.tenantId(),scope.companyId(),id);
+            var rows=jdbc.queryForList("SELECT version,status,einvoice_request_id FROM invoice_registration WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",scope.tenantId(),scope.companyId(),id);
             if(rows.isEmpty()) {throw missing();}
+            var before=get(scope,id);
+            var linked=rows.getFirst().get("einvoice_request_id");
+            if(!Objects.equals(linked==null?null:((Number)linked).longValue(),electronicRequestId)) {
+                throw new ApiException(409,"ELECTRONIC_INVOICE_REQUIRES_RED","数电发票待服务商确认失败或红冲后才能作废登记");
+            }
             if(((Number)rows.getFirst().get("version")).longValue()!=version) {throw new ApiException(409,"VERSION_CONFLICT","开票登记已更新，请刷新");}
             if(!"registered".equals(rows.getFirst().get("status"))) {throw new ApiException(409,"STATE_CONFLICT","当前开票登记不能作废");}
-            var before=get(scope,id);
             var amounts=jdbc.queryForList("SELECT receivable_id,amount FROM invoice_registration_line WHERE tenant_id=? AND company_id=? AND invoice_id=?",scope.tenantId(),scope.companyId(),id);
             for(var line:amounts) {
                 if(jdbc.update("UPDATE receivable SET invoiced_amount=invoiced_amount-?,version=version+1 WHERE tenant_id=? AND company_id=? AND id=? AND invoiced_amount>=?",line.get("amount"),scope.tenantId(),scope.companyId(),line.get("receivable_id"),line.get("amount"))!=1) {throw new ApiException(409,"STATE_CONFLICT","开票关联金额不一致，请先核对");}
@@ -96,20 +133,45 @@ public class InvoiceService {
 
     public Map<String,Object> get(CompanyAccess scope,long id) {
         cn.erp.shared.OrgOwnership.require(jdbc,scope,"invoice_registration",id);
-        var rows=jdbc.queryForList("SELECT * FROM invoice_registration WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"invoice_registration")+" AND id=?",scope.tenantId(),scope.companyId(),id);
+        var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),id));
+        var rows=jdbc.queryForList("SELECT e.* FROM invoice_registration e WHERE e.tenant_id=? AND e.company_id=? AND e.id=?"+
+                OrgOwnership.filter(scope,"e")+electronicSourceFilter(scope,args,true),args.toArray());
         if(rows.isEmpty()) {throw missing();}
         var result=view(rows.getFirst());
         result.put("partnerName",jdbc.queryForObject("SELECT name FROM business_partner WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),rows.getFirst().get("partner_id")));
         result.put("lines",jdbc.queryForList("SELECT id,receivable_id,amount FROM invoice_registration_line WHERE tenant_id=? AND company_id=? AND invoice_id=? ORDER BY id",scope.tenantId(),scope.companyId(),id).stream().map(InvoiceService::view).toList());
-        result.put("allowedActions","registered".equals(result.get("status"))&&scope.hasPermission("invoice_registration:void")?List.of("void"):List.of());
+        result.put("allowedActions","registered".equals(result.get("status"))&&result.get("einvoiceRequestId")==null
+                &&scope.hasPermission("invoice_registration:void")?List.of("void"):List.of());
         return result;
     }
 
     public Map<String,Object> list(CompanyAccess scope,Long cursor,int limit) {
         if(limit<1||limit>200||cursor!=null&&cursor<1) {throw invalid("分页参数有误");}
-        var rows=jdbc.queryForList("SELECT id FROM invoice_registration WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"invoice_registration")+" AND id<? ORDER BY id DESC LIMIT ?",scope.tenantId(),scope.companyId(),cursor==null?Long.MAX_VALUE:cursor,limit+1);
+        var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),cursor==null?Long.MAX_VALUE:cursor));
+        String visible=electronicSourceFilter(scope,args,true);
+        args.add(limit+1);
+        var rows=jdbc.queryForList("SELECT e.id FROM invoice_registration e WHERE e.tenant_id=? AND e.company_id=? AND e.id<?"+
+                OrgOwnership.filter(scope,"e")+visible+" ORDER BY e.id DESC LIMIT ?",args.toArray());
         var items=rows.stream().limit(limit).map(row->get(scope,((Number)row.get("id")).longValue())).toList();
         var page=new LinkedHashMap<String,Object>();page.put("items",items);page.put("nextCursor",rows.size()>limit?items.getLast().get("id"):null);return page;
+    }
+
+    /** 申请和旧登记都以发货单范围裁剪数电发票，主查询表别名统一为 e。 */
+    public static String electronicSourceFilter(CompanyAccess scope,List<Object> args,boolean registration) {
+        if(scope.allWarehouses()&&scope.orgScope().allDepartments())return "";
+        var allowed=new ArrayList<String>();
+        if(!scope.allWarehouses()) {
+            if(scope.warehouseIds().isEmpty())return registration?" AND e.einvoice_request_id IS NULL":" AND 1=0";
+            allowed.add("h.warehouse_id IN ("+String.join(",",Collections.nCopies(scope.warehouseIds().size(),"?"))+")");
+            args.addAll(scope.warehouseIds().stream().sorted().toList());
+        }
+        if(!scope.orgScope().allDepartments())allowed.add("("+scope.orgScope().ownerFilter("h")+")");
+        String request=registration?"e.einvoice_request_id":"e.id";
+        return " AND NOT EXISTS("+"""
+                SELECT 1 FROM einv_issue_line l JOIN shipment h
+                ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.shipment_id
+                WHERE l.tenant_id=e.tenant_id AND l.company_id=e.company_id AND l.request_id="""+request+
+                " AND NOT COALESCE(("+String.join(" AND ",allowed)+"),FALSE))";
     }
 
     private static Map<String,Object> view(Map<String,Object> raw) {

@@ -23,6 +23,10 @@ public class MinimumSalePrice {
     }
 
     public Map<String, Object> inspect(CompanyAccess actor, long order, boolean persist) {
+        return inspect(actor, order, persist, null);
+    }
+
+    private Map<String, Object> inspect(CompanyAccess actor, long order, boolean persist, Set<Long> insertedLineIds) {
         var policies =
                 jdbc.queryForList(
                         "SELECT below_min_price_policy FROM company_policy WHERE tenant_id=? AND"
@@ -32,16 +36,7 @@ public class MinimumSalePrice {
                         actor.tenantId(),
                         actor.companyId());
         String policy = policies.isEmpty() ? "warn" : policies.getFirst();
-        var rows =
-                jdbc.queryForList(
-                        "SELECT l.id,l.base_qty,l.untaxed_amount,l.tax_amount,s.min_sale_price FROM"
-                            + " sales_order_line l JOIN sku s ON s.tenant_id=l.tenant_id AND"
-                            + " s.id=l.sku_id WHERE l.tenant_id=? AND l.company_id=? AND"
-                            + " l.order_id=? AND l.is_deleted=0 ORDER BY l.id"
-                                + (persist ? " FOR SHARE" : ""),
-                        actor.tenantId(),
-                        actor.companyId(),
-                        order);
+        var rows = prices(actor, order, persist, insertedLineIds);
         boolean below = false;
         var fingerprint = new StringBuilder(policy);
         var affected = new ArrayList<String>();
@@ -89,8 +84,25 @@ public class MinimumSalePrice {
                 affected);
     }
 
-    public void saved(CompanyAccess actor, long order) {
-        var result = inspect(actor, order, true);
+    private List<Map<String,Object>> prices(CompanyAccess actor, long order, boolean persist, Set<Long> insertedLineIds) {
+        String select = "SELECT l.id,l.base_qty,l.untaxed_amount,l.tax_amount,s.min_sale_price FROM sales_order_line l";
+        String scope = " sku s ON s.tenant_id=l.tenant_id AND s.id=l.sku_id"
+                + " WHERE l.tenant_id=? AND l.company_id=? AND l.order_id=? AND l.is_deleted=0";
+        if (insertedLineIds == null) {
+            return jdbc.queryForList(select + " JOIN" + scope + " ORDER BY l.id" + (persist ? " FOR SHARE" : ""),
+                    actor.tenantId(), actor.companyId(), order);
+        }
+        if (insertedLineIds.isEmpty()) return List.of();
+        // 新订单只需复核本事务插入的行，并锁所在 SKU 的价格，避免读锁覆盖相邻订单的索引间隙。
+        var args = new ArrayList<Object>(List.of(actor.tenantId(), actor.companyId(), order));
+        args.addAll(insertedLineIds.stream().sorted().toList());
+        String placeholders = String.join(",", Collections.nCopies(insertedLineIds.size(), "?"));
+        return jdbc.queryForList(select + " FORCE INDEX (PRIMARY) STRAIGHT_JOIN" + scope
+                + " AND l.id IN (" + placeholders + ") ORDER BY l.id FOR SHARE OF s", args.toArray());
+    }
+
+    public void saved(CompanyAccess actor, long order, Set<Long> insertedLineIds) {
+        var result = inspect(actor, order, true, insertedLineIds);
         if (Boolean.TRUE.equals(result.get("belowMinPrice"))) {
             if (result.get("belowMinPricePolicy").equals("block"))
                 throw new ApiException(422, "MIN_SALE_PRICE_BLOCKED", "折后含税基本单位售价低于最低售价，当前公司禁止保存");

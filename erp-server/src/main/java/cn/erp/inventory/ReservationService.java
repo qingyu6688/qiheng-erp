@@ -109,6 +109,10 @@ public class ReservationService {
                 new Source("inventory_reservation",reservationId,reservationId),now);
     }
 
+    BigDecimal releaseForBatch(CompanyAccess scope,long reservationId,BigDecimal quantity,Source source){
+        return releaseInternal(scope,reservationId,quantity,"release_batch",source,null);
+    }
+
     private BigDecimal releaseInternal(CompanyAccess scope,long id,BigDecimal requested,String reason,Source source,Instant cutoff) {
         var meta = jdbc.queryForList("SELECT order_line_id,warehouse_id,sku_id FROM inventory_reservation WHERE tenant_id=? AND company_id=? AND id=?",
                 scope.tenantId(),scope.companyId(),id);

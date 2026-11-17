@@ -102,7 +102,7 @@ class SalesFinanceIT {
         jdbc.update("DELETE FROM inbox_event WHERE event_id IN(SELECT id FROM outbox_event WHERE tenant_id=?)",tenant);
         for(String table:List.of("outbox_event","idempotency_record","audit_log","settlement_allocation","partner_open_item","refund_request",
                 "receipt","receivable","sales_return_line","sales_return","inventory_reservation_change","inventory_reservation",
-                "cost_adjustment","inventory_movement","inventory_cost","inventory_balance","ledger_balance","journal_line","journal",
+                "cost_adjustment","inv_movement_hold","inventory_movement","inventory_cost","inventory_balance","ledger_balance","journal_line","journal",
                 "shipment_line","shipment","sales_order_line","sales_order","document_sequence","cash_account_balance","cash_account","accounting_period",
                 "unit_conversion","sku","product","product_category","unit","partner_role","business_partner","warehouse","company")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);

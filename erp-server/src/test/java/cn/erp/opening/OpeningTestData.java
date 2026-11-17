@@ -64,7 +64,7 @@ abstract class OpeningTestData {
     @AfterEach void cleanupOpening() {
         jdbc.update("DELETE FROM inbox_event WHERE event_id IN(SELECT id FROM outbox_event WHERE tenant_id=?)",tenant);
         for(String table:List.of("outbox_event","ledger_balance","journal_line","journal","settlement_allocation","partner_open_item","receivable","payable",
-                "inventory_reservation_change","inventory_reservation","cost_adjustment","inventory_movement","inventory_balance","inventory_cost",
+                "inventory_reservation_change","inventory_reservation","cost_adjustment","inv_movement_hold","inventory_movement","inventory_balance","inventory_cost",
                 "stock_count_line","stock_count","stock_adjustment_line","stock_adjustment","opening_entry","audit_log","approval_record","idempotency_record","document_sequence","cash_account_balance","cash_account",
                 "unit_conversion","sku","product","product_category","unit","partner_role","business_partner","sys_user_data_scope","warehouse","accounting_period",
                 "sys_role_permission","sys_user_role","sys_role","sys_user","company_policy","company")) {

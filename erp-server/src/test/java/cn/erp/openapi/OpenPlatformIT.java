@@ -133,7 +133,7 @@ class OpenPlatformIT {
             for(String table:List.of("open_inventory_event_slot","open_webhook_delivery","open_webhook","open_call_log","open_app_company","open_app",
                     "sys_api_error_log","sys_api_access_log","sys_login_log","notify_message","job_run_log","job_definition",
                     "audit_log","idempotency_record","approval_record","inventory_reservation_change","inventory_reservation",
-                    "ledger_balance","journal_line","journal","cost_adjustment","inventory_movement","inventory_cost","inventory_balance",
+                    "ledger_balance","journal_line","journal","cost_adjustment","inv_movement_hold","inventory_movement","inventory_cost","inventory_balance",
                     "shipment_line","shipment","sales_order_fee","sales_order_line","sales_order","document_sequence","accounting_period",
                     "unit_conversion","sku","product","product_category","unit","partner_role","business_partner",
                     "sys_user_data_scope","sys_user_role","sys_role_permission","sys_role","sys_user","warehouse","company")) {

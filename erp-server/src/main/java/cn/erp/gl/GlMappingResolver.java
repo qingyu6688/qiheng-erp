@@ -29,6 +29,7 @@ class GlMappingResolver {
                     "account_transfer",
                     "opening_entry",
                     "stock_adjustment",
+                    "stock_misc_doc",
                     "stock_count",
                     "stock_transfer",
                     "stock_transfer_event",
@@ -83,6 +84,7 @@ class GlMappingResolver {
                         List.of(
                                 Map.entry("receipt_type", "receiptType"),
                                 Map.entry("payment_type", "paymentType"),
+                                Map.entry("income_expense_item_id", "incomeExpenseItemId"),
                                 Map.entry("owner_department_id", "deptId"),
                                 Map.entry("sales_user_id", "businessUserId"),
                                 Map.entry("buyer_user_id", "businessUserId")))

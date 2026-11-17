@@ -27,6 +27,8 @@ export interface SalesOrderChange {
 }
 export interface SalesLine {
   extJson?: import('../api/platform-rules').FieldValues
+  stockSelection?: import('./inventory-tracking').StockSelection | null
+  signedSerials?: string[]
   id: string
   lineNo?: number
   skuId?: string

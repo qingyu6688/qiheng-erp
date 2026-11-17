@@ -14,8 +14,12 @@ public final class ExportCsv {
         var labels=new LinkedHashMap<String,String>();columns.forEach(column->labels.put(column,column));return write(rows,labels,json);
     }
     public static byte[] writeReport(ReportType type,boolean detail,boolean cost,List<Map<String,Object>> rows,ObjectMapper json) {
+        return writeReport(type,detail,cost,!rows.isEmpty()&&rows.getFirst().containsKey("brandName"),rows,json);
+    }
+    static byte[] writeReport(ReportType type,boolean detail,boolean cost,boolean byBrand,List<Map<String,Object>> rows,ObjectMapper json) {
         var columns=new LinkedHashMap<String,String>();
-        if(!type.companyWide()) { add(columns,"warehouseName","仓库","skuCode","商品编码","skuName","商品"); }
+        if(byBrand) {add(columns,"brandName","品牌");}
+        else if(!type.companyWide()) { add(columns,"warehouseName","仓库","skuCode","商品编码","skuName","商品"); }
         switch(type) {
             case INVENTORY_SUMMARY -> add(columns,"onHandQty","在库数量","reservedQty","预留数量","blockedQty","冻结数量","availableQty","可用数量","costAmount","库存成本");
             case INVENTORY_FLOW -> {
@@ -24,9 +28,11 @@ public final class ExportCsv {
             }
             case UNSIGNED_SHIPMENTS -> add(columns,"partnerName","客户","sourceNo","发货单号","businessDate","发货日期","unsignedQty","未签收数量","costAmount","发出商品成本","diffDisposition","差异处理");
             case SALES_SUMMARY,PURCHASE_SUMMARY,GROSS_MARGIN -> {
-                add(columns,"businessUserName",type==ReportType.PURCHASE_SUMMARY?"采购员":"销售员");
-                add(columns,"partnerName",type==ReportType.PURCHASE_SUMMARY?"供应商":"客户","businessDate","业务日期");
-                if(detail || type==ReportType.GROSS_MARGIN) { add(columns,"sourceNo","来源单号"); }
+                if(!byBrand) {
+                    add(columns,"businessUserName",type==ReportType.PURCHASE_SUMMARY?"采购员":"销售员");
+                    add(columns,"partnerName",type==ReportType.PURCHASE_SUMMARY?"供应商":"客户","businessDate","业务日期");
+                    if(detail || type==ReportType.GROSS_MARGIN) { add(columns,"sourceNo","来源单号"); }
+                }
                 add(columns,"qty","基础数量","amount","含税金额","untaxedAmount","不含税金额","taxAmount","税额","costAmount","成本金额");
                 if(type==ReportType.GROSS_MARGIN) { add(columns,"grossMargin","毛利"); }
                 else if(!detail) { add(columns,"sourceCount","明细行数"); }

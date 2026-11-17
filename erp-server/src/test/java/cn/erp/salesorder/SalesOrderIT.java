@@ -65,7 +65,7 @@ class SalesOrderIT {
     @AfterEach
     void clean() {
         for(String table:List.of("idempotency_record","audit_log","approval_record","document_change","outbox_event","inbox_event","journal_line","journal","partner_open_item","receivable","shipment_line","shipment","inventory_reservation_change",
-                "inventory_reservation","inventory_movement","inventory_cost","inventory_balance","sales_order_fee","sales_order_line",
+                "inventory_reservation","inv_movement_hold","inventory_movement","inventory_cost","inventory_balance","sales_order_fee","sales_order_line",
                 "sales_order","document_sequence","cf_definition","unit_conversion","sku","product","product_category","unit","partner_role",
                 "business_partner","accounting_period","warehouse","company_policy","company")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);

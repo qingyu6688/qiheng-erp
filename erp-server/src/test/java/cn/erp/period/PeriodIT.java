@@ -49,7 +49,7 @@ class PeriodIT {
     }
     @AfterEach void cleanup() {
         jdbc.update("DELETE FROM inbox_event WHERE event_id IN(SELECT id FROM outbox_event WHERE tenant_id=?)",tenant);
-        for(String table:List.of("outbox_event","ledger_balance","ledger_projection_lock","journal_line","journal","cost_adjustment","inventory_movement","inventory_cost","inventory_balance",
+        for(String table:List.of("outbox_event","ledger_balance","ledger_projection_lock","journal_line","journal","cost_adjustment","inv_movement_hold","inventory_movement","inventory_cost","inventory_balance",
             "stock_adjustment_line","stock_adjustment","receipt","income_expense_item","document_reversal","audit_log","idempotency_record","document_sequence","cash_account_balance","cash_account","unit_conversion","sku","product","product_category","unit","warehouse","accounting_period","company")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
         }

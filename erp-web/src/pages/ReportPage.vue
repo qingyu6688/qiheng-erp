@@ -72,6 +72,9 @@ const commercialPeople = computed(() =>
   ].includes(props.type),
 )
 const agingReport = computed(() => ['receivable-aging', 'payable-aging'].includes(props.type))
+const brandGroup = computed(() =>
+  ['inventory-summary', 'sales-summary', 'purchase-summary', 'gross-margin'].includes(props.type),
+)
 const agingBounds = computed<number[]>(() => {
   const value = result.value?.summary.agingBounds
   return Array.isArray(value) && value.every((v) => typeof v === 'number')
@@ -88,44 +91,56 @@ function columnLabel(field: string): string {
   return reportLabels[field] || (field === 'departmentName' ? '部门' : field)
 }
 const columns = computed(() =>
-  (agingReport.value
-    ? [
-        groupBy.value === 'business_user'
-          ? 'businessUserName'
-          : groupBy.value === 'department'
-            ? 'departmentName'
-            : 'partnerName',
-        ...(groupBy.value === 'standard'
-          ? ['businessUserName', 'departmentName', 'sourceNo', 'agingDate']
-          : []),
-        'openAmount',
-        ...Array.from({ length: agingBounds.value.length + 1 }, (_, i) => 'aging' + i),
-      ]
-    : commercialPeople.value && groupBy.value === 'business_user' && !detail.value
-      ? [
-          'businessUserName',
+  (brandGroup.value && groupBy.value === 'brand' && !detail.value
+    ? props.type === 'inventory-summary'
+      ? ['brandName', 'onHandQty', 'reservedQty', 'blockedQty', 'availableQty', 'costAmount']
+      : [
+          'brandName',
           'qty',
           'amount',
           'untaxedAmount',
           'taxAmount',
           'costAmount',
-          ...(props.type === 'gross-margin' ? ['grossMargin'] : []),
+          ...(props.type === 'gross-margin' ? ['grossMargin'] : ['sourceCount']),
         ]
-      : detail.value && props.type === 'inventory-flow'
+    : agingReport.value
+      ? [
+          groupBy.value === 'business_user'
+            ? 'businessUserName'
+            : groupBy.value === 'department'
+              ? 'departmentName'
+              : 'partnerName',
+          ...(groupBy.value === 'standard'
+            ? ['businessUserName', 'departmentName', 'sourceNo', 'agingDate']
+            : []),
+          'openAmount',
+          ...Array.from({ length: agingBounds.value.length + 1 }, (_, i) => 'aging' + i),
+        ]
+      : commercialPeople.value && groupBy.value === 'business_user' && !detail.value
         ? [
-            'businessDate',
-            'warehouseName',
-            'skuCode',
-            'skuName',
-            'sourceNo',
+            'businessUserName',
             'qty',
-            'blockedQty',
+            'amount',
+            'untaxedAmount',
+            'taxAmount',
             'costAmount',
-            'postingAction',
+            ...(props.type === 'gross-margin' ? ['grossMargin'] : []),
           ]
-        : detail.value
-          ? ['sourceNo', ...spec.value.fields]
-          : spec.value.fields
+        : detail.value && props.type === 'inventory-flow'
+          ? [
+              'businessDate',
+              'warehouseName',
+              'skuCode',
+              'skuName',
+              'sourceNo',
+              'qty',
+              'blockedQty',
+              'costAmount',
+              'postingAction',
+            ]
+          : detail.value
+            ? ['sourceNo', ...spec.value.fields]
+            : spec.value.fields
   ).filter(
     (field) =>
       (!detail.value || field !== 'sourceCount') &&
@@ -156,7 +171,8 @@ function query(): Record<string, unknown> {
     cashAccountId: cashAccountId.value || undefined,
     detail: detail.value || undefined,
     businessUserId: commercialPeople.value ? businessUserId.value || undefined : undefined,
-    groupBy: commercialPeople.value && !detail.value ? groupBy.value : undefined,
+    groupBy:
+      (commercialPeople.value || brandGroup.value) && !detail.value ? groupBy.value : undefined,
     feesOnly: route.query.feesOnly === 'true' || undefined,
   }
 }
@@ -192,6 +208,12 @@ function page(forward: boolean): void {
   void load()
 }
 function link(row: Record<string, unknown>): string | undefined {
+  if (
+    session.can('stock_misc_doc:view') &&
+    typeof row.sourceUrl === 'string' &&
+    /^\/stock-misc-(in|out)\/[1-9][0-9]*$/.test(row.sourceUrl)
+  )
+    return row.sourceUrl
   return documentLink(row.sourceType, row.sourceId)
 }
 function flow(row: Record<string, unknown>): void {
@@ -254,7 +276,7 @@ async function initialize(): Promise<void> {
   cashAccountId.value = ''
   businessUserId.value =
     typeof route.query.businessUserId === 'string' ? route.query.businessUserId : ''
-  groupBy.value = ['business_user', 'department'].includes(String(route.query.groupBy))
+  groupBy.value = ['business_user', 'department', 'brand'].includes(String(route.query.groupBy))
     ? String(route.query.groupBy)
     : 'standard'
   const local = reportToday()
@@ -337,8 +359,8 @@ onBeforeUnmount(() => {
   />
   <section class="panel table-panel">
     <form class="filters" @submit.prevent="search">
-      <template v-if="commercialPeople"
-        ><div class="filter-field">
+      <template v-if="commercialPeople || brandGroup"
+        ><div v-if="commercialPeople" class="filter-field">
           <label>业务员</label
           ><BusinessUserSelect v-model="businessUserId" include-unassigned label="业务员筛选" />
         </div>
@@ -347,11 +369,20 @@ onBeforeUnmount(() => {
           ><el-select v-model="groupBy" aria-label="汇总方式"
             ><el-option
               value="standard"
-              :label="agingReport ? '按未清项' : '按往来与商品'" /><el-option
-              v-if="agingReport"
-              value="department"
-              label="按部门" /><el-option value="business_user" label="按业务员"
-          /></el-select></div
+              :label="
+                agingReport
+                  ? '按未清项'
+                  : type === 'inventory-summary'
+                    ? '按仓库与商品'
+                    : '按往来与商品'
+              "
+            /><el-option v-if="agingReport" value="department" label="按部门" /><el-option
+              v-if="commercialPeople"
+              value="business_user"
+              label="按业务员"
+            />
+            <el-option v-if="brandGroup" value="brand" label="按品牌" />
+          </el-select></div
       ></template>
       <template v-if="!spec.snapshot"
         ><div class="filter-field">
@@ -458,6 +489,8 @@ onBeforeUnmount(() => {
           ><el-button
             v-else-if="
               !detail &&
+              row.skuId &&
+              row.warehouseId &&
               ['inventory-summary', 'inventory-flow'].includes(type) &&
               session.can('report:inventory_flow')
             "

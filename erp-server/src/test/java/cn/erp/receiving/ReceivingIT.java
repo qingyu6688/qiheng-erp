@@ -57,7 +57,7 @@ class ReceivingIT {
         jdbc.update("DELETE FROM inbox_event WHERE event_id IN(SELECT id FROM outbox_event WHERE tenant_id=?)",tenant);
         jdbc.update("UPDATE purchase_order_fee SET recognized_receipt_id=NULL WHERE tenant_id=?",tenant);
         for(String table:List.of("outbox_event","ledger_balance","journal_line","journal","settlement_allocation","partner_open_item","payable","document_change","approval_record",
-            "purchase_return_line","purchase_return","goods_receipt_line","goods_receipt","inventory_reservation_change","inventory_reservation","cost_adjustment","inventory_movement","inventory_cost","inventory_balance",
+            "purchase_return_line","purchase_return","goods_receipt_line","goods_receipt","inventory_reservation_change","inventory_reservation","cost_adjustment","inv_movement_hold","inventory_movement","inventory_cost","inventory_balance",
             "purchase_order_fee","purchase_order_line","purchase_order","audit_log","idempotency_record","document_sequence","accounting_period",
             "unit_conversion","sku","product","product_category","unit","partner_role","business_partner","warehouse","company_policy","company")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);

@@ -164,6 +164,7 @@ export const reportSpecs = [
 ]
 export const reportLabels: Record<string, string> = {
   businessUserName: '业务员',
+  brandName: '品牌',
   warehouseName: '仓库',
   skuCode: '商品编码',
   skuName: '商品',
@@ -282,6 +283,8 @@ export function documentLink(type: unknown, id: unknown): string | undefined {
     opening_entry: 'opening-entries',
     stock_transfer: 'stock-transfers',
     stock_count: 'stock-counts',
+    stock_misc_in: 'stock-misc-in',
+    stock_misc_out: 'stock-misc-out',
     document_reversal: 'document-reversals',
   }
   const aliases: Record<string, string> = {

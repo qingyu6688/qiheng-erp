@@ -98,7 +98,7 @@ class SalesOrderWriter {
             jdbc.update("UPDATE sales_order_line SET is_deleted=1,version=version+1 WHERE id=?",number(row,"id"));
         }}
         writeFees(scope,orderId,input,preview,newOrder);
-        minimumPrices.saved(scope,orderId);
+        minimumPrices.saved(scope,orderId,newOrder?kept:null);
     }
 
     private void writeFees(CompanyAccess scope,long orderId,SalesOrderModels.Input input,PricingModels.Preview preview,boolean newOrder) {

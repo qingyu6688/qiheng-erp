@@ -59,7 +59,8 @@ public class WorkflowAccess {
                                 "receipt",
                                 "payment",
                                 "account_transfer",
-                                "stock_adjustment"))
+                                "stock_adjustment",
+                                "stock_misc_doc"))
                     if (actor.hasPermission(source + ":view")) {
                         String predicate =
                                 "s.tenant_id=h.tenant_id AND s.company_id=h.company_id AND"
@@ -71,7 +72,8 @@ public class WorkflowAccess {
                                                 "sales_return",
                                                 "goods_receipt",
                                                 "purchase_return",
-                                                "stock_adjustment")
+                                                "stock_adjustment",
+                                                "stock_misc_doc")
                                         .contains(source))
                             predicate += " AND NOT (" + outside(actor, "s.warehouse_id") + ")";
                         sources.add(

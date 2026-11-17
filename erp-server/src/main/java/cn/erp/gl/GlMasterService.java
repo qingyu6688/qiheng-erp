@@ -424,11 +424,12 @@ public class GlMasterService {
                         "cashAccountType",
                         "receiptType",
                         "paymentType",
+                        "incomeExpenseItemId",
                         "partnerId",
                         "skuId",
                         "warehouseId")
                 .containsAll(cond.keySet())) throw invalid("映射条件包含不支持的字段");
-        for (String field : List.of("cashAccountId", "partnerId", "skuId", "warehouseId"))
+        for (String field : List.of("cashAccountId", "partnerId", "skuId", "warehouseId", "incomeExpenseItemId"))
             if (cond.containsKey(field) && !cond.get(field).matches("[1-9][0-9]{0,18}"))
                 throw invalid("映射条件编号无效");
         if (cond.containsKey("cashAccountId")
@@ -440,6 +441,9 @@ public class GlMasterService {
                                 a.companyId(),
                                 Long.parseLong(cond.get("cashAccountId")))
                         != 1) throw missing();
+        if (cond.containsKey("incomeExpenseItemId")
+                && s.jdbc.queryForObject("SELECT COUNT(*) FROM income_expense_item WHERE tenant_id=? AND id=?",
+                        Long.class,a.tenantId(),Long.parseLong(cond.get("incomeExpenseItemId"))) != 1) throw missing();
         var rules = stringMap(in.get("auxRules"));
         if (!new HashSet<>(dimensions.required(sub)).equals(rules.keySet()))
             throw invalid("映射辅助规则须与科目核算维度一致");

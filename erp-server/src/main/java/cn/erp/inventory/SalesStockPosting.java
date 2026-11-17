@@ -18,16 +18,20 @@ public class SalesStockPosting {
     private final InventoryStore store;
     private final JdbcTemplate jdbc;
     private final ReservationService reservations;
+    private final InventoryService inventory;
+    private final InventoryDimensions dimensions;
     private org.springframework.context.ApplicationEventPublisher events = unused -> {};
 
     @org.springframework.beans.factory.annotation.Autowired
     void events(org.springframework.context.ApplicationEventPublisher events) { this.events=events; }
 
-    public SalesStockPosting(InventoryStore store,JdbcTemplate jdbc,ReservationService reservations) {
-        this.store=store;this.jdbc=jdbc;this.reservations=reservations;
+    public SalesStockPosting(InventoryStore store,JdbcTemplate jdbc,ReservationService reservations,InventoryService inventory,InventoryDimensions dimensions) {
+        this.store=store;this.jdbc=jdbc;this.reservations=reservations;this.inventory=inventory;this.dimensions=dimensions;
     }
 
-    public record Issue(Posting posting,BigDecimal quantity,Long reservationId) {}
+    public record Issue(Posting posting,BigDecimal quantity,Long reservationId,StockSelection stockSelection) {
+        public Issue(Posting posting,BigDecimal quantity,Long reservationId){this(posting,quantity,reservationId,null);}
+    }
 
     public List<CostResult> issue(CompanyAccess scope,List<Issue> inputs) {
         if(inputs==null || inputs.isEmpty() || inputs.size()>500 || inputs.stream().anyMatch(Objects::isNull)) {throw new ApiException(400,"VALIDATION_FAILED","发货出库明细无效");}
@@ -48,6 +52,11 @@ public class SalesStockPosting {
             if(lines.size()!=lineIds.size() || lines.stream().anyMatch(row->row.get("warehouse_id")==null || !scope.allowsWarehouse(((Number)row.get("warehouse_id")).longValue()))) {throw missing();}
         }
         var keys=inputs.stream().map(input->input.posting().key()).toList();
+        dimensions.lockSettings(scope,keys);
+        if(!dimensions.trackedKeys(scope,keys).isEmpty()){
+            inventory.lockKeys(scope,keys);
+            return inputs.stream().map(line->inventory.issue(scope,line.posting(),line.quantity(),line.reservationId(),line.stockSelection(),null)).toList();
+        }
         var balances=store.lockMany(scope,keys,false);var costs=store.lockMany(scope,keys,true);
         reservationRows=reservationRows(scope,ids,true);
         var duplicateArgs=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId()));duplicateArgs.addAll(sourceLines);
