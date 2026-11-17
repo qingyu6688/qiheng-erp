@@ -29,7 +29,7 @@ public class ReportService {
         result.put("reportType",type.code());result.put("asOf",snapshot.asOf());
         result.put("dataSource",database.replicaEnabled()?"replica":"primary");
         result.put("visibilityBasis",type==ReportType.INVENTORY_SUMMARY?"共享仓库实物快照，按公司和仓库范围查看":"当前公司、仓库与部门范围内的单据事实");
-        result.put("statisticDate",LocalDate.now(ZoneId.of("Asia/Shanghai")).toString());
+        result.put("statisticDate",(query.agingDate()==null?LocalDate.now(ZoneId.of("Asia/Shanghai")):query.agingDate()).toString());
         result.put("items",snapshot.items().subList(offset,Math.min(offset+limit,snapshot.items().size())));
         result.put("nextCursor",offset+limit<snapshot.items().size()?Integer.toString(offset+limit):null);
         result.put("summary",snapshot.summary());result.put("rowCount",snapshot.items().size());return result;
@@ -49,7 +49,13 @@ public class ReportService {
         type.authorize(actor,false);var query=input.normalized();
         if(query.warehouseId()!=null && !actor.allowsWarehouse(query.warehouseId())) { throw new ApiException(404,"NOT_FOUND","仓库不存在或无权查看"); }
         var params=new HashMap<String,Object>();params.put("t",actor.tenantId());params.put("c",actor.companyId());
-        params.put("f",query.dateFrom());params.put("d",query.dateTo());params.put("today",LocalDate.now(ZoneId.of("Asia/Shanghai")));
+        var today=LocalDate.now(ZoneId.of("Asia/Shanghai"));
+        boolean agingReport=agingReport(type);
+        if(query.agingDate()!=null&&!agingReport)throw invalid("账龄截止日期仅用于应收和应付账龄报表");
+        var statisticDate=query.agingDate()==null?today:query.agingDate();
+        params.put("f",query.dateFrom());params.put("d",query.dateTo());params.put("today",statisticDate);
+        params.put("agingNow",statisticDate.equals(today));
+        params.put("agingEnd",statisticDate.plusDays(1).atStartOfDay(ZoneId.of("Asia/Shanghai")).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime());
         String sql="SELECT q.* FROM ("+ReportSql.query(type,Boolean.TRUE.equals(query.detail()),actor)+") q WHERE 1=1";
         if(!type.companyWide()) {
             if(!actor.allWarehouses()) {
@@ -66,22 +72,28 @@ public class ReportService {
             if(type!=ReportType.CASH_JOURNAL) { throw invalid("此报表不支持资金账户筛选"); }
             params.put("cash",query.cashAccountId());sql+=" AND cash_account_id=:cash";
         }
-        boolean agingReport=Set.of(ReportType.RECEIVABLE_AGING,ReportType.PAYABLE_AGING).contains(type);
-        if("department".equals(query.groupBy())&&!agingReport)throw invalid("按部门汇总仅用于账龄报表");
         boolean commercial=Set.of(ReportType.SALES_SUMMARY,ReportType.PURCHASE_SUMMARY).contains(type);
+        boolean commerceMeasures=commercial||type==ReportType.GROSS_MARGIN;
+        String dimension=switch(query.groupBy()) {
+            case "customer" -> "partner_id";
+            case "sku" -> "sku_id";
+            case "business_user" -> agingReport?null:"business_user_id";
+            case "department" -> agingReport?null:"department_id";
+            default -> null;
+        };
+        if(dimension!=null&&!commerceMeasures)throw invalid("此报表不支持所选汇总维度");
         boolean byBrand="brand".equals(query.groupBy());
         boolean inventory=type==ReportType.INVENTORY_SUMMARY;
         if(byBrand&&!inventory&&!commercial&&type!=ReportType.GROSS_MARGIN)throw invalid("此报表不支持按品牌汇总");
-        boolean byBusinessUser="business_user".equals(query.groupBy())&&!agingReport;
-        if(query.businessUserId()!=null||byBusinessUser) {
+        if(query.businessUserId()!=null) {
             if(!commercial&&!agingReport&&type!=ReportType.GROSS_MARGIN) throw invalid("此报表不支持业务员汇总或筛选");
-            if(query.businessUserId()!=null) {sql+=" AND business_user_id=:businessUser";params.put("businessUser",query.businessUserId());}
+            sql+=" AND business_user_id=:businessUser";params.put("businessUser",query.businessUserId());
         }
         if(Boolean.TRUE.equals(query.feesOnly())) {
             if(!commercial || query.skuId()!=null) { throw invalid("仅费用筛选只适用于销售或采购报表，且不能同时选择商品"); }
             sql+=" AND sku_id IS NULL";
         }
-        boolean aggregate=!byBrand&&(commercial||byBusinessUser) && !Boolean.TRUE.equals(query.detail());
+        boolean aggregate=!byBrand&&dimension==null&&commercial && !Boolean.TRUE.equals(query.detail());
         if(byBrand) {
             String measures=inventory
                 ?"SUM(f.on_hand_qty) on_hand_qty,SUM(f.reserved_qty) reserved_qty,SUM(f.blocked_qty) blocked_qty,SUM(f.available_qty) available_qty,SUM(f.cost_amount) cost_amount"
@@ -89,13 +101,13 @@ public class ReportService {
             sql="SELECT COALESCE(brand.id,0) id,brand.id brand_id,COALESCE(brand.name,'未设置品牌') brand_name,"+measures
                 +" FROM ("+sql+") f LEFT JOIN sku s ON s.tenant_id=:t AND s.id=f.sku_id"
                 +" LEFT JOIN catalog_brand brand ON brand.tenant_id=s.tenant_id AND brand.id=s.brand_id GROUP BY brand.id,brand.name";
-        } else if(byBusinessUser) {
-            sql="SELECT MIN(id) id,business_user_id,SUM(qty) qty,SUM(amount) amount,SUM(untaxed_amount) untaxed_amount,SUM(tax_amount) tax_amount,SUM(cost_amount) cost_amount,SUM(untaxed_amount)-SUM(cost_amount) gross_margin,COUNT(*) source_count FROM ("+sql+") facts GROUP BY business_user_id";
+        } else if(dimension!=null) {
+            sql="SELECT MIN(id) id,"+dimension+",SUM(qty) qty,SUM(amount) amount,SUM(untaxed_amount) untaxed_amount,SUM(tax_amount) tax_amount,SUM(cost_amount) cost_amount,SUM(untaxed_amount)-SUM(cost_amount) gross_margin,COUNT(*) source_count FROM ("+sql+") facts GROUP BY "+dimension;
         } else if(aggregate) {
             sql="SELECT MIN(id) id,partner_id,sku_id,business_date,IF(COUNT(DISTINCT business_user_id)=1,MIN(business_user_id),NULL) business_user_id,IF(COUNT(DISTINCT business_user_id)=1,NULL,'多位业务员') business_user_name,IF(COUNT(DISTINCT warehouse_id)=1,MIN(warehouse_id),NULL) warehouse_id,"+
                 "IF(COUNT(DISTINCT warehouse_id)=1,NULL,'多个仓库') warehouse_name,SUM(qty) qty,SUM(amount) amount,SUM(untaxed_amount) untaxed_amount,SUM(tax_amount) tax_amount,SUM(cost_amount) cost_amount,COUNT(*) source_count FROM ("+sql+") facts GROUP BY partner_id,sku_id,business_date";
         }
-        sql+=" ORDER BY "+(byBrand?"brand_name,id":byBusinessUser?"business_user_id":switch(type) {
+        sql+=" ORDER BY "+(byBrand?"brand_name,id":dimension!=null?dimension:switch(type) {
             case INVENTORY_SUMMARY,INVENTORY_FLOW -> Boolean.TRUE.equals(query.detail()) && type==ReportType.INVENTORY_FLOW?"business_date,id":"warehouse_id,sku_id";
             case RECEIVABLE_AGING,PAYABLE_AGING -> "aging_date,id";
             case SALES_SUMMARY,PURCHASE_SUMMARY,GROSS_MARGIN -> aggregate?"business_date,id,partner_id,sku_id":"business_date,id,source_line_id";
@@ -113,10 +125,11 @@ public class ReportService {
         for(var row:raw) {
             if(!actor.hasPermission("cost:view")) { row.keySet().removeIf(ReportService::costField); }
             if(type!=ReportType.GROSS_MARGIN) { row.remove("gross_margin"); }
+            if("sku_id".equals(dimension)&&row.get("sku_id")==null)row.put("sku_name","费用或未归属商品");
 
             row.forEach((key,value)->{ if(value instanceof BigDecimal decimal) { totals.merge(key,decimal,BigDecimal::add); } });
             var item=FinanceSupport.row(row);source(item);
-            if(byBusinessUser) {
+            if("business_user_id".equals(dimension)) {
                 item.put("detailUrl","/reports/"+type.code().replace('_','-')+"?detail=true&businessUserId="+item.get("businessUserId")+"&dateFrom="+query.dateFrom()+"&dateTo="+query.dateTo());
             } else if(aggregate) {
                 String day=item.get("businessDate").toString();
@@ -138,13 +151,21 @@ public class ReportService {
             for(var row:raw) { closing.put(row.get(type==ReportType.CASH_JOURNAL?"cash_account_id":"partner_id"),(BigDecimal)row.get("running_balance")); }
             summary.remove("runningBalance");summary.put("closingBalance",closing.values().stream().reduce(BigDecimal.ZERO,BigDecimal::add).toPlainString());
         }
-        if(agingReport)summary.put("agingBounds",agingBounds);
+        if(agingReport) {
+            summary.put("agingBounds",agingBounds);
+            summary.put("agingDate",statisticDate.toString());
+        }
         summary.put("dateFrom",query.dateFrom().toString());summary.put("dateTo",query.dateTo().toString());
         summary.put("basis",switch(type) {
-            case INVENTORY_SUMMARY,UNSIGNED_SHIPMENTS,RECEIVABLE_AGING,PAYABLE_AGING -> "current_snapshot";
+            case INVENTORY_SUMMARY,UNSIGNED_SHIPMENTS -> "current_snapshot";
+            case RECEIVABLE_AGING,PAYABLE_AGING -> statisticDate.equals(today)?"current_snapshot":"historical_snapshot";
             default -> "business_date";
         });
         return new Snapshot(asOf,List.copyOf(items),summary);
+    }
+
+    private static boolean agingReport(ReportType type) {
+        return type==ReportType.RECEIVABLE_AGING||type==ReportType.PAYABLE_AGING;
     }
     private void names(CompanyAccess actor,List<Map<String,Object>> rows) {
         var userIds=new HashSet<Object>();for(var row:rows) if(row.get("business_user_id")!=null) userIds.add(row.get("business_user_id"));

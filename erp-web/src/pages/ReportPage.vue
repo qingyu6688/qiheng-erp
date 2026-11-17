@@ -29,6 +29,7 @@ const spec = computed(() => reportSpecs.find((item) => item.type === props.type)
   notice = ref('')
 const dateFrom = ref(''),
   dateTo = ref(''),
+  agingDate = ref(''),
   warehouseId = ref(''),
   skuId = ref(''),
   partnerId = ref(''),
@@ -72,6 +73,12 @@ const commercialPeople = computed(() =>
   ].includes(props.type),
 )
 const agingReport = computed(() => ['receivable-aging', 'payable-aging'].includes(props.type))
+const businessGroups = computed(() => ['sales-summary', 'gross-margin'].includes(props.type))
+const groupFields: Record<string, string[]> = {
+  customer: ['partnerName'],
+  sku: ['skuCode', 'skuName'],
+  department: ['departmentName'],
+}
 const brandGroup = computed(() =>
   ['inventory-summary', 'sales-summary', 'purchase-summary', 'gross-margin'].includes(props.type),
 )
@@ -103,44 +110,54 @@ const columns = computed(() =>
           'costAmount',
           ...(props.type === 'gross-margin' ? ['grossMargin'] : ['sourceCount']),
         ]
-    : agingReport.value
+    : businessGroups.value && groupFields[groupBy.value] && !detail.value
       ? [
-          groupBy.value === 'business_user'
-            ? 'businessUserName'
-            : groupBy.value === 'department'
-              ? 'departmentName'
-              : 'partnerName',
-          ...(groupBy.value === 'standard'
-            ? ['businessUserName', 'departmentName', 'sourceNo', 'agingDate']
-            : []),
-          'openAmount',
-          ...Array.from({ length: agingBounds.value.length + 1 }, (_, i) => 'aging' + i),
+          ...groupFields[groupBy.value]!,
+          'qty',
+          'amount',
+          'untaxedAmount',
+          'taxAmount',
+          'costAmount',
+          ...(props.type === 'gross-margin' ? ['grossMargin'] : ['sourceCount']),
         ]
-      : commercialPeople.value && groupBy.value === 'business_user' && !detail.value
+      : agingReport.value
         ? [
-            'businessUserName',
-            'qty',
-            'amount',
-            'untaxedAmount',
-            'taxAmount',
-            'costAmount',
-            ...(props.type === 'gross-margin' ? ['grossMargin'] : []),
+            groupBy.value === 'business_user'
+              ? 'businessUserName'
+              : groupBy.value === 'department'
+                ? 'departmentName'
+                : 'partnerName',
+            ...(groupBy.value === 'standard'
+              ? ['businessUserName', 'departmentName', 'sourceNo', 'agingDate']
+              : []),
+            'openAmount',
+            ...Array.from({ length: agingBounds.value.length + 1 }, (_, i) => 'aging' + i),
           ]
-        : detail.value && props.type === 'inventory-flow'
+        : commercialPeople.value && groupBy.value === 'business_user' && !detail.value
           ? [
-              'businessDate',
-              'warehouseName',
-              'skuCode',
-              'skuName',
-              'sourceNo',
+              'businessUserName',
               'qty',
-              'blockedQty',
+              'amount',
+              'untaxedAmount',
+              'taxAmount',
               'costAmount',
-              'postingAction',
+              ...(props.type === 'gross-margin' ? ['grossMargin'] : []),
             ]
-          : detail.value
-            ? ['sourceNo', ...spec.value.fields]
-            : spec.value.fields
+          : detail.value && props.type === 'inventory-flow'
+            ? [
+                'businessDate',
+                'warehouseName',
+                'skuCode',
+                'skuName',
+                'sourceNo',
+                'qty',
+                'blockedQty',
+                'costAmount',
+                'postingAction',
+              ]
+            : detail.value
+              ? ['sourceNo', ...spec.value.fields]
+              : spec.value.fields
   ).filter(
     (field) =>
       (!detail.value || field !== 'sourceCount') &&
@@ -165,6 +182,7 @@ function query(): Record<string, unknown> {
   return {
     dateFrom: dateFrom.value || undefined,
     dateTo: dateTo.value || undefined,
+    agingDate: agingReport.value ? agingDate.value || undefined : undefined,
     warehouseId: warehouseId.value || undefined,
     skuId: skuId.value || undefined,
     partnerId: partnerId.value || undefined,
@@ -273,16 +291,23 @@ async function initialize(): Promise<void> {
   warehouseId.value = typeof route.query.warehouseId === 'string' ? route.query.warehouseId : ''
   skuId.value = typeof route.query.skuId === 'string' ? route.query.skuId : ''
   partnerId.value = typeof route.query.partnerId === 'string' ? route.query.partnerId : ''
-  cashAccountId.value = ''
+  cashAccountId.value =
+    typeof route.query.cashAccountId === 'string' ? route.query.cashAccountId : ''
   businessUserId.value =
     typeof route.query.businessUserId === 'string' ? route.query.businessUserId : ''
-  groupBy.value = ['business_user', 'department', 'brand'].includes(String(route.query.groupBy))
-    ? String(route.query.groupBy)
-    : 'standard'
+  const group = String(route.query.groupBy)
+  groupBy.value =
+    (group === 'business_user' && commercialPeople.value) ||
+    (group === 'department' && agingReport.value) ||
+    (group === 'brand' && brandGroup.value) ||
+    (Object.hasOwn(groupFields, group) && businessGroups.value)
+      ? group
+      : 'standard'
   const local = reportToday()
   dateFrom.value =
     typeof route.query.dateFrom === 'string' ? route.query.dateFrom : local.slice(0, 8) + '01'
   dateTo.value = typeof route.query.dateTo === 'string' ? route.query.dateTo : local
+  agingDate.value = typeof route.query.agingDate === 'string' ? route.query.agingDate : local
   warehouses.value = []
   skus.value = []
   partners.value = []
@@ -333,7 +358,8 @@ onBeforeUnmount(() => {
   <div class="page-heading">
     <div>
       <h1>{{ spec.title }}{{ detail ? '明细' : '' }}</h1>
-      <p v-if="spec.snapshot">按当前数据快照统计，日期区间不改变库存或账龄余额。</p>
+      <p v-if="agingReport">按截止日查看应收或应付未清金额。</p>
+      <p v-else-if="spec.snapshot">按当前数据快照统计。</p>
       <p v-else>按业务日期统计，退货与冲销按实际方向计入。</p>
     </div>
     <div class="sales-actions">
@@ -376,15 +402,28 @@ onBeforeUnmount(() => {
                     ? '按仓库与商品'
                     : '按往来与商品'
               "
-            /><el-option v-if="agingReport" value="department" label="按部门" /><el-option
-              v-if="commercialPeople"
-              value="business_user"
-              label="按业务员"
-            />
+            /><el-option
+              v-if="agingReport || businessGroups"
+              value="department"
+              label="按部门"
+            /><el-option v-if="commercialPeople" value="business_user" label="按业务员" />
+            <el-option v-if="businessGroups" value="customer" label="按客户" />
+            <el-option v-if="businessGroups" value="sku" label="按商品" />
             <el-option v-if="brandGroup" value="brand" label="按品牌" />
           </el-select></div
       ></template>
-      <template v-if="!spec.snapshot"
+      <div v-if="agingReport" class="filter-field">
+        <label for="report-aging-cutoff">截止日期</label>
+        <input
+          id="report-aging-cutoff"
+          v-model="agingDate"
+          class="el-input__inner"
+          type="date"
+          :max="reportToday()"
+          required
+        />
+      </div>
+      <template v-else-if="!spec.snapshot"
         ><div class="filter-field">
           <label for="report-date-from">开始日期</label
           ><input

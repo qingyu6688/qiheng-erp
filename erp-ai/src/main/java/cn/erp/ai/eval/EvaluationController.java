@@ -19,9 +19,15 @@ class EvaluationController {
     @GetMapping("/evals/{id}/runs")
     ApiResponse<?> runs(HttpServletRequest r,@PathVariable String id) { return ApiResponse.ok(eval.runs(requests.actor(r),id)); }
 
+    @GetMapping("/evals/{id}/cases")
+    ApiResponse<?> cases(HttpServletRequest r,@PathVariable String id) { return ApiResponse.ok(eval.cases(requests.actor(r),id)); }
+
     @GetMapping("/eval-runs/{id}")
     ApiResponse<?> run(HttpServletRequest r,@PathVariable String id) { return ApiResponse.ok(eval.detail(requests.actor(r),id)); }
 
     @PostMapping("/evals/{id}/run")
-    ApiResponse<?> start(HttpServletRequest r,@PathVariable String id) { return ApiResponse.ok(eval.start(requests.access(r),id)); }
+    ApiResponse<?> start(HttpServletRequest r,@PathVariable String id,
+            @RequestBody(required=false) EvaluationService.StartInput input) {
+        return ApiResponse.ok(eval.start(requests.access(r),id,input));
+    }
 }

@@ -8,6 +8,7 @@ import { isCancelled, messageOf, newIdempotencyKey } from '../api/http'
 import { useSessionStore } from '../stores/session'
 import { formatDateTimeSeconds } from '../utils/format'
 import { auditChanges } from '../utils/audit'
+import { aiBusinessTools } from '../types/ai'
 const session = useSessionStore(),
   tab = ref<'audit' | 'events'>(session.can('audit:view') ? 'audit' : 'events')
 const audit = ref<AuditRow[]>([]),
@@ -116,6 +117,11 @@ const verbs: Record<string, string> = {
 }
 function operation(value: string): string {
   if (value === 'ai.tool.list_warehouses') return '经 AI 助手查看仓库'
+  if (value.startsWith('ai.tool.')) {
+    const code = value.slice('ai.tool.'.length)
+    if (Object.hasOwn(aiBusinessTools, code))
+      return '经 AI 助手查询' + aiBusinessTools[code as keyof typeof aiBusinessTools].label
+  }
   const [object, verb] = value.split('.')
   return (
     (objects[

@@ -8,7 +8,13 @@ import cn.erp.ai.assistant.AssistantRuntime;
 final class EvaluationGrader {
     private EvaluationGrader() {}
     record Result(String caseId,String category,boolean correct,boolean citationCorrect,
-                  boolean refused,boolean expectedRefusal,String reason) {}
+                  boolean refused,boolean expectedRefusal,String reason,Boolean toolSelected,
+                  Boolean parametersCorrect,Boolean reportAgrees) {
+        Result(String caseId,String category,boolean correct,boolean citationCorrect,boolean refused,
+                boolean expectedRefusal,String reason) {
+            this(caseId,category,correct,citationCorrect,refused,expectedRefusal,reason,null,null,null);
+        }
+    }
 
     static Result score(EvaluationSet.Case test,AssistantRuntime.Answer answer) {
         boolean refused=answer.refused() && answer.text().equals(AssistantRuntime.REFUSAL)

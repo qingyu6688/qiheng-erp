@@ -9,6 +9,7 @@ import tools.jackson.databind.ObjectMapper;
 import cn.erp.ai.common.AiActor;
 import cn.erp.ai.common.AiException;
 import cn.erp.ai.common.AiInputs;
+import cn.erp.ai.common.BusinessToolSpec;
 
 @Service
 public class AssistantCatalog {
@@ -43,7 +44,14 @@ public class AssistantCatalog {
     }
 
     boolean toolAllowed(AiActor actor,Config config,String code) {
-        return WAREHOUSES.equals(code) && actor.has("warehouse:view") && config.toolCodes().contains(code);
+        if (!config.toolCodes().contains(code)) return false;
+        if (WAREHOUSES.equals(code)) return actor.has("warehouse:view");
+        var tool=BusinessToolSpec.find(code);
+        return tool!=null && tool.allowed(actor);
+    }
+
+    List<BusinessToolSpec> businessTools(AiActor actor,Config config) {
+        return BusinessToolSpec.all().stream().filter(tool->toolAllowed(actor,config,tool.code())).toList();
     }
 
     public List<Config> adminList(AiActor actor) {
@@ -67,7 +75,8 @@ public class AssistantCatalog {
                 throw AiException.missing();
         }
         var tools=input.toolCodes() == null ? Set.<String>of() : Set.copyOf(input.toolCodes());
-        if (!Set.of(WAREHOUSES).containsAll(tools)) throw AiException.invalid("工具不在只读白名单中");
+        if (tools.stream().anyMatch(tool->!WAREHOUSES.equals(tool) && BusinessToolSpec.find(tool)==null))
+            throw AiException.invalid("工具不在只读白名单中");
         if (input.id() == null) {
             jdbc.update("""
                 INSERT INTO ai_assistant(tenant_id,code,name,system_prompt,library_ids,role_ids,tool_codes,enabled)
@@ -91,8 +100,11 @@ public class AssistantCatalog {
 
     public List<Map<String,String>> tools(AiActor actor) {
         actor.requireAdminView();
-        return List.of(Map.of("code",WAREHOUSES,"label","查看可访问仓库",
-                "description","读取当前公司的授权仓库编码和名称"));
+        var tools=new ArrayList<Map<String,String>>();
+        tools.add(Map.of("code",WAREHOUSES,"label","查看可访问仓库","description","读取当前公司的授权仓库编码和名称"));
+        for (var tool:BusinessToolSpec.all())
+            tools.add(Map.of("code",tool.code(),"label",tool.label(),"description",tool.description()));
+        return List.copyOf(tools);
     }
 
     private List<Config> read(AiActor actor) {
@@ -113,6 +125,9 @@ public class AssistantCatalog {
     }
 
     private View view(AiActor actor,Config config) {
-        return new View(config.code(),config.name(),toolAllowed(actor,config,WAREHOUSES) ? Set.of(WAREHOUSES) : Set.of());
+        var tools=new LinkedHashSet<String>();
+        if (toolAllowed(actor,config,WAREHOUSES)) tools.add(WAREHOUSES);
+        businessTools(actor,config).forEach(tool->tools.add(tool.code()));
+        return new View(config.code(),config.name(),Collections.unmodifiableSet(tools));
     }
 }

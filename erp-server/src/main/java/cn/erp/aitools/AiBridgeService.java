@@ -18,13 +18,15 @@ class AiBridgeService {
     private final AiBridgePrincipalRepository principals;
     private final WarehouseService warehouses;
     private final AuditService audit;
+    private final AiBusinessTools tools;
 
     AiBridgeService(AccessService access, AiBridgePrincipalRepository principals,
-                    WarehouseService warehouses, AuditService audit) {
+                    WarehouseService warehouses, AuditService audit, AiBusinessTools tools) {
         this.access = access;
         this.principals = principals;
         this.warehouses = warehouses;
         this.audit = audit;
+        this.tools = tools;
     }
 
     AiBridgePrincipalRepository.Principal context(HttpServletRequest request) {
@@ -45,5 +47,25 @@ class AiBridgeService {
         var result = warehouses.listActiveSelections(actor);
         audit.record(actor, WAREHOUSE_TOOL, "company", actor.companyId(), null, Map.of("outcome", "success"));
         return result;
+    }
+
+    Map<String,Object> query(HttpServletRequest request, String code, byte[] body) {
+        var actor=access.requireCompany(request,USE_PERMISSION);
+        var tool=AiBusinessTools.Tool.parse(code);
+        var action="ai.tool."+tool.code();
+        try {
+            var result=tools.query(actor,tool,AiBusinessInput.parse(body,tool.fields));
+            audit.record(actor,action,"company",actor.companyId(),null,Map.of("outcome",result.get("status")));
+            return result;
+        } catch(ApiException error) {
+            audit.record(actor,action,"company",actor.companyId(),null,Map.of("outcome","rejected","code",error.getErrorCode()));
+            throw error;
+        }
+    }
+
+    Map<String,String> scope(HttpServletRequest request, String code) {
+        var actor=access.requireCompany(request,USE_PERMISSION);
+        var tool=AiBusinessTools.Tool.parse(code);
+        return Map.of("scopeFingerprint",tools.scope(actor,tool));
     }
 }

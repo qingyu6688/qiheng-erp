@@ -206,6 +206,35 @@ class AiBridgeIT {
         assertThat(outcomes).containsExactly("success", "denied");
     }
 
+    @Test
+    void queryBindsExactBodyAndChecksCsrfAndCurrentPermissions() throws Exception {
+        String path = "/api/v1/ai-tools/query/document_search";
+        String scopePath = "/api/v1/ai-tools/scope/document_search";
+        String body = "{\"type\":\"sales-orders\"}";
+        String forbiddenInput = "{\"type\":\"sales-orders\",\"companyId\":\"1\"}";
+        addRole(Ids.next(), "SALES_READER", "active", "sales_order:view");
+        var good = signedQuery(path,company,body,body,csrf);
+        JsonNode allowed = data(good,200);
+        assertThat(allowed.path("items").size()).isZero();
+        String fingerprint = allowed.path("scopeFingerprint").asString();
+        assertThat(fingerprint).matches("[0-9a-f]{64}");
+        assertThat(data(signedGet(scopePath,company),200).path("scopeFingerprint").asString()).isEqualTo(fingerprint);
+        data(good,403);
+        data(signedQuery(path,company,body,forbiddenInput,csrf),403);
+        data(signedQuery(path,company,body,body,null),403);
+        data(signedQuery(path,company,forbiddenInput,forbiddenInput,csrf),400);
+        data(signedQuery(path,foreignCompany,body,body,csrf),403);
+        data(signedQuery(path,unassignedCompany,body,body,csrf),403);
+        jdbc.update("UPDATE sys_role SET status='disabled' WHERE tenant_id=? AND code='SALES_READER'",tenant);
+        data(signedQuery(path,company,body,body,csrf),403);
+        data(signedGet(scopePath,company),403);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND action='ai.tool.document_search'
+                  AND before_data IS NULL AND JSON_EXTRACT(after_data,'$.outcome') IS NOT NULL
+                  AND JSON_EXTRACT(after_data,'$.query') IS NULL
+                """,Long.class,tenant)).isEqualTo(3L);
+    }
+
     private void addCompany(long tenantId, long companyId, String code) {
         jdbc.update("INSERT INTO company(id,tenant_id,code,name) VALUES(?,?,?,?)",
                 companyId, tenantId, code, "测试公司" + code);
@@ -293,10 +322,23 @@ class AiBridgeIT {
 
     private static HttpRequest.Builder sign(HttpRequest.Builder builder, String method, String path, long company,
                                             String cookie, long timestamp) throws Exception {
+        return sign(builder,method,path,company,cookie,timestamp,null);
+    }
+
+    private HttpRequest signedQuery(String uri,long companyId,String signedBody,String sentBody,String csrfToken) throws Exception {
+        var builder=sign(request(uri).header("Cookie",cookie).header("Content-Type","application/json"),
+                "POST",uri,companyId,cookie,now(),signedBody);
+        if(csrfToken!=null) builder.header("X-XSRF-TOKEN",csrfToken);
+        return builder.POST(HttpRequest.BodyPublishers.ofString(sentBody)).build();
+    }
+
+    private static HttpRequest.Builder sign(HttpRequest.Builder builder, String method, String path, long company,
+                                             String cookie, long timestamp, String body) throws Exception {
         String nonce = UUID.randomUUID().toString().replace("-", "");
         var hex = HexFormat.of();
         String digest = hex.formatHex(MessageDigest.getInstance("SHA-256").digest(cookie.getBytes(StandardCharsets.UTF_8)));
         String payload = String.join("\n", Long.toString(timestamp), nonce, method, path, Long.toString(company), digest);
+        if(body!=null) payload+="\n"+hex.formatHex(MessageDigest.getInstance("SHA-256").digest(body.getBytes(StandardCharsets.UTF_8)));
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(KEY.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
         return builder.header("X-Company-Id", Long.toString(company))

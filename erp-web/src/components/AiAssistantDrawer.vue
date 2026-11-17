@@ -3,6 +3,7 @@ import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { aiRead, aiWrite, sendAiMessage } from '../api/ai'
 import { isCancelled, messageOf } from '../api/http'
 import type { AiAssistantOption, AiChatEvent, AiConversation, AiMessage } from '../types/ai'
+import { aiBusinessTools } from '../types/ai'
 import AiMarkdown from './AiMarkdown.vue'
 import AiSources from './AiSources.vue'
 import AiToolResults from './AiToolResults.vue'
@@ -14,6 +15,7 @@ const conversations = ref<AiConversation[]>([])
 const conversation = ref('')
 const messages = ref<AiMessage[]>([])
 const prompt = ref('')
+const mode = ref<'knowledge' | 'query'>('knowledge')
 const promptList = ref<HTMLElement>()
 const loading = ref(false)
 const error = ref('')
@@ -33,6 +35,19 @@ const selectedAssistant = computed(() =>
         ? conversations.value.find((entry) => entry.id === conversation.value)?.assistantCode
         : assistant.value),
   ),
+)
+const availableQueries = computed(() =>
+  Object.entries(aiBusinessTools)
+    .filter(([code]) => selectedAssistant.value?.toolCodes?.includes(code))
+    .map(([, item]) => item),
+)
+const promptInput = ref<{ focus: () => void }>()
+
+watch(
+  () => availableQueries.value.length,
+  (count) => {
+    if (!count) mode.value = 'knowledge'
+  },
 )
 
 function showError(cause: unknown, current: number): void {
@@ -54,6 +69,7 @@ async function load(): Promise<void> {
   conversations.value = []
   options.value = []
   assistant.value = ''
+  mode.value = 'knowledge'
   conversation.value = ''
   prompt.value = ''
   feedback.value = {}
@@ -143,8 +159,20 @@ function consume(event: AiChatEvent, answer: AiMessage): void {
   scrollToLatest()
 }
 
-async function send(toolCode?: 'list_warehouses'): Promise<void> {
-  const content = toolCode ? '查看可访问仓库' : prompt.value.trim()
+function editPrompt(text: string): void {
+  if (loading.value || controller.value || !availableQueries.value.length) return
+  mode.value = 'query'
+  prompt.value = text
+  void nextTick(() => promptInput.value?.focus())
+}
+function clarify(text: string, index: number): void {
+  const original = messages.value[index - 1]
+  if (original?.role === 'user') editPrompt(original.content + '\n请使用候选编码 ' + text + '。')
+}
+
+async function send(shortcut?: 'list_warehouses'): Promise<void> {
+  const toolCode = shortcut ?? (mode.value === 'query' ? 'auto' : undefined)
+  const content = shortcut ? '查看可访问仓库' : prompt.value.trim()
   if (!content || loading.value || controller.value || !selectedAssistant.value) return
   const current = scope
   const stream = new AbortController()
@@ -166,7 +194,7 @@ async function send(toolCode?: 'list_warehouses'): Promise<void> {
       { id: '', content: '', role: 'assistant', citations: [], tools: [], createdAt: timestamp },
     )
     answer = messages.value.at(-1)!
-    if (!toolCode) prompt.value = ''
+    if (!shortcut) prompt.value = ''
     scrollToLatest()
     await sendAiMessage(
       conversation.value,
@@ -183,7 +211,7 @@ async function send(toolCode?: 'list_warehouses'): Promise<void> {
     if (scope === current) {
       if (answer && !answer.id) {
         messages.value.splice(-2)
-        if (!toolCode && !prompt.value) prompt.value = content
+        if (!shortcut && !prompt.value) prompt.value = content
       }
       controller.value = undefined
       tool.value = ''
@@ -273,7 +301,8 @@ onScopeDispose(() => {
       <div ref="promptList" class="assistant-messages" role="region" aria-label="会话内容">
         <p v-if="loading" role="status">正在读取会话…</p>
         <div v-else-if="!messages.length && !error" class="assistant-empty">
-          <p v-if="options.length">可以询问有关 ERP 操作或业务规则的问题。</p>
+          <p v-if="mode === 'query'">输入要查询的对象、时间范围或汇总维度。</p>
+          <p v-else-if="options.length">可以询问有关 ERP 操作或业务规则的问题。</p>
           <p v-else>当前账号没有可用的助手，请联系管理员。</p>
         </div>
         <article
@@ -294,7 +323,11 @@ onScopeDispose(() => {
               }))
             "
           />
-          <AiToolResults v-if="item.tools?.length" :runs="item.tools" />
+          <AiToolResults
+            v-if="item.tools?.length"
+            :runs="item.tools"
+            @clarify="clarify($event, index)"
+          />
           <p v-if="item.role === 'assistant' && !item.id && !item.content" role="status">
             {{ tool || '正在生成回答…' }}
           </p>
@@ -336,11 +369,34 @@ onScopeDispose(() => {
       </div>
 
       <form class="assistant-composer" @submit.prevent="send()">
+        <div v-if="availableQueries.length" class="assistant-modes" aria-label="助手模式">
+          <el-radio-group v-model="mode" size="small" :disabled="loading || Boolean(controller)">
+            <el-radio-button value="knowledge">知识问答</el-radio-button>
+            <el-radio-button value="query">智能查数</el-radio-button>
+          </el-radio-group>
+        </div>
+        <div
+          v-if="mode === 'query' && !messages.length"
+          class="assistant-examples"
+          aria-label="查数示例"
+        >
+          <el-button
+            v-for="item in availableQueries"
+            :key="item.label"
+            plain
+            size="small"
+            :disabled="loading || Boolean(controller)"
+            @click="editPrompt(item.example)"
+          >
+            {{ item.label }}
+          </el-button>
+        </div>
         <el-input
+          ref="promptInput"
           v-model="prompt"
           type="textarea"
           aria-label="输入问题"
-          placeholder="输入问题"
+          :placeholder="mode === 'query' ? '输入业务问题' : '输入问题'"
           :rows="3"
           maxlength="2000"
           :disabled="loading || !selectedAssistant || Boolean(controller)"
@@ -419,5 +475,17 @@ onScopeDispose(() => {
 }
 .assistant-feedback {
   margin-top: 8px;
+}
+.assistant-modes,
+.assistant-examples {
+  margin-bottom: 8px;
+}
+.assistant-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.assistant-examples :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 </style>

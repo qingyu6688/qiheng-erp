@@ -58,10 +58,10 @@ class AiBridgePrincipalRepository {
             }
             return new Principal(Long.toString(actor.tenantId()), Long.toString(actor.userId()),
                     Long.toString(actor.companyId()), List.copyOf(permissions), List.copyOf(roles),
-                    List.copyOf(departments));
+                    List.copyOf(departments),actor.allWarehouses());
         }, actor.tenantId(), actor.userId(), actor.companyId());
     }
 
     record Principal(String tenantId, String userId, String companyId, List<String> permissions,
-                     List<String> roleIds, List<String> departmentIds) {}
+                     List<String> roleIds, List<String> departmentIds,boolean allWarehouses) {}
 }

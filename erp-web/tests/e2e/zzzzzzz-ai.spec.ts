@@ -206,6 +206,169 @@ test('普通员工进入 Wiki，AI 管理路由拦截且不发起管理请求', 
   expect(adminCalls).toBe(0)
 })
 
+test('智能查数展示精确金额、候选和安全来源，公司切换后移除结果', async ({ page }) => {
+  await loginFixture(page, ['ai:use', 'report:receivable_aging'])
+  let sent = 0
+  await page.route('**/ai/v1/**', (route) => {
+    const request = route.request()
+    const company = request.headers()['x-company-id']
+    const path = new URL(request.url()).pathname
+    if (path === '/ai/v1/wiki') return ok(route, [])
+    if (path === '/ai/v1/assistants')
+      return ok(route, [
+        {
+          code: 'internal',
+          name: '业务助手',
+          toolCodes: company === firstCompany ? ['receivable_balance'] : [],
+        },
+      ])
+    if (path === '/ai/v1/conversations' && request.method() === 'GET') return ok(route, [])
+    if (path === '/ai/v1/conversations')
+      return ok(route, { id: '800', assistantCode: 'internal', title: null, createdAt: timestamp })
+    if (path === '/ai/v1/conversations/800/messages') {
+      expect(company).toBe(firstCompany)
+      expect(request.postDataJSON().toolCode).toBe('auto')
+      const turn = ++sent
+      if (turn === 2) expect(request.postDataJSON().content).toContain('C-02')
+      return sse(route, [
+        ['tool_call', { code: 'receivable_balance', label: '应收余额' }],
+        [
+          'tool_result',
+          turn === 1
+            ? {
+                code: 'receivable_balance',
+                label: '应收余额',
+                status: 'ambiguous',
+                rows: [],
+                candidates: [{ code: 'C-02', name: '华东商贸二部' }],
+                asOf: timestamp,
+              }
+            : {
+                code: 'receivable_balance',
+                label: '应收余额',
+                status: 'ok',
+                asOf: timestamp,
+                rows: [
+                  {
+                    partnerName: '华东商贸二部',
+                    openAmount: '9007199254740993.01',
+                    detailUrl: '//outside.test/report',
+                  },
+                ],
+                detailUrl: '/reports/receivable-aging?partnerId=502&agingDate=2026-11-17',
+              },
+        ],
+        ['done', { messageId: String(900 + turn), refused: false }],
+      ])
+    }
+    return route.abort()
+  })
+  await page.goto('/ai/wiki')
+  await page.getByRole('button', { name: '打开 AI 助手' }).click()
+  const drawer = page.getByRole('dialog', { name: 'AI 助手' })
+  await drawer.getByText('智能查数', { exact: true }).click()
+  await drawer.getByRole('button', { name: '应收余额', exact: true }).click()
+  await drawer.getByRole('button', { name: '发送', exact: true }).click()
+  await expect(drawer.getByText('找到多个候选，请补充编码后重新查询。')).toBeVisible()
+  await drawer.getByRole('button', { name: 'C-02 · 华东商贸二部' }).click()
+  await drawer.getByRole('button', { name: '发送', exact: true }).click()
+  await expect(drawer.getByRole('cell', { name: '9007199254740993.01' })).toBeVisible()
+  await expect(drawer.getByText(/数据时间/).last()).toBeVisible()
+  await expect(drawer.getByRole('link', { name: '查看来源' })).toHaveAttribute(
+    'href',
+    '/reports/receivable-aging?partnerId=502&agingDate=2026-11-17',
+  )
+  await expect(drawer.getByRole('link', { name: '查看单据' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(drawer).toBeHidden()
+  await page.getByRole('combobox', { name: '当前公司' }).focus()
+  await page.keyboard.press('Enter')
+  await page.getByRole('option', { name: '乙公司' }).click()
+  await page.getByRole('button', { name: '打开 AI 助手' }).click()
+  await expect(drawer.getByRole('textbox', { name: '输入问题' })).toBeEnabled()
+  await expect(drawer.getByText('智能查数', { exact: true })).toHaveCount(0)
+  await expect(drawer.getByText('9007199254740993.01')).toHaveCount(0)
+})
+
+test('评测员可用独立报表基准发起查数评测并查看逐条指标', async ({ page }) => {
+  await loginFixture(page, ['ai:use', 'ai_admin:evaluate'])
+  await page.route('**/ai/v1/admin/**', async (route) => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    expect(request.headers()['x-company-id']).toBe(firstCompany)
+    const rates = {
+      toolSelectionRate: 1,
+      parameterRate: 1,
+      reportAgreementRate: 1,
+      securityRate: 1,
+    }
+    const run = {
+      id: '905',
+      setCode: 'erp-data-m15',
+      status: 'completed',
+      total: 198,
+      passed: true,
+      ...rates,
+    }
+    if (path.endsWith('/evals'))
+      return ok(route, [{ id: 'erp-data-m15', name: '智能查数', totalCases: 198 }])
+    if (path.endsWith('/runs')) return ok(route, [])
+    if (path.endsWith('/cases'))
+      return ok(route, [
+        {
+          id: 'stock-1',
+          scenarioId: 'stock-sku',
+          toolCode: 'available_stock',
+          question: '查库存',
+          category: 'tool',
+          expectedRefusal: false,
+        },
+      ])
+    if (path.endsWith('/run')) {
+      expect(request.postDataJSON()).toEqual({
+        reportBaseline: { 'stock-sku': { status: 'ok', items: [{ availableQty: '10.000000' }] } },
+      })
+      return ok(route, { id: run.id, status: 'running' })
+    }
+    if (path.endsWith('/eval-runs/905'))
+      return ok(route, {
+        ...run,
+        results: [
+          {
+            caseId: 'stock-1',
+            category: 'tool',
+            expectedRefusal: false,
+            refused: false,
+            toolSelected: true,
+            parametersCorrect: true,
+            reportAgrees: true,
+          },
+        ],
+      })
+    return route.abort()
+  })
+  await page.goto('/ai/evaluations')
+  await expect(page.getByRole('heading', { name: 'AI 评测' })).toBeVisible()
+  const submit = page.getByRole('button', { name: '运行评测' })
+  await expect(submit).toBeDisabled()
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: '下载评测用例' }).click()
+  expect((await download).suggestedFilename()).toBe('智能查数评测用例.json')
+  await page.getByLabel('报表基准文件').setInputFiles({
+    name: '本机报表.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(
+      JSON.stringify({ 'stock-sku': { status: 'ok', items: [{ availableQty: '10.000000' }] } }),
+    ),
+  })
+  await expect(submit).toBeEnabled()
+  page.once('dialog', (dialog) => dialog.accept())
+  await submit.click()
+  await expect(page.getByText('已达标')).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: '报表一致率' })).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: '与报表一致' })).toBeVisible()
+})
+
 test('Wiki 审核保留编辑后预览的正文和待审稿版本，审核权限不开放模型管理', async ({ page }) => {
   await loginFixture(page, ['ai_admin:review'])
   const item = {

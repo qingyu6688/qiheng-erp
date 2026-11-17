@@ -18,7 +18,11 @@ public class DocumentBrowser {
         String textColumn() {return Set.of("sales_return","purchase_return","refund_request","stock_adjustment","document_reversal").contains(type)?"reason":"remark";}
     }
     public record Filter(String keyword,String status,Long partnerId,Long warehouseId,LocalDate dateFrom,LocalDate dateTo,
-                         String fulfillmentStatus,String settlementStatus,boolean signOverdue) {
+                         String fulfillmentStatus,String settlementStatus,boolean signOverdue,String documentNo) {
+        public Filter(String keyword,String status,Long partnerId,Long warehouseId,LocalDate dateFrom,LocalDate dateTo,
+                      String fulfillmentStatus,String settlementStatus,boolean signOverdue) {
+            this(keyword,status,partnerId,warehouseId,dateFrom,dateTo,fulfillmentStatus,settlementStatus,signOverdue,null);
+        }
         public static Filter empty() {return new Filter(null,null,null,null,null,null,null,null,false);}
     }
     public static final Map<String,Spec> SPECS=Map.ofEntries(
@@ -138,6 +142,7 @@ public class DocumentBrowser {
         if(filter.dateFrom()!=null&&filter.dateTo()!=null&&filter.dateFrom().isAfter(filter.dateTo()))throw invalid("开始日期不能晚于结束日期");
         if(filter.partnerId()!=null&&filter.partnerId()<=0||filter.warehouseId()!=null&&filter.warehouseId()<=0)throw invalid("筛选对象编号无效");
         String sql="h.tenant_id=:tenant AND h.company_id=:company"+cn.erp.shared.OrgOwnership.filter(actor,"h")+(spec.deleted()?" AND h.is_deleted=0":"");
+        if(filter.documentNo()!=null) {sql+=" AND h."+spec.number()+"=:documentNo";params.put("documentNo",filter.documentNo());}
         if(filter.keyword()!=null&&!filter.keyword().isBlank()) {sql+=" AND (LOCATE(:keyword,h."+spec.number()+")>0 OR LOCATE(:keyword,COALESCE(h."+spec.textColumn()+",''))>0)";params.put("keyword",filter.keyword());}
         if(filter.dateFrom()!=null) {sql+=" AND h."+spec.date()+">=:from";params.put("from",filter.dateFrom());}
         if(filter.dateTo()!=null) {sql+=" AND h."+spec.date()+"<=:to";params.put("to",filter.dateTo());}

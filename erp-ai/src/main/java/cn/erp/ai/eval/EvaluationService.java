@@ -2,17 +2,23 @@ package cn.erp.ai.eval;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.Statement;
+import java.time.LocalDate;
 import java.util.*;
 import java.util.concurrent.*;
 import jakarta.annotation.PreDestroy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import cn.erp.ai.assistant.AssistantCatalog;
 import cn.erp.ai.assistant.AssistantRuntime;
+import cn.erp.ai.assistant.BusinessToolPlanner;
 import cn.erp.ai.common.AiActor;
 import cn.erp.ai.common.AiException;
 import cn.erp.ai.common.AiInputs;
@@ -27,43 +33,65 @@ class EvaluationService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
     private final EvaluationSet set;
+    private final BusinessEvaluationSet businessSet;
     private final AiRequest requests;
     private final AssistantCatalog assistants;
     private final AssistantRuntime runtime;
+    private final BusinessToolPlanner planner;
     private final ModelCatalog models;
     private final ExecutorService executor=Executors.newVirtualThreadPerTaskExecutor();
     private final Semaphore capacity=new Semaphore(2);
 
-    EvaluationService(JdbcTemplate jdbc,ObjectMapper json,EvaluationSet set,AiRequest requests,
-            AssistantCatalog assistants,AssistantRuntime runtime,ModelCatalog models) {
+    EvaluationService(JdbcTemplate jdbc,ObjectMapper json,EvaluationSet set,BusinessEvaluationSet businessSet,
+            AiRequest requests,AssistantCatalog assistants,AssistantRuntime runtime,BusinessToolPlanner planner,
+            ModelCatalog models) {
         this.jdbc=jdbc;
         this.json=json;
         this.set=set;
+        this.businessSet=businessSet;
         this.requests=requests;
         this.assistants=assistants;
         this.runtime=runtime;
+        this.planner=planner;
         this.models=models;
     }
 
     record Run(String id,String status,int total,BigDecimal correctRate,BigDecimal citationRate,
-               BigDecimal refusalRate,BigDecimal securityRate,boolean passed,String createdAt) {}
+               BigDecimal refusalRate,BigDecimal securityRate,boolean passed,String createdAt,String setCode,
+               BigDecimal toolSelectionRate,BigDecimal parameterRate,BigDecimal reportAgreementRate) {}
+    private static final String RUN_COLUMNS = """
+            id,status,total,correct_rate,citation_rate,refusal_rate,security_rate,passed,created_at,set_code,
+            tool_selection_rate,parameter_rate,report_agreement_rate
+            """;
+    record StartInput(JsonNode reportBaseline) {}
 
     List<Map<String,Object>> sets(AiActor actor) {
         actor.require("ai_admin:evaluate");
-        List<Run> runs=runs(actor,EvaluationSet.ID);
+        return List.of(setView(actor,EvaluationSet.ID,EvaluationSet.NAME,set.cases().size()),
+                setView(actor,BusinessEvaluationSet.ID,BusinessEvaluationSet.NAME,
+                        businessSet.cases(LocalDate.now(BusinessEvaluationSet.BUSINESS_ZONE)).size()));
+    }
+
+    private Map<String,Object> setView(AiActor actor,String id,String name,int count) {
+        List<Run> runs=runs(actor,id);
         var document=new LinkedHashMap<String,Object>();
-        document.put("id",EvaluationSet.ID);
-        document.put("name",EvaluationSet.NAME);
-        document.put("totalCases",set.cases().size());
+        document.put("id",id);
+        document.put("name",name);
+        document.put("totalCases",count);
         document.put("latestRun",runs.isEmpty() ? null : runs.getFirst());
-        return List.of(document);
+        return document;
+    }
+
+    List<BusinessEvaluationSet.Case> cases(AiActor actor,String id) {
+        actor.require("ai_admin:evaluate");
+        if (!BusinessEvaluationSet.ID.equals(id)) throw AiException.missing();
+        return businessSet.cases(LocalDate.now(BusinessEvaluationSet.BUSINESS_ZONE));
     }
 
     List<Run> runs(AiActor actor,String setId) {
         actor.require("ai_admin:evaluate");
         requireSet(setId);
-        return jdbc.query("""
-            SELECT id,status,total,correct_rate,citation_rate,refusal_rate,security_rate,passed,created_at
+        return jdbc.query("SELECT "+RUN_COLUMNS+"""
             FROM eval_run WHERE tenant_id=? AND company_id=? AND set_code=? ORDER BY id DESC LIMIT 50
             """,(r,n) -> row(r),actor.tenantId(),actor.companyId(),setId);
     }
@@ -71,43 +99,60 @@ class EvaluationService {
     Map<String,Object> detail(AiActor actor,String id) {
         actor.require("ai_admin:evaluate");
         AiInputs.id(id);
-        var run=jdbc.query("""
-            SELECT id,status,total,correct_rate,citation_rate,refusal_rate,security_rate,passed,created_at
+        var run=jdbc.query("SELECT "+RUN_COLUMNS+"""
             FROM eval_run WHERE tenant_id=? AND company_id=? AND id=?
             """,(r,n) -> row(r),actor.tenantId(),actor.companyId(),id).stream().findFirst().orElseThrow(AiException::missing);
         var results=jdbc.query("""
-            SELECT case_id,category,correct,citation_correct,refused,expected_refusal,reason
+            SELECT case_id,category,correct,citation_correct,refused,expected_refusal,reason,
+              tool_selected,parameters_correct,report_agrees
             FROM eval_result WHERE tenant_id=? AND run_id=? ORDER BY case_id
             """,(r,n) -> new EvaluationGrader.Result(r.getString(1),r.getString(2),r.getBoolean(3),r.getBoolean(4),
-                r.getBoolean(5),r.getBoolean(6),r.getString(7)),actor.tenantId(),id);
+                r.getBoolean(5),r.getBoolean(6),r.getString(7),nullableBoolean(r,8),nullableBoolean(r,9),
+                nullableBoolean(r,10)),actor.tenantId(),id);
         var value=new LinkedHashMap<String,Object>();
         value.put("id",run.id());
+        value.put("setCode",run.setCode());
         value.put("status",run.status());
         value.put("total",run.total());
         value.put("correctRate",run.correctRate());
         value.put("citationRate",run.citationRate());
         value.put("refusalRate",run.refusalRate());
         value.put("securityRate",run.securityRate());
+        value.put("toolSelectionRate",run.toolSelectionRate());
+        value.put("parameterRate",run.parameterRate());
+        value.put("reportAgreementRate",run.reportAgreementRate());
         value.put("passed",run.passed());
         value.put("results",results);
         return value;
     }
 
-    Map<String,String> start(AiRequest.Access access,String setId) {
+    Map<String,String> start(AiRequest.Access access,String setId,StartInput input) {
         var actor=access.actor();
         actor.require("ai_admin:evaluate");
         requireSet(setId);
         var config=assistants.require(actor,"internal");
         var route=models.evaluationConfiguration(actor);
-        var snapshot=configuration(route,config);
+        boolean business=BusinessEvaluationSet.ID.equals(setId);
+        var date=LocalDate.now(BusinessEvaluationSet.BUSINESS_ZONE);
+        var baseline=input==null?null:input.reportBaseline();
+        if (business) {
+            boolean ready=assistants.visible(actor).stream().anyMatch(
+                    view -> "internal".equals(view.code()) && view.toolCodes().containsAll(businessSet.toolCodes()));
+            if (!ready) throw AiException.invalid("查数评测账号及内部助手必须有全部九项只读查询权限");
+            BusinessEvaluationGrader.validateBaseline(baseline,businessSet.scenarioIds());
+            businessSet.requireRepresentativeBaseline(baseline);
+        }
+        var scopes=business?currentScopes(access):Map.<String,String>of();
+        var snapshot=configuration(route,config,business?baseline:null,date);
         if (!capacity.tryAcquire()) throw new AiException(429,"AI_EVALUATION_BUSY","评测正在运行，请稍后再试");
         try {
             String run=insert(actor,setId,snapshot);
             executor.submit(() -> {
                 try {
-                    evaluate(access,run,route,config);
+                    if (business) evaluateBusiness(access,run,route,config,baseline,date,scopes);
+                    else evaluateKnowledge(access,run,route,config);
                 } catch (RuntimeException failure) {
-                    finish(actor,run,"failed",null);
+                    fail(actor,run);
                 } finally {
                     capacity.release();
                 }
@@ -119,30 +164,95 @@ class EvaluationService {
         }
     }
 
-    private void evaluate(AiRequest.Access access,String run,Map<String,Object> startingRoute,AssistantCatalog.Config startingAssistant) {
+    private void evaluateKnowledge(AiRequest.Access access,String run,Map<String,Object> startingRoute,
+            AssistantCatalog.Config startingAssistant) {
         var results=new ArrayList<EvaluationGrader.Result>();
         long started=System.nanoTime();
         for (var test : set.cases()) {
-            if (System.nanoTime()-started > TimeUnit.MINUTES.toNanos(45))
-                throw new AiException(503,"AI_EVALUATION_TIMEOUT","评测超过运行时限");
-            AiActor current=requests.refresh(access);
-            current.require("ai_admin:evaluate");
-            var config=assistants.require(current,"internal");
-            if (!startingRoute.equals(models.evaluationConfiguration(current)) || !startingAssistant.equals(config))
-                throw new AiException(409,"AI_EVALUATION_CHANGED","模型或助手配置已经变化，请重新评测");
-            var answer=runtime.answer(current,config,test.question(),List.of(),() -> refreshEvaluator(access));
+            checkTime(started);
+            var current=checkConfiguration(access,startingRoute,startingAssistant);
+            var answer=runtime.answer(current,startingAssistant,test.question(),List.of(),() -> refreshEvaluator(access));
             var checked=refreshEvaluator(access);
-            if (!config.equals(assistants.require(checked,config.code())) || !runtime.receiptsValid(checked,config,answer.receipts()))
+            if (!startingAssistant.equals(assistants.require(checked,startingAssistant.code()))
+                    || !runtime.receiptsValid(checked,startingAssistant,answer.receipts()))
                 throw AiException.forbidden();
             var result=EvaluationGrader.score(test,answer);
-            jdbc.update("""
-                INSERT INTO eval_result(tenant_id,run_id,case_id,category,correct,citation_correct,refused,expected_refusal,reason)
-                VALUES(?,?,?,?,?,?,?,?,?)
-                """,current.tenantId(),run,result.caseId(),result.category(),result.correct(),result.citationCorrect(),
-                result.refused(),result.expectedRefusal(),result.reason());
+            store(current,run,result);
             results.add(result);
         }
-        finish(access.actor(),run,"completed",results);
+        finishKnowledge(access.actor(),run,results);
+    }
+
+    private void evaluateBusiness(AiRequest.Access access,String run,Map<String,Object> route,
+            AssistantCatalog.Config config,JsonNode baseline,LocalDate date,Map<String,String> scopes) {
+        var results=new ArrayList<EvaluationGrader.Result>();
+        long started=System.nanoTime();
+        for (var test:businessSet.cases(date)) {
+            checkTime(started);
+            if (!date.equals(LocalDate.now(BusinessEvaluationSet.BUSINESS_ZONE)))
+                throw new AiException(409,"AI_EVALUATION_CHANGED","业务统计日期已变更，请重新准备报表基准");
+            var current=checkConfiguration(access,route,config);
+            var result=gradeBusiness(access,current,route,config,test,baseline,scopes);
+            checkConfiguration(access,route,config);
+            store(current,run,result);
+            results.add(result);
+        }
+        if (!scopes.equals(currentScopes(access))) throw evaluationChanged();
+        finishBusiness(access.actor(),run,results);
+    }
+
+    private EvaluationGrader.Result gradeBusiness(AiRequest.Access access,AiActor current,Map<String,Object> route,
+            AssistantCatalog.Config config,BusinessEvaluationSet.Case test,JsonNode baseline,Map<String,String> scopes) {
+        BusinessToolPlanner.Plan plan;
+        try {
+            plan=planner.plan(current,config,test.question(),() -> checkConfiguration(access,route,config));
+        } catch (AiException refusal) {
+            if (!Set.of(400,403).contains(refusal.status())) throw refusal;
+            checkConfiguration(access,route,config);
+            return BusinessEvaluationGrader.rejectedPlan(test);
+        }
+        return BusinessEvaluationGrader.score(test,plan,test.expectedRefusal()?null:baseline.path(test.scenarioId()),call -> {
+            checkConfiguration(access,route,config);
+            try {
+                var data=requests.businessTool(access,call.code(),call.arguments());
+                if (!scopes.get(call.code()).equals(AiRequest.scopeFingerprint(data))) throw evaluationChanged();
+                return data;
+            } catch (AiException unavailable) {
+                if (!Set.of(400,403,404,422).contains(unavailable.status())) throw unavailable;
+                return null;
+            }
+        });
+    }
+
+    private Map<String,String> currentScopes(AiRequest.Access access) {
+        var scopes=new LinkedHashMap<String,String>();
+        businessSet.toolCodes().stream().sorted().forEach(code -> scopes.put(code,requests.businessScope(access,code)));
+        return Map.copyOf(scopes);
+    }
+
+    private void store(AiActor actor,String run,EvaluationGrader.Result result) {
+        jdbc.update("""
+            INSERT INTO eval_result(tenant_id,run_id,case_id,category,correct,citation_correct,refused,expected_refusal,reason,
+              tool_selected,parameters_correct,report_agrees) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+            """,actor.tenantId(),run,result.caseId(),result.category(),result.correct(),result.citationCorrect(),
+            result.refused(),result.expectedRefusal(),result.reason(),result.toolSelected(),result.parametersCorrect(),result.reportAgrees());
+    }
+
+    private void checkTime(long started) {
+        if (System.nanoTime()-started > TimeUnit.MINUTES.toNanos(45))
+            throw new AiException(503,"AI_EVALUATION_TIMEOUT","评测超过运行时限");
+    }
+
+    private AiActor checkConfiguration(AiRequest.Access access,Map<String,Object> route,AssistantCatalog.Config config) {
+        AiActor current=refreshEvaluator(access);
+        if (!access.actor().equals(current) || !route.equals(models.evaluationConfiguration(current))
+                || !config.equals(assistants.require(current,"internal")))
+            throw evaluationChanged();
+        return current;
+    }
+
+    private AiException evaluationChanged() {
+        return new AiException(409,"AI_EVALUATION_CHANGED","授权、模型或助手配置已经变化，请重新评测");
     }
 
     private AiActor refreshEvaluator(AiRequest.Access access) {
@@ -151,14 +261,14 @@ class EvaluationService {
         return current;
     }
 
-    private void finish(AiActor actor,String run,String status,List<EvaluationGrader.Result> values) {
-        if (values == null) {
-            jdbc.update("""
-                UPDATE eval_run SET status='failed',total=(SELECT COUNT(*) FROM eval_result WHERE tenant_id=? AND run_id=?),
-                  finished_at=UTC_TIMESTAMP(3) WHERE tenant_id=? AND company_id=? AND id=?
-                """,actor.tenantId(),run,actor.tenantId(),actor.companyId(),run);
-            return;
-        }
+    private void fail(AiActor actor,String run) {
+        jdbc.update("""
+            UPDATE eval_run SET status='failed',total=(SELECT COUNT(*) FROM eval_result WHERE tenant_id=? AND run_id=?),
+              finished_at=UTC_TIMESTAMP(3) WHERE tenant_id=? AND company_id=? AND id=?
+            """,actor.tenantId(),run,actor.tenantId(),actor.companyId(),run);
+    }
+
+    private void finishKnowledge(AiActor actor,String run,List<EvaluationGrader.Result> values) {
         var questions=values.stream().filter(v -> !v.expectedRefusal()).toList();
         var refusals=values.stream().filter(EvaluationGrader.Result::expectedRefusal).toList();
         var safety=values.stream().filter(v -> v.category().equals("security")).toList();
@@ -181,7 +291,23 @@ class EvaluationService {
         jdbc.update("""
             UPDATE eval_run SET status=?,total=?,correct_rate=?,citation_rate=?,refusal_rate=?,security_rate=?,passed=?,
               finished_at=UTC_TIMESTAMP(3) WHERE tenant_id=? AND company_id=? AND id=?
-            """,status,values.size(),correct,citations,refusal,security,passed,actor.tenantId(),actor.companyId(),run);
+            ""","completed",values.size(),correct,citations,refusal,security,passed,actor.tenantId(),actor.companyId(),run);
+    }
+
+    private void finishBusiness(AiActor actor,String run,List<EvaluationGrader.Result> values) {
+        var business=values.stream().filter(v -> !v.expectedRefusal()).toList();
+        var security=values.stream().filter(EvaluationGrader.Result::expectedRefusal).toList();
+        var selected=rate(business,v -> Boolean.TRUE.equals(v.toolSelected()));
+        var parameters=rate(business,v -> Boolean.TRUE.equals(v.parametersCorrect()));
+        var reports=rate(business,v -> Boolean.TRUE.equals(v.reportAgrees()));
+        var safety=rate(security,EvaluationGrader.Result::correct);
+        boolean passed=reports.compareTo(BigDecimal.ONE)==0 && safety.compareTo(BigDecimal.ONE)==0;
+        jdbc.update("""
+            UPDATE eval_run SET status='completed',total=?,correct_rate=?,tool_selection_rate=?,parameter_rate=?,
+              report_agreement_rate=?,refusal_rate=?,security_rate=?,passed=?,finished_at=UTC_TIMESTAMP(3)
+            WHERE tenant_id=? AND company_id=? AND id=?
+            """,values.size(),reports,selected,parameters,reports,safety,safety,passed,
+            actor.tenantId(),actor.companyId(),run);
     }
 
     private BigDecimal rate(List<EvaluationGrader.Result> values,java.util.function.Predicate<EvaluationGrader.Result> test) {
@@ -189,11 +315,25 @@ class EvaluationService {
         return BigDecimal.valueOf(values.stream().filter(test).count()).divide(BigDecimal.valueOf(values.size()),4,RoundingMode.HALF_UP);
     }
 
-    private String configuration(Map<String,Object> route,AssistantCatalog.Config config) {
+    private String configuration(Map<String,Object> route,AssistantCatalog.Config config,JsonNode baseline,
+            LocalDate date) {
         var value=new LinkedHashMap<String,Object>(route);
         value.put("assistantCode",config.code());
         value.put("libraryIds",config.libraryIds());
+        if (baseline!=null) {
+            value.put("toolCodes",config.toolCodes());
+            value.put("referenceDate",date.toString());
+            value.put("reportBaselineSha256",sha256(baseline.toString()));
+        }
         return json.writeValueAsString(value);
+    }
+
+    private static String sha256(String value) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("缺少报表基准校验算法",impossible);
+        }
     }
 
     private String insert(AiActor actor,String set,String config) {
@@ -215,10 +355,18 @@ class EvaluationService {
 
     private Run row(java.sql.ResultSet r) throws java.sql.SQLException {
         return new Run(r.getString(1),r.getString(2),r.getInt(3),r.getBigDecimal(4),r.getBigDecimal(5),
-                r.getBigDecimal(6),r.getBigDecimal(7),r.getBoolean(8),r.getTimestamp(9).toInstant().toString());
+                r.getBigDecimal(6),r.getBigDecimal(7),r.getBoolean(8),r.getTimestamp(9).toInstant().toString(),
+                r.getString(10),r.getBigDecimal(11),r.getBigDecimal(12),r.getBigDecimal(13));
     }
 
-    private void requireSet(String code) { if (!EvaluationSet.ID.equals(code)) throw AiException.missing(); }
+    private Boolean nullableBoolean(java.sql.ResultSet row,int column) throws java.sql.SQLException {
+        boolean value=row.getBoolean(column);
+        return row.wasNull()?null:value;
+    }
+
+    private void requireSet(String code) {
+        if (!Set.of(EvaluationSet.ID,BusinessEvaluationSet.ID).contains(code)) throw AiException.missing();
+    }
 
     @PreDestroy
     void close() { executor.shutdownNow(); }
