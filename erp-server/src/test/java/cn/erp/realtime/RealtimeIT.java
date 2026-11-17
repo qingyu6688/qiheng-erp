@@ -59,6 +59,37 @@ class RealtimeIT {
         rejected(new Login(""),"http://127.0.0.1:"+secondPort,401);
         var listener=new Listener();var socket=connect(secondPort,login,listener,"http://127.0.0.1:"+secondPort);assertThat(listener.take()).contains("connected");socket.sendText("{\"type\":\"approve\",\"id\":\"1\"}",true).get(5,TimeUnit.SECONDS);assertThat(listener.closed.get(5,TimeUnit.SECONDS)).isEqualTo(1008);
     }
+    @Test void M14_voluntaryRotationRetiresOnlyTheOldCookieAndClosesItsSocketWithoutKick() throws Exception {
+        Login old=login(tenant);
+        Login independent=login(tenant);
+        var retired=new Listener();
+        var kept=new Listener();
+        connect(secondPort,old,retired,"http://127.0.0.1:"+secondPort);
+        connect(secondPort,independent,kept,"http://127.0.0.1:"+secondPort);
+        assertThat(retired.take()).contains("connected");
+        assertThat(kept.take()).contains("connected");
+
+        var loginRequest=HttpRequest.newBuilder(URI.create("http://127.0.0.1:"+port+"/api/v1/auth/login"))
+                .header("Cookie","ERPSESSION="+old.session()).header("Content-Type","application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(Map.of("tenantCode","RT"+tenant,
+                        "username","reader","password",password)))).build();
+        var client=HttpClient.newHttpClient();
+        var response=client.send(loginRequest,HttpResponse.BodyHandlers.discarding());
+        assertThat(response.statusCode()).isEqualTo(200);
+        String next=response.headers().allValues("Set-Cookie").stream().flatMap(value -> HttpCookie.parse(value).stream())
+                .filter(cookie -> cookie.getName().equals("ERPSESSION") && !cookie.getValue().isBlank()).map(HttpCookie::getValue).findFirst().orElseThrow();
+        assertThat(next).isNotEqualTo(old.session());
+        assertThat(retired.closed.get(5,TimeUnit.SECONDS)).isEqualTo(1000);
+        assertThat(retired.messages).isEmpty();
+        assertThat(kept.closed.isDone()).isFalse();
+
+        var identity=URI.create("http://127.0.0.1:"+secondPort+"/api/v1/auth/me");
+        var stale=client.send(HttpRequest.newBuilder(identity).header("Cookie","ERPSESSION="+old.session()).GET().build(),HttpResponse.BodyHandlers.ofString());
+        assertThat(stale.statusCode()).isEqualTo(401);
+        assertThat(json.readTree(stale.body()).path("errorCode").asString()).isEqualTo("SESSION_ROTATED");
+        var fresh=client.send(HttpRequest.newBuilder(identity).header("Cookie","ERPSESSION="+next).GET().build(),HttpResponse.BodyHandlers.discarding());
+        assertThat(fresh.statusCode()).isEqualTo(200);
+    }
     private Login login(long selectedTenant) throws Exception {
         var cookies=new CookieManager(null,CookiePolicy.ACCEPT_ALL);var client=HttpClient.newBuilder().cookieHandler(cookies).build();
         var response=client.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:"+port+"/api/v1/auth/login")).header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(Map.of("tenantCode","RT"+selectedTenant,"username","reader","password",password)))).build(),HttpResponse.BodyHandlers.ofString());assertThat(response.statusCode()).isEqualTo(200);

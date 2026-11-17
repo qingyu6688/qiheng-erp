@@ -26,6 +26,7 @@ let companyRequests = new AbortController()
 let sessionRequests = new AbortController()
 let sessionRevision = 0
 let sessionActive = true
+let replacingSession = false
 const publicAuthPaths = [
   '/auth/login',
   '/auth/methods',
@@ -44,6 +45,19 @@ export function renewSessionScope(active = true): void {
   sessionActive = active
   sessionRequests.abort()
   sessionRequests = new AbortController()
+}
+
+/** 用户主动更新认证状态时，旧会话的在途响应不能覆盖新 Cookie。 */
+export async function replaceSession<T>(perform: () => Promise<T>): Promise<T> {
+  if (!sessionActive) throw new axios.CanceledError('会话已退出')
+  if (replacingSession) throw new ApiError(409, 'SESSION_TRANSITION', '安全状态正在更新，请稍后重试。')
+  replacingSession = true
+  renewSessionScope()
+  try {
+    return await perform()
+  } finally {
+    replacingSession = false
+  }
 }
 
 export function setCompanyScope(next: string | null): void {
@@ -75,7 +89,7 @@ export function companyStreamScope(signal: AbortSignal): { company: string; sign
 }
 
 export function notifySessionFailure(status: number, code?: string, authCheck = false): void {
-  if (status !== 401) return
+  if (status !== 401 || replacingSession) return
   if (code === 'SESSION_REVOKED') window.dispatchEvent(new Event('erp:session-kicked'))
   if (!authCheck && (code === 'UNAUTHENTICATED' || code === 'AI_LOGIN_REQUIRED'))
     window.dispatchEvent(new Event('erp:session-expired'))

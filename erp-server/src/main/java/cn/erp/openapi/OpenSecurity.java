@@ -16,6 +16,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -76,9 +77,17 @@ class OpenSecurity {
 
     @Bean
     @Order(6)
-    SecurityFilterChain openRawDocs(HttpSecurity http) throws Exception {
+    SecurityFilterChain openRawDocs(HttpSecurity http,
+            @Value("${springdoc.api-docs.path:/v3/api-docs}") String configuredPath) throws Exception {
         // 管理页面通过权限校验后读取分组，阻止通用文档路径跳过开放平台授权。
-        return http.securityMatcher("/v3/api-docs/open","/v3/api-docs.yaml/open")
+        String path=configuredPath.replaceFirst("/+$","");
+        return http.securityMatcher(path+"/open",path+".yaml/open")
+                .csrf(csrf -> csrf.disable())
+                .securityContext(context -> context.disable())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .requestCache(cache -> cache.disable())
+                .exceptionHandling(errors -> errors.authenticationEntryPoint((req,res,error) -> res.setStatus(403))
+                        .accessDeniedHandler((req,res,error) -> res.setStatus(403)))
                 .authorizeHttpRequests(requests -> requests.anyRequest().denyAll()).build();
     }
 

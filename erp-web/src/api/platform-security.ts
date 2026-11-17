@@ -1,4 +1,4 @@
-import { request } from './http'
+import { replaceSession, request } from './http'
 import type { LoginInput, SsoType, UserSession } from '../types/auth'
 
 export interface MfaSetup {
@@ -44,9 +44,9 @@ export const accountMfa = (): Promise<MfaStatus> => request({ url: '/account/mfa
 export const setupAccountMfa = (): Promise<MfaSetup> =>
   request({ method: 'POST', url: '/account/mfa/setup' })
 export const activateAccountMfa = (code: string): Promise<{ recoveryCodes: string[] }> =>
-  request({ method: 'POST', url: '/account/mfa/activate', data: { code } })
+  replaceSession(() => request({ method: 'POST', url: '/account/mfa/activate', data: { code } }))
 export const disableAccountMfa = (code: string): Promise<void> =>
-  request({ method: 'POST', url: '/account/mfa/disable', data: { code } })
+  replaceSession(() => request({ method: 'POST', url: '/account/mfa/disable', data: { code } }))
 export const listProviders = (): Promise<SsoProvider[]> => request({ url: '/login-settings/sso' })
 export const saveProvider = (
   id: SsoType,

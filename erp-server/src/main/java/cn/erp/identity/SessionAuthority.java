@@ -37,7 +37,11 @@ public class SessionAuthority {
         try {return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(sid.getBytes(StandardCharsets.UTF_8)));}
         catch(NoSuchAlgorithmException error) {throw new IllegalStateException("运行环境缺少会话摘要算法",error);}
     }
-    public void check(String sid) {if(Boolean.TRUE.equals(redis.hasKey(prefix+"revoked:"+publicId(sid)))) throw new ApiException(401,"SESSION_REVOKED","当前会话已下线，请重新登录");}
+    public void check(String sid) {
+        String reason=redis.opsForValue().get(prefix+"revoked:"+publicId(sid));
+        if ("rotated".equals(reason)) throw new ApiException(401,"SESSION_ROTATED","当前会话凭据已更新，请刷新后重试");
+        if (reason!=null) throw new ApiException(401,"SESSION_REVOKED","当前会话已下线，请重新登录");
+    }
     void touch(HttpServletRequest request,SessionAccount actor) {
         var session=request.getSession(false);String id=publicId(session.getId());
         long now=System.currentTimeMillis();if(touched.getOrDefault(id,0L)>now) return;
@@ -83,8 +87,24 @@ public class SessionAuthority {
         },Map.class);
     }
     void revoke(String sid,long tenant,long user) {
-        String id=publicId(sid);touched.remove(id);redis.opsForValue().set(prefix+"revoked:"+id,"1",LIFETIME);sessions.deleteById(sid);redis.opsForZSet().remove(prefix+tenant,id);
-        events.publishEvent(new UserSignal(tenant,user,"session.kicked",Map.of("session",id)));
+        String id=publicId(sid);
+        redis.opsForValue().set(prefix+"revoked:"+id,"1",LIFETIME);
+        retire(sid,id,tenant,user,"session.kicked");
+    }
+    void rotate(String sid,long tenant,long user) {
+        String id=publicId(sid);
+        // 管理员先撤销或另一请求已换发时，旧会话不能再产生一个完整会话。
+        if (!Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(prefix+"revoked:"+id,"rotated",LIFETIME))) {
+            check(sid);
+            throw SessionAccount.expired();
+        }
+        retire(sid,id,tenant,user,"session.rotated");
+    }
+    private void retire(String sid,String id,long tenant,long user,String notification) {
+        touched.remove(id);
+        sessions.deleteById(sid);
+        redis.opsForZSet().remove(prefix+tenant,id);
+        events.publishEvent(new UserSignal(tenant,user,notification,Map.of("session",id)));
     }
     private Entry entry(String id) {String value=redis.opsForValue().get(prefix+"entry:"+id);return value==null?null:json.readValue(value,Entry.class);}
     static String safe(String value,int length) {if(value==null) return "";return value.replaceAll("[\\p{Cntrl}]","").substring(0,Math.min(value.replaceAll("[\\p{Cntrl}]","").length(),length));}

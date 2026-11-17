@@ -40,9 +40,16 @@ public class RealtimeHub extends TextWebSocketHandler {
             var signal=json.readValue(message.getBody(),UserSignal.class);
             if(!(topic+signal.tenantId()).equals(new String(message.getChannel(),StandardCharsets.UTF_8))||!signal.data().keySet().stream().allMatch(DATA_KEYS::contains)) return;
             events.publishEvent(new RemoteUserSignal(signal));
+            boolean kicked="session.kicked".equals(signal.type());
+            boolean rotated="session.rotated".equals(signal.type());
             for(var connection:connections.values()) if(connection.identity.tenantId()==signal.tenantId()&&(signal.userId()==0||signal.userId()==connection.identity.userId())) {
-                if(signal.type().equals("session.kicked")&&SessionAuthority.publicId(connection.identity.sessionId()).equals(signal.data().get("session"))) {send(connection,"{\"type\":\"session.kicked\"}");close(connection,CloseStatus.POLICY_VIOLATION);}
-                else if(!signal.type().equals("session.kicked")) send(connection,json.writeValueAsString(signal));
+                if (!kicked && !rotated) {
+                    send(connection,json.writeValueAsString(signal));
+                } else if (SessionAuthority.publicId(connection.identity.sessionId()).equals(signal.data().get("session"))) {
+                    if (kicked) send(connection,"{\"type\":\"session.kicked\"}");
+                    // 主动换发旧连接安静关闭，浏览器会用新 Cookie 重连。
+                    close(connection,kicked?CloseStatus.POLICY_VIOLATION:CloseStatus.NORMAL);
+                }
             }
         } catch(RuntimeException failure) {LOG.warn("实时事件处理失败，异常类型 {}",failure.getClass().getSimpleName());}
     }

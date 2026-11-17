@@ -50,7 +50,8 @@ class AuthSessions {
     private void reset(HttpServletRequest request) {
         var existing = request.getSession(false);
         if (existing != null) {
-            if(existing.getAttribute(SessionAccount.class.getName()) instanceof SessionAccount previous) authority.revoke(existing.getId(),previous.tenantId(),previous.userId());
+            if (existing.getAttribute(SessionAccount.class.getName()) instanceof SessionAccount previous)
+                authority.rotate(existing.getId(),previous.tenantId(),previous.userId());
             mfa.clearPending(request);
             existing.invalidate();
         }
