@@ -9,6 +9,8 @@ import {
 import type { MfaSetup, MfaStatus } from '../api/platform-security'
 import { request, messageOf } from '../api/http'
 import MfaEnrollment from '../components/MfaEnrollment.vue'
+import WarehouseDevicePairing from '../components/WarehouseDevicePairing.vue'
+import { useSessionStore } from '../stores/session'
 
 const status = ref<MfaStatus>(),
   setup = ref<MfaSetup>(),
@@ -17,6 +19,7 @@ const status = ref<MfaStatus>(),
   error = ref('')
 const recovery = ref<string[]>([]),
   identities = ref<string[]>([])
+const session = useSessionStore()
 const labels: Record<string, string> = {
   oidc: 'OIDC',
   ldap: 'LDAP / AD',
@@ -117,6 +120,7 @@ onMounted(load)
     </ul>
     <router-link to="/account/login-methods" class="text-link">管理个人登录方式</router-link>
   </section>
+  <WarehouseDevicePairing v-if="session.can('device:pair')" />
 </template>
 
 <style scoped>

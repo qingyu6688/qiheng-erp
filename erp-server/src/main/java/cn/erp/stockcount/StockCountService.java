@@ -27,10 +27,11 @@ public class StockCountService {
     private final BusinessCommands commands;
     private final DocumentNumbers numbers;
     private final AuditService audit;
+    private final StockCountTaskPort tasks;
     public StockCountService(JdbcTemplate jdbc,FinanceSupport finance,CatalogAvailability catalog,InventoryService inventory,
-            LedgerService ledger,BusinessCommands commands,DocumentNumbers numbers,AuditService audit) {
+            LedgerService ledger,BusinessCommands commands,DocumentNumbers numbers,AuditService audit,StockCountTaskPort tasks) {
         this.jdbc=jdbc;this.finance=finance;this.catalog=catalog;this.inventory=inventory;this.ledger=ledger;
-        this.commands=commands;this.numbers=numbers;this.audit=audit;
+        this.commands=commands;this.numbers=numbers;this.audit=audit;this.tasks=tasks;
     }
 
     public Map<String,Object> create(CompanyAccess scope,String key,StockCountModels.Document input) {
@@ -52,13 +53,32 @@ public class StockCountService {
     }
     public Map<String,Object> counts(CompanyAccess scope,long id,StockCountModels.Counts input) {
         var before=find(scope,id,true);version(before,input.version());state(before,"counting");
-        var current=lines(scope,id,true);var requested=new HashSet<Long>();
-        for(var line:input.lines())if(!requested.add(line.lineId()))throw invalid("同一盘点行不能重复录入");
-        if(!requested.equals(new HashSet<>(current.stream().map(line->id(line,"id")).toList())))throw invalid("请逐行完整录入本单实盘数量");
-        for(var line:input.lines()) {
+        var result=writeCounts(scope,id,before,input.lines(),lines(scope,id,true));
+        // PC 全单录数同时使同单的打开中库位表单失效，避免 PDA 覆盖新实盘数据。
+        tasks.phase(scope,id,"recorded");
+        return result;
+    }
+
+    /** PDA 每次只提交一个库位的完整行，盘点单流程与过账规则沿用原入口。 */
+    public void countLocation(CompanyAccess scope,long id,long location,List<StockCountModels.Count> input) {
+        if(!scope.hasPermission("stock_count:record_counts"))throw new ApiException(403,"FORBIDDEN","没有录入实盘数量的权限");
+        var before=find(scope,id,true);state(before,"counting");
+        var current=lines(scope,id,true).stream().filter(line->Long.toString(location).equals(line.get("location_key"))).toList();
+        writeCounts(scope,id,before,input,current);
+    }
+
+    private Map<String,Object> writeCounts(CompanyAccess scope,long id,Map<String,Object> before,
+            List<StockCountModels.Count> input,List<Map<String,Object>> current) {
+        if(input==null||input.isEmpty()||current.isEmpty())throw invalid("请录入实盘数量");
+        var indexed=new HashMap<Long,Map<String,Object>>();
+        for(var line:current)indexed.put(id(line,"id"),line);
+        var requested=new HashSet<Long>();
+        for(var line:input)if(line==null||line.lineId()==null||!requested.add(line.lineId()))throw invalid("请选择有效且不重复的盘点行");
+        if(!requested.equals(indexed.keySet()))throw invalid("请逐行完整录入当前盘点范围的实盘数量");
+        for(var line:input) {
             var counted=nonnegative(line.countedQty(),6,"实盘数量");
             var price=line.inputUnitCost()==null?null:nonnegative(line.inputUnitCost(),8,"盘盈录入单价");
-            var original=current.stream().filter(item->id(item,"id")==line.lineId()).findFirst().orElseThrow(()->missing());
+            var original=indexed.get(line.lineId());
             var selected=inventory.decodeSelection(original.get("stock_selection"));
             if(line.serials()!=null||selected!=null)selected=new StockSelection(selected==null?null:selected.batchId(),null,null,null,
                     selected==null?null:selected.locationId(),line.serials());
@@ -76,11 +96,11 @@ public class StockCountService {
             var before=find(scope,id,true);version(before,input.version());
             switch(action) {
                 case "start" -> {state(before,"draft");start(scope,id,before);}
-                case "submit" -> {state(before,"counting");requireCounts(scope,id,before);setState(scope,id,"submitted");}
+                case "submit" -> {state(before,"counting");requireCounts(scope,id,before);setState(scope,id,"submitted");tasks.phase(scope,id,"submitted");}
                 case "approve" -> {state(before,"submitted");differentReviewer(scope,before);
                     jdbc.update("UPDATE stock_count SET status='approved',approved_by=?,approved_at=UTC_TIMESTAMP(3),version=version+1,updated_by=? WHERE id=?",scope.userId(),scope.userId(),id);}
-                case "reject" -> {state(before,"submitted");differentReviewer(scope,before);if(input.reason()==null||input.reason().isBlank())throw invalid("请填写驳回原因");setState(scope,id,"counting");}
-                case "void" -> {state(before,"draft","counting","submitted","approved");setState(scope,id,"voided");}
+                case "reject" -> {state(before,"submitted");differentReviewer(scope,before);if(input.reason()==null||input.reason().isBlank())throw invalid("请填写驳回原因");setState(scope,id,"counting");tasks.phase(scope,id,"counting");}
+                case "void" -> {state(before,"draft","counting","submitted","approved");setState(scope,id,"voided");tasks.phase(scope,id,"voided");}
                 case "post" -> {state(before,"approved");ledger.lockOpenPeriod(scope,period,day);post(scope,id,before,period,day);
                     jdbc.update("UPDATE stock_count SET status='posted',period_id=?,posted_at=UTC_TIMESTAMP(3),version=version+1,updated_by=? WHERE id=?",period,scope.userId(),id);}
                 default -> throw invalid("盘点操作无效");
@@ -101,6 +121,7 @@ public class StockCountService {
             if(!movements.isEmpty())watermark=Math.max(watermark,movements.getFirst());
         }
         jdbc.update("UPDATE stock_count SET status='counting',snapshot_movement_id=?,snapshot_at=UTC_TIMESTAMP(3),version=version+1,updated_by=? WHERE id=?",watermark,scope.userId(),id);
+        tasks.started(scope,id);
     }
     private void requireCounts(CompanyAccess scope,long id,Map<String,Object> head) {
         for(var line:lines(scope,id,false)) {

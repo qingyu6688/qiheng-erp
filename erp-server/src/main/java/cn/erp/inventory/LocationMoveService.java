@@ -36,12 +36,23 @@ public class LocationMoveService {
     public void move(CompanyAccess actor, long warehouseId, long skuId, Long batchId, long fromLocationId,
                      long toLocationId, BigDecimal quantity, List<String> serialNos, long sourceId, long sourceLineId,
                      LocalDate day, long period) {
-        if (fromLocationId <= 0 || toLocationId <= 0 || fromLocationId == toLocationId || sourceId <= 0 || sourceLineId <= 0) {
+        move(actor,new Key(warehouseId,skuId),batchId,fromLocationId,toLocationId,quantity,serialNos,
+                new Source(SOURCE,sourceId,sourceLineId),day,period,true);
+    }
+
+    public void manualMove(CompanyAccess actor,long warehouseId,long skuId,Long batchId,long fromLocationId,
+                           long toLocationId,BigDecimal quantity,List<String> serialNos,long sourceId,long sourceLineId,
+                           LocalDate day,long period,boolean replenish) {
+        move(actor,new Key(warehouseId,skuId),batchId,fromLocationId,toLocationId,quantity,serialNos,
+                new Source("wms_move_line",sourceId,sourceLineId),day,period,replenish);
+    }
+
+    private void move(CompanyAccess actor,Key key,Long batchId,long fromLocationId,long toLocationId,BigDecimal quantity,
+                      List<String> serialNos,Source source,LocalDate day,long period,boolean storageOnly) {
+        if (fromLocationId <= 0 || toLocationId <= 0 || fromLocationId == toLocationId || source.id() <= 0 || source.lineId() <= 0) {
             throw new ApiException(400, "VALIDATION_FAILED", "请选择不同的移出、移入库位并提供有效的移库来源");
         }
         BigDecimal moved = InventoryNumbers.quantity(quantity);
-        var key = new Key(warehouseId, skuId);
-        var source = new Source(SOURCE, sourceId, sourceLineId);
         var outgoing = new Posting(key, source, day, period, MOVE_OUT);
         store.lockPeriod(actor, outgoing);
         dimensions.lockSettings(actor, List.of(key));
@@ -59,8 +70,8 @@ public class LocationMoveService {
         requireAvailableBatch(actor, key, batchId, InventoryDimensions.today());
         long firstLocation = Math.min(fromLocationId, toLocationId);
         long secondLocation = Math.max(fromLocationId, toLocationId);
-        lockLocation(actor, key, firstLocation, firstLocation == toLocationId);
-        lockLocation(actor, key, secondLocation, secondLocation == toLocationId);
+        lockLocation(actor,key,firstLocation,firstLocation==toLocationId,storageOnly);
+        lockLocation(actor,key,secondLocation,secondLocation==toLocationId,storageOnly);
         if (fromLocationId < toLocationId) {
             dimensions.physicalId(actor, key, from, false);
             dimensions.physicalId(actor, key, to, true);
@@ -79,7 +90,7 @@ public class LocationMoveService {
         dimensions.moveSerials(actor, source, to, serials, out, in);
     }
 
-    private void lockLocation(CompanyAccess actor, Key key, long locationId, boolean destination) {
+    private void lockLocation(CompanyAccess actor,Key key,long locationId,boolean destination,boolean storageOnly) {
         var types = jdbc.queryForList("""
                 SELECT z.type FROM wms_location l
                 JOIN wms_zone z ON z.tenant_id=l.tenant_id AND z.company_id=l.company_id
@@ -90,8 +101,11 @@ public class LocationMoveService {
                 FOR UPDATE OF l FOR SHARE OF z,w
                 """, String.class, actor.tenantId(), actor.companyId(), key.warehouseId(), locationId);
         if (types.isEmpty()) throw InventoryStore.missing();
-        if (destination && !"storage".equals(types.getFirst())) {
+        if (destination && storageOnly && !"storage".equals(types.getFirst())) {
             throw new ApiException(422, "WMS_STORAGE_LOCATION_REQUIRED", "上架目标须为当前仓库已启用的存储库位");
+        }
+        if (destination && "quarantine".equals(types.getFirst())) {
+            throw new ApiException(422,"WMS_LOCATION_UNAVAILABLE","请使用质检作业处理隔离库位库存");
         }
     }
 

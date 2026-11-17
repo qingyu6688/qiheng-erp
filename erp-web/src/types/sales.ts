@@ -100,6 +100,7 @@ export interface SalesDocument {
   signDate?: string
   deliveryMethod?: string
   logisticsNo?: string | null
+  carrierCode?: string | null
   receiptType?: string
   incomeItemId?: string
   relatedOrderId?: string

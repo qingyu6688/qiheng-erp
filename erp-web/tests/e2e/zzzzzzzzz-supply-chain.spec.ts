@@ -69,7 +69,7 @@ async function dataOf<T>(response: APIResponse): Promise<T> {
 async function createPutawayWarehouse(
   page: Page,
   headers: Record<string, string>,
-): Promise<{ id: string; code: string }> {
+): Promise<{ id: string; code: string; receivingId: string }> {
   const code = 'M17-' + crypto.randomUUID().slice(0, 10).toUpperCase()
   const warehouse = await dataOf<{ id: string; version: number }>(
     await page.request.post('/api/v1/warehouses', {
@@ -90,13 +90,25 @@ async function createPutawayWarehouse(
       data: { zoneId: zone.id, code: 'RC-01', name: '收货位', enabled: true },
     }),
   )
+  const shippingZone = await dataOf<{ id: string }>(
+    await page.request.put(root + '/zones', {
+      headers,
+      data: { code: 'SC', name: '发货区', type: 'shipping', enabled: true },
+    }),
+  )
+  const shipping = await dataOf<{ id: string }>(
+    await page.request.put(root, {
+      headers,
+      data: { zoneId: shippingZone.id, code: 'SC-01', name: '发货位', enabled: true },
+    }),
+  )
   await dataOf(
     await page.request.put(root + '/settings', {
       headers,
-      data: { receivingId: slot.id, shippingId: slot.id, version: warehouse.version },
+      data: { receivingId: slot.id, shippingId: shipping.id, version: warehouse.version },
     }),
   )
-  return { id: warehouse.id, code }
+  return { id: warehouse.id, code, receivingId: slot.id }
 }
 
 test('M17 上架任务菜单读取当前仓库，库位仓作业模式默认关闭且可开启', async ({ page }) => {
@@ -134,4 +146,38 @@ test('M17 上架任务菜单读取当前仓库，库位仓作业模式默认关�
   )
   expect(tasks.items).toEqual([])
   await expect(page.getByText('暂无匹配的上架任务')).toBeVisible()
+
+  await page.getByRole('button', { name: '仓库任务模式' }).click()
+  await settings.getByRole('combobox', { name: '任务模式' }).press('Enter')
+  await page.getByRole('option', { name: '拣货复核后发货' }).click()
+  await settings.getByRole('button', { name: '保存模式' }).click()
+  await expect
+    .poll(async () => (await list()).items.find((row) => row.id === warehouse.id)?.taskMode)
+    .toBe('required')
+
+  await page.locator('.nav-group a[href="/warehouse-work"]').click()
+  await expect(page.getByRole('heading', { name: '仓储作业', exact: true })).toBeVisible()
+  await expect(page.getByRole('tab', { name: '标签打印' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: '拣货', exact: true })).toBeVisible()
+  await expect(page.getByRole('tab', { name: '波次' })).toBeVisible()
+
+  const scanned = await dataOf<{ type: string; id: string }>(
+    await page.request.get('/api/v1/wms/scan/resolve', {
+      headers,
+      params: { warehouseId: warehouse.id, code: 'L:RC-01' },
+    }),
+  )
+  expect(scanned).toMatchObject({ type: 'location', id: warehouse.receivingId })
+  const label = await page.request.post('/api/v1/labels/print-jobs', {
+    headers,
+    data: {
+      warehouseId: warehouse.id,
+      size: '50x30',
+      format: 'pdf',
+      items: [{ type: 'location', id: warehouse.receivingId }],
+    },
+  })
+  expect(label.ok()).toBe(true)
+  expect(label.headers()['content-type']).toContain('application/pdf')
+  expect((await label.body()).subarray(0, 5).toString()).toBe('%PDF-')
 })

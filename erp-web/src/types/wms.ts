@@ -1,7 +1,7 @@
 import type { Id, Quantity } from './api'
 
 export type WmsTaskStatus = 'created' | 'assigned' | 'in_progress' | 'done' | 'cancelled'
-export type WmsTaskMode = 'off' | 'optional'
+export type WmsTaskMode = 'off' | 'optional' | 'required'
 
 export interface WmsWarehouse {
   id: Id

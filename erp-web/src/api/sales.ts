@@ -7,8 +7,8 @@ export function documents(kind: SalesKind, params: Record<string, unknown> = {})
 export function document(kind: SalesKind, id: string): Promise<SalesDocument> {
   return request({ method: 'GET', url: '/' + kind + '/' + id }, true)
 }
-export function saveShipmentLogistics(id: string, version: number, logisticsNo: string): Promise<SalesDocument> {
-  return request({ method: 'PUT', url: '/shipments/' + encodeURIComponent(id) + '/logistics', data: { version, logisticsNo } }, true)
+export function saveShipmentLogistics(id: string, version: number, logisticsNo: string, carrierCode?: string): Promise<SalesDocument> {
+  return request({ method: 'PUT', url: '/shipments/' + encodeURIComponent(id) + '/logistics', data: { version, logisticsNo, carrierCode } }, true)
 }
 export function saveDocument(kind: SalesKind, data: Record<string, unknown>, id?: string, key?: string): Promise<SalesDocument> {
   return request({ method: id ? 'PUT' : 'POST', url: '/' + kind + (id ? '/' + id : ''), data,

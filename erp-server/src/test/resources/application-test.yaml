@@ -6,6 +6,9 @@ spring:
     url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${TEST_DB_NAME:erp_test}?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8
     username: ${TEST_DB_USER}
     password: ${TEST_DB_PASSWORD}
+    hikari:
+      # 测试类缓存多个应用上下文时，每个连接池只预留一个空闲连接。
+      minimum-idle: 1
   session:
     redis:
       namespace: erp:session:test

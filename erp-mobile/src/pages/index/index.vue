@@ -1,0 +1,232 @@
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue'
+import MobileLogin from '../../components/MobileLogin.vue'
+import TaskPanel from '../../components/TaskPanel.vue'
+import CountPanel from '../../components/CountPanel.vue'
+import OutboundPanel from '../../components/OutboundPanel.vue'
+import MovePanel from '../../components/MovePanel.vue'
+import ReceiptPanel from '../../components/ReceiptPanel.vue'
+import StockPanel from '../../components/StockPanel.vue'
+import ApprovalPanel from '../../components/ApprovalPanel.vue'
+import LabelPanel from '../../components/LabelPanel.vue'
+import { errorText } from '../../api/http'
+import { read } from '../../api/work'
+import { nativeApp, useSession } from '../../stores/session'
+import type { PairingCode } from '../../types/api'
+import type { TaskStatistics } from '../../types/work'
+
+defineOptions({ name: 'MobileWorkspace' })
+
+type Menu = 'home' | 'receive' | 'putaway' | 'pick' | 'wave' | 'pack' | 'move' | 'replenish' | 'count' | 'labels' | 'stock' | 'approval' | 'pair'
+const operations: { key: Menu; title: string; permission?: string }[] = [
+  { key: 'receive', title: '采购收货', permission: 'goods_receipt:view' },
+  { key: 'putaway', title: '上架', permission: 'wms_task:view' },
+  { key: 'pick', title: '拣货', permission: 'wms_task:view' },
+  { key: 'wave', title: '波次', permission: 'wms_wave:view' },
+  { key: 'pack', title: '复核装箱', permission: 'wms_pack:view' },
+  { key: 'move', title: '移库', permission: 'wms_move:view' },
+  { key: 'replenish', title: '补货', permission: 'wms_move:view' },
+  { key: 'count', title: '库位盘点', permission: 'stock_count:view' },
+  { key: 'stock', title: '库存查询', permission: 'inventory:view' },
+  { key: 'labels', title: '标签补打', permission: 'label:print' },
+  { key: 'approval', title: '待办审批' },
+]
+const session = useSession()
+const menu = ref<Menu>('home')
+const error = ref('')
+const restoring = ref(true)
+const pairing = ref<PairingCode>()
+const deviceName = ref('')
+const pairBusy = ref(false)
+const onDevice = nativeApp()
+const approvals = ref<number>()
+const doneToday = ref<number>()
+const pendingToday = ref<number>()
+const statisticsError = ref('')
+const displayed = computed(() => operations.filter(
+  (item) => !item.permission || session.profile?.permissions.includes(item.permission),
+))
+const company = computed(() => session.profile?.companies.find((item) => item.id === session.company))
+const index = computed(() => session.profile?.companies.findIndex((item) => item.id === session.company) ?? 0)
+const title = computed(() => menu.value === 'pair' ? '设备配对' : displayed.value.find((item) => item.key === menu.value)?.title)
+
+watch(() => session.company, () => { menu.value = 'home' })
+watch([() => session.company, menu], ([current, page]) => {
+  if (page === 'home') void loadNumbers(current)
+})
+
+async function loadNumbers(companyId: string | undefined): Promise<void> {
+  approvals.value = doneToday.value = pendingToday.value = undefined
+  statisticsError.value = ''
+  if (!companyId) return
+  const day = new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10)
+  const responses = await Promise.allSettled([
+    read<{ count: number }>('/workflow/todo-count'),
+    session.profile?.permissions.includes('wms_task:view')
+      ? read<TaskStatistics>('/wms/task-admin/statistics', { from: day, to: day })
+      : Promise.resolve(undefined),
+  ])
+  if (session.company !== companyId || menu.value !== 'home') return
+  if (responses[0]?.status === 'fulfilled') approvals.value = responses[0].value.count
+  if (responses[1]?.status === 'fulfilled' && responses[1].value) {
+    pendingToday.value = responses[1].value.myPendingToday
+    doneToday.value = responses[1].value.items
+      .filter((entry) => entry.assigneeId === session.profile?.id)
+      .reduce((total, entry) => total + entry.taskCount, 0)
+  }
+  statisticsError.value = responses.flatMap((result, index) => result.status === 'rejected'
+    ? [`${index === 0 ? '待审批数量' : '作业统计'}加载失败：${errorText(result.reason)}`] : []).join('。')
+}
+
+onMounted(async () => {
+  try {
+    await session.restore()
+  } catch (cause: unknown) {
+    error.value = errorText(cause)
+  } finally {
+    restoring.value = false
+  }
+})
+
+function companyChanged(event: { detail: { value: string | number } }): void {
+  const option = session.profile?.companies[Number(event.detail.value)]
+  if (option) session.selectCompany(option.id)
+}
+
+async function logout(): Promise<void> {
+  error.value = ''
+  try {
+    await session.logout()
+    menu.value = 'home'
+    pairing.value = undefined
+  } catch (cause: unknown) {
+    error.value = errorText(cause)
+  }
+}
+
+async function issue(): Promise<void> {
+  if (pairBusy.value || !deviceName.value.trim()) return
+  pairBusy.value = true
+  pairing.value = undefined
+  error.value = ''
+  try {
+    pairing.value = await session.pairingCode(deviceName.value.trim())
+  } catch (cause: unknown) {
+    error.value = errorText(cause)
+  } finally {
+    pairBusy.value = false
+  }
+}
+
+function copyPairingCode(): void {
+  const value = pairing.value?.pairingCode
+  if (value) uni.setClipboardData({ data: value, fail: () => { error.value = '复制失败，请手动记录配对码' } })
+}
+</script>
+
+<template>
+  <view class="layout">
+    <view class="masthead">
+      <view>
+        <text class="product">柒衡 ERP</text>
+        <text class="mast-context">{{ title ?? '仓储工作台' }}</text>
+      </view>
+      <button v-if="session.profile" class="compact mast-button" @click="logout">退出</button>
+    </view>
+    <text v-if="error" class="error" role="alert">{{ error }}</text>
+    <view v-if="restoring" class="panel"><text class="muted">正在读取会话…</text></view>
+    <MobileLogin v-else-if="!session.profile" />
+    <template v-else>
+      <view v-if="session.profile.mustChangePassword" class="panel">
+        <text class="error">请先在 ERP 管理端修改密码，再登录移动端。</text>
+      </view>
+      <template v-else>
+        <view class="workspace">
+          <button v-if="menu !== 'home'" class="compact secondary" @click="menu = 'home'; pairing = undefined">工作台</button>
+          <picker v-if="session.profile.companies.length > 1" :range="session.profile.companies"
+            range-key="name" :value="Math.max(index, 0)" @change="companyChanged">
+            <view role="button" aria-label="切换公司" class="company">{{ company?.name ?? '请选择公司' }} ▾</view>
+          </picker>
+          <text v-else class="company">{{ company?.name ?? session.profile.displayName }}</text>
+        </view>
+        <view v-if="menu === 'home'" class="panel">
+          <text class="heading">工作台</text>
+          <text v-if="!company" class="muted">当前账号未分配公司，请联系管理员。</text>
+          <view v-else class="module-grid">
+            <text v-if="pendingToday !== undefined" class="muted">今日待处理 {{ pendingToday }} 项作业</text>
+            <text v-if="doneToday !== undefined" class="muted">今日完成 {{ doneToday }} 项作业</text>
+            <text v-if="approvals !== undefined" class="muted">待审批 {{ approvals }} 项</text>
+            <button v-for="item in displayed" :key="item.key" class="secondary"
+              @click="menu = item.key">{{ item.title }}</button>
+            <button v-if="!onDevice" class="secondary" @click="menu = 'pair'">设备配对</button>
+          </view>
+          <template v-if="statisticsError">
+            <text class="error" role="alert">{{ statisticsError }}</text>
+            <button class="secondary" @click="loadNumbers(session.company)">重新加载工作台统计</button>
+          </template>
+        </view>
+        <ReceiptPanel v-else-if="menu === 'receive'" />
+        <TaskPanel v-else-if="menu === 'putaway' || menu === 'pick'" :key="menu" :type="menu" />
+        <OutboundPanel v-else-if="menu === 'wave' || menu === 'pack'" :key="menu" :type="menu" />
+        <MovePanel v-else-if="menu === 'move' || menu === 'replenish'" :key="menu" :type="menu" />
+        <CountPanel v-else-if="menu === 'count'" />
+        <StockPanel v-else-if="menu === 'stock'" />
+        <LabelPanel v-else-if="menu === 'labels'" />
+        <ApprovalPanel v-else-if="menu === 'approval'" />
+        <view v-else-if="menu === 'pair'" class="panel">
+          <text class="heading">设备配对</text>
+          <text class="field-label">设备显示名称</text>
+          <input v-model="deviceName" class="field" aria-label="设备显示名称" :maxlength="80"
+            :disabled="pairBusy" @confirm="issue">
+          <wd-button block :loading="pairBusy" :disabled="!deviceName.trim()" @click="issue">生成配对码</wd-button>
+          <template v-if="pairing">
+            <text class="muted">请在五分钟内将配对码输入指定 PDA。</text>
+            <text class="pair-code" selectable>{{ pairing.pairingCode }}</text>
+            <button class="secondary" @click="copyPairingCode">复制配对码</button>
+          </template>
+        </view>
+      </template>
+    </template>
+  </view>
+</template>
+
+<style>
+.layout { width: 100%; max-width: 780px; margin: 0 auto; padding: 0 14px 28px; box-sizing: border-box; }
+.masthead { margin: 0 -14px 14px; background: #142b49; color: #fff; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; }
+.product, .mast-context, .heading, .subheading, .muted, .error, .success, .field-label { display: block; }
+.product { font-size: 21px; font-weight: 700; letter-spacing: .5px; }
+.mast-context { font-size: 18px; color: #dce8f9; }
+.heading { font-size: 24px; font-weight: 700; }
+.subheading { font-size: 20px; font-weight: 650; }
+.panel { display: flex; flex-direction: column; gap: 12px; border: 1px solid #dbe3ee; border-radius: 10px; background: #fff; padding: 16px; }
+.muted { color: #41536a; font-size: 18px; }
+.field-label { font-size: 18px; font-weight: 600; }
+.field { font-size: 18px; background: #fff; border: 1px solid #8294ae; box-sizing: border-box; border-radius: 7px; min-height: 48px; width: 100%; padding: 10px 12px; }
+.field-text { height: auto; min-height: 64px; }
+.scan-field { display: flex; flex-direction: column; gap: 6px; }
+.scan-line .field { flex: 1; width: auto; min-width: 0; }
+.inline, .workspace, .section-title, .work-row-title { display: flex; align-items: center; gap: 8px; }
+.workspace, .section-title, .work-row-title { justify-content: space-between; }
+.workspace { margin-bottom: 14px; min-height: 48px; }
+.company { font-weight: 600; }
+.module-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+button { color: #fff; background: #1553ac; font-size: 18px; line-height: 1.3; padding: 10px 13px; min-height: 48px; margin: 0; border: 1px solid transparent; border-radius: 7px; }
+button::after { border: 0; }
+button[disabled] { opacity: .62; }
+.secondary { background: #f3f7fd; color: #164480; border-color: #d5e2f5; }
+.compact { min-width: 64px; }
+.mast-button { color: #fff; background: transparent; border-color: #8197b3; }
+.work-list-row { width: 100%; background: #fff; border-color: #dbe3ee; color: #182e48; text-align: left; padding: 12px; margin-bottom: 8px; }
+.work-list-row text { display: block; overflow-wrap: anywhere; }
+.status { color: #174780; font-size: 17px; white-space: nowrap; }
+.line-edit { display: flex; flex-direction: column; gap: 8px; border: 1px solid #dbe3ee; border-radius: 7px; padding: 10px; }
+.highlighted, .selected { background: #ebf4ff; border-color: #4074b4; }
+.error, .success { padding: 8px 10px; border-radius: 7px; overflow-wrap: anywhere; }
+.error { color: #8b2424; background: #ffeded; }
+.success { color: #18542e; background: #eaf6ed; }
+.danger { color: #8b2424; }
+.summary-line { justify-content: space-between; }
+.pair-code { display: block; overflow-wrap: anywhere; font-family: monospace; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.scan-preview { background: #142b49; border-radius: 8px; padding: 6px; }
+</style>

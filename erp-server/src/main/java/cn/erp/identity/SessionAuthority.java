@@ -43,10 +43,14 @@ public class SessionAuthority {
         if (reason!=null) throw new ApiException(401,"SESSION_REVOKED","当前会话已下线，请重新登录");
     }
     void touch(HttpServletRequest request,SessionAccount actor) {
-        var session=request.getSession(false);String id=publicId(session.getId());
+        touch(request.getSession(false).getId(),actor,request.getRemoteAddr(),request.getHeader("User-Agent"));
+    }
+
+    void touch(String sid,SessionAccount actor,String address,String agent) {
+        String id=publicId(sid);
         long now=System.currentTimeMillis();if(touched.getOrDefault(id,0L)>now) return;
         if(touched.size()>10000) touched.clear();touched.put(id,now+15000);
-        var entry=new Entry(actor.tenantId(),actor.userId(),session.getId(),actor.loginMillis(),System.currentTimeMillis(),safe(request.getRemoteAddr(),64),safe(request.getHeader("User-Agent"),255));
+        var entry=new Entry(actor.tenantId(),actor.userId(),sid,actor.loginMillis(),now,safe(address,64),safe(agent,255));
         redis.opsForValue().set(prefix+"entry:"+id,json.writeValueAsString(entry),LIFETIME);
         redis.opsForZSet().add(prefix+actor.tenantId(),id,entry.seenMillis());redis.expire(prefix+actor.tenantId(),LIFETIME);
     }
@@ -57,9 +61,12 @@ public class SessionAuthority {
         return checks.full(account);
     }
     public SocketIdentity socketIdentity(HttpServletRequest request) {
-        var account=SessionAccount.read(request);check(request.getSession(false).getId());
+        var account=SessionAccount.read(request);
+        String id=request.getAttribute(DeviceSessions.CURRENT) instanceof DeviceSessions.Credential device
+                ? device.sessionId() : request.getSession(false).getId();
+        check(id);
         if (!checks.full(account)) throw SessionAccount.expired();
-        return new SocketIdentity(account.tenantId(),account.userId(),account.passwordRevision(),request.getSession(false).getId());
+        return new SocketIdentity(account.tenantId(),account.userId(),account.passwordRevision(),id);
     }
     public record SocketIdentity(long tenantId,long userId,long revision,String sessionId) {}
     public Map<String,Object> list(CompanyAccess actor,String before,int limit) {
@@ -90,6 +97,8 @@ public class SessionAuthority {
         String id=publicId(sid);
         redis.opsForValue().set(prefix+"revoked:"+id,"1",LIFETIME);
         retire(sid,id,tenant,user,"session.kicked");
+        jdbc.update("UPDATE auth_device_token SET revoked_at=UTC_TIMESTAMP(3) WHERE tenant_id=? AND user_id=? AND session_hash=? AND revoked_at IS NULL",
+                tenant,user,id);
     }
     void rotate(String sid,long tenant,long user) {
         String id=publicId(sid);

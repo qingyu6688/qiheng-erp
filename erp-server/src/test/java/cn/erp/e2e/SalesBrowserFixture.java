@@ -110,7 +110,7 @@ public class SalesBrowserFixture {
         var permissions=jdbc.queryForList("""
                 SELECT id FROM sys_permission WHERE code IN ('warehouse:view','warehouse:create','warehouse:update','wms_location:view',
                     'wms_location:manage','wms_task:view','wms_task:configure','partner:view','einv:view','einv:create',
-                    'einv:inbound','einv:manage')
+                    'einv:inbound','einv:manage','label:print','wms_move:view','wms_pack:view','wms_wave:view','stock_count:view')
                 """,Long.class);
         for(long permission:permissions)
             jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) VALUES(?,?,?,?)",Ids.next(),tenant,role,permission);

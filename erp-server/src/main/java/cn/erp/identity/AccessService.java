@@ -121,7 +121,8 @@ public class AccessService {
                 (ResultSetExtractor<UserView>) rows -> readProfile(rows, actor.userId()),
                 SessionChecks.args(actor,true));
         if (profile == null) {
-            request.getSession(false).invalidate();
+            if (request.getAttribute(SessionAccount.DEVICE_ATTRIBUTE)==null && request.getSession(false)!=null)
+                request.getSession(false).invalidate();
             throw SessionAccount.expired();
         }
         request.setAttribute(PROFILE, profile);

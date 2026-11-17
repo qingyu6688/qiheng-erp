@@ -39,13 +39,16 @@ public class ShipmentService {
     private final SalesOrderQueries orders;
     private final ReservationService reservations;
     private final SalesStockPosting stockPosting;
+    private final ShipmentWorkPort warehouseWork;
 
     public ShipmentService(JdbcTemplate jdbc,ShipmentQueries queries,InventoryService inventory,
             OrderLineOccupancy occupancy,CatalogAvailability catalog,ReferenceAvailability reference,
             LedgerService ledger,SettlementService settlement,DocumentNumbers numbers,
-            BusinessCommands commands,AuditService audit,SalesOrderQueries orders,ReservationService reservations,SalesStockPosting stockPosting) {
+            BusinessCommands commands,AuditService audit,SalesOrderQueries orders,ReservationService reservations,
+            SalesStockPosting stockPosting,ShipmentWorkPort warehouseWork) {
         this.jdbc=jdbc;this.queries=queries;this.inventory=inventory;this.occupancy=occupancy;this.catalog=catalog;
         this.reference=reference;this.ledger=ledger;this.settlement=settlement;this.numbers=numbers;this.commands=commands;this.audit=audit;this.orders=orders;this.reservations=reservations;this.stockPosting=stockPosting;
+        this.warehouseWork=warehouseWork;
     }
 
     public record Blocker(String code,String message,Long orderId) {}
@@ -102,6 +105,7 @@ public class ShipmentService {
         try {periodId=period(scope,day,false);}
         catch(ApiException blocked) {blockers.add(blocker(blocked,null,null));return;}
         capture(blockers,()->credit.checkShipment(scope,id(header,"customer_id")),null,null);
+        if(posting) capture(blockers,()->warehouseWork.requirePostReady(scope,shipmentId,id(header,"warehouse_id")),null,null);
         var lines=jdbc.queryForList("SELECT * FROM shipment_line WHERE tenant_id=? AND company_id=? AND shipment_id=? ORDER BY order_line_id,id",
                 scope.tenantId(),scope.companyId(),shipmentId);
         Map<Long,Map<String,Object>> sourceLines;
@@ -189,9 +193,18 @@ public class ShipmentService {
             if(number.isEmpty()) number=null;
             else if(!"delivery".equals(before.get("delivery_method"))) throw invalid("客户自提的发货单无需登记运单号");
         }
-        if(Objects.equals(number,before.get("logistics_no"))) return queries.get(scope,id);
-        jdbc.update("UPDATE shipment SET logistics_no=?,version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?",
-                number,scope.userId(),scope.tenantId(),scope.companyId(),id);
+        String carrier = input.carrierCode()==null ? (String)before.get("carrier_code")
+                : input.carrierCode().isBlank() ? null : input.carrierCode().toUpperCase(Locale.ROOT);
+        if (carrier!=null && !"delivery".equals(before.get("delivery_method"))) throw invalid("客户自提无需登记承运商");
+        if (input.carrierCode()!=null && !Objects.equals(carrier,before.get("carrier_code"))
+                && Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM wms_task WHERE tenant_id=? AND company_id=? AND source_type='shipment'
+                    AND source_id=? AND wave_id IS NOT NULL AND status<>'cancelled')
+                """,Boolean.class,scope.tenantId(),scope.companyId(),id)))
+            throw invalid("发货单已加入波次，不能更改承运商编码");
+        if(Objects.equals(number,before.get("logistics_no")) && Objects.equals(carrier,before.get("carrier_code"))) return queries.get(scope,id);
+        jdbc.update("UPDATE shipment SET logistics_no=?,carrier_code=?,version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?",
+                number,carrier,scope.userId(),scope.tenantId(),scope.companyId(),id);
         changed(scope,id,"logistics",before);
         return queries.get(scope,id);
     }
@@ -219,6 +232,7 @@ public class ShipmentService {
             occupancy.occupyAll(scope,occupied);
             inventory.reserveShipmentPicks(scope,picks);
             jdbc.update("UPDATE shipment SET status='submitted',submitted_at=UTC_TIMESTAMP(3),version=version+1,updated_by=? WHERE id=?",scope.userId(),id);
+            warehouseWork.submitted(scope,id);
             changed(scope,id,"submit",before);var result=new LinkedHashMap<String,Object>(safe(scope,id));result.put("warnings",credit.warnings(scope,id(before,"customer_id")));return result;
         });
     }
@@ -229,6 +243,7 @@ public class ShipmentService {
             var before=queries.header(scope,id,true);version(version,before);
             if(!"submitted".equals(before.get("status"))) {throw state();}
             var lines=lockLines(scope,id);
+            warehouseWork.cancel(scope,id,LocalDate.now(ZoneId.of("Asia/Shanghai")));
             inventory.lockKeys(scope,lines.stream().map(line->new Key(id(before,"warehouse_id"),id(line,"sku_id"))).toList());
             for(var line:lines) {
                 occupancy.release(scope,id(line,"order_line_id"),decimal(line,"base_qty"));
@@ -248,6 +263,7 @@ public class ShipmentService {
             var before=queries.header(scope,id,true);version(expectedVersion,before);
             if(id(snapshot,"customer_id")!=id(before,"customer_id"))throw invalid("客户已变化，请刷新后重试");credit.shipment(scope,id(before,"customer_id"));
             if(!"submitted".equals(before.get("status"))) {throw state();}
+            warehouseWork.requirePostReady(scope,id,id(before,"warehouse_id"));
             var lines=lockLines(scope,id);
             var activeReservations=activeReservations(scope,id);
             var issues=new ArrayList<SalesStockPosting.Issue>();
@@ -275,6 +291,7 @@ public class ShipmentService {
             postJournal(scope,"shipment_post",id,0,period,date(before,"business_date"),entries);
             jdbc.update("UPDATE shipment SET status='posted',cost_amount=?,period_id=?,posted_by=?,posted_at=UTC_TIMESTAMP(3),version=version+1,updated_by=? WHERE id=?",
                     total,period,scope.userId(),scope.userId(),id);
+            warehouseWork.posted(scope,id);
             refresh(scope,lines);
             if("pickup".equals(before.get("delivery_method"))) {
                 var signed=lines.stream().map(line->new ShipmentModels.SignedLine(id(line,"id"),decimal(line,"base_qty").toPlainString())).toList();

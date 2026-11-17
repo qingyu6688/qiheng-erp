@@ -135,7 +135,8 @@ public class InventoryTraceQueries {
         }
         items.forEach(item->{
             item.put("serials",serials.getOrDefault(item.get("id").toString(),List.of()));
-            if ("wms_task_confirmation".equals(item.get("sourceType")) && !actor.hasPermission("wms_task:view")) {
+            if ("wms_task_confirmation".equals(item.get("sourceType")) && !actor.hasPermission("wms_task:view")
+                    || "wms_move_line".equals(item.get("sourceType")) && !actor.hasPermission("wms_move:view")) {
                 item.remove("sourceId");
                 item.remove("sourceLineId");
             }
@@ -221,7 +222,7 @@ public class InventoryTraceQueries {
         return " AND ("+OrgOwnership.sourceCondition(actor,alias+".source_type",alias+".source_id")
                 +" OR ("+alias+".source_type='stock_misc_line' AND EXISTS(SELECT 1 FROM stock_misc_doc md"
                 +" WHERE md.tenant_id=:tenant AND md.company_id=:company AND md.id="+alias+".source_id"+OrgOwnership.filter(actor,"md")+"))"
-                +" OR ("+alias+".source_type='wms_task_confirmation' AND EXISTS(SELECT 1 FROM wms_task wt"
+                +" OR ("+alias+".source_type IN ('wms_task_confirmation','wms_move_line') AND EXISTS(SELECT 1 FROM wms_task wt"
                 +" WHERE wt.tenant_id=:tenant AND wt.company_id=:company AND wt.warehouse_id="+alias+".warehouse_id"
                 +" AND wt.id="+alias+".source_id"+OrgOwnership.filter(actor,"wt")+")))";
     }

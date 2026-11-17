@@ -27,9 +27,10 @@ const value = ref<SalesDocument>(),
   action = ref('')
 const history = ref<Record<string, unknown>[]>([])
 const commandWarnings = ref<{ message: string }[]>([])
-const logisticsOpen = ref(false), logisticsNumber = ref(''), logisticsBusy = ref(false), logisticsError = ref('')
+const logisticsOpen = ref(false), logisticsNumber = ref(''), carrierCode = ref(''), logisticsBusy = ref(false), logisticsError = ref('')
 function editLogistics(): void {
   logisticsNumber.value = value.value?.logisticsNo ?? ''
+  carrierCode.value = value.value?.carrierCode ?? ''
   logisticsError.value = ''
   logisticsOpen.value = true
 }
@@ -39,7 +40,7 @@ async function saveLogistics(): Promise<void> {
   logisticsBusy.value = true
   logisticsError.value = ''
   try {
-    value.value = await saveShipmentLogistics(shipment.id, shipment.version, logisticsNumber.value.trim())
+    value.value = await saveShipmentLogistics(shipment.id, shipment.version, logisticsNumber.value.trim(), carrierCode.value.trim())
     logisticsOpen.value = false
   } catch (cause: unknown) {
     if (!isCancelled(cause)) logisticsError.value = messageOf(cause)
@@ -256,6 +257,8 @@ function closeEditor(): void {
           <dd>{{ value.logisticsNo || '—' }}
             <el-button v-if="session.can('shipment:update') && !['voided', 'reversed'].includes(value.status)" link type="primary" @click="editLogistics">编辑运单号</el-button>
           </dd>
+          <dt>承运商编码</dt>
+          <dd>{{ value.carrierCode || '—' }}</dd>
         </template>
       </dl>
       <div v-if="kind === 'sales-orders'" class="sales-progress">
@@ -390,6 +393,7 @@ function closeEditor(): void {
     <el-alert v-if="logisticsError" :title="logisticsError" type="error" :closable="false" />
     <el-form label-position="top" @submit.prevent="saveLogistics">
       <el-form-item label="物流单号"><el-input v-model.trim="logisticsNumber" maxlength="100" /></el-form-item>
+      <el-form-item label="承运商编码"><el-input v-model.trim="carrierCode" maxlength="48" /></el-form-item>
       <el-button type="primary" native-type="submit" :loading="logisticsBusy">保存</el-button>
     </el-form>
   </el-dialog>

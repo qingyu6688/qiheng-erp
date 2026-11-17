@@ -307,6 +307,16 @@ export const router = createRouter({
           meta: { permission: 'wms_task:view', company: true, title: '上架任务' },
         },
         {
+          path: 'warehouse-work',
+          name: 'warehouse-work',
+          component: () => import('../pages/WmsWorkPage.vue'),
+          meta: {
+            anyPermissions: ['wms_task:view', 'wms_task:configure', 'wms_move:view', 'wms_pack:view', 'label:print'],
+            company: true,
+            title: '仓储作业',
+          },
+        },
+        {
           path: 'inventory-trace',
           name: 'inventory-trace',
           component: () => import('../pages/InventoryTracePage.vue'),

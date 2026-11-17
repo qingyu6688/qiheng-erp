@@ -37,13 +37,16 @@ class PutawayTasks {
     private final BusinessCommands commands;
     private final AuditService audit;
     private final LocationMoveService stock;
+    private final LocationRules rules;
 
-    PutawayTasks(JdbcTemplate jdbc,FinanceSupport finance,BusinessCommands commands,AuditService audit,LocationMoveService stock) {
+    PutawayTasks(JdbcTemplate jdbc,FinanceSupport finance,BusinessCommands commands,AuditService audit,
+                 LocationMoveService stock,LocationRules rules) {
         this.jdbc = jdbc;
         this.finance = finance;
         this.commands = commands;
         this.audit = audit;
         this.stock = stock;
+        this.rules = rules;
     }
 
     record Revision(Long version) {}
@@ -217,20 +220,24 @@ class PutawayTasks {
         if (remaining.signum() <= 0) return null;
         long sku = value(line,"sku_id");
         String lot = Objects.toString(line.get("batch_id"),"");
+        var target = rules.target(actor,warehouse,sku);
         return jdbc.queryForList("""
                 SELECT l.code FROM wms_location l JOIN wms_zone z ON z.tenant_id=l.tenant_id AND z.company_id=l.company_id
                     AND z.warehouse_id=l.warehouse_id AND z.id=l.zone_id AND z.status='active' AND z.type='storage'
                 LEFT JOIN inventory_balance b ON b.tenant_id=l.tenant_id AND b.company_id=l.company_id
                     AND b.warehouse_id=l.warehouse_id AND b.location_key=CAST(l.id AS CHAR) AND b.on_hand_qty>0
                 WHERE l.tenant_id=? AND l.company_id=? AND l.warehouse_id=? AND l.status='active' AND l.id<>?
-                GROUP BY l.id,l.code,l.capacity_qty,l.mixed_sku_allowed,l.mixed_batch_allowed,l.pick_sequence
+                GROUP BY l.id,l.code,l.zone_id,l.capacity_qty,l.mixed_sku_allowed,l.mixed_batch_allowed,l.pick_sequence
                 HAVING (l.capacity_qty IS NULL OR COALESCE(SUM(b.on_hand_qty),0)+?<=l.capacity_qty)
                   AND (l.mixed_sku_allowed OR COALESCE(SUM(b.sku_id<>?),0)=0)
                   AND (l.mixed_batch_allowed OR COALESCE(SUM(b.sku_id=? AND b.lot_key<>?),0)=0)
-                  AND (COUNT(b.id)=0 OR SUM(b.sku_id=? AND b.lot_key=?)>0)
-                ORDER BY COUNT(b.id)=0,l.pick_sequence,l.id LIMIT 1
+                  AND (l.id<=>? OR COALESCE(SUM(b.sku_id=? AND (b.lot_key=? OR l.mixed_batch_allowed)),0)>0
+                       OR (COUNT(b.id)=0 AND (? IS NULL OR l.zone_id=?)))
+                ORDER BY (l.id<=>?) DESC,(COALESCE(SUM(b.sku_id=? AND b.lot_key=?),0)>0) DESC,
+                         COUNT(b.id)=0,l.pick_sequence,l.id LIMIT 1
                 """,String.class,actor.tenantId(),actor.companyId(),warehouse,line.get("from_location_id"),
-                remaining,sku,sku,lot,sku,lot).stream().findFirst().orElse(null);
+                remaining,sku,sku,lot,target.fixedLocationId(),sku,lot,target.zoneId(),target.zoneId(),
+                target.fixedLocationId(),sku,lot).stream().findFirst().orElse(null);
     }
 
     private long storageLocation(CompanyAccess actor,long warehouse,String code) {
@@ -268,15 +275,18 @@ class PutawayTasks {
         if (!actor.allowsWarehouse(warehouse)) throw missing();
         if (!actor.orgScope().allDepartments()) throw new ApiException(403,"FORBIDDEN","设置作业模式需要当前公司全部部门范围");
         String requested = mode.taskMode();
-        if (!"off".equals(requested) && !"optional".equals(requested)) throw invalid("当前可选择关闭或生成上架任务");
+        if (requested==null || !Set.of("off","optional","required").contains(requested))
+            throw invalid("当前可选择关闭、可选作业或强制复核");
         var rows = jdbc.queryForList("""
-                SELECT wms_task_mode,location_managed,default_receiving_location_id FROM warehouse
+                SELECT wms_task_mode,location_managed,default_receiving_location_id,default_shipping_location_id FROM warehouse
                 WHERE tenant_id=? AND company_id=? AND id=? AND status='active' FOR UPDATE
                 """,actor.tenantId(),actor.companyId(),warehouse);
         if (rows.isEmpty()) throw missing();
         var current = rows.getFirst();
-        if ("optional".equals(requested) && !canEnable(actor,warehouse,current))
+        if (!"off".equals(requested) && !canEnable(actor,warehouse,current))
             throw invalid("请先启用库位管理，并设置启用的收货区默认库位");
+        if ("required".equals(requested) && !hasDefaultLocation(actor,warehouse,current.get("default_shipping_location_id"),"shipping"))
+            throw invalid("强制复核需配置启用的发货区默认库位");
         if (requested.equals(current.get("wms_task_mode"))) return;
         jdbc.update("""
                 UPDATE warehouse SET wms_task_mode=?,updated_by=?,version=version+1
@@ -288,12 +298,16 @@ class PutawayTasks {
     private boolean canEnable(CompanyAccess actor,long warehouse,Map<String,Object> current) {
         Object managed = current.get("location_managed");
         if (!Boolean.TRUE.equals(managed) && !"1".equals(String.valueOf(managed))) return false;
-        if (current.get("default_receiving_location_id") == null) return false;
+        return hasDefaultLocation(actor,warehouse,current.get("default_receiving_location_id"),"receiving");
+    }
+
+    private boolean hasDefaultLocation(CompanyAccess actor,long warehouse,Object location,String type) {
+        if (location==null) return false;
         return !jdbc.queryForList("""
                 SELECT l.id FROM wms_location l JOIN wms_zone z ON z.tenant_id=l.tenant_id AND z.company_id=l.company_id
-                    AND z.warehouse_id=l.warehouse_id AND z.id=l.zone_id AND z.status='active' AND z.type='receiving'
+                    AND z.warehouse_id=l.warehouse_id AND z.id=l.zone_id AND z.status='active' AND z.type=?
                 WHERE l.tenant_id=? AND l.company_id=? AND l.warehouse_id=? AND l.id=? AND l.status='active' FOR SHARE
-                """,Long.class,actor.tenantId(),actor.companyId(),warehouse,current.get("default_receiving_location_id")).isEmpty();
+                """,Long.class,type,actor.tenantId(),actor.companyId(),warehouse,location).isEmpty();
     }
 
     private Map<String,Object> head(CompanyAccess actor,long id,boolean lock) {

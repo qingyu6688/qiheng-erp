@@ -30,7 +30,48 @@ class SessionManagementIT {
         for(long permission:jdbc.queryForList("SELECT id FROM sys_permission",Long.class)) jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) VALUES(?,?,?,?)",Ids.next(),tenant,role,permission);
     }
     @AfterEach void cleanup() {
-        logs.flush();for(String table:List.of("job_run_log","job_definition","notify_message","sys_notice_read","sys_notice_target","sys_notice","outbox_event","audit_log","idempotency_record","sys_login_log","sys_api_error_log","sys_api_access_log","sys_user_data_scope","sys_user_role","sys_role_permission","sys_role","sys_user","company")) jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);jdbc.update("DELETE FROM tenant WHERE id=?",tenant);
+        logs.flush();for(String table:List.of("auth_device_token","job_run_log","job_definition","notify_message","sys_notice_read","sys_notice_target","sys_notice","outbox_event","audit_log","idempotency_record","sys_login_log","sys_api_error_log","sys_api_access_log","sys_user_data_scope","sys_user_role","sys_role_permission","sys_role","sys_user","company")) jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);jdbc.update("DELETE FROM tenant WHERE id=?",tenant);
+    }
+    @Test void pairedPdaUsesLivePermissionsAndStopsAfterOnlineKick() throws Exception {
+        request("POST","/auth/login",Map.of("tenantCode",code,"username","admin","password",password),false,200);
+        var pairingInput=Map.of("deviceName","验收扫描枪");
+        request("POST","/auth/devices",pairingInput,false,403);
+        var invitation=request("POST","/auth/devices",pairingInput,true,200).path("data");
+        String pair=invitation.path("pairingCode").asString();
+        var issued=device("POST","/api/v1/auth/devices/activate",Map.of("pairingCode",pair),null,company);
+        assertThat(issued.statusCode()).isEqualTo(200);
+        assertThat(issued.headers().firstValue("Cache-Control")).contains("no-store");
+        assertThat(issued.headers().allValues("Set-Cookie")).noneMatch(value -> value.startsWith("ERPSESSION="));
+        String token=json.readTree(issued.body()).path("data").path("token").asString();
+        assertThat(token).startsWith("PDA.");
+        assertThat(device("POST","/api/v1/auth/devices/activate",Map.of("pairingCode",pair),null,company).statusCode()).isEqualTo(401);
+        assertThat(device("GET","/api/v1/auth/me",null,token,company).statusCode()).isEqualTo(200);
+        assertThat(device("GET","/api/v1/wms/warehouses",null,token,company).statusCode()).isEqualTo(200);
+        assertThat(device("GET","/api/v1/wms/warehouses",null,token,company+1).statusCode()).isEqualTo(403);
+        assertThat(device("GET","/api/v1/sys/online-users",null,token,company).statusCode()).isEqualTo(403);
+        assertThat(device("GET","/open/v1/inventory-balances",null,token,company).statusCode()).isGreaterThanOrEqualTo(400);
+        // 设备上的写入经过业务校验。无效标签请求应到达服务端校验而非被 CSRF 拦截。
+        assertThat(device("POST","/api/v1/labels/print-jobs",Map.of("size","50x30","items",List.of()),token,company).statusCode()).isEqualTo(422);
+        var publicIds=request("GET","/sys/online-users",null,false,200).path("data").path("items");
+        String sessionId="";
+        for(var entry:publicIds) if (entry.path("userAgent").asString().equals("PDA 验收扫描枪")) sessionId=entry.path("id").asString();
+        assertThat(sessionId).matches("[a-f0-9]{64}");
+        assertThat(jdbc.queryForObject("SELECT token_hash FROM auth_device_token WHERE tenant_id=? AND session_hash=?",String.class,tenant,sessionId))
+                .isEqualTo(SessionAuthority.publicId(token));
+        jdbc.update("DELETE FROM sys_role_permission WHERE tenant_id=? AND role_id=? AND permission_id=(SELECT id FROM sys_permission WHERE code='wms_task:view')",tenant,role);
+        jdbc.update("DELETE FROM sys_role_permission WHERE tenant_id=? AND role_id=? AND permission_id=(SELECT id FROM sys_permission WHERE code='wms_task:configure')",tenant,role);
+        assertThat(device("GET","/api/v1/wms/tasks",null,token,company).statusCode()).isEqualTo(403);
+        request("POST","/sys/online-users/"+sessionId+"/kick",Map.of(),true,200);
+        assertThat(device("GET","/api/v1/auth/me",null,token,company).statusCode()).isEqualTo(401);
+        request("GET","/auth/me",null,false,200);
+    }
+
+    private HttpResponse<String> device(String method,String path,Object input,String token,long company) throws Exception {
+        var builder=HttpRequest.newBuilder(URI.create("http://127.0.0.1:"+port+path))
+                .header("Content-Type","application/json").header("X-Company-Id",Long.toString(company))
+                .method(method,input==null?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(json.writeValueAsString(input)));
+        if (token!=null) builder.header("Authorization","Bearer "+token);
+        return HttpClient.newHttpClient().send(builder.build(),HttpResponse.BodyHandlers.ofString());
     }
     @Test void Y05_02_concurrentInboxAndBellReadsDoNotDeadlockOrDuplicateMessages() throws Exception {
         request("POST","/auth/login",Map.of("tenantCode",code,"username","admin","password",password),false,200);

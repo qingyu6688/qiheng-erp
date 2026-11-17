@@ -6,6 +6,7 @@ import cn.erp.shared.ApiException;
 import cn.erp.shared.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,17 +22,24 @@ import org.springframework.web.bind.annotation.RestController;
 class PutawayTaskController {
     private final AccessService access;
     private final PutawayTasks tasks;
+    private final TaskAdministration administration;
 
-    PutawayTaskController(AccessService access,PutawayTasks tasks) {
+    PutawayTaskController(AccessService access,PutawayTasks tasks,TaskAdministration administration) {
         this.access = access;
         this.tasks = tasks;
+        this.administration = administration;
     }
 
     @GetMapping("/tasks")
     ApiResponse<?> page(HttpServletRequest request,@RequestParam(required = false) Long warehouseId,
                         @RequestParam(required = false) String status,@RequestParam(required = false) Long cursor,
+                        @RequestParam(required = false) String type,@RequestParam(required = false) String assignee,
                         @RequestParam(defaultValue = "30") int limit) {
-        return ApiResponse.success(tasks.page(access.requireCompany(request,"wms_task:view"),warehouseId,status,cursor,limit));
+        var actor = access.requireCompany(request,"wms_task:view");
+        if (type!=null || assignee!=null) {
+            return ApiResponse.success(administration.page(actor,warehouseId,type,status,assignee,cursor,limit));
+        }
+        return ApiResponse.success(tasks.page(actor,warehouseId,status,cursor,limit));
     }
 
     @GetMapping("/tasks/{id}")
@@ -63,7 +71,9 @@ class PutawayTaskController {
     @GetMapping("/warehouses")
     ApiResponse<?> warehouses(HttpServletRequest request) {
         var actor = access.requireCompany(request,null);
-        if (!actor.hasPermission("wms_task:view") && !actor.hasPermission("wms_task:configure"))
+        var permissions=Set.of("wms_task:view","wms_task:configure","wms_move:view","wms_pack:view",
+                "wms_wave:view","label:print","goods_receipt:view","goods_receipt:create","inventory:view");
+        if (actor.permissions().stream().noneMatch(permissions::contains))
             throw new ApiException(403,"FORBIDDEN","没有查看仓储作业仓库的权限");
         return ApiResponse.success(Map.of("items",tasks.warehouses(actor)));
     }

@@ -13,6 +13,7 @@ record SessionAccount(long tenantId, long userId, long passwordRevision, long lo
                       long identityId, long providerVersion, long mfaEnrollmentId)
         implements Serializable {
     private static final String ATTRIBUTE = SessionAccount.class.getName();
+    static final String DEVICE_ATTRIBUTE = ATTRIBUTE + ".device";
     private static final Duration ABSOLUTE_TIMEOUT = Duration.ofHours(12);
 
     SessionAccount(long tenantId, long userId, long passwordRevision, long loginMillis) {
@@ -32,8 +33,10 @@ record SessionAccount(long tenantId, long userId, long passwordRevision, long lo
     }
 
     static SessionAccount read(HttpServletRequest request) {
+        if (request.getAttribute(DEVICE_ATTRIBUTE) instanceof SessionAccount device) return device;
         HttpSession session = request.getSession(false);
-        if (session == null || !(session.getAttribute(ATTRIBUTE) instanceof SessionAccount account)) {
+        if (session == null || Boolean.TRUE.equals(session.getAttribute(DEVICE_ATTRIBUTE))
+                || !(session.getAttribute(ATTRIBUTE) instanceof SessionAccount account)) {
             throw expired();
         }
         if (account.isExpired(Instant.now())) {
@@ -44,7 +47,11 @@ record SessionAccount(long tenantId, long userId, long passwordRevision, long lo
     }
 
     boolean isExpired(Instant now) {
-        return !now.isBefore(Instant.ofEpochMilli(loginMillis).plus(ABSOLUTE_TIMEOUT));
+        return !now.isBefore(expiresAt());
+    }
+
+    Instant expiresAt() {
+        return Instant.ofEpochMilli(loginMillis).plus(ABSOLUTE_TIMEOUT);
     }
 
     void save(HttpServletRequest request) {

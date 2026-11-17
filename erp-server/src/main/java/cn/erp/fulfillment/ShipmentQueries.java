@@ -64,7 +64,7 @@ public class ShipmentQueries {
         var header=header(scope,id,false);
         var result=new LinkedHashMap<String,Object>();
         put(result,header,"id","customer_id","warehouse_id","delivery_method","business_date","status","version","remark","sign_date","sales_user_id",
-                "receivable_amount","untaxed_amount","tax_amount");
+                "receivable_amount","untaxed_amount","tax_amount","logistics_no","carrier_code");
         result.put("documentNo",header.get("shipment_no"));
         result.put("customerName",jdbc.queryForObject("SELECT name FROM business_partner WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),header.get("customer_id")));
         result.put("warehouseName",jdbc.queryForObject("SELECT name FROM warehouse WHERE tenant_id=? AND company_id=? AND id=?",String.class,scope.tenantId(),scope.companyId(),header.get("warehouse_id")));

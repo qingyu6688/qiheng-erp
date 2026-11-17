@@ -20,6 +20,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -32,7 +33,8 @@ class IdentitySecurity {
     static final String AUTH = "/api/v1/auth";
     private static final String HEALTH = "/actuator/health";
     private static final Set<String> PUBLIC_POSTS = Set.of(
-            AUTH + "/login", AUTH + "/code/send", AUTH + "/code/login", AUTH + "/wechat/start", AUTH + "/ldap/login");
+            AUTH + "/login", AUTH + "/code/send", AUTH + "/code/login", AUTH + "/wechat/start", AUTH + "/ldap/login",
+            AUTH + "/devices/activate");
     private static final Set<String> PUBLIC_GETS = Set.of(HEALTH, AUTH + "/methods", AUTH + "/wechat/callback",
             AUTH + "/sso/callback");
     private static final Set<String> MFA_POSTS = Set.of(AUTH+"/mfa/setup",AUTH+"/mfa/activate",AUTH+"/mfa/verify");
@@ -57,14 +59,15 @@ class IdentitySecurity {
     }
 
     @Bean
-    SecurityFilterChain apiSecurity(HttpSecurity http, AccessService access, SessionAuthority authority,CookieCsrfTokenRepository tokens,
+    SecurityFilterChain apiSecurity(HttpSecurity http, AccessService access, SessionAuthority authority, DeviceSessions devices,
+                                    CookieCsrfTokenRepository tokens,
                                     @Qualifier("handlerExceptionResolver") HandlerExceptionResolver errors)
             throws Exception {
         var csrf = new CsrfTokenRequestAttributeHandler();
         // Axios 把同域 Cookie 原值放入请求头，普通 GET 也需要下发令牌。
         csrf.setCsrfRequestAttributeName(null);
         http.csrf(c -> c.csrfTokenRepository(tokens).csrfTokenRequestHandler(csrf)
-                        .ignoringRequestMatchers(PUBLIC_FIRST_FACTOR))
+                        .ignoringRequestMatchers(PUBLIC_FIRST_FACTOR,IdentitySecurity::deviceAuthenticated))
                 .requestCache(c -> c.disable())
                 .logout(c -> c.disable())
                 .formLogin(c -> c.disable())
@@ -74,8 +77,47 @@ class IdentitySecurity {
                                 errors.resolveException(req, res, null, SessionAccount.expired()))
                         .accessDeniedHandler((req, res, ex) -> errors.resolveException(req, res, null,
                                 new ApiException(403, "FORBIDDEN", "请求校验失败，请刷新后重试"))))
+                .addFilterBefore(new DeviceFilter(devices,errors), CsrfFilter.class)
                 .addFilterBefore(new SessionFilter(access, authority,errors), AuthorizationFilter.class);
         return http.build();
+    }
+
+    private static boolean deviceAuthenticated(HttpServletRequest request) {
+        return request.getAttribute(DeviceSessions.CURRENT) instanceof DeviceSessions.Credential;
+    }
+
+    private static class DeviceFilter extends OncePerRequestFilter {
+        private final DeviceSessions devices;
+        private final HandlerExceptionResolver errors;
+
+        DeviceFilter(DeviceSessions devices,HandlerExceptionResolver errors) {
+            this.devices=devices;
+            this.errors=errors;
+        }
+
+        @Override
+        protected boolean shouldNotFilter(HttpServletRequest request) {
+            String authorization=request.getHeader("Authorization");
+            return authorization==null || !authorization.regionMatches(true,0,"Bearer PDA.",0,"Bearer PDA.".length());
+        }
+
+        @Override
+        protected void doFilterInternal(HttpServletRequest req,HttpServletResponse res,FilterChain chain)
+                throws IOException,ServletException {
+            try {
+                if (!DeviceRoutes.allows(req.getMethod(),req.getServletPath()))
+                    throw new ApiException(403,"DEVICE_ROUTE_FORBIDDEN","设备令牌无权访问该接口");
+                var account=devices.authenticate(req,req.getHeader("Authorization").substring("Bearer ".length()));
+                req.setAttribute("erp.actor.tenant",account.tenantId());
+                req.setAttribute("erp.actor.user",account.userId());
+                SecurityContextHolder.getContext().setAuthentication(
+                        UsernamePasswordAuthenticationToken.authenticated(account,null,List.of()));
+            } catch (RuntimeException ex) {
+                if (errors.resolveException(req,res,null,ex)==null) throw ex;
+                return;
+            }
+            chain.doFilter(req,res);
+        }
     }
 
     private static class SessionFilter extends OncePerRequestFilter {
@@ -91,7 +133,7 @@ class IdentitySecurity {
 
         @Override
         protected boolean shouldNotFilter(HttpServletRequest request) {
-            return PUBLIC_AUTH.matches(request);
+            return PUBLIC_AUTH.matches(request) || deviceAuthenticated(request);
         }
 
         @Override

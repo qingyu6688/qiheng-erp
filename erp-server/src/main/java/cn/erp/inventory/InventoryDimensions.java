@@ -23,7 +23,7 @@ class InventoryDimensions {
 
     InventoryDimensions(JdbcTemplate jdbc,ObjectMapper json) {this.jdbc=jdbc;this.json=json;}
 
-    record Config(boolean batch,boolean serial,int shelf,String strategy,boolean location,Long receiving,Long shipping) {
+    record Config(boolean batch,boolean serial,int shelf,String strategy,boolean location,Long receiving,Long shipping,String taskMode) {
         boolean tracked(){return batch||serial||location;}
     }
     record Coordinates(Long batch,String lot,String location) {
@@ -57,12 +57,12 @@ class InventoryDimensions {
         if (!scope.allowsWarehouse(key.warehouseId())) throw missing();
         return jdbc.query("""
                 SELECT s.batch_managed,s.serial_managed,s.shelf_life_days,s.issue_strategy,w.location_managed,
-                  w.default_receiving_location_id,w.default_shipping_location_id
+                  w.default_receiving_location_id,w.default_shipping_location_id,w.wms_task_mode
                 FROM warehouse w JOIN sku s ON s.tenant_id=w.tenant_id AND s.id=?
                 WHERE w.tenant_id=? AND w.company_id=? AND w.id=?
                 """+(TransactionSynchronizationManager.isCurrentTransactionReadOnly()?"":" FOR SHARE OF w,s"),
                 (r,i)->new Config(r.getBoolean(1),r.getBoolean(2),r.getInt(3),r.getString(4),r.getBoolean(5),
-                        r.getObject(6,Long.class),r.getObject(7,Long.class)),key.skuId(),scope.tenantId(),scope.companyId(),key.warehouseId())
+                        r.getObject(6,Long.class),r.getObject(7,Long.class),r.getString(8)),key.skuId(),scope.tenantId(),scope.companyId(),key.warehouseId())
                 .stream().findFirst().orElseThrow(InventoryStore::missing);
     }
 
@@ -174,7 +174,9 @@ class InventoryDimensions {
             sql.append("d.created_at,d.id,");
         }
         if(cfg.location()){
-            if(cfg.shipping()!=null){
+            if("shipment_line".equals(posting.source().type()) && !"off".equals(cfg.taskMode())){
+                sql.append("b.on_hand_qty-b.blocked_qty,");
+            } else if(cfg.shipping()!=null){
                 sql.append("b.location_key<>?,");
                 values.add(cfg.shipping().toString());
             }
@@ -211,8 +213,12 @@ class InventoryDimensions {
     }
 
     void requireUnpicked(CompanyAccess actor,Key key,Coordinates at,BigDecimal quantity){
+        requireUnpicked(actor,key,at,quantity,0);
+    }
+
+    void requireUnpicked(CompanyAccess actor,Key key,Coordinates at,BigDecimal quantity,long ownShipmentLine){
         if(quantity.signum()<=0||!config(actor,key).tracked())return;
-        var amount=picked(actor,key,at,0);
+        var amount=picked(actor,key,at,ownShipmentLine);
         if(amount.signum()==0)return;
         var row=jdbc.queryForMap("""
                 SELECT on_hand_qty,blocked_qty FROM inventory_balance WHERE tenant_id=? AND company_id=? AND warehouse_id=?
@@ -459,15 +465,21 @@ class InventoryDimensions {
     }
 
     List<MoveSerial> lockMoveSerials(CompanyAccess actor, Key key, Coordinates from, List<String> codes) {
+        return lockMoveSerials(actor,key,from,codes,false);
+    }
+
+    List<MoveSerial> lockMoveSerials(CompanyAccess actor,Key key,Coordinates from,List<String> codes,boolean reserved) {
         var locked = new ArrayList<MoveSerial>();
         for (String code : codes) {
             var row = serialRow(actor, key.skuId(), code, true);
             if (row == null || !Objects.equals(asLong(row.get("batch_id")), from.batch())
                     || asLong(row.get("warehouse_id")) != key.warehouseId() || !from.location().equals(row.get("location_key"))
-                    || !Set.of("in_stock", "returned").contains(row.get("status"))) {
+                    || !(reserved ? "reserved".equals(row.get("status")) : Set.of("in_stock","returned").contains(row.get("status")))) {
                 throw serialConflict();
             }
-            locked.add(new MoveSerial(asLong(row.get("id")), (String) row.get("status"), row.get("last_movement_id")));
+            // 暂存流水沿用预留前的库存状态，取消发货时可由最后一条流水恢复该状态。
+            locked.add(new MoveSerial(asLong(row.get("id")), reserved ? statusAtLastMovement(actor,row) : (String)row.get("status"),
+                    row.get("last_movement_id")));
         }
         return locked;
     }

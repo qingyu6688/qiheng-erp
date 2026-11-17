@@ -61,7 +61,9 @@ jobs:
         with:
           node-version: '24.9.0'
           cache: npm
-          cache-dependency-path: erp-web/package-lock.json
+          cache-dependency-path: |
+            erp-web/package-lock.json
+            erp-mobile/package-lock.json
       - name: 写入独立测试环境
         shell: pwsh
         env:
@@ -133,6 +135,15 @@ jobs:
           npm test
           npm run build
           npx playwright install --with-deps chromium
+      - name: 移动端检查与构建
+        working-directory: erp-mobile
+        run: |
+          npm ci
+          npm run lint
+          npm run type-check
+          npm test
+          npm run build:h5
+          npm run build:app
       - name: 浏览器回归
         shell: pwsh
         run: ./scripts/project.ps1 e2e

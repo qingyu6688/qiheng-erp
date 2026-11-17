@@ -25,7 +25,10 @@ public final class ShipmentModels {
     }
     public record Version(@NotNull(message="请提供版本号") @PositiveOrZero(message="版本号不能为负数") Long version) {}
     public record Logistics(@NotNull(message="请提供版本号") @PositiveOrZero(message="版本号不能为负数") Long version,
-                            @Pattern(regexp="[\\p{L}\\p{N} ._-]{0,64}",message="运单号最多 64 个字符，请使用字母、数字或常用分隔符") String logisticsNo) {}
+                            @Pattern(regexp="[\\p{L}\\p{N} ._-]{0,64}",message="运单号最多 64 个字符，请使用字母、数字或常用分隔符") String logisticsNo,
+                            @Pattern(regexp="[A-Za-z0-9_-]{0,32}",message="承运商编码最多 32 位，仅允许字母、数字、短横线和下划线") String carrierCode) {
+        public Logistics(Long version,String logisticsNo) { this(version,logisticsNo,null); }
+    }
     public record Signed(@NotNull(message="请提供版本号") Long version,@NotNull(message="请选择签收日期") LocalDate signDate,
         @NotEmpty(message="请登记每一行的签收数量") List<@NotNull @Valid SignedLine> lines,
         @Size(max=20,message="签收附件最多20份") List<@Positive(message="附件编号无效") Long> attachmentIds) {}

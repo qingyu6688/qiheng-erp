@@ -4,7 +4,8 @@ param(
     [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+$')][string]$Version='1.0.0',
     [ValidatePattern('^rc\.[1-9][0-9]*$')][string]$Candidate,
     [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local/release'),
-    [switch]$IncludeAi
+    [switch]$IncludeAi,
+    [switch]$IncludeMobile
 )
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
@@ -32,6 +33,12 @@ if($IncludeAi){
 }
 $dist=Join-Path $root 'erp-web/dist'
 if(!(Test-Path -LiteralPath $jar -PathType Leaf) -or !(Test-Path -LiteralPath (Join-Path $dist 'index.html') -PathType Leaf)){throw '缺少已构建的生产JAR或前端dist，请先执行完整构建。'}
+$mobileDist = Join-Path $root 'erp-mobile/dist/build/h5'
+if($IncludeMobile){
+ $mobile = Get-Content (Join-Path $root 'erp-mobile/package.json') -Raw -Encoding utf8 | ConvertFrom-Json
+ if($mobile.version -ne $Version){throw '移动端源码版本与交付版本不一致。'}
+ if(!(Test-Path -LiteralPath (Join-Path $mobileDist 'index.html') -PathType Leaf)){throw '缺少移动端 H5 生产构建。'}
+}
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 foreach($productionJar in @($jar,$aiJar) | Where-Object { $_ }){
  $archive=[IO.Compression.ZipFile]::OpenRead($productionJar)
@@ -46,6 +53,7 @@ New-Item -ItemType Directory -Path $stage | Out-Null
 Copy-Item -LiteralPath $jar -Destination (Join-Path $stage 'erp-server.jar')
 if($IncludeAi){Copy-Item -LiteralPath $aiJar -Destination (Join-Path $stage 'erp-ai.jar')}
 Copy-Item -LiteralPath $dist -Destination (Join-Path $stage 'web') -Recurse
+if($IncludeMobile){Copy-Item -LiteralPath $mobileDist -Destination (Join-Path $stage 'web/mobile') -Recurse}
 New-Item -ItemType Directory -Path (Join-Path $stage 'deploy'),(Join-Path $stage 'scripts'),(Join-Path $stage 'docs') | Out-Null
 foreach($file in Get-ChildItem -LiteralPath (Join-Path $root 'deploy') -File){if($file.Name -eq '.env' -or $file.Extension -in '.pem','.key','.crt'){throw '部署模板目录含私有配置或证书，拒绝打包。'};if($file.Name -ne '.gitignore'){Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $stage 'deploy')}}
 $monitoringTemplates = Join-Path $root 'deploy/observability'
@@ -75,6 +83,14 @@ if($IncludeAi){
  New-Item -ItemType Directory -Path $aiDesignTarget | Out-Null
  Copy-Item -LiteralPath (Join-Path $root 'docs/详细设计/04-AI.md') -Destination $aiDesignTarget
 }
+if($IncludeMobile){
+ $mobileDocs=Join-Path $stage 'erp-mobile'
+ New-Item -ItemType Directory -Path $mobileDocs | Out-Null
+ Copy-Item -LiteralPath (Join-Path $root 'erp-mobile/移动端使用说明.md') -Destination $mobileDocs
+ $wmsDesignTarget=Join-Path $stage 'docs/详细设计'
+ New-Item -ItemType Directory -Path $wmsDesignTarget -Force | Out-Null
+ Copy-Item -LiteralPath (Join-Path $root 'docs/详细设计/08-WMS作业与移动端.md') -Destination $wmsDesignTarget
+}
 $files=@(Get-ChildItem -LiteralPath $stage -Recurse -File)
 if(@($files | Where-Object { $_.Name -eq '.env' -or ([IO.Path]::GetRelativePath($stage,$_.FullName) -match '(^|[\\/])(?:\.local|test-results|node_modules|private)([\\/]|$)') }).Count){throw '交付内容混入本机配置、测试数据或私有目录。'}
 $manifest=@{version=$Version;kind='本机验收交付包，正式生产上线另行验收';createdAt=[DateTime]::UtcNow.ToString('o');files=@($files | Sort-Object FullName | ForEach-Object {@{path=[IO.Path]::GetRelativePath($stage,$_.FullName).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant();bytes=$_.Length}})}
@@ -84,6 +100,7 @@ if($Candidate){
  $manifest.kind='本机验证候选包'
 }
 if($IncludeAi){$manifest.includesAi=$true}
+if($IncludeMobile){$manifest.includesMobile=$true}
 $manifest | ConvertTo-Json -Depth 7 | Set-Content -LiteralPath (Join-Path $stage 'manifest.json') -Encoding utf8NoBOM
 [IO.Compression.ZipFile]::CreateFromDirectory($stage,$zip,[IO.Compression.CompressionLevel]::Optimal,$false)
 $checksum=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()

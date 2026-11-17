@@ -1,6 +1,8 @@
 package cn.erp.wms;
 
 import cn.erp.ErpApplication;
+import cn.erp.fulfillment.ShipmentModels;
+import cn.erp.fulfillment.ShipmentService;
 import cn.erp.identity.CompanyAccess;
 import cn.erp.inventory.InventoryModels.Key;
 import cn.erp.inventory.InventoryModels.StockSelection;
@@ -13,6 +15,7 @@ import cn.erp.reversal.ReversalService;
 import cn.erp.shared.ApiException;
 import cn.erp.shared.Ids;
 import cn.erp.shared.OrgScope;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -21,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import org.apache.pdfbox.Loader;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,9 +44,16 @@ class PutawayIT {
     @Autowired JdbcTemplate jdbc;
     @Autowired ReceivingService receiving;
     @Autowired PutawayTasks tasks;
+    @Autowired LocationRules rules;
     @Autowired InventoryService inventory;
     @Autowired ReconciliationChecks checks;
     @Autowired ReversalService reversals;
+    @Autowired ShipmentService shipments;
+    @Autowired PickTasks picks;
+    @Autowired Waves waves;
+    @Autowired Packing packing;
+    @Autowired WmsCodes codes;
+    @Autowired WmsLabels labels;
     private final LocalDate day = LocalDate.now(ZoneId.of("Asia/Shanghai"));
     private long tenant,company,warehouse,otherWarehouse,department,sku,unit,supplier,receivingBin,storageBin;
     private CompanyAccess maker;
@@ -157,6 +168,175 @@ class PutawayIT {
         assertThat(locationQuantity(receivingBin)).isEqualByComparingTo("1");
         assertThat(inventory.balance(maker,new Key(warehouse,sku)).cost()).isEqualByComparingTo("10.00");
     }
+
+    @Test void recommendsSkuFixedBinBeforeOtherEmptyBins() {
+        tasks.mode(maker,warehouse,new PutawayTasks.Mode("optional"));
+        receive(List.of("S-01"));
+        long taskId=id(items(tasks.page(maker,warehouse,"created",null,20)).getFirst());
+        assertThat(items(tasks.detail(maker,taskId),"lines").getFirst()).containsEntry("recommendedLocationCode","FULL");
+        rules.save(maker,new LocationRules.Input(null,null,warehouse,sku,null,null,storageBin,null,null));
+        assertThat(items(tasks.detail(maker,taskId),"lines").getFirst()).containsEntry("recommendedLocationCode","S01");
+    }
+
+    @Test void receivesThreeSerialsThenPicksAWavePacksAndPostsFromTheShippingLocation() throws IOException {
+        long shipping = enableRequiredPicking();
+        receiveAndStore(List.of("W-01","W-02","W-03"));
+        var balance = inventory.balance(maker,new Key(warehouse,sku));
+        assertThat(balance.onHand()).isEqualByComparingTo("3");
+        assertThat(balance.cost()).isEqualByComparingTo("30");
+
+        var sales = salesOrder(3);
+        var members = List.of(submitShipment(sales),submitShipment(sales),submitShipment(sales));
+        reject("WMS_SHIPMENT_NOT_READY",() -> shipments.post(maker,members.getFirst(),key(),1));
+        var wave = waves.create(maker,key(),new Waves.Create(members,"customer",null));
+        long waveId = id(wave);
+        var departmentWithoutAccess = new CompanyAccess(tenant,Ids.next(),company,false,Set.of(warehouse),
+                maker.permissions(),OrgScope.restricted(Set.of(Ids.next()),Set.of(),0));
+        reject("NOT_FOUND",() -> waves.detail(departmentWithoutAccess,waveId));
+        waves.claim(maker,waveId,key(),new Waves.Revision(0L));
+
+        var tasksInWave = items(waves.detail(maker,waveId),"shipments");
+        assertThat(tasksInWave).hasSize(3);
+        for (var item : tasksInWave) pickEntireLine(item);
+        assertThat(waves.detail(maker,waveId)).containsEntry("status","done");
+        assertThat(locationQuantity(storageBin)).isZero();
+        assertThat(locationQuantity(shipping)).isEqualByComparingTo("3");
+        assertThat(inventory.balance(maker,new Key(warehouse,sku))).isEqualTo(balance);
+        reject("WMS_SHIPMENT_NOT_READY",() -> shipments.post(maker,members.getFirst(),key(),1));
+
+        for (var item : tasksInWave) packAndPost(item,shipping);
+        assertThat(items(packing.page(maker,members.getFirst(),warehouse,null,20),"items")).hasSize(1);
+        assertThat(items(packing.page(maker,members.getFirst(),otherWarehouse,null,20),"items")).isEmpty();
+        assertThat(locationQuantity(shipping)).isZero();
+        assertThat(inventory.balance(maker,new Key(warehouse,sku)).cost()).isZero();
+        assertThat(checks.check(maker,"location_balance",null)).isEmpty();
+        assertThat(checks.check(maker,"inventory_cost",null)).isEmpty();
+    }
+
+    @Test void voidReturnsTheAlreadyPickedSerialToStorageAndReleasesItsReservation() {
+        long shipping = enableRequiredPicking();
+        receiveAndStore(List.of("VOID-01"));
+        long shipment = submitShipment(salesOrder(1));
+        var task = picks.page(maker,warehouse,"created",null,20);
+        long taskId = id(items(task).getFirst());
+        picks.claim(maker,taskId,key(),new PickTasks.Revision(0L,null));
+        pickEntireLine(picks.detail(maker,taskId));
+        assertThat(locationQuantity(shipping)).isEqualByComparingTo("1");
+        assertThat(locationQuantity(storageBin)).isZero();
+        shipments.voidSubmitted(maker,shipment,key(),1);
+        assertThat(picks.detail(maker,taskId)).containsEntry("status","cancelled");
+        assertThat(locationQuantity(shipping)).isZero();
+        assertThat(locationQuantity(storageBin)).isEqualByComparingTo("1");
+        assertThat(jdbc.queryForObject("""
+                SELECT status FROM inv_serial WHERE tenant_id=? AND company_id=? AND serial_no='VOID-01'
+                """,String.class,tenant,company)).isEqualTo("in_stock");
+        assertThat(inventory.balance(maker,new Key(warehouse,sku)).cost()).isEqualByComparingTo("10");
+        assertThat(checks.check(maker,"location_balance",null)).isEmpty();
+    }
+
+    @Test void optionalPickingAllowsDirectPostingButNeverAcceptsReportedShortage() {
+        long shipping = enableRequiredPicking();
+        tasks.mode(maker,warehouse,new PutawayTasks.Mode("optional"));
+        receiveAndStore(List.of("SHORT"));
+        var sale = salesOrder(1);
+        long shipment = submitShipment(sale);
+        long task = id(items(picks.page(maker,warehouse,"created",null,20)).getFirst());
+        picks.claim(maker,task,key(),new PickTasks.Revision(0L,null));
+        picks.finish(maker,task,key(),new PickTasks.Revision(1L,true));
+        assertThat(picks.detail(maker,task)).containsEntry("shortPick",true);
+        reject("WMS_SHIPMENT_NOT_READY",() -> shipments.post(maker,shipment,key(),1));
+        shipments.voidSubmitted(maker,shipment,key(),1);
+        assertThat(locationQuantity(storageBin)).isEqualByComparingTo("1");
+        long direct = submitShipment(sale);
+        long pending = id(items(picks.page(maker,warehouse,"created",null,20)).getFirst());
+        shipments.post(maker,direct,key(),1);
+        assertThat(picks.detail(maker,pending)).containsEntry("status","cancelled");
+        assertThat(locationQuantity(shipping)).isZero();
+        assertThat(locationQuantity(storageBin)).isZero();
+    }
+
+    private long enableRequiredPicking() {
+        long shipping = location(warehouse,"D01","shipping",null,30);
+        jdbc.update("UPDATE warehouse SET default_shipping_location_id=? WHERE id=?",shipping,warehouse);
+        tasks.mode(maker,warehouse,new PutawayTasks.Mode("required"));
+        return shipping;
+    }
+
+    private void receiveAndStore(List<String> serials) {
+        receive(serials);
+        long task = id(items(tasks.page(maker,warehouse,"created",null,20)).getFirst());
+        long line = id(items(tasks.detail(maker,task),"lines").getFirst());
+        tasks.claim(maker,task,key(),new PutawayTasks.Revision(0L));
+        tasks.confirm(maker,task,line,key(),new PutawayTasks.Confirmation("R01","S01","PA-BATCH",
+                Integer.toString(serials.size()),serials,1L));
+        tasks.finish(maker,task,key(),new PutawayTasks.Revision(2L));
+    }
+
+    private void pickEntireLine(Map<String,Object> task) {
+        long taskId = id(task);
+        var line = items(picks.detail(maker,taskId),"lines").getFirst();
+        var input = new PickTasks.Scan(((Number)task.get("version")).longValue(),"L:S01","L:D01",
+                "B:SKU|PA-BATCH","1",serialsFrom(line));
+        String scanKey = key();
+        picks.confirm(maker,taskId,id(line),scanKey,input);
+        picks.confirm(maker,taskId,id(line),scanKey,input);
+        picks.finish(maker,taskId,key(),new PickTasks.Revision(input.version()+1,null));
+    }
+
+    private void packAndPost(Map<String,Object> pickTask,long shipping) throws IOException {
+        long shipment = Long.parseLong(pickTask.get("shipmentId").toString());
+        var line = items(picks.detail(maker,id(pickTask)),"lines").getFirst();
+        var wrong = new Packing.Line(id(line),"1",serialsFrom(line),"OTHER",null);
+        reject("VALIDATION_FAILED",() -> packing.create(maker,key(),new Packing.Create(shipment,
+                List.of(new Packing.Box("BOX-01",null,null,List.of(wrong))))));
+        var packed = new Packing.Line(id(line),"1",serialsFrom(line),null,"B:SKU|PA-BATCH");
+        var result = packing.create(maker,key(),new Packing.Create(shipment,List.of(new Packing.Box("BOX-01","0.5",null,List.of(packed)))));
+        String barcode="X:"+pickTask.get("shipmentNo")+"-BOX-01";
+        assertThat(items(result)).singleElement().satisfies(box -> assertThat(box).containsEntry("status","done")
+                .containsEntry("barcode",barcode));
+        String boxId=items(result).getFirst().get("id").toString();
+        assertThat(codes.scan(maker,warehouse,barcode)).containsEntry("type","box").containsEntry("id",boxId);
+        var input=new WmsLabels.PrintInput(warehouse,"70x40","pdf",List.of(new WmsLabels.Item("box",boxId,1)));
+        try(var pdf=Loader.loadPDF(labels.generate(maker,input).bytes())) {
+            assertThat(pdf.getNumberOfPages()).isEqualTo(1);
+        }
+        shipments.post(maker,shipment,key(),1);
+        assertThat(jdbc.queryForMap("""
+                SELECT location_key,cost_delta FROM inventory_movement WHERE tenant_id=? AND company_id=?
+                    AND source_type='shipment_line' AND source_id=? AND movement_type='sales_out'
+                """,tenant,company,shipment)).containsEntry("location_key",Long.toString(shipping))
+                .containsEntry("cost_delta",new BigDecimal("-10.00"));
+    }
+
+    private record Sale(long customer,long line) {}
+
+    private Sale salesOrder(int quantity) {
+        long customer = Ids.next(), order = Ids.next(), line = Ids.next();
+        int total = quantity*10;
+        jdbc.update("INSERT INTO business_partner(id,tenant_id,code,name) VALUES(?,?,'C','波次客户')",customer,tenant);
+        jdbc.update("INSERT INTO partner_role(id,tenant_id,partner_id,role) VALUES(?,?,?,'customer')",Ids.next(),tenant,customer);
+        jdbc.update("""
+                INSERT INTO sales_order(id,tenant_id,company_id,order_no,customer_id,business_date,status,revision,approved_at,
+                    price_tax_inclusive,pricing_version,goods_amount,total_amount,untaxed_amount,tax_amount,owner_user_id,owner_department_id)
+                VALUES(?,?,?,'SO-WAVE',?,?,'approved',1,UTC_TIMESTAMP(3),1,2,?,?,?,0,?,?)
+                """,order,tenant,company,customer,day,total,total,total,maker.userId(),department);
+        jdbc.update("""
+                INSERT INTO sales_order_line(id,tenant_id,company_id,order_id,line_no,sku_id,warehouse_id,unit_id,unit_rate,qty,
+                    base_qty,unit_price,amount,line_discount,line_net,order_discount_alloc,receivable_net,tax_rate,untaxed_amount,tax_amount)
+                VALUES(?,?,?,?,1,?,?,?,1,?,?,10,?,0,?,0,?,0,?,0)
+                """,line,tenant,company,order,sku,warehouse,unit,quantity,quantity,total,total,total,total);
+        return new Sale(customer,line);
+    }
+
+    private long submitShipment(Sale sale) {
+        long id = id(shipments.create(maker,key(),new ShipmentModels.Input(sale.customer(),warehouse,day,"delivery",null,
+                List.of(new ShipmentModels.InputLine(sale.line(),unit,"1")),null)));
+        shipments.submit(maker,id,key(),0);
+        return id;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> serialsFrom(Map<String,Object> line) { return (List<String>)line.get("serialNos"); }
 
     @Test void reversingUntouchedReceiptCancelsItsClaimedPutaway() {
         tasks.mode(maker,warehouse,new PutawayTasks.Mode("optional"));

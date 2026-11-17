@@ -355,6 +355,7 @@ onScopeDispose(() => {
           label="生成上架任务"
           :disabled="!selectedWarehouse?.locationManaged"
         />
+        <el-option value="required" label="拣货复核后发货" :disabled="!selectedWarehouse?.locationManaged" />
       </el-select>
       <el-button
         type="primary"

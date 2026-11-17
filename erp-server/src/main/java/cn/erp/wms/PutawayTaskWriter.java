@@ -41,7 +41,7 @@ class PutawayTaskWriter implements PutawayPort {
                     AND l.warehouse_id=w.id AND l.id=w.default_receiving_location_id AND l.status='active'
                 JOIN wms_zone z ON z.tenant_id=l.tenant_id AND z.company_id=l.company_id
                     AND z.warehouse_id=l.warehouse_id AND z.id=l.zone_id AND z.type='receiving' AND z.status='active'
-                WHERE w.tenant_id=? AND w.company_id=? AND w.id=? AND w.wms_task_mode='optional'
+                WHERE w.tenant_id=? AND w.company_id=? AND w.id=? AND w.wms_task_mode IN ('optional','required')
                   AND w.location_managed=1 AND w.status='active' FOR SHARE
                 """,Long.class,actor.tenantId(),actor.companyId(),warehouse).stream().findFirst().orElse(null);
     }
@@ -53,7 +53,7 @@ class PutawayTaskWriter implements PutawayPort {
                 SELECT wms_task_mode FROM warehouse WHERE tenant_id=? AND company_id=? AND id=?
                 AND location_managed=1 FOR SHARE
                 """,String.class,actor.tenantId(),actor.companyId(),warehouse).stream().findFirst();
-        if (enabled.isEmpty() || !"optional".equals(enabled.get())) return;
+        if (enabled.isEmpty() || "off".equals(enabled.get())) return;
         var lines = eligibleLines(actor,warehouse,source,sourceId);
         if (lines.isEmpty()) return;
         var origin = jdbc.queryForMap("""

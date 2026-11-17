@@ -1,0 +1,14 @@
+{
+  "pages": [
+    { "path": "pages/index/index", "style": { "navigationBarTitleText": "柒衡 ERP 仓储作业" } }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "white",
+    "navigationBarBackgroundColor": "#142b49",
+    "backgroundColor": "#f2f5f9"
+  },
+  "easycom": {
+    "autoscan": true,
+    "custom": { "^wd-(.*)": "wot-design-uni/components/wd-$1/wd-$1.vue" }
+  }
+}
