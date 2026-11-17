@@ -15,7 +15,7 @@ import {
   Wallet,
   Warning,
 } from '@element-plus/icons-vue'
-import { workbenchSummary } from '../api/workbench'
+import { workbenchAlertCount, workbenchSummary } from '../api/workbench'
 import type { WorkbenchSummary } from '../api/workbench'
 import { isCancelled, messageOf } from '../api/http'
 import { useSessionStore } from '../stores/session'
@@ -32,9 +32,12 @@ const metricIcons: Record<string, typeof Tickets> = {
   payments: Wallet,
   'refund-requests': Wallet,
   'inventory-shortage': Box,
+  'unhandled-alerts': Warning,
 }
 const session = useSessionStore(),
   value = ref<WorkbenchSummary>(),
+  alertCount = ref<number>(),
+  alertError = ref(''),
   error = ref(''),
   loading = ref(false)
 let revision = 0,
@@ -46,17 +49,31 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   value.value = undefined
+  alertCount.value = undefined
+  alertError.value = ''
   if (!session.companyId) {
     loading.value = false
     return
   }
   try {
-    const data = await workbenchSummary(controller.signal)
+    const signal = controller.signal
+    const alerts = session.can('alert:view') ? loadAlertCount(current, signal) : undefined
+    const data = await workbenchSummary(signal)
     if (current === revision) value.value = data
+    await alerts
   } catch (cause: unknown) {
     if (current === revision && !isCancelled(cause)) error.value = messageOf(cause)
   } finally {
     if (current === revision) loading.value = false
+  }
+}
+async function loadAlertCount(current: number, signal: AbortSignal): Promise<void> {
+  try {
+    const data = await workbenchAlertCount(signal)
+    if (current === revision && session.can('alert:view')) alertCount.value = data.total
+  } catch (cause: unknown) {
+    if (current === revision && session.can('alert:view') && !isCancelled(cause))
+      alertError.value = '未处理预警加载失败，可刷新后重试。'
   }
 }
 const today = new Intl.DateTimeFormat('zh-CN', {
@@ -64,7 +81,7 @@ const today = new Intl.DateTimeFormat('zh-CN', {
   dateStyle: 'full',
 }).format(new Date())
 watch(
-  () => session.companyId,
+  [() => session.company, () => session.can('alert:view')],
   () => {
     void load()
   },
@@ -104,6 +121,12 @@ onScopeDispose(() => {
     </div>
   </div>
   <el-alert v-if="error" :title="error" type="error" :closable="false" />
+  <el-alert
+    v-if="alertError && session.can('alert:view')"
+    :title="alertError"
+    type="warning"
+    :closable="false"
+  />
   <WorkbenchTradeSummary
     v-if="session.can('report:sales_summary') || session.can('report:purchase_summary')"
   />
@@ -112,7 +135,7 @@ onScopeDispose(() => {
   </p>
   <p v-if="loading" role="status" class="panel workbench-message">正在加载待办…</p>
   <template v-if="value">
-    <div v-if="value.blocks.length" class="workbench-stats">
+    <div v-if="value.blocks.length || alertCount !== undefined" class="workbench-stats">
       <router-link
         v-for="block in value.blocks"
         :key="block.key"
@@ -130,6 +153,18 @@ onScopeDispose(() => {
         <span class="metric-icon"
           ><component :is="metricIcons[block.key] ?? Document" aria-hidden="true"
         /></span>
+      </router-link>
+      <router-link
+        v-if="session.can('alert:view') && alertCount !== undefined"
+        class="workbench-stat"
+        data-metric="unhandled-alerts"
+        to="/alerts?status=open"
+      >
+        <div>
+          <span class="metric-label">未处理预警</span>
+          <strong>{{ alertCount }}<small>条预警</small></strong>
+        </div>
+        <span class="metric-icon"><Warning aria-hidden="true" /></span>
       </router-link>
     </div>
     <div class="workbench-columns">

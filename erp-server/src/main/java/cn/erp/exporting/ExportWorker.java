@@ -29,8 +29,11 @@ public class ExportWorker {
     void managed(cn.erp.shared.ManagedJobs jobs) {jobs.register("export.poll",tenant->runOne(tenant));}
 
     private cn.erp.shared.FinancialExportPort financial;
+    private cn.erp.shared.DocumentPrintExportPort printing;
     @org.springframework.beans.factory.annotation.Autowired
     void financial(cn.erp.shared.FinancialExportPort financial) {this.financial=financial;}
+    @org.springframework.beans.factory.annotation.Autowired
+    void printing(cn.erp.shared.DocumentPrintExportPort printing) {this.printing=printing;}
 
     public void poll() {
         try { runOne(); }
@@ -42,9 +45,17 @@ public class ExportWorker {
         String key=null;
         try {
             if(job.financialType()!=null) {
-                var actor=access.current(job.tenant(),job.company(),job.user());financial.authorize(actor,job.financialType());
-                if(!job.initial().allWarehouses()||!job.initial().cost()||!job.initial().organization().allDepartments())throw new cn.erp.shared.ApiException(403,"FORBIDDEN","财务导出初始范围无效");
-                var file=financial.render(actor,job.financialType(),job.financialQuery());key=job.tenant()+"/"+job.company()+"/exports/"+UUID.randomUUID();compensation.stage(key);files.put(key,file.bytes(),file.contentType());
+                var actor=access.current(job.tenant(),job.company(),job.user());
+                cn.erp.shared.FinancialExportPort.File file;
+                if(cn.erp.shared.DocumentPrintExportPort.supports(job.financialType())) {
+                    actor=access.intersectPrint(actor,job.initial());
+                    file=printing.render(actor,job.financialQuery());
+                } else {
+                    financial.authorize(actor,job.financialType());
+                    if(!job.initial().allWarehouses()||!job.initial().cost()||!job.initial().organization().allDepartments())throw new cn.erp.shared.ApiException(403,"FORBIDDEN","财务导出初始范围无效");
+                    file=financial.render(actor,job.financialType(),job.financialQuery());
+                }
+                key=job.tenant()+"/"+job.company()+"/exports/"+UUID.randomUUID();compensation.stage(key);files.put(key,file.bytes(),file.contentType());
                 if(!jobs.completeFile(job,access.capture(actor),key,checksum(file.bytes()),file.bytes().length,file.rowCount(),file.asOf(),file.fileName(),file.contentType()))compensation.discard(key);return true;
             }
             var actor=access.intersect(access.current(job.tenant(),job.company(),job.user()),job.initial(),job.type());

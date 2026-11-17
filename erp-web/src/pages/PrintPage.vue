@@ -2,7 +2,9 @@
 import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { printData } from '../api/documents'
-import { isCancelled, messageOf } from '../api/http'
+import { isCancelled, messageOf, newIdempotencyKey } from '../api/http'
+import { createPrintPdf, customPrintOutput, logTemplatePrint } from '../api/print-design'
+import PrintCanvas from './print/PrintCanvas.vue'
 import {
   documentPermission,
   firstPrintValue,
@@ -11,6 +13,7 @@ import {
   printTotals,
 } from '../types/documents'
 import type { PrintData } from '../types/documents'
+import type { PrintOutput } from '../types/print-design'
 import { documentLink } from '../types/reporting'
 import { salesSpecs, salesStatusLabel } from '../types/sales'
 import { procurementSpecs } from '../types/procurement'
@@ -21,6 +24,11 @@ import { formatPrintTime } from '../utils/format'
 const route = useRoute(),
   session = useSessionStore(),
   data = ref<PrintData>(),
+  custom = ref<PrintOutput>(),
+  chosen = ref(''),
+  changing = ref(false),
+  printError = ref(''),
+  queued = ref(''),
   loading = ref(false),
   error = ref('')
 const type = computed(() => String(route.params.type)),
@@ -47,12 +55,22 @@ const status = computed(() =>
 )
 let revision = 0,
   controller = new AbortController()
+let printSignature = '',
+  printKey = ''
+const printStyle = document.createElement('style')
+document.head.append(printStyle)
 
 async function load(): Promise<void> {
   controller.abort()
   controller = new AbortController()
   const current = ++revision
   data.value = undefined
+  custom.value = undefined
+  chosen.value = ''
+  queued.value = ''
+  printError.value = ''
+  printSignature = ''
+  printKey = ''
   error.value = ''
   loading.value = true
   if (
@@ -66,17 +84,119 @@ async function load(): Promise<void> {
   try {
     const result = await printData(type.value, id.value, controller.signal)
     if (current === revision) data.value = result
+    if (current === revision) await selectTemplate(undefined, current)
   } catch (cause: unknown) {
     if (current === revision && !isCancelled(cause)) error.value = messageOf(cause)
   } finally {
     if (current === revision) loading.value = false
   }
 }
-async function print(): Promise<void> {
-  if (!data.value) return
-  await nextTick()
-  window.print()
+async function selectTemplate(templateId?: string, current = revision): Promise<void> {
+  printError.value = ''
+  queued.value = ''
+  if (templateId === '') {
+    if (custom.value)
+      custom.value = { ...custom.value, templateId: null, version: null, model: null }
+    chosen.value = ''
+    return
+  }
+  changing.value = true
+  try {
+    const result = await customPrintOutput(type.value, id.value, templateId, controller.signal)
+    if (current === revision && result && Array.isArray(result.templates)) {
+      custom.value = result
+      chosen.value = result.templateId ?? ''
+    }
+  } catch (cause: unknown) {
+    if (current === revision && !isCancelled(cause) && templateId)
+      printError.value = messageOf(cause)
+    if (current === revision) chosen.value = custom.value?.templateId ?? ''
+  } finally {
+    if (current === revision) changing.value = false
+  }
 }
+async function print(): Promise<void> {
+  if (!data.value || changing.value) return
+  const current = revision
+  const choice = custom.value
+  printError.value = ''
+  changing.value = true
+  try {
+    if (choice?.templateId && choice.version !== null) {
+      const fresh = await customPrintOutput(
+        type.value,
+        id.value,
+        choice.templateId,
+        controller.signal,
+      )
+      if (
+        current !== revision ||
+        fresh.templateId !== choice.templateId ||
+        !fresh.model ||
+        fresh.version === null
+      )
+        return
+      custom.value = fresh
+      if (fresh.version !== choice.version) {
+        printError.value = '打印模板已更新，请核对当前预览再打印。'
+        return
+      }
+      const signature = JSON.stringify([type.value, id.value, choice.templateId, fresh.version])
+      if (signature !== printSignature) {
+        printSignature = signature
+        printKey = newIdempotencyKey()
+      }
+      await logTemplatePrint(
+        type.value,
+        id.value,
+        choice.templateId,
+        fresh.version,
+        printKey,
+        controller.signal,
+      )
+      printSignature = ''
+      printKey = ''
+    }
+    if (current !== revision) return
+    await nextTick()
+    window.print()
+  } catch (cause: unknown) {
+    if (current === revision && !isCancelled(cause)) printError.value = messageOf(cause)
+  } finally {
+    if (current === revision) changing.value = false
+  }
+}
+async function queuePdf(): Promise<void> {
+  const templateId = custom.value?.templateId
+  if (!templateId || changing.value || queued.value) return
+  const current = revision
+  changing.value = true
+  printError.value = ''
+  try {
+    const result = await createPrintPdf(
+      type.value,
+      templateId,
+      [id.value],
+      1,
+      newIdempotencyKey(),
+      controller.signal,
+    )
+    if (current === revision) queued.value = result.taskId
+  } catch (cause: unknown) {
+    if (current === revision && !isCancelled(cause)) printError.value = messageOf(cause)
+  } finally {
+    if (current === revision) changing.value = false
+  }
+}
+watch(
+  () => custom.value?.model,
+  (model) => {
+    printStyle.textContent =
+      model && Number.isFinite(model.width) && Number.isFinite(model.height)
+        ? `@media print { @page { size: ${model.width}mm ${model.height}mm; margin: 0; } }`
+        : ''
+  },
+)
 watch(
   () => [type.value, id.value, session.companyId],
   () => {
@@ -87,22 +207,54 @@ watch(
 onScopeDispose(() => {
   revision++
   controller.abort()
+  printStyle.remove()
 })
 </script>
 <template>
   <div class="print-controls page-heading">
     <router-link v-if="documentLink(type, id)" class="text-link" :to="documentLink(type, id)!"
       >返回单据</router-link
-    ><el-button type="primary" :disabled="!data || loading" @click="print"
+    >
+    <el-select
+      v-if="custom?.templates.length"
+      v-model="chosen"
+      aria-label="打印模板"
+      class="template-select"
+      :disabled="changing"
+      @change="selectTemplate(chosen)"
+    >
+      <el-option label="系统默认模板" value="" />
+      <el-option
+        v-for="option in custom.templates"
+        :key="option.id"
+        :label="option.name"
+        :value="option.id"
+      />
+    </el-select>
+    <el-button type="primary" :disabled="!data || loading || changing" @click="print"
       >打印 / 保存 PDF</el-button
     >
+    <el-button v-if="custom?.templateId" :disabled="changing || !!queued" @click="queuePdf"
+      >后台生成 PDF</el-button
+    >
+    <router-link v-if="queued" :to="{ name: 'file-jobs', query: { tab: 'export', jobId: queued } }"
+      >前往文件任务查看 PDF</router-link
+    >
   </div>
+  <el-alert
+    v-if="printError"
+    class="print-controls"
+    :title="printError"
+    type="error"
+    :closable="false"
+  />
   <el-alert v-if="error" :title="error" type="error" :closable="false" />
   <p v-if="loading">正在准备打印数据…</p>
   <el-button v-if="error && !loading" class="print-controls" text @click="load"
     >重新加载打印数据</el-button
   >
-  <article v-if="data" class="print-sheet">
+  <PrintCanvas v-if="data && custom?.model" :model="custom.model" />
+  <article v-else-if="data" class="print-sheet">
     <header>
       <h1>{{ data.company.name }}</h1>
       <p v-if="data.company.address || data.company.phone">
@@ -156,6 +308,9 @@ onScopeDispose(() => {
   </article>
 </template>
 <style scoped>
+.template-select {
+  width: 190px;
+}
 .print-sheet {
   box-sizing: border-box;
   background: white;

@@ -15,6 +15,7 @@ import { isCancelled, messageOf, newIdempotencyKey } from '../api/http'
 import { importSpecs, jobStatus, csvCell } from '../types/file-jobs'
 import type { FileJob, ImportError } from '../types/file-jobs'
 import { documentLink, reportPermission, reportSpecs } from '../types/reporting'
+import { documentPrintPermissions } from '../types/documents'
 import type { DataRow } from '../types/admin'
 import { useSessionStore } from '../stores/session'
 import { formatDateTime } from '../utils/format'
@@ -32,6 +33,7 @@ const allowedImports = computed(() =>
   canExport = computed(
     () =>
       session.can('gl_export:create') ||
+      documentPrintPermissions.some((permission) => session.can(permission)) ||
       reportSpecs.some((item) => session.can(reportPermission(item.type, 'export'))),
   )
 const type = ref(''),
@@ -76,6 +78,7 @@ function title(job: FileJob): string {
         'gl-balance_sheet': '资产负债表',
         'gl-income_statement': '利润表',
         'gl-cash_flow': '现金流量表',
+        'print-pdf': '批量单据 PDF',
       } as Record<string, string>
     )[job.exportType || ''] ??
     '文件任务'

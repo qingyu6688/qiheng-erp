@@ -18,7 +18,9 @@ export async function downloadFile(
   link.download =
     blob.type.split(';')[0] === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       ? name.replace(/\.csv$/i, '.xlsx')
-      : name
+      : blob.type.split(';')[0] === 'application/pdf' && name.toLowerCase().endsWith('.csv')
+        ? name.replace(/\.csv$/i, '.pdf')
+        : name
   link.click()
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
 }

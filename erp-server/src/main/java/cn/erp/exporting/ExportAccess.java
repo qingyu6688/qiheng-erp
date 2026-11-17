@@ -52,5 +52,19 @@ public class ExportAccess {
             throw new ApiException(403,"FORBIDDEN","权限或仓库范围已收窄，不能下载历史导出文件");
         }
     }
+    CompanyAccess intersectPrint(CompanyAccess current,Scope initial) {
+        var warehouses=new HashSet<>(initial.warehouseIds());
+        if(!current.allWarehouses()) warehouses.retainAll(current.warehouseIds());
+        var permissions=new HashSet<>(current.permissions());
+        if(!initial.cost()) permissions.remove("cost:view");
+        return new CompanyAccess(current.tenantId(),current.userId(),current.companyId(),initial.allWarehouses()&&current.allWarehouses(),
+                warehouses,permissions,current.orgScope().intersect(initial.organization()));
+    }
+
+    void coversPrint(CompanyAccess current,Scope result) {
+        if(!current.orgScope().covers(result.organization())
+                || !current.allWarehouses() && !current.warehouseIds().containsAll(result.warehouseIds()))
+            throw new ApiException(403,"FORBIDDEN","数据范围已收窄，请重新生成打印文件");
+    }
     private ApiException forbidden() { return new ApiException(403,"FORBIDDEN","导出发起人的账号、权限或公司范围已变更"); }
 }

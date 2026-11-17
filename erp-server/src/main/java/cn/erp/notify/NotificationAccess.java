@@ -8,12 +8,18 @@ import org.springframework.stereotype.Component;
 @Component
 public class NotificationAccess {
     private cn.erp.workflow.WorkflowAccess workflows;
+    private cn.erp.shared.AlertVisibilityPort alerts;
     @org.springframework.beans.factory.annotation.Autowired
     void workflows(cn.erp.workflow.WorkflowAccess workflows) {this.workflows=workflows;}
+    @org.springframework.beans.factory.annotation.Autowired
+    void alerts(cn.erp.shared.AlertVisibilityPort alerts) {this.alerts=alerts;}
     private final TodoQueries todos;
     public NotificationAccess(TodoQueries todos) {this.todos=todos;}
     public record Filter(String where,Map<String,Object> params) {}
     public Filter visible(CompanyAccess actor) {
+        return visible(actor,false);
+    }
+    Filter visible(CompanyAccess actor,boolean includeTransport) {
         var params=new HashMap<String,Object>();params.put("tenant",actor.tenantId());params.put("company",actor.companyId());params.put("user",actor.userId());
         var sources=new ArrayList<String>();
         for(var query:todos.eligible(actor)) {
@@ -51,6 +57,10 @@ public class NotificationAccess {
                     +"AND b.status='normal' AND x.on_hand_qty>0 AND x.warehouse_id=m.source_version"+allowed+"))");
         }
         if(actor.hasPermission("cs_ticket:view")) sources.add("(m.source_type='cs_ticket' AND EXISTS(SELECT 1 FROM cs_ticket t WHERE t.tenant_id=:tenant AND t.company_id=:company AND t.id=m.source_id AND t.assignee_id=:user AND t.status NOT IN ('resolved','closed')))" );
+        if(actor.hasPermission("alert:view")) sources.add("(m.category='alert' AND m.source_type='alert_event'"
+                +(includeTransport?"":" AND FIND_IN_SET('site',m.source_action)>0")
+                +" AND EXISTS(SELECT 1 FROM alert_event ae WHERE ae.id=m.source_id AND ae.occurrence=m.source_version"
+                +" AND ae.status='open' AND "+alerts.eventCondition(actor,"ae")+"))");
         sources.add("(m.category IN('system','alert') AND m.source_type IS NULL AND m.notice_id IS NULL)");
         return new Filter("m.tenant_id=:tenant AND m.company_id IN(0,:company) AND m.user_id=:user AND m.state='open' AND ("+String.join(" OR ",sources)+")",params);
     }

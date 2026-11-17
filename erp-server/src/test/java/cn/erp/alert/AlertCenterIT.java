@@ -1,0 +1,161 @@
+package cn.erp.alert;
+
+import cn.erp.ErpApplication;
+import cn.erp.identity.CompanyAccess;
+import cn.erp.notify.MessageService;
+import cn.erp.shared.ApiException;
+import cn.erp.shared.Ids;
+import cn.erp.shared.OrgScope;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Transactional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+@SpringBootTest(classes=ErpApplication.class)
+@ActiveProfiles("test")
+@Transactional
+class AlertCenterIT {
+    @Autowired JdbcTemplate jdbc;
+    @Autowired AlertRules rules;
+    @Autowired AlertEvents events;
+    @Autowired AlertScan scanner;
+    @Autowired AlertSafetyStock safety;
+    @Autowired MessageService messages;
+
+    private final Instant now=Instant.now().truncatedTo(ChronoUnit.MILLIS);
+    private final LocalDate today=LocalDate.ofInstant(now,AlertRules.ZONE);
+    private long tenant,company,companyTwo,otherTenant,otherCompany,warehouse,sku,batch,user,partner,openItem,period;
+    private CompanyAccess actor;
+
+    @BeforeEach void seed() {
+        tenant=createTenant();otherTenant=createTenant();company=createCompany(tenant,"A");companyTwo=createCompany(tenant,"B");
+        otherCompany=createCompany(otherTenant,"C");warehouse=Ids.next();sku=Ids.next();batch=Ids.next();user=Ids.next();
+        partner=Ids.next();period=Ids.next();openItem=Ids.next();
+        long unit=Ids.next(),category=Ids.next(),product=Ids.next(),role=Ids.next();
+        actor=new CompanyAccess(tenant,user,company,true,Set.of(),Set.of("alert:view","alert:configure","alert:handle","batch:view","report:receivable_aging"));
+        jdbc.update("INSERT INTO warehouse(id,tenant_id,company_id,code,name) VALUES(?,?,?,'A','主仓')",warehouse,tenant,company);
+        jdbc.update("INSERT INTO unit(id,tenant_id,name) VALUES(?,?,'件')",unit,tenant);
+        jdbc.update("INSERT INTO product_category(id,tenant_id,code,name,path) VALUES(?,?,'A','分类','/')",category,tenant);
+        jdbc.update("INSERT INTO product(id,tenant_id,category_id,code,name,base_unit_id) VALUES(?,?,?,'A','商品',?)",product,tenant,category,unit);
+        jdbc.update("INSERT INTO sku(id,tenant_id,product_id,code,name,batch_managed) VALUES(?,?,?,'A','批次商品',1)",sku,tenant,product);
+        jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,?,'tester','预警员','test-hash')",user,tenant);
+        jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(?,?,'SYSTEM_ADMIN','管理员')",role,tenant);
+        jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,user,role);
+        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,company_id,scope_type) VALUES(?,?,?,?,'company')",Ids.next(),tenant,user,company);
+        for (String permission : actor.permissions()) jdbc.update("""
+                INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) SELECT ?,?,?,id FROM sys_permission WHERE code=?
+                """,Ids.next(),tenant,role,permission);
+        jdbc.update("INSERT INTO business_partner(id,tenant_id,code,name) VALUES(?,?,'CUST','应收客户')",partner,tenant);
+        jdbc.update("INSERT INTO accounting_period(id,tenant_id,company_id,period,start_date,end_date) VALUES(?,?,?,'202611',?,?)",
+                period,tenant,company,today.minusDays(90),today.plusDays(30));
+        jdbc.update("""
+                INSERT INTO inv_batch(id,tenant_id,company_id,sku_id,batch_no,expiry_date,source_type,source_id)
+                VALUES(?,?,?,?,'EXPIRED',?,'opening_entry',1)
+                """,batch,tenant,company,sku,today.minusDays(2));
+        jdbc.update("INSERT INTO inventory_balance(id,tenant_id,company_id,warehouse_id,sku_id,lot_key,on_hand_qty) VALUES(?,?,?,?,?,?,5)",
+                Ids.next(),tenant,company,warehouse,sku,Long.toString(batch));
+        long receivable=Ids.next();
+        jdbc.update("""
+                INSERT INTO receivable(id,tenant_id,company_id,customer_id,kind,source_type,source_id,source_line_id,amount,untaxed_amount,tax_amount,business_date,due_date,period_id)
+                VALUES(?,?,?,?,'charge','opening_entry',1,1,100,100,0,?,?,?)
+                """,receivable,tenant,company,partner,today.minusDays(10),today.minusDays(5),period);
+        jdbc.update("""
+                INSERT INTO partner_open_item(id,tenant_id,company_id,partner_id,item_type,source_id,direction,amount,open_amount,aging_date)
+                VALUES(?,?,?,?,'receivable',?,'D',100,100,?)
+                """,openItem,tenant,company,partner,receivable,today.minusDays(10));
+    }
+
+    @Test void scansAllPresetQueriesAndRetainsOnlyOneEventPerOverdueItemAndBatch() {
+        for (var rule : rules.list(tenant,company)) scanner.scan(tenant,company,rule.kind(),now,false);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM alert_rule WHERE tenant_id=? AND company_id=? AND next_run_at IS NOT NULL",
+                Long.class,tenant,company)).isEqualTo(AlertKind.values().length);
+        assertThat(events.unhandled(actor)).isEqualTo(2);
+        assertThat(events.list(actor,null,null,"open",null,30).get("items")).asList().hasSize(2);
+        var rows=jdbc.queryForList("SELECT id,rule_code,status,occurrence FROM alert_event WHERE tenant_id=? AND company_id=? ORDER BY id",tenant,company);
+        assertThat(rows.stream().map(row->row.get("rule_code")).toList()).containsExactlyInAnyOrder("batch_expired","receivable_overdue");
+        for (var rule : rules.list(tenant,company)) scanner.scan(tenant,company,rule.kind(),now.plus(1,ChronoUnit.DAYS),false);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM alert_event WHERE tenant_id=? AND company_id=?",Long.class,tenant,company)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notify_message WHERE tenant_id=? AND company_id=? AND source_type='alert_event' AND user_id=?",Long.class,tenant,company,user)).isEqualTo(2);
+        assertThat(messages.list(actor,"alert",null,null,30).get("items")).asList().hasSize(2);
+
+        var onlyAging=new CompanyAccess(tenant,user,company,true,Set.of(),Set.of("alert:view","report:receivable_aging"));
+        assertThat(events.unhandled(onlyAging)).isEqualTo(1);
+        assertThat(messages.list(onlyAging,"alert",null,null,30).get("items")).asList().hasSize(1);
+        var limited=new CompanyAccess(tenant,user,company,false,Set.of(Ids.next()),actor.permissions());
+        assertThat(events.unhandled(limited)).isZero();
+        assertThat(messages.list(limited,"alert",null,null,30).get("items")).asList().isEmpty();
+        var restrictedDept=new CompanyAccess(tenant,user,company,true,Set.of(),Set.of("alert:view","report:receivable_aging"),
+                OrgScope.restricted(Set.of(Ids.next()),Set.of(),0));
+        assertThat(events.unhandled(restrictedDept)).isZero();
+        for (var foreign : List.of(new CompanyAccess(otherTenant,user,otherCompany,true,Set.of(),actor.permissions()),
+                new CompanyAccess(tenant,user,companyTwo,true,Set.of(),actor.permissions()))) {
+            assertThat(events.unhandled(foreign)).isZero();
+            long id=((Number)rows.getFirst().get("id")).longValue();
+            assertThatThrownBy(()->events.detail(foreign,id)).isInstanceOfSatisfying(ApiException.class,e->assertThat(e.getStatus()).isEqualTo(404));
+        }
+    }
+
+    @Test void emptyRealTimeSignalDoesNotWriteSetupAndScheduledScanPersistsNextRunWithoutAlert() {
+        scanner.scan(tenant,company,AlertKind.NEGATIVE_MARGIN,now,true);
+        assertThat(rules.current(tenant,company,AlertKind.NEGATIVE_MARGIN).id()).isZero();
+        scanner.scan(tenant,company,AlertKind.BATCH_NEAR_EXPIRY,now,false);
+        var daily=rules.current(tenant,company,AlertKind.BATCH_NEAR_EXPIRY);
+        assertThat(daily.id()).isPositive();
+        assertThat(daily.nextRun()).isEqualTo(AlertRules.nextRun("daily",now));
+        assertThat(daily.nextRun().atZone(AlertRules.ZONE).getHour()).isEqualTo(8);
+        assertThat(events.unhandled(actor)).isZero();
+    }
+
+    @Test void processesAcknowledgementAndAutomaticallyReopensClearedConditionWithSameId() {
+        scanner.scan(tenant,company,AlertKind.BATCH_EXPIRED,now,false);
+        long id=jdbc.queryForObject("SELECT id FROM alert_event WHERE tenant_id=? AND company_id=?",Long.class,tenant,company);
+        var input=new AlertEvents.Handle(0L,"现场核验");
+        assertThat(events.handle(actor,id,"acknowledge","ack-test",input)).containsEntry("status","acknowledged");
+        assertThat(events.handle(actor,id,"acknowledge","ack-test",input)).containsEntry("status","acknowledged");
+        assertThat(events.unhandled(actor)).isZero();
+        scanner.scan(tenant,company,AlertKind.BATCH_EXPIRED,now.plus(1,ChronoUnit.HOURS),false);
+        assertThat(events.detail(actor,id)).containsEntry("status","acknowledged");
+        jdbc.update("UPDATE inventory_balance SET on_hand_qty=0 WHERE tenant_id=? AND company_id=? AND lot_key=?",tenant,company,Long.toString(batch));
+        scanner.scan(tenant,company,AlertKind.BATCH_EXPIRED,now.plus(2,ChronoUnit.HOURS),false);
+        assertThat(events.detail(actor,id)).containsEntry("status","resolved");
+        jdbc.update("UPDATE inventory_balance SET on_hand_qty=5 WHERE tenant_id=? AND company_id=? AND lot_key=?",tenant,company,Long.toString(batch));
+        scanner.scan(tenant,company,AlertKind.BATCH_EXPIRED,now.plus(3,ChronoUnit.HOURS),false);
+        var reopened=events.detail(actor,id);
+        assertThat(reopened).containsEntry("status","open");
+        assertThat(((Number)reopened.get("occurrence")).intValue()).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM alert_event WHERE tenant_id=? AND company_id=?",Long.class,tenant,company)).isEqualTo(1);
+        assertThat(messages.list(actor,"alert",null,null,30).get("items")).asList().hasSize(1);
+    }
+
+    @Test void appliesCompanySafetyThresholdForSkuWithoutInventoryAndProtectsRuleWrites() {
+        var other=new CompanyAccess(tenant,user,companyTwo,true,Set.of(),actor.permissions());
+        assertThat(safety.update(actor,sku,new AlertSafetyStock.Input(0L,"7.000001"))).containsEntry("quantity","7.000001");
+        assertThat(safety.list(other,"A",null,30).get("items")).asList().hasSize(1).first().satisfies(item->
+                assertThat(((Map<?,?>)item).get("quantity")).isEqualTo("0.000000"));
+        scanner.scan(tenant,company,AlertKind.STOCK_BELOW_SAFETY,now,false);
+        var row=jdbc.queryForMap("SELECT detail,warehouse_id FROM alert_event WHERE tenant_id=? AND company_id=?",tenant,company);
+        assertThat(((Number)row.get("warehouse_id")).longValue()).isEqualTo(warehouse);
+        assertThat(row.get("detail").toString()).contains("7.000001").contains("可用 0");
+        var limited=new CompanyAccess(tenant,user,company,false,Set.of(warehouse),actor.permissions());
+        assertThatThrownBy(()->rules.list(limited)).isInstanceOfSatisfying(ApiException.class,e->assertThat(e.getStatus()).isEqualTo(403));
+    }
+
+    private long createTenant() {
+        long id=Ids.next();jdbc.update("INSERT INTO tenant(id,code,name) VALUES(?,?,'预警测试')",id,"AL"+id);return id;
+    }
+    private long createCompany(long tenant,String code) {
+        long id=Ids.next();jdbc.update("INSERT INTO company(id,tenant_id,code,name) VALUES(?,?,?,'预警公司')",id,tenant,code);return id;
+    }
+}

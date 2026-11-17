@@ -25,7 +25,7 @@ public class DeliveryService implements EventHandler {
         var actor=recipient(message);if(actor==null||!visible(actor,event.aggregateId())) return;
         var parameters=Map.of("title",message.get("title").toString(),"message",message.get("content").toString());
         for(String channel:List.of("email","sms")) {
-            if(!subscribed(actor,message.get("category").toString(),channel)) continue;
+            if(!allowedChannel(message,channel)||!subscribed(actor,message.get("category").toString(),channel)) continue;
             String destination=channels.destination(actor.tenantId(),actor.userId(),channel);var rendered=templates.render(actor.tenantId(),message.get("template_code").toString(),channel,parameters);
             if(destination==null||rendered==null) {queue(message,channel,"未绑定或模板未启用",null,"skipped");continue;}
             queue(message,channel,NotificationChannels.mask(destination),new Payload(destination,rendered.title(),rendered.content(),rendered.smsTemplateId(),rendered.parameters()),secrets.configured()?"pending":"failed");
@@ -52,7 +52,7 @@ public class DeliveryService implements EventHandler {
             if(actor==null||!visible(actor,((Number)message.get("id")).longValue())) {finish(log,"skipped",null);return true;}
             if(channel.equals("wecom")) {var config=robots.current(tenant);if(!config.enabled()) {finish(log,"skipped",null);return true;}robot.send(config.key());}
             else {
-                if(!subscribed(actor,message.get("category").toString(),channel)||templates.render(tenant,message.get("template_code").toString(),channel,Map.of("title",message.get("title").toString(),"message",message.get("content").toString()))==null) {finish(log,"skipped",null);return true;}
+                if(!allowedChannel(message,channel)||!subscribed(actor,message.get("category").toString(),channel)||templates.render(tenant,message.get("template_code").toString(),channel,Map.of("title",message.get("title").toString(),"message",message.get("content").toString()))==null) {finish(log,"skipped",null);return true;}
                 Payload payload=json.readValue(secrets.decrypt(tenant,"delivery",log.get("payload_ciphertext").toString()),Payload.class);
                 if(!Objects.equals(payload.destination(),channels.destination(tenant,actor.userId(),channel))) {finish(log,"skipped",null);return true;}
                 channels.send(tenant,channel,payload.destination(),payload.title(),payload.content(),payload.smsTemplateId(),payload.parameters());
@@ -65,7 +65,10 @@ public class DeliveryService implements EventHandler {
         }return true;
     }
     private void finish(Map<String,Object> log,String status,String error) {jdbc.update("UPDATE notify_send_log SET status=?,error=?,payload_ciphertext=NULL,finished_at=UTC_TIMESTAMP(3),lease_owner=NULL,lease_until=NULL WHERE id=? AND lease_owner=?",status,error,log.get("id"),log.get("lease_owner"));}
-    private boolean visible(CompanyAccess actor,long id) {var filter=visibility.visible(actor);var params=new HashMap<>(filter.params());params.put("id",id);return named.queryForObject("SELECT COUNT(*) FROM notify_message m WHERE "+filter.where()+" AND m.id=:id",params,Long.class)>0;}
+    private boolean visible(CompanyAccess actor,long id) {var filter=visibility.visible(actor,true);var params=new HashMap<>(filter.params());params.put("id",id);return named.queryForObject("SELECT COUNT(*) FROM notify_message m WHERE "+filter.where()+" AND m.id=:id",params,Long.class)>0;}
+    private static boolean allowedChannel(Map<String,Object> message,String channel) {
+        return !"alert_event".equals(message.get("source_type")) || List.of(Objects.toString(message.get("source_action"),"").split(",")).contains(channel);
+    }
     private CompanyAccess recipient(Map<String,Object> row) {return access.forUser(((Number)row.get("tenant_id")).longValue(),((Number)row.get("user_id")).longValue(),((Number)row.get("company_id")).longValue());}
     private boolean subscribed(CompanyAccess actor,String category,String channel) {return Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM notify_subscription WHERE tenant_id=? AND user_id=? AND category=? AND channel=? AND enabled=1)",Boolean.class,actor.tenantId(),actor.userId(),category,channel));}
 }

@@ -32,12 +32,29 @@ public class PrintService {
 
     @Transactional
     public Map<String, Object> get(CompanyAccess scope, String type, long id) {
+        return prepare(scope,type,id,false,true);
+    }
+
+    /** 自定义模板按字段编码取值，修改字段显示名称不会改变模板引用。 */
+    @Transactional(readOnly=true)
+    public Map<String, Object> templateData(CompanyAccess scope, String type, long id) {
+        return prepare(scope,type,id,true,false);
+    }
+
+    private Map<String, Object> prepare(CompanyAccess scope, String type, long id, boolean stableFields, boolean record) {
         DocumentAccess.require(scope, documents.permission(type, "print"));
         Map<String, Object> document = new LinkedHashMap<>(documents.view(scope, type, id));
-        decorateFields(scope,type,document);
+        decorateFields(scope,type,document,stableFields);
         // 单据查询已完成权限和范围检查；原始表头仅定位制单人和受权来源，不能合并到响应。
         Map<String, Object> header = jdbc.queryForMap("SELECT * FROM " + type + " WHERE tenant_id=? AND company_id=? AND id=?",
                 scope.tenantId(), scope.companyId(), id);
+        if(stableFields && scope.hasPermission("cash_account:view") && scope.hasPermission("cash_account_no:view")) {
+            copyAccountNumber(scope,header,document,"cash_account_id","accountNo");
+            if(type.equals("account_transfer")) {
+                copyAccountNumber(scope,header,document,"from_account_id","fromAccountNo");
+                copyAccountNumber(scope,header,document,"to_account_id","toAccountNo");
+            }
+        }
         document.put("sourceDocuments", sources.list(scope, type, id, header));
         for (var actor : Map.of("createdBy", "created_by", "approvedBy", "approved_by", "confirmedBy", "confirmed_by", "postedBy", "posted_by").entrySet()) {
             if (document.get(actor.getKey() + "Name") != null) { continue; }
@@ -72,30 +89,37 @@ public class PrintService {
         result.put("company", company);
         result.put("document", document);
         result.put("printedAt", Instant.now().toString());
-        audit.record(scope, "document.print", type, id, null, Map.of("documentType", type));
+        if(record) audit.record(scope, "document.print", type, id, null, Map.of("documentType", type));
         return result;
     }
 
-    private void decorateFields(CompanyAccess scope,String type,Map<String,Object> document) {
+    private void copyAccountNumber(CompanyAccess scope,Map<String,Object> raw,Map<String,Object> document,String account,String output) {
+        if(raw.get(account)==null) return;
+        var rows=jdbc.queryForList("SELECT account_no FROM cash_account WHERE tenant_id=? AND company_id=? AND id=? AND account_no IS NOT NULL",
+                String.class,scope.tenantId(),scope.companyId(),raw.get(account));
+        if(!rows.isEmpty()) document.put(output,rows.getFirst());
+    }
+
+    private void decorateFields(CompanyAccess scope,String type,Map<String,Object> document,boolean stableFields) {
         if (!List.of("sales_order","purchase_order").contains(type)) return;
-        project(document,customFields.fields(scope.tenantId(),type));
+        project(document,customFields.fields(scope.tenantId(),type),stableFields);
         if (type.equals("sales_order") && document.get("lines") instanceof List<?> lines) {
             var fields = customFields.fields(scope.tenantId(),"sales_order_line");
             document.put("lines",lines.stream().map(value -> {
                 if (!(value instanceof Map<?,?> row)) return value;
                 var line=new LinkedHashMap<String,Object>();
                 row.forEach((key,item)->line.put(key.toString(),item));
-                project(line,fields);
+                project(line,fields,stableFields);
                 return line;
             }).toList());
         }
     }
 
-    private void project(Map<String,Object> row,List<CustomFields.Field> fields) {
+    private void project(Map<String,Object> row,List<CustomFields.Field> fields,boolean stableFields) {
         if (!(row.remove("extJson") instanceof Map<?,?> values)) return;
         var shown=new LinkedHashMap<String,Object>();
         for (var field:fields) {
-            if (field.printVisible() && values.containsKey(field.fieldKey())) shown.put(field.label(),values.get(field.fieldKey()));
+            if (field.printVisible() && values.containsKey(field.fieldKey())) shown.put(stableFields?field.fieldKey():field.label(),values.get(field.fieldKey()));
         }
         if(!shown.isEmpty()) row.put("printCustomFields",shown);
     }

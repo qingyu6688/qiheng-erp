@@ -2,9 +2,9 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import { reactive } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import WorkbenchPage from '../src/pages/WorkbenchPage.vue'
-import { workbenchSummary } from '../src/api/workbench'
+import { workbenchAlertCount, workbenchSummary } from '../src/api/workbench'
 import type { WorkbenchSummary } from '../src/api/workbench'
-const current = reactive({ companyId: '1' })
+const current = reactive({ companyId: '1', canViewAlerts: false })
 vi.mock('../src/api/workbench')
 vi.mock('../src/stores/session', () => ({
   useSessionStore: () => ({
@@ -14,7 +14,8 @@ vi.mock('../src/stores/session', () => ({
     get company() {
       return current.companyId ? { id: current.companyId } : undefined
     },
-    can: (permission: string) => permission === 'sales_order:create',
+    can: (permission: string) =>
+      permission === 'sales_order:create' || (permission === 'alert:view' && current.canViewAlerts),
   }),
 }))
 const stubs = {
@@ -35,6 +36,7 @@ const data: WorkbenchSummary = {
 beforeEach(() => {
   vi.resetAllMocks()
   current.companyId = '1'
+  current.canViewAlerts = false
   vi.mocked(workbenchSummary).mockResolvedValue(data)
 })
 it('显示服务器待办和筛选链接，不渲染未返回的财务块', async () => {
@@ -43,6 +45,31 @@ it('显示服务器待办和筛选链接，不渲染未返回的财务块', asyn
   expect(wrapper.get('a[href="/sales-orders?status=pending"]').text()).toContain('2')
   expect(wrapper.text()).not.toContain('本月期间')
   expect(wrapper.text()).not.toContain('T06:00')
+  expect(workbenchAlertCount).not.toHaveBeenCalled()
+  wrapper.unmount()
+})
+
+it('只展示当前公司的预警计数，权限收回后不再展示', async () => {
+  current.canViewAlerts = true
+  let oldReply: (value: { total: number }) => void = () => undefined
+  vi.mocked(workbenchAlertCount)
+    .mockReturnValueOnce(
+      new Promise((resolve) => {
+        oldReply = resolve
+      }),
+    )
+    .mockResolvedValueOnce({ total: 3 })
+  const wrapper = mount(WorkbenchPage, { global: { stubs } })
+  const oldSignal = vi.mocked(workbenchAlertCount).mock.calls[0]?.[0]
+  current.companyId = '2'
+  await flushPromises()
+  oldReply({ total: 19 })
+  await flushPromises()
+  expect(oldSignal?.aborted).toBe(true)
+  expect(wrapper.get('a[href="/alerts?status=open"]').text()).toContain('3条预警')
+  current.canViewAlerts = false
+  await flushPromises()
+  expect(wrapper.find('a[href="/alerts?status=open"]').exists()).toBe(false)
   wrapper.unmount()
 })
 it('切换公司清除旧结果并中止请求', async () => {

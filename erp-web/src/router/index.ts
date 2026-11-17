@@ -7,7 +7,7 @@ import { salesSpecs } from '../types/sales'
 import { procurementSpecs } from '../types/procurement'
 import { stockSpecs } from '../types/stock-operations'
 import { reportSpecs, reportPermission } from '../types/reporting'
-import { documentPermission } from '../types/documents'
+import { documentPermission, documentPrintPermissions } from '../types/documents'
 import { importSpecs } from '../types/file-jobs'
 import { crmCoreNavigation, crmCycleNavigation } from '../types/crm-navigation'
 import { manufacturingNavigation } from '../types/manufacturing'
@@ -399,6 +399,24 @@ export const router = createRouter({
             title: '库区库位',
           },
         },
+        {
+          path: 'dashboard',
+          name: 'dashboard',
+          component: () => import('../pages/dashboard/DashboardPage.vue'),
+          meta: { company: true, permission: 'dashboard:view', title: '经营驾驶舱' },
+        },
+        {
+          path: 'alerts',
+          name: 'alerts',
+          component: () => import('../pages/alert/AlertCenterPage.vue'),
+          meta: { company: true, permission: 'alert:view', title: '预警中心' },
+        },
+        {
+          path: 'print-templates',
+          name: 'print-templates',
+          component: () => import('../pages/print/TemplateDesignPage.vue'),
+          meta: { company: true, permission: 'print_template:view', title: '打印模板' },
+        },
         ...reportSpecs.map((spec) => ({
           path: 'reports/' + spec.type,
           name: 'report-' + spec.type,
@@ -417,6 +435,7 @@ export const router = createRouter({
               ...importSpecs.map((spec) => 'import:' + spec.type),
               'gl_export:create',
               ...reportSpecs.map((spec) => reportPermission(spec.type, 'export')),
+              ...documentPrintPermissions,
             ],
           },
         },

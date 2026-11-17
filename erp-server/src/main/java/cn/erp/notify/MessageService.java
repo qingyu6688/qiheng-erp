@@ -17,7 +17,7 @@ import static cn.erp.notify.NoticeService.*;
 
 @Service
 @Transactional
-public class MessageService implements TodoInbox {
+public class MessageService implements TodoInbox,AlertNotificationPort {
     private cn.erp.workflow.WorkflowQueries workflows;
     @org.springframework.beans.factory.annotation.Autowired
     void workflows(cn.erp.workflow.WorkflowQueries workflows) {this.workflows=workflows;}
@@ -40,6 +40,13 @@ public class MessageService implements TodoInbox {
     private final JdbcTemplate jdbc;private final NamedParameterJdbcTemplate named;private final TodoQueries todos;private final NotificationAccess visibility;private final OutboxService outbox;private final ApplicationEventPublisher events;private final AccessService access;private final TemplateService templates;
     private final TransactionTemplate refreshTransaction;
     public MessageService(JdbcTemplate jdbc,NamedParameterJdbcTemplate named,TodoQueries todos,NotificationAccess visibility,OutboxService outbox,ApplicationEventPublisher events,AccessService access,TemplateService templates,PlatformTransactionManager transactions) {this.jdbc=jdbc;this.named=named;this.todos=todos;this.visibility=visibility;this.outbox=outbox;this.events=events;this.access=access;this.templates=templates;refreshTransaction=new TransactionTemplate(transactions);refreshTransaction.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);}
+
+    @Override public void create(ActorScope recipient,long event,int occurrence,Set<String> channels) {
+        if (!(recipient instanceof CompanyAccess actor)) throw new IllegalArgumentException("预警通知缺少授权账号");
+        String methods=String.join(",",channels.stream().sorted().toList());
+        create(actor,"alert.center","新的业务预警","请到预警中心查看，来源权限会重新校验。","/alerts?eventId="+event,
+                "alert","alert_event",event,methods,null,"alert:"+event+":"+occurrence,occurrence);
+    }
     @org.springframework.context.event.EventListener
     public void collection(cn.erp.shared.CollectionNotice event) {
         var actor=access.forUser(event.tenantId(),event.userId(),event.companyId());if(actor==null||!actor.allWarehouses()||!actor.hasPermission("collection:view"))return;

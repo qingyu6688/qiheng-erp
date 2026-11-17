@@ -1,4 +1,11 @@
 import { formatPrintTime } from '../utils/format'
+import { procurementSpecs } from './procurement'
+import { salesSpecs } from './sales'
+import { stockSpecs } from './stock-operations'
+
+export const documentPrintPermissions = [...salesSpecs, ...procurementSpecs, ...stockSpecs].map(
+  ({ permission }) => `${permission}:print`,
+)
 export interface Attachment {
   id: string
   ownerType?: string

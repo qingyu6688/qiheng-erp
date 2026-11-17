@@ -20,7 +20,8 @@ class ExportController {
     ExportController(AccessService access,ExportJobs jobs,FileTickets tickets) { this.access=access;this.jobs=jobs;this.tickets=tickets; }
     @PostMapping
     ResponseEntity<?> create(HttpServletRequest request,@RequestHeader(value="Idempotency-Key",required=false) String key,@RequestBody ExportJobs.Input input) {
-        var actor=access.requireCompany(request,FinancialExportPort.supports(input.exportType())?"gl_export:create":ReportType.parse(input.exportType()).exportPermission());
+        var actor=access.requireCompany(request,DocumentPrintExportPort.supports(input.exportType())?null:
+                FinancialExportPort.supports(input.exportType())?"gl_export:create":ReportType.parse(input.exportType()).exportPermission());
         return ResponseEntity.accepted().body(new ApiResponse<>(202,"导出任务已提交",jobs.create(actor,key,input),RequestIds.current(),null,null));
     }
     @GetMapping

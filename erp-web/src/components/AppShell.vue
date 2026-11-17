@@ -29,6 +29,7 @@ import BrandMark from './BrandMark.vue'
 import NotificationBell from './NotificationBell.vue'
 import { reportSpecs, reportPermission } from '../types/reporting'
 import { importSpecs } from '../types/file-jobs'
+import { documentPrintPermissions } from '../types/documents'
 import { crmCoreNavigation, crmCycleNavigation } from '../types/crm-navigation'
 import { manufacturingNavigation } from '../types/manufacturing'
 import { confirmCompanyLeave } from '../utils/unsaved'
@@ -213,6 +214,9 @@ const definitions = [
     title: '报表与数据',
     icon: DataAnalysis,
     items: [
+      { path: 'dashboard', title: '经营驾驶舱', permission: 'dashboard:view' },
+      { path: 'alerts', title: '预警中心', permission: 'alert:view' },
+      { path: 'print-templates', title: '打印模板', permission: 'print_template:view' },
       {
         path: 'reports',
         title: '业务报表',
@@ -225,6 +229,7 @@ const definitions = [
           ...importSpecs.map((spec) => 'import:' + spec.type),
           'gl_export:create',
           ...reportSpecs.map((spec) => reportPermission(spec.type, 'export')),
+          ...documentPrintPermissions,
         ],
       },
     ],

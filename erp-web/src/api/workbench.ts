@@ -1,4 +1,5 @@
 import { request } from './http'
+export { alertCenterCount as workbenchAlertCount } from './alerts'
 export interface WorkbenchSummary {
   asOf: string
   blocks: { key: string; label: string; count: number; url: string }[]
@@ -43,5 +44,8 @@ export interface TradeSummary {
 }
 
 export function tradeSummary(signal?: AbortSignal): Promise<TradeSummary> {
-  return request({ method: 'GET', url: '/workbench/trade-summary', params: { months: 12 }, signal }, true)
+  return request(
+    { method: 'GET', url: '/workbench/trade-summary', params: { months: 12 }, signal },
+    true,
+  )
 }

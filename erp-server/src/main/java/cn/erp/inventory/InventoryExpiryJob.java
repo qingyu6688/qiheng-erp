@@ -1,6 +1,5 @@
 package cn.erp.inventory;
 
-import cn.erp.identity.AccessService;
 import cn.erp.identity.CompanyAccess;
 import cn.erp.shared.Ids;
 import cn.erp.shared.ManagedJobs;
@@ -8,8 +7,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
-import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,20 +20,17 @@ import static cn.erp.inventory.InventoryStore.insufficient;
 
 @Component
 class InventoryExpiryJob {
-    private record Recipient(long company,long user) {}
     private static final Logger LOG=LoggerFactory.getLogger(InventoryExpiryJob.class);
     private final JdbcTemplate jdbc;
     private final InventoryService inventory;
     private final ReservationService reservations;
-    private final AccessService access;
     private final TransactionTemplate tx;
 
-    InventoryExpiryJob(JdbcTemplate jdbc,InventoryService inventory,ReservationService reservations,AccessService access,
+    InventoryExpiryJob(JdbcTemplate jdbc,InventoryService inventory,ReservationService reservations,
             PlatformTransactionManager manager,ManagedJobs jobs){
         this.jdbc=jdbc;
         this.inventory=inventory;
         this.reservations=reservations;
-        this.access=access;
         this.tx=new TransactionTemplate(manager);
         jobs.register("inventory.batch-expiry",this::run);
     }
@@ -61,7 +55,6 @@ class InventoryExpiryJob {
                 failed=true;
             }
         }
-        remind(tenant,today);
         if(failed)throw new IllegalStateException("部分过期批次冻结未完成");
     }
 
@@ -111,34 +104,6 @@ class InventoryExpiryJob {
             if(remaining.signum()==0)return;
         }
         throw insufficient();
-    }
-
-    private void remind(long tenant,LocalDate today){
-        var rows=jdbc.queryForList("""
-                SELECT DISTINCT b.id,b.company_id,b.batch_no,b.expiry_date,x.warehouse_id,w.name warehouse_name
-                FROM inv_batch b JOIN sku s ON s.tenant_id=b.tenant_id AND s.id=b.sku_id
-                JOIN inventory_balance x ON x.tenant_id=b.tenant_id AND x.company_id=b.company_id AND x.sku_id=b.sku_id AND x.lot_key=CAST(b.id AS CHAR)
-                JOIN warehouse w ON w.tenant_id=x.tenant_id AND w.company_id=x.company_id AND w.id=x.warehouse_id
-                WHERE b.tenant_id=? AND b.status='normal' AND x.on_hand_qty>0 AND b.expiry_date BETWEEN ? AND DATE_ADD(?,INTERVAL s.near_expiry_days DAY)
-                ORDER BY b.expiry_date,b.id LIMIT 500
-                """,tenant,today,today);
-        if(rows.isEmpty())return;
-        var users=jdbc.queryForList("""
-                SELECT DISTINCT ur.user_id FROM sys_user_role ur JOIN sys_role r ON r.tenant_id=ur.tenant_id AND r.id=ur.role_id
-                WHERE ur.tenant_id=? AND r.status='active' AND r.code='WAREHOUSE_ADMIN'
-                """,Long.class,tenant);
-        var authorized=new HashMap<Recipient,Optional<CompanyAccess>>();
-        for(var row:rows)for(long user:users){
-            long company=number(row,"company_id"),warehouse=number(row,"warehouse_id"),batch=number(row,"id");
-            var actor=authorized.computeIfAbsent(new Recipient(company,user),key->Optional.ofNullable(access.forUser(tenant,user,company))).orElse(null);
-            if(actor==null||!actor.allowsWarehouse(warehouse)||!actor.hasPermission("batch:view"))continue;
-            jdbc.update("""
-                    INSERT INTO notify_message(id,tenant_id,company_id,user_id,template_code,title,content,link,category,source_type,source_id,source_version,event_key)
-                    VALUES(?,?,?,?,'inventory.batch_expiry','批次临期提醒',?,'/inventory-trace','alert','inv_batch',?,?,?)
-                    ON DUPLICATE KEY UPDATE id=id
-                    """,Ids.next(),tenant,company,user,row.get("warehouse_name")+" 的批次 "+row.get("batch_no")+" 将于 "+row.get("expiry_date")+" 到期。",
-                    batch,warehouse,"batch:"+batch+":"+warehouse+":"+today);
-        }
     }
 
     private static long number(Map<String,Object> row,String name){return ((Number)row.get(name)).longValue();}

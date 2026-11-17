@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { allRecords } from '../api/admin'
 import { batchTrace, customerTrace, serialTrace, trackedBatches } from '../api/inventory-tracking'
 import { isCancelled, messageOf } from '../api/http'
@@ -8,6 +9,7 @@ import type { DataRow } from '../types/admin'
 import type { BatchBalance, StockMovementTrace, TrackedBatch } from '../types/inventory-tracking'
 
 const session = useSessionStore()
+const route = useRoute()
 const active = ref('')
 const tabs = computed(() => [
   { key: 'batch', label: '批次', allowed: session.can('batch:view') },
@@ -15,6 +17,7 @@ const tabs = computed(() => [
   { key: 'customer', label: '客户反查', allowed: session.can('inventory_trace:customer') },
 ].filter((tab) => tab.allowed))
 const keyword = ref('')
+const batchSku = ref('')
 const within = ref<number>()
 const sku = ref('')
 const serialNo = ref('')
@@ -46,11 +49,17 @@ const movementNames: Record<string, string> = {
 }
 const historyTitle = computed(() => detail.value || (active.value === 'customer' ? '签收记录' : '库存流水'))
 
-watch(() => session.companyId, async () => {
+function queryId(value: unknown): string {
+  return typeof value === 'string' && /^[1-9]\d{0,18}$/.test(value) ? value : ''
+}
+
+watch(() => [session.companyId, route.query.warehouseId, route.query.skuId, route.query.batchId], async () => {
   requestRevision++
   const revision = ++scopeRevision
   active.value = tabs.value[0]?.key ?? ''
-  keyword.value = ''; within.value = undefined; warehouse.value = ''
+  keyword.value = ''; within.value = undefined; warehouse.value = queryId(route.query.warehouseId)
+  batchSku.value = queryId(route.query.skuId)
+  const sourceBatch = queryId(route.query.batchId)
   sku.value = ''; serialNo.value = ''; customer.value = ''
   warehouses.value = []; partners.value = []; skus.value = []
   batches.value = []; batchCursor.value = null
@@ -66,7 +75,10 @@ watch(() => session.companyId, async () => {
   if (stock.status === 'fulfilled') warehouses.value = stock.value
   if (customers.status === 'fulfilled') partners.value = customers.value
   if (products.status === 'fulfilled') skus.value = products.value
-  if (active.value === 'batch') await loadBatches()
+  if (active.value === 'batch') {
+    await loadBatches()
+    if (revision === scopeRevision && sourceBatch && session.can('batch:trace')) await loadHistory(sourceBatch)
+  }
 }, { immediate: true })
 
 watch(active, (tab) => {
@@ -92,7 +104,7 @@ async function search(run: (revision: number) => Promise<void>): Promise<void> {
 async function loadBatches(cursor?: string): Promise<void> {
   await search(async (revision) => {
     const result = await trackedBatches({
-      keyword: keyword.value, warehouseId: warehouse.value || undefined, expiringWithinDays: within.value, cursor,
+      keyword: keyword.value, warehouseId: warehouse.value || undefined, skuId: batchSku.value || undefined, expiringWithinDays: within.value, cursor,
     })
     if (revision !== requestRevision) return
     batches.value = cursor ? [...batches.value, ...result.items] : result.items
