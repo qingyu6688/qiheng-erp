@@ -1,0 +1,27 @@
+# 与 compose.yaml 合并使用。AI 运行参数放在 private/ai.env，API 的签名密钥在 private/api.env。
+services:
+  erp-ai:
+    image: ${ERP_AI_IMAGE:?请设置已构建校验的 AI 镜像摘要}
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "50m", max-file: "14" }
+    env_file: ./private/ai.env
+    environment:
+      ERP_AI_BIND: 0.0.0.0
+      ERP_AI_PORT: 18081
+      ERP_AI_ERP_ORIGIN: http://api:8080
+      ERP_AI_KB_STORAGE: /var/lib/erp-ai/knowledge
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=128m
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 2g
+    volumes:
+      - ./private/ai-knowledge:/var/lib/erp-ai/knowledge
+      - ./private/ai-java-tls:/etc/erp-ai/tls:ro
+    networks: [web, data]
+  nginx:
+    volumes:
+      - ./nginx-ai.conf:/etc/nginx/erp-ai-enabled/ai.conf:ro

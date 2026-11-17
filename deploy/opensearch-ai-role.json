@@ -1,0 +1,9 @@
+{
+  "cluster_permissions": ["indices:data/write/bulk*"],
+  "index_permissions": [
+    {
+      "index_patterns": ["erp-kb-*", "erp-wiki-*"],
+      "allowed_actions": ["create_index", "crud", "indices:admin/exists", "indices:admin/get"]
+    }
+  ]
+}

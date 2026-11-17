@@ -86,6 +86,42 @@ jobs:
       - name: 后端测试与构建
         shell: pwsh
         run: ./scripts/project.ps1 verify
+      - name: 校验 AI 容器组合配置
+        shell: bash
+        env:
+          ERP_IMAGE: erp-server:ci
+          ERP_AI_IMAGE: erp-ai:ci
+          REDIS_IMAGE: redis:7.4.7
+          NGINX_IMAGE: nginx:ci
+        run: |
+          set -euo pipefail
+          compose_check="$(mktemp -d "$RUNNER_TEMP/erp-compose.XXXXXX")"
+          cp deploy/{compose.yaml,compose.ai.yaml,compose.ai.search.yaml} "$compose_check/"
+          mkdir "$compose_check/private"
+          touch "$compose_check/private/"{api.env,worker.env,ai.env}
+          docker compose -f "$compose_check/compose.yaml" -f "$compose_check/compose.ai.yaml" -f "$compose_check/compose.ai.search.yaml" \
+            config --no-env-resolution --quiet
+      - name: AI 服务测试与构建
+        shell: bash
+        env:
+          CI_DB_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
+          CI_MYSQL_CONTAINER: ${{ job.services.mysql.id }}
+        run: |
+          set -euo pipefail
+          export ERP_AI_DB_PASSWORD="$(openssl rand -hex 24)"
+          export ERP_AI_SIGNING_KEY="$(openssl rand -hex 32)"
+          export ERP_AI_PROVIDER_KEY="$(openssl rand -base64 32)"
+          printf '::add-mask::%s\n' "$ERP_AI_DB_PASSWORD" "$ERP_AI_SIGNING_KEY" "$ERP_AI_PROVIDER_KEY"
+          docker exec -i -e MYSQL_PWD="$CI_DB_PASSWORD" "$CI_MYSQL_CONTAINER" mysql -uroot <<SQL
+          CREATE DATABASE erp_ai_test CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+          CREATE USER 'erp_ai_ci'@'%' IDENTIFIED BY '$ERP_AI_DB_PASSWORD';
+          GRANT ALL PRIVILEGES ON erp_ai_test.* TO 'erp_ai_ci'@'%';
+          SQL
+          export ERP_AI_DB_URL='jdbc:mysql://127.0.0.1:3306/erp_ai_test?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8&sslMode=DISABLED'
+          export ERP_AI_DB_USER=erp_ai_ci
+          export ERP_AI_SEARCH_MODE=local
+          export ERP_AI_KB_STORAGE="$RUNNER_TEMP/erp-ai-knowledge"
+          mvn -B -f erp-ai/pom.xml verify
       - name: 前端检查与构建
         working-directory: erp-web
         run: |
@@ -106,5 +142,7 @@ jobs:
           path: |
             erp-server/target/surefire-reports/*.txt
             erp-server/target/failsafe-reports/*.txt
+            erp-ai/target/surefire-reports/*.txt
+            erp-ai/target/failsafe-reports/*.txt
             erp-web/playwright-report/
             erp-web/test-results/

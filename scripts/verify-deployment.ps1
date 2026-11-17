@@ -6,7 +6,8 @@ param(
     [string]$OpenSslPath='D:\Git\usr\bin\openssl.exe',
     [ValidateRange(1024,65535)][int]$HttpsPort=18443,
     [ValidateRange(1024,65535)][int]$HttpPort=18081,
-    [ValidateRange(1024,65535)][int]$ApiPort=8080
+    [ValidateRange(1024,65535)][int]$ApiPort=8080,
+    [ValidateRange(0,65535)][int]$AiPort=0
 )
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
@@ -35,6 +36,13 @@ $config=[IO.File]::ReadAllText((Join-Path $root 'deploy/nginx.conf'))
 $config=$config.Replace('user nginx;','').Replace('/var/log/nginx/error.log','logs/error.log').Replace('/var/log/nginx/access.log','logs/access.log').Replace('/var/run/nginx.pid','logs/nginx.pid').Replace('/etc/nginx/mime.types','mime.types')
 $config=$config.Replace('server api:8080;',"server 127.0.0.1:$ApiPort;").Replace('listen 80;',"listen 127.0.0.1:$HttpPort;").Replace('listen 443 ssl;',"listen 127.0.0.1:$HttpsPort ssl;").Replace('server_name erp.example.invalid;','server_name localhost;')
 $config=$config.Replace('/etc/nginx/tls/fullchain.pem',$certificate.Replace('\','/')).Replace('/etc/nginx/tls/privkey.pem',$key.Replace('\','/')).Replace('/usr/share/nginx/html',('"'+$WebRoot.Replace('\','/')+'"')).Replace('https://$host$request_uri',('https://$host:'+ $HttpsPort +'$request_uri'))
+[void](New-Item -ItemType Directory -Path (Join-Path $directory 'erp-ai-enabled'))
+$config=$config.Replace('/etc/nginx/erp-ai-enabled/*.conf','erp-ai-enabled/*.conf')
+if($AiPort){
+ if($AiPort -lt 1024 -or $AiPort -in $ApiPort,$HttpPort,$HttpsPort){throw 'AI 服务端口必须为独立的回环应用端口。'}
+ $aiConfig=[IO.File]::ReadAllText((Join-Path $root 'deploy/nginx-ai.conf')).Replace('erp-ai:18081',"127.0.0.1:$AiPort")
+ [IO.File]::WriteAllText((Join-Path $directory 'erp-ai-enabled/ai.conf'),$aiConfig,[Text.UTF8Encoding]::new($false))
+}
 [IO.File]::WriteAllText((Join-Path $directory 'nginx.conf'),$config,[Text.UTF8Encoding]::new($false))
 $nginx=Join-Path $NginxDirectory 'nginx.exe'
 & $nginx -p $prefix -c nginx.conf -t 2> (Join-Path $directory 'syntax.log')
@@ -44,8 +52,20 @@ try {
  Start-Sleep -Milliseconds 500
  # curl 只信任本次生成的证书并校验回环主机名，不修改系统信任仓。
  $results=@()
- foreach($case in @(@("http://127.0.0.1:$HttpPort/login",308),@("https://127.0.0.1:$HttpsPort/login",200),@("https://127.0.0.1:$HttpsPort/actuator/health",404),@("https://127.0.0.1:$HttpsPort/private-objects/test",404),@("https://127.0.0.1:$HttpsPort/api/v1/companies",401),@("https://127.0.0.1:$HttpsPort/ws/v1/events",401))){
-  $status=& curl.exe --silent --show-error --cacert $certificate --output NUL --write-out '%{http_code}' $case[0]
+ $aiStatus=if($AiPort){401}else{503}
+ foreach($case in @(
+  @("http://127.0.0.1:$HttpPort/login",308),
+  @("https://127.0.0.1:$HttpsPort/login",200),
+  @("https://127.0.0.1:$HttpsPort/actuator/health",404),
+  @("https://127.0.0.1:$HttpsPort/private-objects/test",404),
+  @("https://127.0.0.1:$HttpsPort/api/v1/companies",401),
+  @("https://127.0.0.1:$HttpsPort/ws/v1/events",401),
+  @("https://127.0.0.1:$HttpsPort/api/v1/ai-tools",404),
+  @("https://127.0.0.1:$HttpsPort/api/v1/ai-tools/context",404),
+  @("https://127.0.0.1:$HttpsPort/ai/wiki",200),
+  @("https://127.0.0.1:$HttpsPort/ai/v1/assistants",$aiStatus)
+ )){
+  $status=& curl.exe --silent --show-error --cacert $certificate --header 'X-Company-Id: 1' --output NUL --write-out '%{http_code}' $case[0]
   if($LASTEXITCODE -ne 0 -or [int]$status -ne $case[1]){throw ('生产入口检查未通过：'+([uri]$case[0]).AbsolutePath)}
   $results+=@{path=([uri]$case[0]).AbsolutePath;scheme=([uri]$case[0]).Scheme;status=[int]$status}
  }

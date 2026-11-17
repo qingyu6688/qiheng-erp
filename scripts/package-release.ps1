@@ -3,7 +3,8 @@
 param(
     [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+$')][string]$Version='1.0.0',
     [ValidatePattern('^rc\.[1-9][0-9]*$')][string]$Candidate,
-    [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local/release')
+    [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local/release'),
+    [switch]$IncludeAi
 )
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
@@ -22,11 +23,20 @@ if($Candidate){
  if($LASTEXITCODE -ne 0 -or $pending.Count){throw '请提交候选源码和配置后再生成可追溯的候选包。'}
 }
 $jar=Join-Path $root "erp-server/target/erp-server-$Version.jar"
+$aiJar=$null
+if($IncludeAi){
+ $aiPom=[xml][IO.File]::ReadAllText((Join-Path $root 'erp-ai/pom.xml'))
+ if($aiPom.project.version -ne $Version){throw 'AI 源码版本与交付版本不一致。'}
+ $aiJar=Join-Path $root "erp-ai/target/erp-ai-$Version.jar"
+ if(!(Test-Path -LiteralPath $aiJar -PathType Leaf)){throw '缺少已构建的 AI 服务 JAR，请先构建 erp-ai 模块。'}
+}
 $dist=Join-Path $root 'erp-web/dist'
 if(!(Test-Path -LiteralPath $jar -PathType Leaf) -or !(Test-Path -LiteralPath (Join-Path $dist 'index.html') -PathType Leaf)){throw '缺少已构建的生产JAR或前端dist，请先执行完整构建。'}
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$archive=[IO.Compression.ZipFile]::OpenRead($jar)
-try{if(@($archive.Entries | Where-Object FullName -match 'BrowserFixture|BOOT-INF/classes/cn/erp/capacity/|test-classes|application-test|application-e2e').Count){throw '生产JAR混入测试配置或浏览器夹具，拒绝打包。'}}finally{$archive.Dispose()}
+foreach($productionJar in @($jar,$aiJar) | Where-Object { $_ }){
+ $archive=[IO.Compression.ZipFile]::OpenRead($productionJar)
+ try{if(@($archive.Entries | Where-Object FullName -match 'BrowserFixture|BOOT-INF/classes/cn/erp/capacity/|test-classes|application-test|application-e2e').Count){throw '生产JAR混入测试配置或浏览器夹具，拒绝打包。'}}finally{$archive.Dispose()}
+}
 $output=[IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Path $output -Force | Out-Null
 $zip=Join-Path $output "erp-$releaseLabel-local.zip"
@@ -34,6 +44,7 @@ if(Test-Path -LiteralPath $zip){throw '交付压缩包已存在，禁止覆盖�
 $stage=Join-Path $output ("stage-$releaseLabel-"+[Guid]::NewGuid().ToString('N').Substring(0,8))
 New-Item -ItemType Directory -Path $stage | Out-Null
 Copy-Item -LiteralPath $jar -Destination (Join-Path $stage 'erp-server.jar')
+if($IncludeAi){Copy-Item -LiteralPath $aiJar -Destination (Join-Path $stage 'erp-ai.jar')}
 Copy-Item -LiteralPath $dist -Destination (Join-Path $stage 'web') -Recurse
 New-Item -ItemType Directory -Path (Join-Path $stage 'deploy'),(Join-Path $stage 'scripts'),(Join-Path $stage 'docs') | Out-Null
 foreach($file in Get-ChildItem -LiteralPath (Join-Path $root 'deploy') -File){if($file.Name -eq '.env' -or $file.Extension -in '.pem','.key','.crt'){throw '部署模板目录含私有配置或证书，拒绝打包。'};if($file.Name -ne '.gitignore'){Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $stage 'deploy')}}
@@ -55,6 +66,14 @@ $documents=@(
 foreach($name in $documents) {
  Copy-Item -LiteralPath (Join-Path $root ('docs/'+$name)) -Destination (Join-Path $stage 'docs')
 }
+if($IncludeAi){
+ foreach($name in 'M13人工智能使用与验收.md','第三方依赖说明.md','第三方依赖许可.md'){
+  Copy-Item -LiteralPath (Join-Path $root ('docs/'+$name)) -Destination (Join-Path $stage 'docs')
+ }
+ $aiDesignTarget=Join-Path $stage 'docs/详细设计'
+ New-Item -ItemType Directory -Path $aiDesignTarget | Out-Null
+ Copy-Item -LiteralPath (Join-Path $root 'docs/详细设计/04-AI.md') -Destination $aiDesignTarget
+}
 $files=@(Get-ChildItem -LiteralPath $stage -Recurse -File)
 if(@($files | Where-Object { $_.Name -eq '.env' -or ([IO.Path]::GetRelativePath($stage,$_.FullName) -match '(^|[\\/])(?:\.local|test-results|node_modules|private)([\\/]|$)') }).Count){throw '交付内容混入本机配置、测试数据或私有目录。'}
 $manifest=@{version=$Version;kind='本机验收交付包，正式生产上线另行验收';createdAt=[DateTime]::UtcNow.ToString('o');files=@($files | Sort-Object FullName | ForEach-Object {@{path=[IO.Path]::GetRelativePath($stage,$_.FullName).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant();bytes=$_.Length}})}
@@ -63,6 +82,7 @@ if($Candidate){
  $manifest.sourceCommit=$sourceCommit
  $manifest.kind='本机验证候选包'
 }
+if($IncludeAi){$manifest.includesAi=$true}
 $manifest | ConvertTo-Json -Depth 7 | Set-Content -LiteralPath (Join-Path $stage 'manifest.json') -Encoding utf8NoBOM
 [IO.Compression.ZipFile]::CreateFromDirectory($stage,$zip,[IO.Compression.CompressionLevel]::Optimal,$false)
 $checksum=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
