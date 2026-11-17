@@ -118,6 +118,8 @@ test('M11 平台资料、任务与消息中心，两会话实时提醒和强制�
     await expect(second.getByRole('dialog', { name: title, exact: true })).toHaveCount(0)
     await expect(page.getByRole('dialog', { name: title, exact: true })).toHaveCount(0)
     await expect(second.getByRole('alert')).toHaveCount(0)
+    await notice.getByRole('button', { name: '撤回', exact: true }).click()
+    await expect(notice.getByText('已撤回', { exact: true })).toBeVisible()
     for (const [path, heading] of [
       ['notify-templates', '消息模板'],
       ['notify-send-logs', '消息发送日志'],
