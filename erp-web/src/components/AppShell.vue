@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowDown,
   ArrowRight,
   Box,
+  ChatDotRound,
   Close,
   DataAnalysis,
   Document,
@@ -40,6 +41,24 @@ const title = computed(() =>
   String(route.meta.title ?? (route.name === 'password' ? '账户设置' : '工作台')),
 )
 const accountName = computed(() => session.user?.displayName || session.user?.username || '账户')
+const AiAssistantDrawer = defineAsyncComponent(() => import('./AiAssistantDrawer.vue'))
+const assistantOpen = ref(false)
+const assistantOpened = ref(false)
+const showAssistant = computed(
+  () => Boolean(session.companyId) && !session.user?.mustChangePassword && session.can('ai:use'),
+)
+watch(
+  [() => session.companyId, () => session.user, showAssistant],
+  () => {
+    assistantOpen.value = false
+    assistantOpened.value = false
+  },
+  { flush: 'sync' },
+)
+function openAssistant(): void {
+  assistantOpened.value = true
+  assistantOpen.value = true
+}
 interface NavigationItem {
   path: string
   title: string
@@ -157,6 +176,17 @@ const definitions = [
       { path: 'warehouses', title: '仓库管理', permission: 'warehouse:view' },
       { path: 'cash-accounts', title: '结算账户', permission: 'cash_account:view' },
       { path: 'income-expense-items', title: '收支项目', permission: 'income_expense_item:view' },
+    ],
+  },
+  {
+    title: 'AI 与知识',
+    icon: ChatDotRound,
+    items: [
+      { path: 'ai/wiki', title: '知识百科', permission: 'ai:use' },
+      { path: 'ai/knowledge', title: '知识库管理', any: ['ai_admin:view', 'ai_admin:manage'] },
+      { path: 'ai/wiki-review', title: 'Wiki 审核', permission: 'ai_admin:review' },
+      { path: 'ai/admin', title: 'AI 管理', any: ['ai_admin:view', 'ai_admin:manage'] },
+      { path: 'ai/evaluations', title: 'AI 评测', permission: 'ai_admin:evaluate' },
     ],
   },
   {
@@ -452,6 +482,16 @@ async function logout(): Promise<void> {
               :label="company.name"
             />
           </el-select>
+          <button
+            v-if="showAssistant"
+            class="shell-button"
+            type="button"
+            aria-label="打开 AI 助手"
+            title="AI 助手"
+            @click="openAssistant"
+          >
+            <ChatDotRound class="icon" aria-hidden="true" />
+          </button>
           <NotificationBell v-if="!session.user?.mustChangePassword" />
           <details class="account-menu">
             <summary :aria-label="accountName + '账户菜单'">
@@ -525,5 +565,6 @@ async function logout(): Promise<void> {
         />
       </main>
     </div>
+    <AiAssistantDrawer v-if="showAssistant && assistantOpened" v-model="assistantOpen" />
   </div>
 </template>

@@ -115,6 +115,7 @@ const verbs: Record<string, string> = {
   reset_password: '重置密码',
 }
 function operation(value: string): string {
+  if (value === 'ai.tool.list_warehouses') return '经 AI 助手查看仓库'
   const [object, verb] = value.split('.')
   return (
     (objects[

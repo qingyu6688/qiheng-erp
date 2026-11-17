@@ -1,0 +1,89 @@
+.ai-page .ai-section {
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+
+.ai-page .ai-section h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.ai-page .ai-section h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.ai-page .ai-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.ai-page .ai-actions > .el-button + .el-button {
+  margin-left: 0;
+}
+
+.ai-page .ai-search {
+  margin: 0 0 14px;
+  display: flex;
+  gap: 8px;
+  max-width: 620px;
+}
+
+.ai-page .ai-error {
+  margin-bottom: 12px;
+}
+
+.ai-page .ai-empty {
+  color: var(--el-text-color-secondary);
+  text-align: center;
+  margin: 20px 0;
+}
+
+.ai-page .ai-wrap {
+  overflow-wrap: anywhere;
+}
+
+.ai-page .ai-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-page .ai-list > li {
+  padding: 12px 0;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
+.ai-page .ai-list > li > p {
+  margin: 6px 0;
+  color: var(--el-text-color-secondary);
+}
+
+.ai-page .ai-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.ai-page .ai-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--el-text-color-regular);
+  line-height: 1.65;
+  max-height: 320px;
+  overflow: auto;
+  margin: 8px 0;
+}
+
+.ai-page .el-form .el-select,
+.ai-page .el-form .el-input-number {
+  width: 100%;
+}
+
+@media (max-width: 720px) {
+  .ai-page .ai-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

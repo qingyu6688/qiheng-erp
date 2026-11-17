@@ -32,6 +32,42 @@ export const router = createRouter({
       path: '/',
       component: () => import('../components/AppShell.vue'),
       children: [
+        {
+          path: 'ai/wiki',
+          name: 'ai-wiki',
+          component: () => import('../pages/ai/AiWikiPage.vue'),
+          meta: { title: '知识百科', company: true, permission: 'ai:use' },
+        },
+        {
+          path: 'ai/wiki/:slug',
+          name: 'ai-wiki-article',
+          component: () => import('../pages/ai/AiWikiPage.vue'),
+          meta: { title: '知识百科', company: true, permission: 'ai:use' },
+        },
+        {
+          path: 'ai/knowledge',
+          component: () => import('../pages/ai/AiKnowledgePage.vue'),
+          meta: {
+            title: '知识库管理',
+            company: true,
+            anyPermissions: ['ai_admin:view', 'ai_admin:manage'],
+          },
+        },
+        {
+          path: 'ai/wiki-review',
+          component: () => import('../pages/ai/AiWikiReviewPage.vue'),
+          meta: { title: 'Wiki 审核', company: true, permission: 'ai_admin:review' },
+        },
+        {
+          path: 'ai/admin',
+          component: () => import('../pages/ai/AiAdminPage.vue'),
+          meta: { title: 'AI 管理', company: true, anyPermissions: ['ai_admin:view', 'ai_admin:manage'] },
+        },
+        {
+          path: 'ai/evaluations',
+          component: () => import('../pages/ai/AiEvaluationsPage.vue'),
+          meta: { title: 'AI 评测', company: true, permission: 'ai_admin:evaluate' },
+        },
         ...[
           ['credit', 'credit', 'credit_limit:view', '客户信用'],
           ['aging', 'aging', 'credit_limit:view', '账龄配置'],
