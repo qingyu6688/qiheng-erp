@@ -3,7 +3,9 @@ package cn.erp.ai.assistant;
 import java.util.*;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import cn.erp.ai.common.AiActor;
@@ -37,13 +39,33 @@ public class AssistantRuntime {
     }
 
     public record Citation(int number,String segmentId,String title,String heading,Integer page,String wikiSlug) {}
-    public record Warehouse(String id,String code,String name) {}
-    public record ToolResult(String code,String label,List<Warehouse> rows,boolean hasMore) {}
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record ToolResult(String code,String label,List<JsonNode> rows,boolean hasMore,String status,String asOf,
+                             JsonNode summary,String detailUrl,List<JsonNode> candidates) {
+        static ToolResult warehouses(List<JsonNode> rows,boolean hasMore) {
+            return new ToolResult(AssistantCatalog.WAREHOUSES,"查看可访问仓库",rows,hasMore,null,null,null,null,null);
+        }
+    }
     public record Answer(String text,List<Citation> citations,List<ConversationStore.Receipt> receipts,
                   List<ToolResult> tools,String modelId,long tokens,boolean refused) {
         static Answer refuse() { return new Answer(REFUSAL,List.of(),List.of(),List.of(),null,0,true); }
         static Answer tool(ToolResult tool) {
             return new Answer("已读取当前公司有权查看的仓库。", List.of(), List.of(), List.of(tool), null, 0, false);
+        }
+
+        static Answer business(List<ToolResult> tools,String modelId,long tokens) {
+            String text;
+            if (tools.isEmpty()) text="请明确要查询的业务对象和范围。";
+            else if (tools.stream().anyMatch(tool->"ambiguous".equals(tool.status())))
+                text="有查询条件匹配多个业务对象，请核对候选名称或编码后重新查询。";
+            else text="已按当前公司的授权范围查询，金额和数量以业务查询结果为准。";
+            return new Answer(text,List.of(),List.of(),tools,modelId,tokens,tools.isEmpty());
+        }
+
+        Answer businessHistory() {
+            if (tools.isEmpty()) return this;
+            return new Answer("查数结果仅在本次请求中展示，需要时请重新查询。",
+                    List.of(),List.of(),List.of(),modelId,tokens,refused);
         }
     }
 

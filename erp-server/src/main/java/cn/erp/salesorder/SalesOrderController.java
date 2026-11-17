@@ -67,7 +67,8 @@ class SalesOrderController {
     @GetMapping("/inventory-balances")
     ApiResponse<?> balances(HttpServletRequest req,@RequestParam(required=false) String warehouseId,@RequestParam(defaultValue="") String keyword,
             @RequestParam(required=false) String cursor,@RequestParam(defaultValue="20") int limit,
-            @RequestParam(defaultValue="false") boolean shortageOnly,@RequestParam(defaultValue="false") boolean hideZero) {
-        return ApiResponse.success(inventory.balances(access.requireCompany(req,"inventory:view"),warehouseId,keyword,cursor,limit,shortageOnly,hideZero));
+            @RequestParam(defaultValue="false") boolean shortageOnly,@RequestParam(defaultValue="false") boolean hideZero,
+            @RequestParam(required=false) Long skuId) {
+        return ApiResponse.success(inventory.balances(access.requireCompany(req,"inventory:view"),warehouseId,keyword,cursor,limit,shortageOnly,hideZero,skuId));
     }
 }

@@ -80,7 +80,7 @@ public class BusinessCommands {
             var sorted=new java.util.TreeMap<String,Object>();
             map.forEach((key,item)->{
                 // 新增的可选字段未填写时保持旧请求摘要，允许升级后按原键查询和重试。
-                if(item!=null||!java.util.Set.of("salesUserId","buyerUserId","areaId","deliveryAreaId","deliveryAddress","sourceCode","businessUserId","groupBy","workflowAssignees","financeQuery","creditApproval","stockSelection","serials").contains(key.toString())) sorted.put(key.toString(),canonical(item));
+                if(item!=null||!java.util.Set.of("salesUserId","buyerUserId","areaId","deliveryAreaId","deliveryAddress","sourceCode","businessUserId","groupBy","agingDate","workflowAssignees","financeQuery","creditApproval","stockSelection","serials").contains(key.toString())) sorted.put(key.toString(),canonical(item));
             });
             return sorted;
         }

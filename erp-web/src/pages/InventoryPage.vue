@@ -19,7 +19,13 @@ const error = ref(''),
   optionsError = ref(''),
   busy = ref(false),
   cursors = ref([''])
-const filter = reactive({ keyword: '', warehouseId: '', hideZero: false, shortageOnly: false })
+const filter = reactive({
+  keyword: '',
+  warehouseId: '',
+  skuId: '',
+  hideZero: false,
+  shortageOnly: false,
+})
 const canCost = computed(() => session.can('cost:view'))
 let revision = 0,
   optionsRevision = 0,
@@ -29,6 +35,7 @@ function query(): Record<string, unknown> {
   return {
     keyword: filter.keyword.trim() || undefined,
     warehouseId: filter.warehouseId || undefined,
+    skuId: filter.skuId || undefined,
     hideZero: filter.hideZero || undefined,
     shortageOnly: filter.shortageOnly || undefined,
     cursor: cursors.value.at(-1) || undefined,
@@ -102,6 +109,10 @@ function rowKey(row: InventoryBalance): string {
 }
 function initialize(): void {
   filter.keyword = typeof route.query.keyword === 'string' ? route.query.keyword : ''
+  filter.skuId =
+    typeof route.query.skuId === 'string' && /^[1-9][0-9]*$/.test(route.query.skuId)
+      ? route.query.skuId
+      : ''
   filter.warehouseId = typeof route.query.warehouseId === 'string' ? route.query.warehouseId : ''
   filter.hideZero = route.query.hideZero === 'true'
   filter.shortageOnly = route.query.shortageOnly === 'true'
@@ -210,6 +221,7 @@ function refresh(): void {
         ><el-input
           id="inventory-search"
           v-model="filter.keyword"
+          @input="filter.skuId = ''"
           placeholder="编码、名称或条码"
           maxlength="100"
           clearable

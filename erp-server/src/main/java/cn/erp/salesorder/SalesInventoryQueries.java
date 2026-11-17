@@ -39,10 +39,16 @@ public class SalesInventoryQueries {
         return balances(scope,warehouse,keyword,cursor,limit,false,false);
     }
     public Map<String,Object> balances(CompanyAccess scope,String warehouse,String keyword,String cursor,int limit,boolean shortageOnly,boolean hideZero) {
+        return balances(scope,warehouse,keyword,cursor,limit,shortageOnly,hideZero,null);
+    }
+
+    public Map<String,Object> balances(CompanyAccess scope,String warehouse,String keyword,String cursor,int limit,boolean shortageOnly,boolean hideZero,Long skuId) {
         if(limit<1||limit>200||keyword.length()>100)throw invalid("库存查询条件无效");
+        if(skuId!=null&&skuId<=0)throw invalid("商品编号无效");
         if(warehouse!=null&&!scope.allowsWarehouse(identifier(warehouse)))throw missing();
         var args=new LinkedHashMap<String,Object>();args.put("t",scope.tenantId());args.put("c",scope.companyId());args.put("k",keyword);
         String filter=" WHERE (LOCATE(:k,s.code)>0 OR LOCATE(:k,s.name)>0 OR EXISTS(SELECT 1 FROM sku_barcode bc WHERE bc.tenant_id=:t AND bc.sku_id=s.id AND bc.barcode=:k))";
+        if(skuId!=null){filter+=" AND v.sku_id=:sku";args.put("sku",skuId);}
         if(warehouse!=null){filter+=" AND v.warehouse_id=:w";args.put("w",identifier(warehouse));}
         if(!scope.allWarehouses()) {
             filter+=" AND v.warehouse_id IN (:warehouses)";args.put("warehouses",scope.warehouseIds().isEmpty()?List.of(-1L):scope.warehouseIds());
@@ -51,11 +57,20 @@ public class SalesInventoryQueries {
         if(hideZero)filter+=" AND (v.on_hand_qty<>0 OR v.reserved_qty<>0 OR v.blocked_qty<>0 OR v.pending_demand_qty<>0)";
         String base=BALANCES.formatted(cn.erp.shared.OrgOwnership.filter(scope,"h"))+" FROM v JOIN warehouse w ON w.id=v.warehouse_id AND w.tenant_id=:t JOIN sku s ON s.id=v.sku_id AND s.tenant_id=:t";
         var named=new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(jdbc);
-        var rawSummary=named.queryForMap(base.replace("SELECT v.*,w.code warehouse_code,w.name warehouse_name,s.code sku_code,s.name sku_name", "SELECT COALESCE(SUM(v.cost_amount),0) cost_amount,COALESCE(SUM(v.blocked_qty),0) blocked_qty,COUNT(DISTINCT IF(v.pending_demand_qty>v.available_qty,v.sku_id,NULL)) shortage_count")+filter,args);
+        String measures="""
+                SELECT COALESCE(SUM(v.cost_amount),0) cost_amount,COALESCE(SUM(v.blocked_qty),0) blocked_qty,
+                  COUNT(DISTINCT IF(v.pending_demand_qty>v.available_qty,v.sku_id,NULL)) shortage_count
+                """;
+        if(skuId!=null)measures+="""
+                ,COALESCE(SUM(v.on_hand_qty),0) on_hand_qty,COALESCE(SUM(v.reserved_qty),0) reserved_qty,
+                 COALESCE(SUM(v.available_qty),0) available_qty,COALESCE(SUM(v.pending_demand_qty),0) pending_demand_qty
+                """;
+        var rawSummary=named.queryForMap(base.replace("SELECT v.*,w.code warehouse_code,w.name warehouse_name,s.code sku_code,s.name sku_name",measures)+filter,args);
         var summary=camel(rawSummary);if(!scope.permissions().contains("cost:view"))summary.remove("costAmount");
         if(scope.permissions().contains("report:unsigned_shipments")) {
             String unsigned="SELECT COUNT(DISTINCT h.id) unreceived_count,COALESCE(SUM(l.cost_amount-COALESCE(l.signed_cost_amount,0)-IF(l.diff_disposition IN ('returned','lost'),COALESCE(l.diff_cost_amount,0),0)),0) unreceived_cost_amount FROM shipment_line l JOIN shipment h ON h.id=l.shipment_id AND h.tenant_id=l.tenant_id AND h.company_id=l.company_id JOIN sku s ON s.id=l.sku_id WHERE h.tenant_id=:t AND h.company_id=:c AND h.status IN ('posted','signed','signed_with_diff') AND l.base_qty-l.signed_base_qty-IF(l.diff_disposition IN ('returned','lost'),l.diff_base_qty,0)>0 AND (LOCATE(:k,s.code)>0 OR LOCATE(:k,s.name)>0 OR EXISTS(SELECT 1 FROM sku_barcode bc WHERE bc.tenant_id=:t AND bc.sku_id=s.id AND bc.barcode=:k))";
             if(warehouse!=null)unsigned+=" AND h.warehouse_id=:w";
+            if(skuId!=null)unsigned+=" AND l.sku_id=:sku";
             if(!scope.allWarehouses())unsigned+=" AND h.warehouse_id IN (:warehouses)";
             unsigned+=cn.erp.shared.OrgOwnership.filter(scope,"h");
             summary.putAll(camel(named.queryForMap(unsigned,args)));if(!scope.permissions().contains("cost:view"))summary.remove("unreceivedCostAmount");

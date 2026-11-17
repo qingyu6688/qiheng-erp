@@ -21,20 +21,22 @@ import cn.erp.ai.common.BoundedHttp;
 
 /** 按已批准的端点创建 Spring AI 模型，统一封装可控的请求和响应。 */
 final class HttpChatModel implements ChatModel {
-    private static final Duration TIMEOUT = Duration.ofSeconds(42);
+    static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(42);
     private final ModelCatalog.Target target;
     private final ModelCatalog.Route route;
     private final String secret;
     private final BoundedHttp http;
     private final ObjectMapper json;
+    private final Duration timeout;
 
     HttpChatModel(ModelCatalog.Target target, ModelCatalog.Route route, String secret,
-            BoundedHttp http, ObjectMapper json) {
+            BoundedHttp http,ObjectMapper json,Duration timeout) {
         this.target=target;
         this.route=route;
         this.secret=secret;
         this.http=http;
         this.json=json;
+        this.timeout=timeout;
     }
 
     @Override
@@ -53,7 +55,7 @@ final class HttpChatModel implements ChatModel {
         } else {
             payload.put("messages",List.of(Map.of("role","system","content",system),Map.of("role","user","content",user)));
         }
-        var request = HttpRequest.newBuilder(URI.create(target.endpoint() + path)).timeout(TIMEOUT)
+        var request = HttpRequest.newBuilder(URI.create(target.endpoint() + path)).timeout(timeout)
                 .header("Accept","application/json").header("Content-Type","application/json");
         if (claude) {
             request.header("anthropic-version","2023-06-01").header("x-api-key",secret);
@@ -61,7 +63,7 @@ final class HttpChatModel implements ChatModel {
             request.header("Authorization","Bearer " + secret);
         }
         var response = http.send(request.POST(HttpRequest.BodyPublishers.ofByteArray(json.writeValueAsBytes(payload))).build(),
-                1_048_576,TIMEOUT);
+                1_048_576,timeout);
         if (response.statusCode() != 200) throw error("AI_MODEL_UNAVAILABLE","模型服务调用失败");
         try {
             return parse(json.readTree(response.body()),claude,estimated(system) + estimated(user));

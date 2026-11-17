@@ -27,7 +27,24 @@ export interface AiToolResult {
   label: string
   rows: Record<string, unknown>[]
   hasMore?: boolean
+  status?: 'ok' | 'ambiguous'
+  asOf?: string
+  summary?: Record<string, unknown>
+  detailUrl?: string
+  candidates?: { code?: string; name: string }[]
 }
+
+export const aiBusinessTools = {
+  receivable_balance: { label: '应收余额', example: '查华东商贸的应收余额，截至今天。' },
+  payable_balance: { label: '应付余额', example: '截至今天，我们还欠华北供应商多少钱？' },
+  available_stock: { label: '可用库存', example: '查 A001 商品在一号仓的可用库存。' },
+  order_progress: { label: '销售进度', example: '查销售订单 SO-1001 的发货进度。' },
+  purchase_progress: { label: '采购进度', example: '查采购订单 PO-1001 的收货进度。' },
+  sales_summary: { label: '销售汇总', example: '本月销售额按业务员汇总。' },
+  gross_margin: { label: '销售毛利', example: '查本月按商品汇总的销售毛利。' },
+  cash_balance: { label: '资金余额', example: '查基本户截至今天的余额。' },
+  document_search: { label: '查找单据', example: '找本月编号包含 SO-1001 的销售订单。' },
+} as const
 
 export interface AiMessage {
   id: Id
@@ -228,11 +245,15 @@ export interface AiEvalSet {
 export interface AiEvalRun {
   id: Id
   status: string
+  setCode?: string
   total?: number
   correctRate?: number
   citationRate?: number
   refusalRate?: number
   securityRate?: number
+  toolSelectionRate?: number | null
+  parameterRate?: number | null
+  reportAgreementRate?: number | null
   passed?: boolean
   results?: AiEvalResult[]
 }
@@ -244,5 +265,18 @@ export interface AiEvalResult {
   citationCorrect: boolean
   refused: boolean
   expectedRefusal: boolean
+  toolSelected?: boolean | null
+  parametersCorrect?: boolean | null
+  reportAgrees?: boolean | null
   reason: string | null
+}
+
+export interface AiEvalCase {
+  id: Id
+  category: string
+  question: string
+  scenarioId?: string
+  toolCode?: string
+  arguments?: Record<string, unknown>
+  expectedRefusal: boolean
 }

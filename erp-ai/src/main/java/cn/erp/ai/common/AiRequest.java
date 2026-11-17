@@ -20,6 +20,8 @@ import tools.jackson.databind.ObjectMapper;
 public class AiRequest {
     private static final String CONTEXT = "/api/v1/ai-tools/context";
     private static final String WAREHOUSES = "/api/v1/ai-tools/warehouses";
+    private static final String QUERY = "/api/v1/ai-tools/query/";
+    private static final String SCOPE = "/api/v1/ai-tools/scope/";
     private static final Duration ERP_TIMEOUT = Duration.ofSeconds(10);
     private static final Set<String> READ_METHODS = Set.of("GET", "HEAD");
     private final String origin;
@@ -53,26 +55,49 @@ public class AiRequest {
         boolean write = !READ_METHODS.contains(request.getMethod());
         if (write && (csrf == null || csrf.isBlank() || csrf.length() > 512))
             throw new AiException(403, "AI_CSRF_REQUIRED", "请求验证已失效，请刷新后重试");
-        var credentials = new Credentials(company, cookies);
+        var credentials = new Credentials(company, cookies, write ? csrf : null);
         return new Access(context(credentials, write ? csrf : null), credentials);
     }
 
     public AiActor refresh(Access access) {
         AiActor current = context(access.credentials(), null);
-        if (!current.tenantId().equals(access.actor().tenantId()) || !current.userId().equals(access.actor().userId()))
+        if (!current.tenantId().equals(access.actor().tenantId()) || !current.userId().equals(access.actor().userId())
+                || !current.companyId().equals(access.actor().companyId()))
             throw AiException.forbidden();
         return current;
     }
 
     public JsonNode warehouses(Access access) {
-        return erp(access.credentials(), "GET", WAREHOUSES, null);
+        return erp(access.credentials(), "GET", WAREHOUSES, null, null);
+    }
+
+    public JsonNode businessTool(Access access,String code,JsonNode arguments) {
+        var tool=BusinessToolSpec.require(code);
+        tool.validate(arguments);
+        tool.authorize(access.actor(),arguments);
+        if (access.credentials().csrf==null)
+            throw new AiException(403,"AI_CSRF_REQUIRED","查数请求验证已失效，请刷新后重试");
+        return erp(access.credentials(),"POST",QUERY+tool.code(),access.credentials().csrf,json.writeValueAsBytes(arguments));
+    }
+
+    public String businessScope(Access access,String code) {
+        var tool=BusinessToolSpec.require(code);
+        access.actor().require("ai:use");
+        if (!tool.allowed(access.actor())) throw AiException.forbidden();
+        return scopeFingerprint(erp(access.credentials(),"GET",SCOPE+tool.code(),null,null));
+    }
+
+    public static String scopeFingerprint(JsonNode data) {
+        var fingerprint=data.path("scopeFingerprint");
+        if (!fingerprint.isString() || !fingerprint.stringValue().matches("[a-f0-9]{64}")) throw upstream();
+        return fingerprint.stringValue();
     }
 
     private AiActor context(Credentials credentials, String csrf) {
-        var data = erp(credentials, csrf == null ? "GET" : "POST", CONTEXT, csrf);
+        var data = erp(credentials, csrf == null ? "GET" : "POST", CONTEXT, csrf, null);
         return new AiActor(data.path("tenantId").asString(), data.path("userId").asString(),
                 credentials.company(), stringSet(data.path("permissions")), stringSet(data.path("roleIds")),
-                stringSet(data.path("departmentIds")));
+                stringSet(data.path("departmentIds")),data.path("allWarehouses").asBoolean(false));
     }
 
     private static Set<String> stringSet(JsonNode array) {
@@ -85,24 +110,30 @@ public class AiRequest {
         return Set.copyOf(values);
     }
 
-    private JsonNode erp(Credentials credentials, String method, String path, String csrf) {
+    private JsonNode erp(Credentials credentials, String method, String path, String csrf, byte[] payload) {
         if (signingKey.length < 32)
             throw new AiException(503, "AI_BRIDGE_DISABLED", "AI 服务尚未启用");
         String timestamp = Long.toString(System.currentTimeMillis());
         String nonce = UUID.randomUUID().toString().replace("-", "");
-        String signature = sign(signingKey, timestamp, nonce, method, path, credentials.company(), credentials.cookie);
+        String signature = sign(signingKey,timestamp,nonce,method,path,credentials.company(),credentials.cookie,payload);
         var request = HttpRequest.newBuilder(URI.create(origin + path)).timeout(ERP_TIMEOUT)
                 .header("Accept", "application/json").header("Cookie", credentials.cookie)
                 .header("X-Company-Id", credentials.company())
                 .header("X-Erp-Ai-Timestamp", timestamp).header("X-Erp-Ai-Nonce", nonce)
                 .header("X-Erp-Ai-Signature", signature);
         if (csrf != null) request.header("X-XSRF-TOKEN", csrf);
-        var response = http.send(request.method(method, HttpRequest.BodyPublishers.noBody()).build(), 131072, ERP_TIMEOUT);
+        if (payload != null) request.header("Content-Type","application/json");
+        var bodyPublisher=payload==null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(payload);
+        var response = http.send(request.method(method,bodyPublisher).build(),131072,ERP_TIMEOUT);
         if (response.statusCode() == 401) throw new AiException(401, "AI_LOGIN_REQUIRED", "登录已失效，请重新登录");
         if (response.statusCode() == 403) throw AiException.forbidden();
         if (response.statusCode() == 404) throw AiException.missing();
+        if (payload!=null && (response.statusCode()==400 || response.statusCode()==422))
+            throw AiException.invalid("查数条件无法用于此业务查询，请核对条件后重试");
         if (response.statusCode() != 200) throw upstream();
-        var body = json.readTree(response.body());
+        JsonNode body;
+        try { body=json.readTree(response.body()); }
+        catch (RuntimeException invalid) { throw upstream(); }
         if (body.path("code").asInt() != 200 || !body.path("data").isObject()) throw upstream();
         var data = body.path("data");
         if (path.equals(CONTEXT) && !credentials.company().equals(data.path("companyId").asString())) throw upstream();
@@ -113,13 +144,16 @@ public class AiRequest {
         return new AiException(502, "AI_ERP_RESPONSE", "业务服务未返回有效资料");
     }
 
-    static String sign(byte[] key, String timestamp, String nonce, String method, String path, String company, String cookie) {
+    private static String sign(byte[] key,String timestamp,String nonce,String method,String path,String company,String cookie,byte[] payload) {
         try {
-            String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(cookie.getBytes(StandardCharsets.UTF_8)));
+            var digest=MessageDigest.getInstance("SHA-256");
+            var hex=HexFormat.of();
+            String hash=hex.formatHex(digest.digest(cookie.getBytes(StandardCharsets.UTF_8)));
             var mac = Mac.getInstance("HmacSHA256");
             mac.init(new SecretKeySpec(key, "HmacSHA256"));
             String target = String.join("\n", timestamp, nonce, method, path, company, hash);
-            return HexFormat.of().formatHex(mac.doFinal(target.getBytes(StandardCharsets.UTF_8)));
+            if (payload!=null) target+="\n"+hex.formatHex(digest.digest(payload));
+            return hex.formatHex(mac.doFinal(target.getBytes(StandardCharsets.UTF_8)));
         } catch (GeneralSecurityException error) {
             throw new IllegalStateException("签名算法不可用", error);
         }
@@ -128,7 +162,8 @@ public class AiRequest {
     public static final class Credentials {
         private final String company;
         private final String cookie;
-        private Credentials(String company, String cookie) { this.company = company; this.cookie = cookie; }
+        private final String csrf;
+        private Credentials(String company,String cookie,String csrf) { this.company=company;this.cookie=cookie;this.csrf=csrf; }
         public String company() { return company; }
     }
 

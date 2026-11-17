@@ -51,7 +51,7 @@ public class ExportWorker {
             // 查询快照的只读事务在这里结束，生成CSV及对象I/O均不占用业务事务。
             var snapshot=reports.snapshot(actor,job.type(),job.query());
             byte[] bytes=ExportCsv.writeReport(job.type(),Boolean.TRUE.equals(job.query().detail()),actor.hasPermission("cost:view"),
-                    "brand".equals(job.query().groupBy()),snapshot.items(),json);
+                    job.query().groupBy(),snapshot.items(),json);
             key=job.tenant()+"/"+job.company()+"/exports/"+UUID.randomUUID();
             compensation.stage(key);
             files.put(key,bytes,"text/csv");

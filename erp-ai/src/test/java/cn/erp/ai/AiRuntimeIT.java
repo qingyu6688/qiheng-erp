@@ -7,11 +7,16 @@ import java.net.http.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -40,6 +45,11 @@ class AiRuntimeIT {
     private static final String OTHER_TENANT=Long.toString(Long.parseLong(TENANT)+1);
     private static final AtomicBoolean ROLE_ACCESS=new AtomicBoolean(true);
     private static final AtomicBoolean WAREHOUSE_ACCESS=new AtomicBoolean(true);
+    private static final AtomicBoolean BUSINESS_ACCESS=new AtomicBoolean(true);
+    private static final AtomicBoolean BUSINESS_SCOPE_CHANGED=new AtomicBoolean(false);
+    private static final AtomicInteger BUSINESS_CALLS=new AtomicInteger();
+    private static final AtomicReference<String> BUSINESS_PLAN=new AtomicReference<>();
+    private static final AtomicReference<String> BUSINESS_PROMPT=new AtomicReference<>();
     private static final List<String> MODELS=new CopyOnWriteArrayList<>();
     private static HttpServer upstream;
 
@@ -52,6 +62,8 @@ class AiRuntimeIT {
         upstream=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
         upstream.createContext("/api/v1/ai-tools/context",AiRuntimeIT::identity);
         upstream.createContext("/api/v1/ai-tools/warehouses",AiRuntimeIT::warehouses);
+        upstream.createContext("/api/v1/ai-tools/query/available_stock",AiRuntimeIT::queryStock);
+        upstream.createContext("/api/v1/ai-tools/scope/available_stock",AiRuntimeIT::queryScope);
         upstream.createContext("/v1/chat/completions",AiRuntimeIT::model);
         upstream.start();
         String origin="http://127.0.0.1:"+upstream.getAddress().getPort();
@@ -66,7 +78,16 @@ class AiRuntimeIT {
 
     @AfterAll static void stop() { if (upstream != null) upstream.stop(0); }
 
-    @BeforeEach void resetAccess() { ROLE_ACCESS.set(true); WAREHOUSE_ACCESS.set(true); MODELS.clear(); }
+    @BeforeEach void resetAccess() {
+        ROLE_ACCESS.set(true);
+        WAREHOUSE_ACCESS.set(true);
+        BUSINESS_ACCESS.set(true);
+        BUSINESS_SCOPE_CHANGED.set(false);
+        BUSINESS_CALLS.set(0);
+        BUSINESS_PLAN.set(null);
+        BUSINESS_PROMPT.set(null);
+        MODELS.clear();
+    }
 
     @Test
     void csrfAndConversationOwnerCompanyAndTenantAreIsolated() throws Exception {
@@ -129,6 +150,53 @@ class AiRuntimeIT {
         assertThat(data("GET","/conversations/"+id+"/messages",null,"reader","1101").toString())
                 .contains("此回答暂不可查看").doesNotContain("测试仓库");
         assertThat(MODELS).isEmpty();
+    }
+
+    @Test
+    void businessQueryUsesScopedSignedArgumentsAndResultsAreEphemeral() throws Exception {
+        configureModels();
+        data("POST","/admin/assistants",Map.of("code","internal","name","智能查数验收","systemPrompt","",
+                "enabled",true,"libraryIds",List.of(),"toolCodes",List.of("available_stock","receivable_balance"),
+                "roleIds",List.of()),"admin","1101");
+        assertThat(data("GET","/assistants",null,"reader","1101").toString())
+                .contains("available_stock").doesNotContain("receivable_balance");
+        String id=newConversation("reader","1101");
+        String path="/conversations/"+id+"/messages";
+        var input=Map.of("content","查冷链商品在杭州仓的可用库存","toolCode","auto");
+        BUSINESS_PLAN.set("""
+                {"toolCalls":[{"code":"available_stock","arguments":{"sku":"冷链商品","warehouse":"杭州仓"}}]}
+                """);
+        var result=send("POST",path,input,"reader","1101",true);
+        assertThat(result.body()).contains("event:tool_result","event:done","12345678901234.567891",
+                "\"warehouseId\":\"9007199254740995\"","/inventory-balances","2026-11-17T06:00:00Z")
+                .doesNotContain("event:error","scopeFingerprint");
+        assertThat(BUSINESS_CALLS.get()).isEqualTo(1);
+        assertThat(BUSINESS_PROMPT.get()).contains("inputSchema","available_stock","additionalProperties")
+                .doesNotContain("12345678901234.567891","receivable_balance","scopeFingerprint");
+        assertThat(data("GET",path,null,"reader","1101").toString())
+                .contains("查数结果仅在本次请求中展示").doesNotContain("12345678901234.567891","9007199254740995");
+        assertThat(send("GET",path,null,"other","1101",false).statusCode()).isEqualTo(404);
+        assertThat(send("GET",path,null,"reader","1102",false).statusCode()).isEqualTo(404);
+
+        BUSINESS_PLAN.set("""
+                {"toolCalls":[{"code":"available_stock","arguments":{"sku":"冷链商品"}},
+                              {"code":"stock_adjustment","arguments":{"sku":"冷链商品"}}]}
+                """);
+        assertThat(send("POST",path,input,"reader","1101",true).body())
+                .contains("AI_FORBIDDEN").doesNotContain("event:tool_result");
+        assertThat(BUSINESS_CALLS.get()).isEqualTo(1);
+
+        BUSINESS_PLAN.set(null);
+        var precise=Map.of("content","查冷链商品在杭州仓的可用库存","toolCode","available_stock",
+                "toolArguments",Map.of("sku","冷链商品","warehouse","杭州仓"));
+        BUSINESS_SCOPE_CHANGED.set(true);
+        assertThat(send("POST",path,precise,"reader","1101",true).body())
+                .contains("AI_FORBIDDEN").doesNotContain("event:tool_result","12345678901234.567891");
+        assertThat(BUSINESS_CALLS.get()).isEqualTo(2);
+        BUSINESS_ACCESS.set(false);
+        assertThat(send("POST",path,precise,"reader","1101",true).body())
+                .contains("AI_FORBIDDEN").doesNotContain("event:tool_result");
+        assertThat(BUSINESS_CALLS.get()).isEqualTo(2);
     }
 
     @Test
@@ -250,11 +318,12 @@ class AiRuntimeIT {
         boolean admin=cookie.contains("=admin;") || cookie.contains("=other;");
         var permissions=new ArrayList<>(List.of("ai:use"));
         if (WAREHOUSE_ACCESS.get()) permissions.add("warehouse:view");
+        if (BUSINESS_ACCESS.get()) permissions.add("inventory:view");
         if (admin) permissions.addAll(List.of("ai_admin:manage","ai_admin:view","ai_admin:review","ai_admin:evaluate"));
         var data=Map.of("tenantId",cookie.contains("=other;") ? OTHER_TENANT : TENANT,
                 "userId",admin ? "501" : "502","companyId",headers.getFirst("X-Company-Id"),
                 "permissions",permissions,"roleIds",ROLE_ACCESS.get() ? List.of("9001") : List.of(),
-                "departmentIds",List.of());
+                "departmentIds",List.of(),"allWarehouses",true);
         respond(request,200,Map.of("code",200,"data",data));
     }
 
@@ -269,8 +338,50 @@ class AiRuntimeIT {
         var model=input.path("model").asString();
         MODELS.add(model);
         if (model.equals("primary-fail")) {respond(request,502,Map.of("message","模拟上游故障"));return;}
-        respond(request,200,Map.of("choices",List.of(Map.of("message",Map.of("content","紫铜齿轮收货过账时确认应付。[1]"))),
+        String plan=BUSINESS_PLAN.get();
+        if (plan!=null) BUSINESS_PROMPT.set(input.path("messages").path(1).path("content").asString());
+        respond(request,200,Map.of("choices",List.of(Map.of("message",Map.of("content",
+                plan==null?"紫铜齿轮收货过账时确认应付。[1]":plan))),
                 "usage",Map.of("prompt_tokens",180,"completion_tokens",24)));
+    }
+
+    private static void queryStock(HttpExchange request) throws IOException {
+        byte[] payload=request.getRequestBody().readAllBytes();
+        var params=JSON.readTree(payload);
+        if (!BUSINESS_ACCESS.get() || !"POST".equals(request.getRequestMethod()) || !validBusinessSignature(request,payload)
+                || !"1101".equals(request.getRequestHeaders().getFirst("X-Company-Id")) || !"fixture".equals(request.getRequestHeaders().getFirst("X-XSRF-TOKEN"))
+                || !params.equals(JSON.readTree("{\"sku\":\"冷链商品\",\"warehouse\":\"杭州仓\"}"))) {
+            respond(request,403,Map.of());return;
+        }
+        BUSINESS_CALLS.incrementAndGet();
+        var result=Map.of("scopeFingerprint","a".repeat(64),"status","ok","asOf","2026-11-17T06:00:00Z",
+                "items",List.of(Map.of("warehouseId","9007199254740995","availableQty","12345678901234.567891")),
+                "detailUrl","/inventory-balances");
+        respond(request,200,Map.of("code",200,"data",result));
+    }
+
+    private static void queryScope(HttpExchange request) throws IOException {
+        if (!BUSINESS_ACCESS.get() || !"GET".equals(request.getRequestMethod()) || !validBusinessSignature(request,null)
+                || !"1101".equals(request.getRequestHeaders().getFirst("X-Company-Id"))) {respond(request,403,Map.of());return;}
+        respond(request,200,Map.of("code",200,"data",Map.of("scopeFingerprint",(BUSINESS_SCOPE_CHANGED.get()?"b":"a").repeat(64))));
+    }
+
+    private static boolean validBusinessSignature(HttpExchange request,byte[] payload) {
+        try {
+            var headers=request.getRequestHeaders();
+            var sha=MessageDigest.getInstance("SHA-256");
+            var hex=HexFormat.of();
+            var utf8=StandardCharsets.UTF_8;
+            String canonical=String.join("\n",headers.getFirst("X-Erp-Ai-Timestamp"),headers.getFirst("X-Erp-Ai-Nonce"),
+                    request.getRequestMethod(),request.getRequestURI().getPath(),headers.getFirst("X-Company-Id"),
+                    hex.formatHex(sha.digest(headers.getFirst("Cookie").getBytes(utf8))));
+            if (payload!=null) canonical+="\n"+hex.formatHex(sha.digest(payload));
+            Mac mac=Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(TEST_SIGNING_KEY.getBytes(utf8),"HmacSHA256"));
+            return hex.formatHex(mac.doFinal(canonical.getBytes(utf8))).equals(headers.getFirst("X-Erp-Ai-Signature"));
+        } catch (java.security.GeneralSecurityException failure) {
+            throw new IllegalStateException("测试签名不可用",failure);
+        }
     }
 
     private static void respond(HttpExchange exchange,int status,Object body) throws IOException {

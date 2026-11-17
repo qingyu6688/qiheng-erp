@@ -3,7 +3,12 @@ package cn.erp.ai.common;
 import java.util.Set;
 
 public record AiActor(String tenantId, String userId, String companyId,
-        Set<String> permissions, Set<String> roleIds, Set<String> departmentIds) {
+        Set<String> permissions,Set<String> roleIds,Set<String> departmentIds,boolean allWarehouses) {
+    public AiActor(String tenantId,String userId,String companyId,Set<String> permissions,Set<String> roleIds,
+                   Set<String> departmentIds) {
+        this(tenantId,userId,companyId,permissions,roleIds,departmentIds,false);
+    }
+
     public AiActor {
         AiInputs.id(tenantId);
         AiInputs.id(userId);

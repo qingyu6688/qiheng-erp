@@ -65,18 +65,43 @@ final class ReportSql {
         String qty=sales?"signed_base_qty":"base_qty",cost=sales?"signed_cost_amount":"cost_amount";
         String fact=sales?"receivable":"payable",fee=sales?"sales_order_fee":"purchase_order_fee",rep=sales?"sales_user_id":"buyer_user_id";
         // 原始事实始终保留；冲销仅追加一次反向行，避免按单据状态删除后再次扣减。
-        String base="SELECT l.id,h.warehouse_id,l.sku_id,h."+partner+" partner_id,h."+date+" business_date,'"+head+"' source_type,h.id source_id,h."+no+" source_no,l.id source_line_id,l."+qty+" qty,l."+amount+" amount,l.untaxed_amount,l.tax_amount,l."+cost+" cost_amount,h."+rep+" business_user_id FROM "+line+" l JOIN "+head+" h ON h.id=l."+key+" AND h.tenant_id=l.tenant_id AND h.company_id=l.company_id WHERE l.tenant_id=:t AND l.company_id=:c AND h."+date+" IS NOT NULL AND l."+cost+" IS NOT NULL AND h.status IN ('posted','signed','signed_with_diff','reversed')";
+        String base="SELECT l.id,h.warehouse_id,l.sku_id,h."+partner+" partner_id,h."+date+" business_date,'"+head+"' source_type,h.id source_id,h."+no+" source_no,l.id source_line_id,l."+qty+" qty,l."+amount+" amount,l.untaxed_amount,l.tax_amount,l."+cost+" cost_amount,h."+rep+" business_user_id,h.owner_department_id department_id FROM "+line+" l JOIN "+head+" h ON h.id=l."+key+" AND h.tenant_id=l.tenant_id AND h.company_id=l.company_id WHERE l.tenant_id=:t AND l.company_id=:c AND h."+date+" IS NOT NULL AND l."+cost+" IS NOT NULL AND h.status IN ('posted','signed','signed_with_diff','reversed')";
         base+=ownerAnd(actor,"h");
-        base+=" UNION ALL SELECT l.id,h.warehouse_id,l.sku_id,h."+partner+",h.business_date,'"+ret+"',h.id,h.return_no,l.id,-l.base_qty,-l."+credit+",-l.untaxed_amount,-l.tax_amount,-l.cost_amount,h."+rep+" FROM "+ret+"_line l JOIN "+ret+" h ON h.id=l.return_id AND h.tenant_id=l.tenant_id AND h.company_id=l.company_id WHERE l.tenant_id=:t AND l.company_id=:c AND h.status IN ('posted','reversed')";
+        base+=" UNION ALL SELECT l.id,h.warehouse_id,l.sku_id,h."+partner+",h.business_date,'"+ret+"',h.id,h.return_no,l.id,-l.base_qty,-l."+credit+",-l.untaxed_amount,-l.tax_amount,-l.cost_amount,h."+rep+",h.owner_department_id FROM "+ret+"_line l JOIN "+ret+" h ON h.id=l.return_id AND h.tenant_id=l.tenant_id AND h.company_id=l.company_id WHERE l.tenant_id=:t AND l.company_id=:c AND h.status IN ('posted','reversed')";
         base+=ownerAnd(actor,"h");
-        base+=" UNION ALL SELECT r.id,h.warehouse_id,NULL,r."+partner+",r.business_date,'"+head+"',h.id,h."+no+",r.source_line_id,0,r.amount,r.untaxed_amount,r.tax_amount,0,h."+rep+" FROM "+fact+" r JOIN "+head+" h ON h.id=r.source_id AND h.tenant_id=r.tenant_id AND h.company_id=r.company_id WHERE r.tenant_id=:t AND r.company_id=:c AND r.source_type='"+fee+"' AND r.posting_action='post'";
+        base+=" UNION ALL SELECT r.id,h.warehouse_id,NULL,r."+partner+",r.business_date,'"+head+"',h.id,h."+no+",r.source_line_id,0,r.amount,r.untaxed_amount,r.tax_amount,0,h."+rep+",h.owner_department_id FROM "+fact+" r JOIN "+head+" h ON h.id=r.source_id AND h.tenant_id=r.tenant_id AND h.company_id=r.company_id WHERE r.tenant_id=:t AND r.company_id=:c AND r.source_type='"+fee+"' AND r.posting_action='post'";
         base+=ownerAnd(actor,"h");
-        return "WITH b AS ("+base+"), f AS (SELECT * FROM b UNION ALL SELECT r.id,b.warehouse_id,b.sku_id,b.partner_id,r.business_date,'document_reversal',r.id,r.reversal_no,b.source_line_id,-b.qty,-b.amount,-b.untaxed_amount,-b.tax_amount,-b.cost_amount,b.business_user_id FROM b JOIN document_reversal r ON r.tenant_id=:t AND r.company_id=:c AND r.source_type=b.source_type AND r.source_id=b.source_id AND r.status='posted') SELECT *,untaxed_amount-cost_amount gross_margin FROM f WHERE business_date BETWEEN :f AND :d";
+        return "WITH b AS ("+base+"), f AS (SELECT * FROM b UNION ALL SELECT r.id,b.warehouse_id,b.sku_id,b.partner_id,r.business_date,'document_reversal',r.id,r.reversal_no,b.source_line_id,-b.qty,-b.amount,-b.untaxed_amount,-b.tax_amount,-b.cost_amount,b.business_user_id,b.department_id FROM b JOIN document_reversal r ON r.tenant_id=:t AND r.company_id=:c AND r.source_type=b.source_type AND r.source_id=b.source_id AND r.status='posted') SELECT *,untaxed_amount-cost_amount gross_margin FROM f WHERE business_date BETWEEN :f AND :d";
     }
     private static String aging(boolean ar,CompanyAccess actor) {
         String fact=ar?"receivable":"payable",direction=ar?"D":"C",head=ar?"shipment":"goods_receipt",ret=ar?"sales_return":"purchase_return",rep=ar?"sales_user_id":"buyer_user_id";
         String st="COALESCE(original.source_type,r.source_type)",si="COALESCE(original.source_id,r.source_id)";
-        return "SELECT i.id,i.partner_id,r.source_type,r.source_id,r.source_line_id,i.aging_date,i.direction,IF(i.direction='"+direction+"',i.open_amount,-i.open_amount) open_amount,DATEDIFF(:today,i.aging_date) age_days,COALESCE(h."+rep+",b."+rep+",0) business_user_id,COALESCE(h.owner_department_id,b.owner_department_id,e.owner_department_id,0) department_id FROM partner_open_item i JOIN "+fact+" r ON r.tenant_id=i.tenant_id AND r.company_id=i.company_id AND r.id=i.source_id LEFT JOIN "+fact+" original ON original.tenant_id=r.tenant_id AND original.company_id=r.company_id AND original.id=r.reverses_"+fact+"_id LEFT JOIN "+head+" h ON h.tenant_id=r.tenant_id AND h.company_id=r.company_id AND h.id="+si+" AND "+st+" IN('"+head+"_line','"+(ar?"sales_order_fee":"purchase_order_fee")+"') LEFT JOIN "+ret+" b ON b.tenant_id=r.tenant_id AND b.company_id=r.company_id AND b.id="+si+" AND "+st+"='"+ret+"_line' LEFT JOIN opening_entry e ON e.tenant_id=r.tenant_id AND e.company_id=r.company_id AND e.id="+si+" AND "+st+"='opening_entry' WHERE i.tenant_id=:t AND i.company_id=:c AND i.item_type='"+fact+"' AND i.open_amount>0 AND i.aging_date<=:today AND "+source(actor,"r.source_type","r.source_id");
+        String remaining="IF(:agingNow,i.open_amount,i.amount-"+allocatedAtCutoff("debit","D")+"-"+allocatedAtCutoff("credit","C")+")";
+        return "WITH facts AS (SELECT i.id,i.partner_id,r.source_type,r.source_id,r.source_line_id,i.aging_date,i.direction,"
+                +remaining+" remaining,DATEDIFF(:today,i.aging_date) age_days,COALESCE(h."+rep+",b."+rep+",0) business_user_id,"
+                +"COALESCE(h.owner_department_id,b.owner_department_id,e.owner_department_id,0) department_id FROM partner_open_item i"
+                +" JOIN "+fact+" r ON r.tenant_id=i.tenant_id AND r.company_id=i.company_id AND r.id=i.source_id"
+                +" LEFT JOIN "+fact+" original ON original.tenant_id=r.tenant_id AND original.company_id=r.company_id AND original.id=r.reverses_"+fact+"_id"
+                +" LEFT JOIN "+head+" h ON h.tenant_id=r.tenant_id AND h.company_id=r.company_id AND h.id="+si
+                +" AND "+st+" IN('"+head+"_line','"+(ar?"sales_order_fee":"purchase_order_fee")+"')"
+                +" LEFT JOIN "+ret+" b ON b.tenant_id=r.tenant_id AND b.company_id=r.company_id AND b.id="+si+" AND "+st+"='"+ret+"_line'"
+                +" LEFT JOIN opening_entry e ON e.tenant_id=r.tenant_id AND e.company_id=r.company_id AND e.id="+si+" AND "+st+"='opening_entry'"
+                +" WHERE i.tenant_id=:t AND i.company_id=:c AND i.item_type='"+fact+"' AND i.aging_date<=:today"
+                +" AND (:agingNow OR (r.business_date<=:today AND i.created_at<:agingEnd)) AND "+source(actor,"r.source_type","r.source_id")
+                +") SELECT id,partner_id,source_type,source_id,source_line_id,aging_date,direction,IF(direction='"+direction
+                +"',remaining,-remaining) open_amount,age_days,business_user_id,department_id FROM facts WHERE remaining>0";
+    }
+
+    private static String allocatedAtCutoff(String side,String direction) {
+        // 核销表的复合外键按往来单位、币种、方向和未清项建立索引，借贷分开查询可使用完整索引。
+        return """
+                COALESCE((SELECT SUM(a.amount) FROM settlement_allocation a
+                  WHERE a.tenant_id=i.tenant_id AND a.company_id=i.company_id AND a.partner_id=i.partner_id
+                    AND a.currency=i.currency AND a.%s_direction='%s' AND a.%s_item_id=i.id AND a.created_at<:agingEnd
+                    AND (a.status IN ('active','reserved') OR a.status='revoked' AND a.revoked_at>=:agingEnd
+                      OR a.status='released' AND a.updated_at>=:agingEnd)
+                ),0)
+                """.formatted(side,direction,side);
     }
     private static String statement(CompanyAccess actor) {
         return """

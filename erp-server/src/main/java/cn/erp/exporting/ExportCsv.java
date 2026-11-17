@@ -14,11 +14,20 @@ public final class ExportCsv {
         var labels=new LinkedHashMap<String,String>();columns.forEach(column->labels.put(column,column));return write(rows,labels,json);
     }
     public static byte[] writeReport(ReportType type,boolean detail,boolean cost,List<Map<String,Object>> rows,ObjectMapper json) {
-        return writeReport(type,detail,cost,!rows.isEmpty()&&rows.getFirst().containsKey("brandName"),rows,json);
+        return writeReport(type,detail,cost,!rows.isEmpty()&&rows.getFirst().containsKey("brandName")?"brand":null,rows,json);
     }
-    static byte[] writeReport(ReportType type,boolean detail,boolean cost,boolean byBrand,List<Map<String,Object>> rows,ObjectMapper json) {
+    static byte[] writeReport(ReportType type,boolean detail,boolean cost,String groupBy,List<Map<String,Object>> rows,ObjectMapper json) {
         var columns=new LinkedHashMap<String,String>();
-        if(byBrand) {add(columns,"brandName","品牌");}
+        boolean commerce=Set.of(ReportType.SALES_SUMMARY,ReportType.PURCHASE_SUMMARY,ReportType.GROSS_MARGIN).contains(type);
+        boolean grouped=commerce&&Set.of("brand","customer","sku","business_user","department").contains(Objects.toString(groupBy,""));
+        if("brand".equals(groupBy)) {add(columns,"brandName","品牌");}
+        else if(grouped) switch(groupBy) {
+            case "customer" -> add(columns,"partnerName",type==ReportType.PURCHASE_SUMMARY?"供应商":"客户");
+            case "sku" -> add(columns,"skuCode","商品编码","skuName","商品");
+            case "business_user" -> add(columns,"businessUserName",type==ReportType.PURCHASE_SUMMARY?"采购员":"销售员");
+            case "department" -> add(columns,"departmentName","部门");
+            default -> throw new IllegalStateException("报表汇总维度无效");
+        }
         else if(!type.companyWide()) { add(columns,"warehouseName","仓库","skuCode","商品编码","skuName","商品"); }
         switch(type) {
             case INVENTORY_SUMMARY -> add(columns,"onHandQty","在库数量","reservedQty","预留数量","blockedQty","冻结数量","availableQty","可用数量","costAmount","库存成本");
@@ -28,7 +37,7 @@ public final class ExportCsv {
             }
             case UNSIGNED_SHIPMENTS -> add(columns,"partnerName","客户","sourceNo","发货单号","businessDate","发货日期","unsignedQty","未签收数量","costAmount","发出商品成本","diffDisposition","差异处理");
             case SALES_SUMMARY,PURCHASE_SUMMARY,GROSS_MARGIN -> {
-                if(!byBrand) {
+                if(!grouped) {
                     add(columns,"businessUserName",type==ReportType.PURCHASE_SUMMARY?"采购员":"销售员");
                     add(columns,"partnerName",type==ReportType.PURCHASE_SUMMARY?"供应商":"客户","businessDate","业务日期");
                     if(detail || type==ReportType.GROSS_MARGIN) { add(columns,"sourceNo","来源单号"); }

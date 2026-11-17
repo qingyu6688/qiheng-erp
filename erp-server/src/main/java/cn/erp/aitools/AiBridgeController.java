@@ -5,6 +5,8 @@ import cn.erp.shared.ApiResponse;
 import io.swagger.v3.oas.annotations.Hidden;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -34,5 +36,16 @@ class AiBridgeController {
     ApiResponse<WarehouseService.ActiveSelections> warehouses(HttpServletRequest request) {
         signature.verify(request, PREFIX + "/warehouses", false);
         return ApiResponse.success(bridge.listWarehouses(request));
+    }
+
+    @PostMapping(path="/query/{code}",consumes="application/json")
+    ApiResponse<?> query(HttpServletRequest request,@PathVariable("code") String code) {
+        return ApiResponse.success(bridge.query(request,code,signature.verifyQuery(request,PREFIX+"/query/"+code)));
+    }
+
+    @GetMapping("/scope/{code}")
+    ApiResponse<?> scope(HttpServletRequest request,@PathVariable("code") String code) {
+        signature.verify(request,PREFIX+"/scope/"+code,false);
+        return ApiResponse.success(bridge.scope(request,code));
     }
 }
