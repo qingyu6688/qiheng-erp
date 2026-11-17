@@ -54,7 +54,8 @@ class PricingHttpIT {
 
     @AfterEach
     void cleanup() {
-        for(String table:List.of("sales_order_fee","sales_order_line","sales_order","purchase_order_fee","purchase_order_line","purchase_order",
+        for(String table:List.of("price_list_target","price_list_item","price_list","crm_customer_profile","idempotency_record","document_sequence",
+                "sales_order_fee","sales_order_line","sales_order","purchase_order_fee","purchase_order_line","purchase_order",
                 "unit_conversion","sku","product","product_category","unit","partner_role","business_partner",
                 "sys_user_data_scope","sys_role_permission","sys_user_role","sys_role","sys_user","company")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
@@ -151,13 +152,67 @@ class PricingHttpIT {
         assertThat(json.readTree(denied.body()).path("errorCode").asText()).isEqualTo("TAX_RATE_CHANGE_FORBIDDEN");
     }
 
+    @Test
+    void priceListsUseCompanyCustomerTiersAndPreserveTheOrderSnapshot() throws Exception {
+        for (String permission: List.of("price_list:view","price_list:manage")) {
+            jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) SELECT ?,?,?,id FROM sys_permission WHERE code=?",
+                    Ids.next(),tenant,role,permission);
+        }
+        jdbc.update("INSERT INTO crm_customer_profile(tenant_id,company_id,partner_id,owner_user_id,level) VALUES(?,?,?,?,'gold')",
+                tenant,company,partner,user);
+        long other=Ids.next();
+        jdbc.update("INSERT INTO company(id,tenant_id,code,name) VALUES(?,?,'B','第二公司')",other,tenant);
+        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,user,other);
+        assertThat(post("/auth/login","{\"tenantCode\":\"HTTP"+tenant+"\",\"username\":\"pricing\",\"password\":\"PricingTest!2026\"}",false,company).statusCode()).isEqualTo(200);
+        var any=post("/price-lists",priceList("通用价","all","","109",90,false),true,company);
+        var level=post("/price-lists",priceList("级别价","customer_level","gold","88",50,false),true,company);
+        var agreement=post("/price-lists",priceList("客户协议","customer",Long.toString(partner),"75",1,true),true,company);
+        var higher=post("/price-lists",priceList("高优先协议","customer",Long.toString(partner),"70",3,true),true,company);
+        for (var result:List.of(any,level,agreement,higher)) assertThat(result.statusCode()).as(result.body()).isEqualTo(200);
+        String contractId=json.readTree(higher.body()).path("data").path("header").path("id").asText();
+        assertThat(http("GET","/price-lists/"+contractId,null,false,other).statusCode()).isEqualTo(404);
+        String quote="/pricing/default-price?partnerId="+partner+"&skuId="+sku+"&unitId="+unit+"&qty=11&businessDate=";
+        assertThat(http("GET",quote+"2026-11-15",null,false,company).body()).contains("69.00000000","customer");
+        assertThat(http("GET",quote+"2026-11-15&priceTaxInclusive=false",null,false,company).body()).contains("61.06194690");
+        assertThat(http("GET",quote+"2025-11-15",null,false,company).body()).contains("115.00000000","reference");
+        assertThat(http("GET",quote+"2026-11-15",null,false,other).body()).contains("115.00000000","reference");
+        String orderBody="""
+                {"customerId":"%s","businessDate":"2026-11-15","priceTaxInclusive":true,
+                 "orderDiscountAmount":"0","lines":[{"skuId":"%s","unitId":"%s","qty":"11"}],"fees":[]}
+                """.formatted(partner,sku,unit);
+        var order=post("/sales-orders",orderBody,true,company);
+        assertThat(order.statusCode()).as(order.body()).isEqualTo(201);
+        String orderId=json.readTree(order.body()).path("data").path("id").asText();
+        String disable=priceList("高优先协议","customer",Long.toString(partner),"70",3,true).replace("\"active\"","\"disabled\"");
+        assertThat(http("PUT","/price-lists/"+contractId,disable,true,company).statusCode()).isEqualTo(200);
+        assertThat(http("PUT","/price-lists/"+contractId,disable,true,company).statusCode()).isEqualTo(409);
+        assertThat(http("GET",quote+"2026-11-15",null,false,company).body()).contains("74.00000000");
+        assertThat(jdbc.queryForObject("SELECT unit_price FROM sales_order_line WHERE tenant_id=? AND company_id=? AND order_id=?",
+                java.math.BigDecimal.class,tenant,company,orderId)).isEqualByComparingTo("69");
+    }
+
+    private String priceList(String name,String type,String value,String price,int priority,boolean includesTax) {
+        return """
+                {"name":"%s","priceIncludesTax":%s,"validFrom":"2026-01-01","validTo":"2026-12-31",
+                 "priority":%d,"status":"active","version":0,
+                 "items":[{"skuId":"%s","unitId":"%s","minQty":"0","unitPrice":"%s"},
+                          {"skuId":"%s","unitId":"%s","minQty":"10","unitPrice":"%s"}],
+                 "targets":[{"targetType":"%s","targetValue":"%s"}]}
+                """.formatted(name,includesTax,priority,sku,unit,price,sku,unit,new java.math.BigDecimal(price).subtract(java.math.BigDecimal.ONE).toPlainString(),type,value);
+    }
+
     private HttpResponse<String> post(String path,String body,boolean csrf,long company) throws Exception {
+        return http("POST",path,body,csrf,company);
+    }
+
+    private HttpResponse<String> http(String method,String path,String body,boolean csrf,long company) throws Exception {
         var builder=HttpRequest.newBuilder(URI.create("http://127.0.0.1:"+port+"/api/v1"+path))
                 .header("Content-Type","application/json").header("X-Company-Id",Long.toString(company));
+        if ("POST".equals(method)&&"/sales-orders".equals(path)) builder.header("Idempotency-Key","crm-price-test-"+tenant);
         if(csrf) {
             String token=cookies.getCookieStore().getCookies().stream().filter(cookie->cookie.getName().equals("XSRF-TOKEN")).map(HttpCookie::getValue).findFirst().orElseThrow();
             builder.header("X-XSRF-TOKEN",token);
         }
-        return client.send(builder.POST(HttpRequest.BodyPublishers.ofString(body)).build(),HttpResponse.BodyHandlers.ofString());
+        return client.send(builder.method(method,body==null?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(body)).build(),HttpResponse.BodyHandlers.ofString());
     }
 }

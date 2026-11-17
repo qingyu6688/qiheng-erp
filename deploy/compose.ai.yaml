@@ -1,5 +1,8 @@
 # 与 compose.yaml 合并使用。AI 运行参数放在 private/ai.env，API 的签名密钥在 private/api.env。
 services:
+  api:
+    environment:
+      ERP_PORTAL_AI_ORIGIN: http://erp-ai:18081
   erp-ai:
     image: ${ERP_AI_IMAGE:?请设置已构建校验的 AI 镜像摘要}
     restart: unless-stopped

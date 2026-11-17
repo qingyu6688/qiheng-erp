@@ -45,7 +45,19 @@ public class ReportService {
         return database.read(()->snapshotInside(actor,type,input));
     }
 
+    /** 客户门户的对账只使用绑定往来单位的客户应收账。过滤在余额计算前生效。 */
+    public Snapshot customerStatement(long tenant,long company,long partner,LocalDate from,LocalDate to) {
+        if(partner<=0) throw invalid("客户对账编号无效");
+        var actor=new CompanyAccess(tenant,0,company,true,Set.of(),Set.of(ReportType.PARTNER_STATEMENT.permission()));
+        var query=new ReportQuery(from,to,null,null,partner,null,false);
+        return database.read(()->snapshotInside(actor,ReportType.PARTNER_STATEMENT,query,true));
+    }
+
     private Snapshot snapshotInside(CompanyAccess actor,ReportType type,ReportQuery input) {
+        return snapshotInside(actor,type,input,false);
+    }
+
+    private Snapshot snapshotInside(CompanyAccess actor,ReportType type,ReportQuery input,boolean customerStatement) {
         type.authorize(actor,false);var query=input.normalized();
         if(query.warehouseId()!=null && !actor.allowsWarehouse(query.warehouseId())) { throw new ApiException(404,"NOT_FOUND","仓库不存在或无权查看"); }
         var params=new HashMap<String,Object>();params.put("t",actor.tenantId());params.put("c",actor.companyId());
@@ -57,6 +69,7 @@ public class ReportService {
         params.put("agingNow",statisticDate.equals(today));
         params.put("agingEnd",statisticDate.plusDays(1).atStartOfDay(ZoneId.of("Asia/Shanghai")).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime());
         String sql="SELECT q.* FROM ("+ReportSql.query(type,Boolean.TRUE.equals(query.detail()),actor)+") q WHERE 1=1";
+        if(customerStatement) sql+=" AND account_code='AR'";
         if(!type.companyWide()) {
             if(!actor.allWarehouses()) {
                 params.put("ws",actor.warehouseIds().isEmpty()?Set.of(-1L):actor.warehouseIds());sql+=" AND warehouse_id IN (:ws)";

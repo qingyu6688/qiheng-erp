@@ -9,6 +9,7 @@ import { stockSpecs } from '../types/stock-operations'
 import { reportSpecs, reportPermission } from '../types/reporting'
 import { documentPermission } from '../types/documents'
 import { importSpecs } from '../types/file-jobs'
+import { crmCoreNavigation, crmCycleNavigation } from '../types/crm-navigation'
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -43,6 +44,51 @@ export const router = createRouter({
       path: '/',
       component: () => import('../components/AppShell.vue'),
       children: [
+        ...crmCoreNavigation.map(({ kind, title, permission }) => ({
+          path: 'crm/' + kind,
+          name: 'crm-' + kind,
+          component: () => import('../pages/crm/CrmCorePage.vue'),
+          props: { kind },
+          meta: { company: true, title, permission },
+        })),
+        ...crmCycleNavigation.flatMap(({ kind, title, permission }) => {
+          const definitions: { route: string; name: string }[] = [{ route: kind, name: kind }]
+          if (kind === 'businesses' || kind === 'contracts')
+            definitions.push({ route: kind + '/:id', name: kind + '-detail' })
+          return definitions.map((definition) => ({
+            path: 'crm/' + definition.route,
+            name: 'crm-' + definition.name,
+            component: () => import('../pages/crm/CrmCyclePage.vue'),
+            props: { kind },
+            meta: { company: true, title, permission },
+          }))
+        }),
+        {
+          path: 'crm/price-lists',
+          name: 'crm-price-lists',
+          component: () => import('../pages/crm/PriceListsPage.vue'),
+          meta: { company: true, title: '价格表', permission: 'price_list:view' },
+        },
+        {
+          path: 'cs/tickets',
+          name: 'cs-tickets',
+          component: () => import('../pages/cs/CustomerServicePage.vue'),
+          props: { kind: 'tickets' },
+          meta: { company: true, title: '客服工单', permission: 'cs_ticket:view' },
+        },
+        {
+          path: 'cs/portal-users',
+          name: 'cs-portal-users',
+          component: () => import('../pages/cs/CustomerServicePage.vue'),
+          props: { kind: 'accounts' },
+          meta: { company: true, title: '门户账号', permission: 'portal_user:view' },
+        },
+        {
+          path: 'cs/sensitive-words',
+          name: 'cs-sensitive-words',
+          component: () => import('../pages/cs/SensitiveWordsPage.vue'),
+          meta: { company: true, title: '敏感词', permission: 'portal_sensitive_word:view' },
+        },
         {
           path: 'ai/wiki',
           name: 'ai-wiki',

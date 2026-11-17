@@ -198,7 +198,7 @@ export interface AiModel {
 }
 
 export interface AiRoute {
-  scene: 'kb_chat' | 'wiki_maintain'
+  scene: 'kb_chat' | 'wiki_maintain' | 'customer_service'
   modelId: Id
   fallbackModelId: Id | null
   maxTokens: number

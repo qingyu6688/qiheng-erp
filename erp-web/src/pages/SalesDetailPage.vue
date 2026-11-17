@@ -2,7 +2,7 @@
 import WorkflowProgressPanel from '../components/workflow/WorkflowProgressPanel.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { document, candidates, financeWrite, commandResult } from '../api/sales'
+import { document, candidates, financeWrite, commandResult, saveShipmentLogistics } from '../api/sales'
 import { ApiError, isCancelled, messageOf, newIdempotencyKey } from '../api/http'
 import type { SalesKind, SalesDocument } from '../types/sales'
 import { salesSpecs, actionLabels, statusLabels, salesStatusLabel } from '../types/sales'
@@ -27,6 +27,24 @@ const value = ref<SalesDocument>(),
   action = ref('')
 const history = ref<Record<string, unknown>[]>([])
 const commandWarnings = ref<{ message: string }[]>([])
+const logisticsOpen = ref(false), logisticsNumber = ref(''), logisticsBusy = ref(false), logisticsError = ref('')
+function editLogistics(): void {
+  logisticsNumber.value = value.value?.logisticsNo ?? ''
+  logisticsError.value = ''
+  logisticsOpen.value = true
+}
+async function saveLogistics(): Promise<void> {
+  const shipment = value.value
+  if (!shipment || logisticsBusy.value || !session.can('shipment:update')) return
+  logisticsBusy.value = true
+  logisticsError.value = ''
+  try {
+    value.value = await saveShipmentLogistics(shipment.id, shipment.version, logisticsNumber.value.trim())
+    logisticsOpen.value = false
+  } catch (cause: unknown) {
+    if (!isCancelled(cause)) logisticsError.value = messageOf(cause)
+  } finally { logisticsBusy.value = false }
+}
 const decision = ref<{
   action: 'approve' | 'reject'
   changeId: string
@@ -165,6 +183,11 @@ function closeEditor(): void {
       <h1>{{ value?.documentNo ?? value?.invoiceNo ?? spec.singular }}</h1>
     </div>
     <div v-if="value" class="sales-actions">
+      <router-link
+        v-if="kind === 'receipts' && value.status !== 'reversed' && session.can('crm_receivable:view') && session.can('crm_receivable:manage')"
+        class="text-link"
+        :to="{ path: '/crm/receivables', query: { receiptId: value.id } }"
+      >关联 CRM 合同</router-link>
       <AiDocumentButton
         v-if="kind === 'sales-orders' || kind === 'shipments'"
         :document="{
@@ -228,6 +251,12 @@ function closeEditor(): void {
         <dd>{{ formatMoney(value.taxAmount) }}</dd>
         <dt>版本</dt>
         <dd>{{ value.version }}</dd>
+        <template v-if="kind === 'shipments' && value.deliveryMethod === 'delivery'">
+          <dt>物流单号</dt>
+          <dd>{{ value.logisticsNo || '—' }}
+            <el-button v-if="session.can('shipment:update') && !['voided', 'reversed'].includes(value.status)" link type="primary" @click="editLogistics">编辑运单号</el-button>
+          </dd>
+        </template>
       </dl>
       <div v-if="kind === 'sales-orders'" class="sales-progress">
         <span
@@ -357,6 +386,13 @@ function closeEditor(): void {
     :business-id="value.id"
     :instance-id="value.workflowInstanceId"
   />
+  <el-dialog v-model="logisticsOpen" title="编辑运单号" width="min(440px, 95vw)">
+    <el-alert v-if="logisticsError" :title="logisticsError" type="error" :closable="false" />
+    <el-form label-position="top" @submit.prevent="saveLogistics">
+      <el-form-item label="物流单号"><el-input v-model.trim="logisticsNumber" maxlength="100" /></el-form-item>
+      <el-button type="primary" native-type="submit" :loading="logisticsBusy">保存</el-button>
+    </el-form>
+  </el-dialog>
   <DocumentFilesPanel
     v-if="value"
     :key="value.version"

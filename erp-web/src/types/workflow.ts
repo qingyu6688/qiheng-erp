@@ -5,6 +5,7 @@ export type WorkflowBusinessType =
   | 'document_reversal'
   | 'stock_adjustment'
   | 'credit_increase'
+  | 'crm_contract'
   | 'wf_generic_request'
 export type NodeType =
   | 'start'
@@ -268,6 +269,7 @@ export const businessLabels: Record<WorkflowBusinessType, string> = {
   document_reversal: '冲销申请',
   stock_adjustment: '库存调整',
   credit_increase: '临时信用额度调增',
+  crm_contract: 'CRM 合同',
   wf_generic_request: '通用申请',
 }
 export const workflowStatus: Record<string, string> = {
@@ -329,6 +331,7 @@ export const fieldLabels: Record<string, string> = {
   creditLimit: '有效信用额度',
   ownerDeptId: '冻结归属部门',
   customerId: '客户编号',
+  customerLevel: '客户级别',
   supplierId: '供应商编号',
   requisitionApproved: '关联请购是否均已审核',
   refundMethod: '退款账户类型',
@@ -346,4 +349,5 @@ export const businessRoutes: Partial<Record<WorkflowBusinessType, string>> = {
   document_reversal: 'document-reversals',
   stock_adjustment: 'stock-adjustments',
   credit_increase: 'ar/credit',
+  crm_contract: 'crm/contracts',
 }

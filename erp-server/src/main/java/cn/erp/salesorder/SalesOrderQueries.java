@@ -128,6 +128,10 @@ public class SalesOrderQueries {
             if(!pending.isEmpty()&&canApprove(scope,pending.getFirst())) {add(scope,actions,"change_approve");}
             add(scope,actions,"change_reject");
         }
+        if("crm_contract".equals(row.get("source_type"))) {
+            actions.remove("update");
+            actions.remove("change");
+        }
         return cn.erp.shared.WorkflowViews.actions(row,actions);
     }
     private boolean canApprove(CompanyAccess scope,Map<String,Object> row) {

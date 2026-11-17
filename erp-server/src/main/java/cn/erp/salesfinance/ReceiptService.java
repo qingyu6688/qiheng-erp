@@ -90,6 +90,7 @@ public class ReceiptService {
     @Transactional
     public Map<String,Object> update(CompanyAccess scope,long id,FinanceModels.Receipt input) {
         var before=support.find(scope,"receipt",id,true);version(before,input.version());state(before,"draft");validate(scope,input);
+        retainContractLink(scope,before,input);
         jdbc.update("""
                 UPDATE receipt SET receipt_type=?,partner_id=?,income_item_id=?,cash_account_id=?,amount=?,business_date=?,
                 related_order_id=?,bank_serial_no=?,remark=?,version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?
@@ -97,6 +98,18 @@ public class ReceiptService {
                 input.relatedOrderId(),blank(input.bankSerialNo()),input.remark(),scope.userId(),scope.tenantId(),scope.companyId(),id);
         cn.erp.shared.BusinessPeople.assign(jdbc,scope,"receipt",id,input.salesUserId());
         audit.record(scope,"receipt.update","receipt",id,null,Map.of("version",input.version()+1));return get(scope,id);
+    }
+
+    private void retainContractLink(CompanyAccess actor,Map<String,Object> previous,FinanceModels.Receipt input) {
+        long contract=id(previous,"crm_contract_id");
+        if(contract==0) return;
+        if(!"customer".equals(input.receiptType())||input.partnerId()==null||input.partnerId()!=id(previous,"partner_id")
+                ||amount(input.amount()).compareTo(decimal(previous,"amount"))!=0)
+            throw new ApiException(422,"CRM_RECEIPT_TERMS_LOCKED","已关联回款计划的收款单不能更换客户或金额");
+        if(input.relatedOrderId()!=null&&jdbc.queryForList("""
+                SELECT id FROM sales_order WHERE tenant_id=? AND company_id=? AND id=? AND source_type='crm_contract' AND source_id=?
+                """,actor.tenantId(),actor.companyId(),input.relatedOrderId(),contract).isEmpty())
+            throw new ApiException(422,"CRM_RECEIPT_TERMS_LOCKED","关联订单须来自同一 CRM 合同");
     }
 
     @Transactional

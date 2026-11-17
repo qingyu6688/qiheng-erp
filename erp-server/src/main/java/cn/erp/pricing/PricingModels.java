@@ -2,6 +2,7 @@ package cn.erp.pricing;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
+import java.time.LocalDate;
 import java.util.List;
 
 /** 金额和数量在请求及响应中使用十进制字符串。 */
@@ -15,7 +16,15 @@ public final class PricingModels {
             Boolean priceTaxInclusive, String orderDiscountAmount,
             @NotEmpty(message="请至少填写一条商品明细") @Size(max=500,message="商品明细最多500行")
             List<@NotNull(message="商品行不能为空") @Valid PreviewLine> lines,
-            @Size(max=50,message="费用最多50行") List<@NotNull(message="费用行不能为空") @Valid Fee> fees) {}
+            @Size(max=50,message="费用最多50行") List<@NotNull(message="费用行不能为空") @Valid Fee> fees,
+            LocalDate businessDate) {
+        public PreviewRequest(String documentType, String customerId, String supplierId, Boolean priceTaxInclusive,
+                              String orderDiscountAmount, List<PreviewLine> lines, List<Fee> fees) {
+            this(documentType, customerId, supplierId, priceTaxInclusive, orderDiscountAmount, lines, fees, null);
+        }
+    }
+
+    public record DefaultPrice(String unitPrice, boolean priceTaxInclusive, String source) {}
 
     public record PreviewLine(
             @NotBlank(message="请选择商品") @Pattern(regexp="[1-9][0-9]{0,18}",message="商品编号无效") String skuId,

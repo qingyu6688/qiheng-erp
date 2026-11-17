@@ -16,7 +16,7 @@ import cn.erp.ai.common.AiInputs;
 
 @Service
 public class ModelCatalog {
-    private static final Set<String> SCENES = Set.of("kb_chat", "wiki_maintain");
+    private static final Set<String> SCENES = Set.of("kb_chat", "wiki_maintain", "customer_service");
     private static final Set<String> TYPES = Set.of("openai_compatible", "anthropic");
     private static final Set<String> PURPOSES = Set.of("chat", "vision", "embedding", "rerank");
     private static final Set<String> REGIONS = Set.of("domestic", "overseas");

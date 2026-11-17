@@ -179,6 +179,23 @@ public class ShipmentService {
         return queries.get(scope,id);
     }
 
+    public Map<String,Object> logistics(CompanyAccess scope,long id,ShipmentModels.Logistics input) {
+        var before=queries.header(scope,id,true);
+        version(input.version(),before);
+        if(Set.of("voided","reversed").contains(before.get("status"))) throw state();
+        String number=input.logisticsNo();
+        if(number!=null) {
+            number=number.strip();
+            if(number.isEmpty()) number=null;
+            else if(!"delivery".equals(before.get("delivery_method"))) throw invalid("客户自提的发货单无需登记运单号");
+        }
+        if(Objects.equals(number,before.get("logistics_no"))) return queries.get(scope,id);
+        jdbc.update("UPDATE shipment SET logistics_no=?,version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?",
+                number,scope.userId(),scope.tenantId(),scope.companyId(),id);
+        changed(scope,id,"logistics",before);
+        return queries.get(scope,id);
+    }
+
     public Map<String,Object> submit(CompanyAccess scope,long id,String key,long version) {
         queries.header(scope,id,false);
         return command(scope,"submit",key,List.of(id,version),200,()->{

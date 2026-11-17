@@ -1,0 +1,55 @@
+.crm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.crm-actions .el-button + .el-button {
+  margin-left: 0;
+}
+.crm-list-toolbar {
+  padding: 12px 14px;
+}
+.crm-list-toolbar .el-input {
+  width: min(230px, 72vw);
+}
+.crm-list-toolbar .el-select {
+  width: min(145px, 68vw);
+}
+.crm-list-more {
+  display: flex;
+  justify-content: center;
+  padding: 12px;
+}
+.crm-error {
+  margin-bottom: 12px;
+}
+.crm-detail {
+  min-height: 150px;
+}
+.crm-settings {
+  padding: 16px;
+  margin-bottom: 14px;
+}
+.crm-settings h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.crm-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+.crm-form-grid .el-select,
+.crm-form-grid .el-cascader {
+  width: 100%;
+}
+.crm-muted {
+  color: var(--el-text-color-secondary);
+}
+.crm-related { margin-top: 12px; }
+@media (max-width: 600px) {
+  .crm-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

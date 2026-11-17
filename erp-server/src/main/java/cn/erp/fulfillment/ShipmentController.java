@@ -48,6 +48,11 @@ class ShipmentController {
         return ApiResponse.success(service.update(access.requireCompany(request,"shipment:update"),id,input));
     }
 
+    @PutMapping("/shipments/{id}/logistics")
+    ApiResponse<?> logistics(HttpServletRequest request,@PathVariable long id,@Valid @RequestBody ShipmentModels.Logistics input) {
+        return ApiResponse.success(service.logistics(access.requireCompany(request,"shipment:update"),id,input));
+    }
+
     @PostMapping("/shipments/{id}/submit")
     ApiResponse<?> submit(HttpServletRequest request,@PathVariable long id,@RequestHeader(value="Idempotency-Key",required=false) String key,
             @Valid @RequestBody ShipmentModels.Version input) {

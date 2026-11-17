@@ -32,6 +32,9 @@ final class ImportCsv {
         return ("\uFEFF"+String.join(",",columns)+"\r\n").getBytes(StandardCharsets.UTF_8);
     }
     static List<Row> parse(String type,byte[] bytes) {
+        return parse(headers(type),!type.equals("opening_stock"),bytes);
+    }
+    static List<Row> parse(List<String> base,boolean customFields,byte[] bytes) {
         if(bytes.length==0||bytes.length>MAX_BYTES)throw invalid("CSV 文件须大于 0 且不超过 20MB");
         String value;
         try {value=StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
@@ -65,11 +68,10 @@ final class ImportCsv {
         }
         if(quoted)throw invalid("CSV 存在未闭合的引号");
         if(!fields.isEmpty()||!field.isEmpty()||closed){fields.add(field.toString());records.add(new Row(rowNo,List.copyOf(fields)));}
-        var base=headers(type);
         var header=records.isEmpty()?List.<String>of():records.getFirst().cells();
         if(header.size()<base.size()||!header.subList(0,base.size()).equals(base))throw invalid("CSV 表头不匹配，请重新下载导入模板");
         var keys=List.copyOf(header.subList(base.size(),header.size()));
-        if ((!keys.isEmpty()&&type.equals("opening_stock"))||keys.size()>30||keys.stream().anyMatch(k->!k.matches("cf_[a-z][a-z0-9_]{0,31}"))
+        if ((!keys.isEmpty()&&!customFields)||keys.size()>30||keys.stream().anyMatch(k->!k.matches("cf_[a-z][a-z0-9_]{0,31}"))
                 ||keys.stream().distinct().count()!=keys.size()) throw invalid("CSV 自定义字段表头无效");
         if(records.size()==1)throw invalid("CSV 至少需要一条数据行");
         if(records.size()>MAX_ROWS+1)throw invalid("CSV 最多允许 10000 条数据行");

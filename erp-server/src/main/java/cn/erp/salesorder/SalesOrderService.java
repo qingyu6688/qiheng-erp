@@ -53,20 +53,33 @@ public class SalesOrderService {
     }
 
     public Map<String,Object> create(CompanyAccess scope,String key,SalesOrderModels.Input input) {
-        return execute(scope,"create",key,input,201,()->{
-            var preview=writer.price(scope,input);
-            long id=Ids.next();String no=numbers.next(scope,"SO",input.businessDate());
-            jdbc.update("INSERT INTO sales_order(id,tenant_id,company_id,order_no,customer_id,business_date,price_tax_inclusive,created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,1,?,?,?,?)",
-                    id,scope.tenantId(),scope.companyId(),no,identifier(input.customerId()),input.businessDate(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
-            writer.writeNew(scope,id,input,preview);
-            var result=queries.get(scope,id);
-            audit.record(scope,"sales_order.create","sales_order",id,null,result);
-            return result;
-        });
+        return execute(scope,"create",key,input,201,()->createDraft(scope,input,"",0));
+    }
+
+    public Map<String,Object> createFromContract(CompanyAccess scope,long contractId,SalesOrderModels.Input input) {
+        if(!scope.hasPermission("sales_order:create") || !scope.hasPermission("crm_contract:order") || contractId<=0)
+            throw new ApiException(403,"FORBIDDEN","没有从合同创建销售订单的权限");
+        return createDraft(scope,input,"crm_contract",contractId);
+    }
+
+    private Map<String,Object> createDraft(CompanyAccess scope,SalesOrderModels.Input input,String sourceType,long sourceId) {
+        var preview=writer.price(scope,input,sourceId>0);
+        long id=Ids.next();String no=numbers.next(scope,"SO",input.businessDate());
+        jdbc.update("""
+                INSERT INTO sales_order(id,tenant_id,company_id,order_no,customer_id,business_date,price_tax_inclusive,
+                                        created_by,updated_by,owner_user_id,owner_department_id,source_type,source_id)
+                VALUES(?,?,?,?,?,?,1,?,?,?,?,?,?)
+                """,id,scope.tenantId(),scope.companyId(),no,identifier(input.customerId()),input.businessDate(),
+                scope.userId(),scope.userId(),scope.userId(),OrgOwnership.department(scope),sourceType,sourceId);
+        writer.writeNew(scope,id,input,preview);
+        var result=queries.get(scope,id);
+        audit.record(scope,"sales_order.create","sales_order",id,null,result);
+        return result;
     }
 
     public Map<String,Object> edit(CompanyAccess scope,long id,SalesOrderModels.Input input) {
         var before=queries.header(scope,id,true);version(input.version(),before);state(before,"draft");
+        requireStandalone(before);
         var preview=writer.price(scope,input);
         writer.write(scope,id,input,preview);touch(scope,id);
         var result=queries.get(scope,id);audit.record(scope,"sales_order.update","sales_order",id,camel(before),result);return result;
@@ -148,6 +161,7 @@ public class SalesOrderService {
         queries.header(scope,id,false);
         return execute(scope,"change",key,List.of(id,input),200,()->{
             var before=creditHeader(scope,id,"change");version(input.version(),before);state(before,"approved","closed");reason(input.reason());
+            requireStandalone(before);
             BusinessPeople.assign(jdbc,scope,"sales_order",id,input.salesUserId());
             var rows=queries.lines(scope,id,true);var preview=writer.price(scope,input);
             if(number(before,"customer_id")!=identifier(input.customerId())||flag(before.get("price_tax_inclusive"))!=preview.priceTaxInclusive()) {
@@ -167,6 +181,11 @@ public class SalesOrderService {
             result.put("change",Map.of("id",Long.toString(changeId),"changeNo",no,"status",approval?"pending":"applied","requiresApproval",approval,"version",0));
             audit.record(scope,"sales_order.change","sales_order",id,camel(before),result);return result;
         });
+    }
+
+    private static void requireStandalone(Map<String,Object> order) {
+        if("crm_contract".equals(order.get("source_type")))
+            throw new ApiException(422,"CONTRACT_ORDER_TERMS_LOCKED","合同订单的商品、数量和价格按审批结果锁定，请处理原草稿后重新生成");
     }
 
     public Map<String,Object> decideChange(CompanyAccess scope,long changeId,String action,String key,SalesOrderModels.Command input) {

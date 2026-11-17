@@ -48,6 +48,22 @@ public class MessageService implements TodoInbox {
     }
 
     @org.springframework.context.event.EventListener
+    public void crmReminder(CrmReminder event) {
+        var actor=access.forUser(event.tenantId(),event.userId(),event.companyId());
+        if(actor==null) return;
+        if("pool".equals(event.kind())&&actor.hasPermission("crm_customer:view")) {
+            create(actor,"crm.pool.remind","有客户即将回收","请在客户关系中核对即将回收的客户并登记最新跟进。",
+                    "/crm/customers","alert",null,null,null,null,event.eventKey(),0);
+        } else if("receivable".equals(event.kind())&&actor.hasPermission("crm_receivable:view")) {
+            create(actor,"crm.receivable.remind","合同回款计划即将到期","请核对当前有权查看的回款计划与收款进度。",
+                    "/crm/receivables","alert",null,null,null,null,event.eventKey(),0);
+        } else if("mention".equals(event.kind())) {
+            create(actor,"crm.follow.mention","同事在客户跟进中提到了您","请进入有权查看的 CRM 记录核对跟进信息。",
+                    null,"system",null,null,null,null,event.eventKey(),0);
+        }
+    }
+
+    @org.springframework.context.event.EventListener
     public void openWebhookDisabled(OpenWebhookDisabled event) {
         if (event.companyId()==null) return;
         var users=jdbc.queryForList("""
@@ -66,6 +82,19 @@ public class MessageService implements TodoInbox {
                     "/open-platform","alert",null,null,null,null,"open:hook:"+event.webhookId()+":v"+event.version(),event.version());
         }
     }
+    @org.springframework.context.event.EventListener
+    public void portalTicket(PortalTicketNotice event) {
+        var actor=access.forUser(event.tenantId(),event.userId(),event.companyId());
+        if(actor==null || !actor.hasPermission("cs_ticket:view")) return;
+        String title=switch(event.kind()) {
+            case "first_reply" -> "客服工单首次回复已超时";
+            case "resolution" -> "客服工单处理已超时";
+            default -> "新的客服工单待处理";
+        };
+        create(actor,"cs."+event.kind(),title,"请进入客服工单查看并处理。","/cs/tickets?ticketId="+event.ticketId(),
+                "alert","cs_ticket",event.ticketId(),null,null,"cs:"+event.ticketId()+":"+event.kind(),0);
+    }
+
     public void sync(CompanyAccess actor) {
         if(actor.companyId()==0) return;
         // 铃铛、工作台和收件箱会同时补齐消息，先锁收件人，避免空范围更新与去重插入互相死锁。

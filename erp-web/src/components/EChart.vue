@@ -2,11 +2,11 @@
 import { onMounted, onScopeDispose, ref, watch } from 'vue'
 import { init, use } from 'echarts/core'
 import type { EChartsCoreOption, EChartsType } from 'echarts/core'
-import { LineChart } from 'echarts/charts'
+import { BarChart, FunnelChart, LineChart } from 'echarts/charts'
 import { AriaComponent, GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 
-use([LineChart, AriaComponent, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
+use([BarChart, FunnelChart, LineChart, AriaComponent, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
 
 const props = defineProps<{ option: EChartsCoreOption; label: string }>()
 const element = ref<HTMLElement>()

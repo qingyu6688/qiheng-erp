@@ -23,14 +23,19 @@ class SalesOrderWriter {
     SalesOrderWriter(JdbcTemplate jdbc,PricingService pricing,cn.erp.sysadmin.AreaService areas,CustomFields customFields) {this.jdbc=jdbc;this.pricing=pricing;this.areas=areas;this.customFields=customFields;}
 
     PricingModels.Preview price(CompanyAccess scope,SalesOrderModels.Input input) {
+        return price(scope,input,false);
+    }
+
+    PricingModels.Preview price(CompanyAccess scope,SalesOrderModels.Input input,boolean approvedContract) {
         if(input.businessDate().isAfter(LocalDate.now(ZoneId.of("Asia/Shanghai")))) {throw invalid("业务日期不能晚于今天");}
         if(input.deliveryDate()!=null && input.deliveryDate().isBefore(input.businessDate())) {throw invalid("交货日期不能早于业务日期");}
         var lines=input.lines().stream().map(l->new PricingModels.PreviewLine(l.skuId(),l.unitId(),l.warehouseId(),l.qty(),l.unitPrice(),l.amountInput(),l.lineDiscountAmount(),l.lineDiscountRatio(),l.taxRate())).toList();
         var fees=input.fees()==null?List.<PricingModels.Fee>of():input.fees().stream().map(f->new PricingModels.Fee(f.feeType(),f.bearer(),f.amount(),f.taxRate())).toList();
         // 订单修改权限包含对已有订单重算价格，接口入口仍校验实际操作权限。
         var permissions=new HashSet<>(scope.permissions());permissions.add("sales_order:create");
+        if(approvedContract) permissions.add("document:change_tax_rate");
         var pricingScope=new CompanyAccess(scope.tenantId(),scope.userId(),scope.companyId(),scope.allWarehouses(),scope.warehouseIds(),permissions,scope.orgScope());
-        return pricing.preview(pricingScope,new PricingModels.PreviewRequest("sales_order",input.customerId(),null,input.priceTaxInclusive(),input.orderDiscountAmount(),lines,fees));
+        return pricing.preview(pricingScope,new PricingModels.PreviewRequest("sales_order",input.customerId(),null,input.priceTaxInclusive(),input.orderDiscountAmount(),lines,fees,input.businessDate()));
     }
 
     void write(CompanyAccess scope,long orderId,SalesOrderModels.Input input,PricingModels.Preview preview) {

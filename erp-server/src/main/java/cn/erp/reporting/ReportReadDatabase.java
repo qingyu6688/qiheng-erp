@@ -66,6 +66,10 @@ public class ReportReadDatabase {
         return transactions.execute(status->query.get());
     }
 
+    public <T> T readJdbc(java.util.function.Function<NamedParameterJdbcTemplate,T> query) {
+        return read(()->query.apply(jdbc));
+    }
+
     public boolean replicaEnabled() { return replica!=null; }
 
     String asOf() {

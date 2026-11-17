@@ -63,7 +63,7 @@ const editorTitle = computed(
     ({ providers: '提供方', models: '模型', routes: '场景路由', assistants: '助手' })[editor.value],
 )
 
-const scenes = { kb_chat: '知识助手', wiki_maintain: 'Wiki 维护' }
+const scenes = { kb_chat: '知识助手', wiki_maintain: 'Wiki 维护', customer_service: '门户客服' }
 const purposes = { chat: '对话', embedding: '文本向量', rerank: '召回重排', vision: '视觉' }
 const protocols = { openai_compatible: 'OpenAI 兼容', anthropic: 'Anthropic' }
 const logStatuses: Record<string, string> = {

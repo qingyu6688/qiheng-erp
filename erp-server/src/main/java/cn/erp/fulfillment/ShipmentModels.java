@@ -24,6 +24,8 @@ public final class ShipmentModels {
         public InputLine(Long orderLineId,Long unitId,String qty) {this(orderLineId,unitId,qty,null);}
     }
     public record Version(@NotNull(message="请提供版本号") @PositiveOrZero(message="版本号不能为负数") Long version) {}
+    public record Logistics(@NotNull(message="请提供版本号") @PositiveOrZero(message="版本号不能为负数") Long version,
+                            @Pattern(regexp="[\\p{L}\\p{N} ._-]{0,64}",message="运单号最多 64 个字符，请使用字母、数字或常用分隔符") String logisticsNo) {}
     public record Signed(@NotNull(message="请提供版本号") Long version,@NotNull(message="请选择签收日期") LocalDate signDate,
         @NotEmpty(message="请登记每一行的签收数量") List<@NotNull @Valid SignedLine> lines,
         @Size(max=20,message="签收附件最多20份") List<@Positive(message="附件编号无效") Long> attachmentIds) {}

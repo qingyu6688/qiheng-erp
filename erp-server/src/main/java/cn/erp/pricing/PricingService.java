@@ -5,6 +5,7 @@ import cn.erp.identity.CompanyAccess;
 import cn.erp.reference.ReferenceAvailability;
 import cn.erp.shared.ApiException;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -22,9 +23,10 @@ public class PricingService {
     private final PricingEngine engine;
     private final CatalogAvailability catalog;
     private final ReferenceAvailability partners;
+    private final PriceListService priceLists;
 
-    public PricingService(JdbcTemplate jdbc,PricingEngine engine,CatalogAvailability catalog,ReferenceAvailability partners) {
-        this.jdbc=jdbc;this.engine=engine;this.catalog=catalog;this.partners=partners;
+    PricingService(JdbcTemplate jdbc,PricingEngine engine,CatalogAvailability catalog,ReferenceAvailability partners,PriceListService priceLists) {
+        this.jdbc=jdbc;this.engine=engine;this.catalog=catalog;this.partners=partners;this.priceLists=priceLists;
     }
 
     public PricingModels.Preview preview(CompanyAccess scope,PricingModels.PreviewRequest input) {
@@ -48,8 +50,12 @@ public class PricingService {
             if(checkedWarehouses.add(line.warehouseId())) {warehouse(scope,line.warehouseId());}
         }
         var defaults=catalog.requireActiveSkus(scope,keys);
+        var quotes=sales?priceLists.quotes(scope,partner,input.businessDate(),selections(input.lines())):Map.<Integer,PriceListService.Quote>of();
         List<PricingModels.Line> lines=new ArrayList<>();
-        for(var line:input.lines()) {lines.add(resolveLine(scope,line,sales,defaults.get(new CatalogAvailability.SkuUnit(Long.parseLong(line.skuId()),Long.parseLong(line.unitId())))));}
+        for(int index=0;index<input.lines().size();index++) {
+            var line=input.lines().get(index);
+            lines.add(resolveLine(scope,line,sales,defaults.get(keys.get(index)),inclusive,quotes.get(index)));
+        }
         List<PricingModels.Fee> fees=new ArrayList<>();
         if(input.fees()!=null) {
             if(input.fees().size()>50) {throw invalid("费用最多50行");}
@@ -62,22 +68,54 @@ public class PricingService {
         return engine.calculate(new PricingModels.Calculation(inclusive,input.orderDiscountAmount(),List.copyOf(lines),List.copyOf(fees)));
     }
 
-    private PricingModels.Line resolveLine(CompanyAccess scope,PricingModels.PreviewLine line,boolean sales,Map<String,Object> row) {
-        String rate=((BigDecimal)row.get("rate_to_base")).toPlainString();
-        String price=line.unitPrice();
-        if(price==null && line.amountInput()==null) {
-            BigDecimal reference=(BigDecimal)row.get(sales?"sale_price":"purchase_price");
-            if(reference==null) {throw invalid("商品未设置参考价格，请填写单价");}
-            // 采购参考价本身受字段权限保护，使用参考价亦需该权限。
-            if(!sales && !scope.hasPermission("cost:view")) {
-                throw new ApiException(403,"FORBIDDEN","读取采购参考价需要查看采购价格权限");
-            }
-            try {price=reference.multiply(new BigDecimal(rate)).setScale(8,java.math.RoundingMode.UNNECESSARY).toPlainString();}
-            catch(ArithmeticException ex) {throw invalid("参考价格换算超过八位小数，请明确录入单价");}
+    PricingModels.DefaultPrice defaultPrice(CompanyAccess scope,String partnerId,String sku,String unit,String qty,
+                                            LocalDate date,Boolean requestedTaxBasis) {
+        long partner=identifier(partnerId,"客户");
+        partners.requirePartner(scope,partner,"customer");
+        var key=new CatalogAvailability.SkuUnit(identifier(sku,"商品"),identifier(unit,"单位"));
+        var row=catalog.requireActiveSkus(scope,List.of(key)).get(key);
+        boolean inclusive=requestedTaxBasis!=null?requestedTaxBasis:flag(jdbc.queryForObject(
+                "SELECT price_tax_inclusive FROM partner_role WHERE tenant_id=? AND partner_id=? AND role='customer'",
+                Integer.class,scope.tenantId(),partner));
+        var selected=priceLists.quotes(scope,partner,date,List.of(new PriceListService.Selection(0,sku,unit,quantity(qty,"数量").toPlainString()))).get(0);
+        String value=selected==null?referencePrice(scope,true,row):taxBasis(selected,inclusive,(BigDecimal)row.get("default_tax_rate"));
+        return new PricingModels.DefaultPrice(value,inclusive,selected==null?"reference":selected.source());
+    }
+
+    private List<PriceListService.Selection> selections(List<PricingModels.PreviewLine> lines) {
+        var result=new ArrayList<PriceListService.Selection>();
+        for(int index=0;index<lines.size();index++) {
+            var line=lines.get(index);
+            if(line.unitPrice()==null&&line.amountInput()==null)
+                result.add(new PriceListService.Selection(index,line.skuId(),line.unitId(),quantity(line.qty(),"数量").toPlainString()));
         }
+        return result;
+    }
+
+    private PricingModels.Line resolveLine(CompanyAccess scope,PricingModels.PreviewLine line,boolean sales,Map<String,Object> row,
+                                             boolean inclusive,PriceListService.Quote quote) {
+        String rate=((BigDecimal)row.get("rate_to_base")).toPlainString();
         String tax=chosenTax(scope,line.taxRate(),((BigDecimal)row.get("default_tax_rate")).toPlainString());
+        String price=line.unitPrice();
+        if(price==null && line.amountInput()==null)
+            price=quote==null?referencePrice(scope,sales,row):taxBasis(quote,inclusive,new BigDecimal(tax));
         return new PricingModels.Line(line.skuId(),line.unitId(),line.warehouseId(),line.qty(),rate,
                 price,line.amountInput(),line.lineDiscountAmount(),line.lineDiscountRatio(),tax);
+    }
+
+    private String referencePrice(CompanyAccess scope,boolean sales,Map<String,Object> row) {
+        BigDecimal reference=(BigDecimal)row.get(sales?"sale_price":"purchase_price");
+        if(reference==null) throw invalid("商品未设置参考价格，请填写单价");
+        if(!sales && !scope.hasPermission("cost:view"))
+            throw new ApiException(403,"FORBIDDEN","读取采购参考价需要查看采购价格权限");
+        try {return reference.multiply((BigDecimal)row.get("rate_to_base")).setScale(8,java.math.RoundingMode.UNNECESSARY).toPlainString();}
+        catch(ArithmeticException ex) {throw invalid("参考价格换算超过八位小数，请明确录入单价");}
+    }
+
+    private static String taxBasis(PriceListService.Quote quote,boolean inclusive,BigDecimal rate) {
+        if(quote.includesTax()==inclusive) return quote.price().toPlainString();
+        BigDecimal multiplier=BigDecimal.ONE.add(rate);
+        return (inclusive?quote.price().multiply(multiplier).setScale(8,ROUND):quote.price().divide(multiplier,8,ROUND)).toPlainString();
     }
 
     private String chosenTax(CompanyAccess scope,String requested,String defaultTax) {

@@ -29,6 +29,7 @@ import BrandMark from './BrandMark.vue'
 import NotificationBell from './NotificationBell.vue'
 import { reportSpecs, reportPermission } from '../types/reporting'
 import { importSpecs } from '../types/file-jobs'
+import { crmCoreNavigation, crmCycleNavigation } from '../types/crm-navigation'
 import { confirmCompanyLeave } from '../utils/unsaved'
 const route = useRoute(),
   router = useRouter(),
@@ -86,6 +87,27 @@ interface NavigationItem {
   any?: string[]
 }
 const definitions = [
+  {
+    title: '客户关系',
+    icon: OfficeBuilding,
+    items: [
+      ...[...crmCoreNavigation, ...crmCycleNavigation].map(({ kind, title, permission }) => ({
+        path: 'crm/' + kind,
+        title,
+        permission,
+      })),
+      { path: 'crm/price-lists', title: '价格表', permission: 'price_list:view' },
+    ],
+  },
+  {
+    title: '客服',
+    icon: ChatDotRound,
+    items: [
+      { path: 'cs/tickets', title: '客服工单', permission: 'cs_ticket:view' },
+      { path: 'cs/portal-users', title: '门户账号', permission: 'portal_user:view' },
+      { path: 'cs/sensitive-words', title: '敏感词', permission: 'portal_sensitive_word:view' },
+    ],
+  },
   {
     title: '财务总账',
     icon: Wallet,

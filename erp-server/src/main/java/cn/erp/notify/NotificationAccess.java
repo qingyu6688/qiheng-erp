@@ -50,6 +50,7 @@ public class NotificationAccess {
                     +"WHERE x.tenant_id=:tenant AND x.company_id=:company AND b.id=m.source_id "
                     +"AND b.status='normal' AND x.on_hand_qty>0 AND x.warehouse_id=m.source_version"+allowed+"))");
         }
+        if(actor.hasPermission("cs_ticket:view")) sources.add("(m.source_type='cs_ticket' AND EXISTS(SELECT 1 FROM cs_ticket t WHERE t.tenant_id=:tenant AND t.company_id=:company AND t.id=m.source_id AND t.assignee_id=:user AND t.status NOT IN ('resolved','closed')))" );
         sources.add("(m.category IN('system','alert') AND m.source_type IS NULL AND m.notice_id IS NULL)");
         return new Filter("m.tenant_id=:tenant AND m.company_id IN(0,:company) AND m.user_id=:user AND m.state='open' AND ("+String.join(" OR ",sources)+")",params);
     }

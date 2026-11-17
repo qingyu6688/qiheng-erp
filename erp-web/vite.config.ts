@@ -1,4 +1,5 @@
 import { env } from 'node:process'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 
@@ -22,6 +23,10 @@ export default defineConfig(({ command }) => ({
   build: {
     emptyOutDir: true,
     rollupOptions: {
+      input: {
+        app: fileURLToPath(new URL('./index.html', import.meta.url)),
+        portal: fileURLToPath(new URL('./portal.html', import.meta.url)),
+      },
       output: {
         onlyExplicitManualChunks: true,
         manualChunks(id: string): string | undefined {
