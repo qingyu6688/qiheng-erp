@@ -1,0 +1,27 @@
+# 为 AI 增加独立检索网络。已有 OpenSearch 时，仅使用 compose.ai.yaml。
+services:
+  erp-ai:
+    networks: [web, data, ai-search]
+  opensearch:
+    image: opensearchproject/opensearch:3.9.0@sha256:3bf4fe26aeb9f7b03c0ebcb1302bb24e855ee6b89fd926d26a71a83ef6f7e076
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "50m", max-file: "14" }
+    environment:
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms4g -Xmx4g
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - ./private/opensearch/opensearch.yml:/usr/share/opensearch/config/opensearch.yml:ro
+      - ./private/opensearch/tls:/usr/share/opensearch/config/erp-tls:ro
+      - ./private/opensearch/security:/usr/share/opensearch/config/opensearch-security:ro
+      - ./private/opensearch/snapshots:/mnt/opensearch-snapshots
+      - ai-search-data:/usr/share/opensearch/data
+    networks: [ai-search]
+networks:
+  ai-search:
+    internal: true
+volumes:
+  ai-search-data: {}

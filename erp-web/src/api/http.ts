@@ -23,6 +23,7 @@ const client = axios.create({
 
 let companyId: string | null = null
 let companyRequests = new AbortController()
+let sessionRequests = new AbortController()
 let sessionRevision = 0
 let sessionActive = true
 const publicAuthPaths = [
@@ -36,6 +37,8 @@ const publicAuthPaths = [
 export function renewSessionScope(active = true): void {
   sessionRevision++
   sessionActive = active
+  sessionRequests.abort()
+  sessionRequests = new AbortController()
 }
 
 export function setCompanyScope(next: string | null): void {
@@ -54,7 +57,23 @@ export function messageOf(error: unknown): string {
 }
 
 export function isCancelled(error: unknown): boolean {
-  return axios.isCancel(error)
+  return axios.isCancel(error) || (error instanceof DOMException && error.name === 'AbortError')
+}
+
+export function companyStreamScope(signal: AbortSignal): { company: string; signal: AbortSignal } {
+  if (!sessionActive) throw new axios.CanceledError('会话已退出')
+  if (!companyId) throw new ApiError(403, 'COMPANY_NOT_ALLOWED', '请选择公司。')
+  return {
+    company: companyId,
+    signal: AbortSignal.any([companyRequests.signal, sessionRequests.signal, signal]),
+  }
+}
+
+export function notifySessionFailure(status: number, code?: string, authCheck = false): void {
+  if (status !== 401) return
+  if (code === 'SESSION_REVOKED') window.dispatchEvent(new Event('erp:session-kicked'))
+  if (!authCheck && (code === 'UNAUTHENTICATED' || code === 'AI_LOGIN_REQUIRED'))
+    window.dispatchEvent(new Event('erp:session-expired'))
 }
 
 export async function request<T>(config: AxiosRequestConfig, companyScoped = false): Promise<T> {
@@ -93,16 +112,7 @@ export async function request<T>(config: AxiosRequestConfig, companyScoped = fal
       }
     }
     const status = cause.response?.status ?? 0
-    if (status === 401 && !publicAuth && body?.errorCode === 'SESSION_REVOKED')
-      window.dispatchEvent(new Event('erp:session-kicked'))
-    if (
-      status === 401 &&
-      !publicAuth &&
-      config.url !== '/auth/me' &&
-      body?.errorCode === 'UNAUTHENTICATED'
-    ) {
-      window.dispatchEvent(new Event('erp:session-expired'))
-    }
+    if (!publicAuth) notifySessionFailure(status, body?.errorCode, config.url === '/auth/me')
     throw new ApiError(
       status,
       body?.errorCode ?? (status ? 'HTTP_ERROR' : 'NETWORK_ERROR'),

@@ -16,6 +16,7 @@
 | 库存 | 查询在库、可用、预留和冻结数量。支持调拨、盘点、库存调整及移动加权成本核算。 |
 | 往来与资金 | 导入或录入期初数据，管理应收应付、收付款、资金账户和内部转账。支持单据冲销、八类对账及期间关账、重开。 |
 | 财务总账（候选） | 公司独立人民币账套、两套准则样例、七维辅助、手工及业务凭证、三表指标、期末结转；支持信用、催收和坏账，见[M12使用说明](docs/M12财务总账使用说明.md)。 |
+| 内部 AI 助手（候选） | 按企业、角色和部门检索内部资料，回答附可核对的引用。知识维护人员可导入资料、调整片段和审核 Wiki，管理员可配置模型、只读工具和用量。见 [M13 使用与验收说明](docs/M13人工智能使用与验收.md)。 |
 | 报表与文件 | 提供库存收发存、销售采购汇总、账龄、资金日记账、毛利等十类报表。支持后台 CSV 导入导出、错误行下载、单据打印预览和私有附件。 |
 | 权限与审计 | 按企业、公司和仓库划分数据范围，按角色与操作授权。关键审核支持经办与复核分离，并记录操作审计。管理员可以按企业配置短信、邮箱验证码和微信扫码登录。 |
 
@@ -41,6 +42,7 @@ M12候选增量增加公司独立人民币账套、企业/小企业准则样例�
 | --- | --- |
 | [`erp-web/`](erp-web/) | 管理端页面、API 调用、浏览器和组件测试 |
 | [`erp-server/`](erp-server/) | 应用 API、业务服务、Worker、数据库迁移与集成测试 |
+| [`erp-ai/`](erp-ai/) | 可选的模型网关、知识库和 Wiki 服务，使用独立的 MySQL 库 |
 | [`deploy/`](deploy/) | Nginx、Compose、API 与 Worker 服务及生产环境配置模板 |
 | [`scripts/`](scripts/) | 本机初始化、构建、打包、备份和恢复脚本 |
 | [`docs/`](docs/) | 部署、运维、接口、数据库、业务规则和验收记录 |
@@ -116,6 +118,7 @@ M11 workflow work adds Flowable 8.0.0 with a SIMPLE designer, immutable model re
 | Purchasing | Convert requisitions into purchase orders, approve orders, and post receipts to inventory and accounts payable. Process returns, vendor refunds, supplier payments, and settlement. |
 | Inventory | View on-hand, available, reserved, and blocked quantities. Record transfers, stock counts, and adjustments. The system calculates costs using a moving weighted average. |
 | Finance | Enter or import opening balances, manage receivables and payables, and record receipts, payments, and transfers between accounts. Reverse transactions, run eight reconciliation checks, and close or reopen accounting periods. |
+| Internal AI assistant (candidate) | Ask questions with verifiable citations scoped to the tenant, roles, and departments. Maintain document segments and review Wiki revisions. Admins can set model routes, read-only tools, and usage limits. See the [M13 guide and acceptance checklist (Chinese)](docs/M13人工智能使用与验收.md). |
 | Reports and files | Use ten report types, including inventory movements, sales and purchase summaries, aging, cash journals, and gross margin. Run background CSV imports and exports, download rejected rows, preview printed documents, and manage private attachments. |
 | Access and audit | Scope data by tenant, company, and warehouse, and grant permissions by role and action. Key transactions can require a separate reviewer and record an audit trail. Administrators can configure SMS codes, email codes, and WeChat sign-in per tenant. |
 
@@ -137,6 +140,7 @@ The web app uses Vue 3, TypeScript, Vite, and Element Plus. The REST API uses Ja
 | --- | --- |
 | [`erp-web/`](erp-web/) | Management UI, API client, and browser and component tests |
 | [`erp-server/`](erp-server/) | API, business services, worker, database migrations, and integration tests |
+| [`erp-ai/`](erp-ai/) | Optional model gateway, knowledge base, and Wiki with a separate MySQL schema |
 | [`deploy/`](deploy/) | Nginx, Compose, API and worker services, and production configuration templates |
 | [`scripts/`](scripts/) | Local setup, build, packaging, backup, and restore scripts |
 | [`docs/`](docs/) | Deployment, operations, API, database, business rules, and acceptance records |

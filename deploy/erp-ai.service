@@ -1,0 +1,25 @@
+[Unit]
+Description=柒衡 ERP AI 服务
+After=network-online.target erp-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=erp-ai
+DynamicUser=true
+StateDirectory=erp-ai
+WorkingDirectory=/opt/erp/current
+EnvironmentFile=/etc/erp/ai.env
+ExecStart=/usr/bin/java -XX:MaxRAMPercentage=70 -jar /opt/erp/current/erp-ai.jar
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=90
+SuccessExitStatus=143
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

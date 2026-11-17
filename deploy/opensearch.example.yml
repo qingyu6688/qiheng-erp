@@ -1,0 +1,19 @@
+cluster.name: qiheng-erp-ai
+node.name: opensearch
+network.host: 0.0.0.0
+discovery.type: single-node
+path.repo: ["/mnt/opensearch-snapshots"]
+plugins.security.ssl.http.enabled: true
+plugins.security.ssl.http.pemcert_filepath: erp-tls/node.pem
+plugins.security.ssl.http.pemkey_filepath: erp-tls/node-key.pem
+plugins.security.ssl.http.pemtrustedcas_filepath: erp-tls/ca.pem
+plugins.security.ssl.transport.pemcert_filepath: erp-tls/node.pem
+plugins.security.ssl.transport.pemkey_filepath: erp-tls/node-key.pem
+plugins.security.ssl.transport.pemtrustedcas_filepath: erp-tls/ca.pem
+transport.ssl.enforce_hostname_verification: true
+plugins.security.allow_unsafe_democertificates: false
+# 首次由运维在私网使用管理证书通过 securityadmin.sh 导入私有安全配置。
+plugins.security.allow_default_init_securityindex: false
+# 部署时按所签证书填写 DN。容器内的节点证书须包含 opensearch 的 DNS SAN。
+plugins.security.nodes_dn: ["CN=opensearch"]
+plugins.security.authcz.admin_dn: ["CN=opensearch-security-admin"]
