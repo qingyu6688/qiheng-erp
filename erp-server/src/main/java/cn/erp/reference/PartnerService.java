@@ -1,5 +1,7 @@
 package cn.erp.reference;
 
+import cn.erp.coderule.CodeRules;
+import cn.erp.customfield.CustomFields;
 import cn.erp.identity.CompanyAccess;
 import cn.erp.shared.*;
 import java.util.*;
@@ -11,21 +13,32 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly=true)
 class PartnerService {
     private final JdbcTemplate jdbc;
+    private final CodeRules codeRules;
+    private final CustomFields customFields;
     private final AuditService audit;
     private final cn.erp.sysadmin.AreaService areas;
     private final cn.erp.sysadmin.DictionaryService dictionaries;
 
-    PartnerService(JdbcTemplate jdbc, AuditService audit,cn.erp.sysadmin.AreaService areas,cn.erp.sysadmin.DictionaryService dictionaries) { this.jdbc=jdbc; this.audit=audit;this.areas=areas;this.dictionaries=dictionaries; }
+    PartnerService(JdbcTemplate jdbc, AuditService audit,cn.erp.sysadmin.AreaService areas,cn.erp.sysadmin.DictionaryService dictionaries,CodeRules codeRules,CustomFields customFields) { this.jdbc=jdbc; this.audit=audit;this.areas=areas;this.dictionaries=dictionaries;this.codeRules=codeRules;this.customFields=customFields; }
 
     Map<String,Object> list(CompanyAccess scope,String keyword,String role,String cursor,int limit) {
+        return list(scope,keyword,role,cursor,limit,Map.of());
+    }
+
+    Map<String,Object> list(CompanyAccess scope,String keyword,String role,String cursor,int limit,Map<String,String[]> parameters) {
         long last = ReferenceRows.cursor(cursor,limit);
         if (role != null && !Set.of("customer","supplier").contains(role)) { throw ReferenceRows.invalid("往来角色无效"); }
+        var args=new ArrayList<Object>(Arrays.asList(scope.tenantId(),last,keyword,keyword,role,role));
+        String filters=customFields.predicates(scope.tenantId(),"business_partner","p",parameters,args);
+        args.add(limit+1);
         var rows=jdbc.queryForList("""
-                SELECT p.id,p.code,p.name,p.short_name,p.tax_no,p.status,p.version,p.area_id,p.source_code FROM business_partner p
+                SELECT p.id,p.code,p.name,p.short_name,p.tax_no,p.status,p.version,p.area_id,p.source_code,p.ext_json FROM business_partner p
                 WHERE p.tenant_id=? AND p.id<? AND (LOCATE(?,p.code)>0 OR LOCATE(?,p.name)>0)
                 AND (? IS NULL OR EXISTS(SELECT 1 FROM partner_role r WHERE r.tenant_id=p.tenant_id
-                    AND r.partner_id=p.id AND r.role=? AND r.status='active')) ORDER BY p.id DESC LIMIT ?
-                """,scope.tenantId(),last,keyword,keyword,role,role,limit+1);
+                    AND r.partner_id=p.id AND r.role=? AND r.status='active'))
+                """+filters+" ORDER BY p.id DESC LIMIT ?",args.toArray());
+        var fields=customFields.fields(scope.tenantId(),"business_partner");
+        rows.forEach(row -> row.put("ext_json",customFields.visible((String)row.get("ext_json"),fields)));
         var page=ReferenceRows.page(rows,limit);
         @SuppressWarnings("unchecked") var items=(List<Map<String,Object>>)page.get("items");
         items.forEach(item -> enrich(scope,item));
@@ -34,9 +47,10 @@ class PartnerService {
 
     Map<String,Object> get(CompanyAccess scope,long id,boolean lock) {
         var row=ReferenceRows.one(jdbc.queryForList("""
-                SELECT id,code,name,short_name,tax_no,status,version,area_id,source_code FROM business_partner
+                SELECT id,code,name,short_name,tax_no,status,version,area_id,source_code,ext_json FROM business_partner
                 WHERE tenant_id=? AND id=?
                 """+(lock?" FOR UPDATE":""),scope.tenantId(),id));
+        row.put("extJson",customFields.visible((String)row.get("extJson"),customFields.fields(scope.tenantId(),"business_partner")));
         enrich(scope,row);
         return row;
     }
@@ -55,7 +69,8 @@ class PartnerService {
         jdbc.update("""
                 INSERT INTO business_partner(id,tenant_id,code,name,short_name,tax_no,created_by,updated_by)
                 VALUES(?,?,?,?,?,?,?,?)
-                """,id,scope.tenantId(),input.code().trim(),input.name().trim(),input.shortName(),input.taxNo(),scope.userId(),scope.userId());
+                """,id,scope.tenantId(),newCode(scope,input.code()),input.name().trim(),input.shortName(),input.taxNo(),scope.userId(),scope.userId());
+        customFields.write(scope,"business_partner",id,input.extJson(),true);
         jdbc.update("UPDATE business_partner SET area_id=?,source_code=? WHERE tenant_id=? AND id=?",input.areaId(),input.sourceCode(),scope.tenantId(),id);
         roles(scope,id,input.roles());
         return changed(scope,id,"partner.create",null);
@@ -69,9 +84,19 @@ class PartnerService {
         jdbc.update("""
                 UPDATE business_partner SET code=?,name=?,short_name=?,tax_no=?,updated_by=?,version=version+1
                 WHERE tenant_id=? AND id=? AND version=?
-                """,input.code().trim(),input.name().trim(),input.shortName(),input.taxNo(),scope.userId(),scope.tenantId(),id,input.version());
+                """,requiredCode(input.code()),input.name().trim(),input.shortName(),input.taxNo(),scope.userId(),scope.tenantId(),id,input.version());
+        customFields.write(scope,"business_partner",id,input.extJson(),false);
         roles(scope,id,input.roles());
         return changed(scope,id,"partner.update",before);
+    }
+
+    private String newCode(CompanyAccess scope,String value) {
+        return value!=null&&!value.isBlank()?value.strip():codeRules.master(scope,"partner",null,null);
+    }
+
+    private String requiredCode(String value) {
+        if(value==null||value.isBlank()) throw ReferenceRows.invalid("请输入单位编码");
+        return value.strip();
     }
 
     private void roles(CompanyAccess scope,long id,Set<String> roles) {

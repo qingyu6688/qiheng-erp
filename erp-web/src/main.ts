@@ -10,6 +10,7 @@ import { ElForm, ElFormItem } from 'element-plus/es/components/form/index.mjs'
 import { ElInput } from 'element-plus/es/components/input/index.mjs'
 import { ElOption, ElSelect } from 'element-plus/es/components/select/index.mjs'
 import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index.mjs'
+import { ElTabs, ElTabPane } from 'element-plus/es/components/tabs/index.mjs'
 import { ElTag } from 'element-plus/es/components/tag/index.mjs'
 import { ElSwitch } from 'element-plus/es/components/switch/index.mjs'
 import { ElInputNumber } from 'element-plus/es/components/input-number/index.mjs'
@@ -41,6 +42,8 @@ for (const component of [
   ElSelect,
   ElTable,
   ElTableColumn,
+  ElTabs,
+  ElTabPane,
   ElTag,
   ElSwitch,
   ElInputNumber,

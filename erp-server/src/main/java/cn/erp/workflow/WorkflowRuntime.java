@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import cn.erp.identity.*;
+import cn.erp.jobs.OutboxService;
 import cn.erp.shared.*;
 
 import static cn.erp.workflow.WorkflowDocuments.*;
@@ -19,11 +20,13 @@ public class WorkflowRuntime implements WorkflowPort {
     final WorkflowState state;
     final ProcessEngine engine;
     final AssigneeResolver assignees;
+    private final OutboxService outbox;
 
-    public WorkflowRuntime(WorkflowState state, ProcessEngine engine, AssigneeResolver assignees) {
+    public WorkflowRuntime(WorkflowState state, ProcessEngine engine, AssigneeResolver assignees, OutboxService outbox) {
         this.state = state;
         this.engine = engine;
         this.assignees = assignees;
+        this.outbox = outbox;
     }
 
     private CreditPort credit=new CreditPort() {};
@@ -36,7 +39,8 @@ public class WorkflowRuntime implements WorkflowPort {
         var creditInfo=type.equals("sales_order")?credit.inspect(actor,id):Map.<String,Object>of();
         boolean needsCredit=Boolean.TRUE.equals(creditInfo.get("overCreditLimit"))&&"approval".equals(creditInfo.get("creditPolicy"));
         if (!SimpleModel.TYPES.contains(type)) throw SimpleModel.invalid("工作流业务类型无效");
-        if (state.jdbc.queryForObject(
+        boolean generic = type.equals("wf_generic_request");
+        if (!generic && state.jdbc.queryForObject(
                         "SELECT COUNT(*) FROM wf_business_binding WHERE tenant_id=? AND company_id"
                             + " IN(0,?) AND business_type=? AND enabled=1",
                         Long.class,
@@ -69,11 +73,13 @@ public class WorkflowRuntime implements WorkflowPort {
             return;
         }
         var summary = state.documents.snapshot(actor, type, id);
-        var binding = state.models.selected(actor, type, summary);
+        var binding = generic ? state.models.genericBinding(actor, number(summary.get("modelId")))
+                : state.models.selected(actor, type, summary);
         boolean needsPrice =
                 Boolean.TRUE.equals(summary.get("belowMinPrice"))
                         && "approval".equals(summary.get("belowMinPricePolicy"));
         if (binding == null) {
+            if (generic) throw SimpleModel.invalid("申请关联的流程未发布或已停用");
             if(needsCredit)throw new ApiException(422,"CREDIT_APPROVAL_REQUIRED","当前没有匹配的人工信用审批流程");
             if (needsPrice)
                 throw new ApiException(
@@ -283,6 +289,28 @@ public class WorkflowRuntime implements WorkflowPort {
                 node.branches().get(branch).condition(), state.summary(instance));
     }
 
+    public void scheduleDelay(DelegateExecution execution) {
+        var instance = state.raw(number(execution.getVariable("wfTenant")),number(execution.getVariable("wfInstance")),false);
+        var node = state.node(instance,execution.getCurrentActivityId());
+        state.jdbc.update("""
+                INSERT INTO wf_delay(execution_id,tenant_id,company_id,instance_id,node_key,due_at)
+                VALUES(?,?,?,?,?,TIMESTAMPADD(SECOND,?,UTC_TIMESTAMP(3))) AS staged
+                ON DUPLICATE KEY UPDATE node_key=staged.node_key,due_at=staged.due_at
+                """,execution.getId(),instance.get("tenant_id"),instance.get("company_id"),instance.get("id"),node.id(),node.delaySeconds());
+        state.action(instance,null,0,"delay_scheduled",null,Map.of("nodeKey",node.id()));
+    }
+
+    public void publishTrigger(DelegateExecution execution) {
+        long tenant = number(execution.getVariable("wfTenant"));
+        long id = number(execution.getVariable("wfInstance"));
+        var instance = state.raw(tenant,id,false);
+        var node = state.node(instance,execution.getCurrentActivityId());
+        long event = outbox.publish(tenant,"workflow_trigger",Ids.next(),0,
+                "workflow.trigger",Map.of("event",node.triggerEvent(),"nodeKey",node.id(),
+                        "instanceId",Long.toString(id),"companyId",instance.get("company_id").toString()));
+        state.action(instance,null,0,"trigger_enqueued",null,Map.of("nodeKey",node.id(),"eventId",Long.toString(event)));
+    }
+
     public void finished(DelegateExecution execution) {
         long tenant = ((Number) execution.getVariable("wfTenant")).longValue(),
                 id = ((Number) execution.getVariable("wfInstance")).longValue();
@@ -370,6 +398,7 @@ public class WorkflowRuntime implements WorkflowPort {
             engine.getRuntimeService()
                     .deleteProcessInstance(
                             instance.get("flowable_instance_id").toString(), "审批流程结束");
+        state.jdbc.update("DELETE FROM wf_delay WHERE tenant_id=? AND instance_id=?",actor.tenantId(),id);
         CompanyAccess callback =
                 system ? systemActor(actor.tenantId(), actor.companyId(), type) : actor;
         try (var permit = WorkflowContext.open(callback, type, business)) {
@@ -395,31 +424,8 @@ public class WorkflowRuntime implements WorkflowPort {
 
     static boolean pricePath(SimpleModel.Node node,Map<String,Object> summary) {return reviewPath(node,summary,false);}
     static boolean reviewPath(SimpleModel.Node node, Map<String, Object> summary,boolean credit) {
-        if (node == null) return false;
-        if (Boolean.TRUE.equals(credit?node.creditApproval():node.priceApproval())) return true;
-        if (node.type().equals("parallel_branch")
-                && node.branches().stream().anyMatch(b -> reviewPath(b.child(), summary,credit)))
-            return true;
-        if (node.type().equals("condition_branch")) {
-            var selected =
-                    node.branches().stream()
-                            .filter(
-                                    b ->
-                                            !Boolean.TRUE.equals(b.defaultBranch())
-                                                    && SimpleModel.matches(b.condition(), summary))
-                            .findFirst()
-                            .orElseGet(
-                                    () ->
-                                            node.branches().stream()
-                                                    .filter(
-                                                            b ->
-                                                                    Boolean.TRUE.equals(
-                                                                            b.defaultBranch()))
-                                                    .findFirst()
-                                                    .orElseThrow());
-            if (reviewPath(selected.child(), summary,credit)) return true;
-        }
-        return reviewPath(node.child(), summary,credit);
+        return SimpleModel.reachable(node,summary).stream()
+                .anyMatch(current -> Boolean.TRUE.equals(credit ? current.creditApproval() : current.priceApproval()));
     }
 
     public void autoRejected(DelegateExecution execution) {
@@ -428,6 +434,7 @@ public class WorkflowRuntime implements WorkflowPort {
                 state.raw(tenant, ((Number) execution.getVariable("wfInstance")).longValue(), true);
         state.running(instance);
         String type = instance.get("business_type").toString();
+        state.jdbc.update("DELETE FROM wf_delay WHERE tenant_id=? AND instance_id=?",tenant,instance.get("id"));
         long business = number(instance.get("business_id"));
         var actor = systemActor(tenant, number(instance.get("company_id")), type);
         try (var permit = WorkflowContext.open(actor, type, business)) {

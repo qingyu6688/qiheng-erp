@@ -41,7 +41,7 @@ public class AccountTransferService {
     @Transactional
     public Map<String,Object> create(CompanyAccess scope,String key,TreasuryModels.Transfer input) {
         return execute(scope,"create",key,input,201,()->{
-            validate(scope,input);long id=Ids.next();String no=numbers.next(scope,"AT",YearMonth.from(input.businessDate()));
+            validate(scope,input);long id=Ids.next();String no=numbers.next(scope,"AT",input.businessDate());
             jdbc.update("""
                 INSERT INTO account_transfer(id,tenant_id,company_id,transfer_no,from_account_id,to_account_id,amount,fee_amount,business_date,remark,created_by,updated_by,owner_user_id,owner_department_id)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)

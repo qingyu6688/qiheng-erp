@@ -27,16 +27,21 @@ public class SessionAuthority {
     private final BusinessCommands commands;
     private final AuditService audit;
     private final ApplicationEventPublisher events;
+    private final SessionChecks checks;
     private final String prefix;
     private final Map<String,Long> touched=new java.util.concurrent.ConcurrentHashMap<>();
-    public SessionAuthority(StringRedisTemplate redis,SessionRepository<? extends Session> sessions,JdbcTemplate jdbc,ObjectMapper json,BusinessCommands commands,AuditService audit,ApplicationEventPublisher events,@Value("${spring.session.redis.namespace:erp:session:prod}") String namespace) {
-        this.redis=redis;this.sessions=sessions;this.jdbc=jdbc;this.json=json;this.commands=commands;this.audit=audit;this.events=events;this.prefix=namespace+":online:";
+    public SessionAuthority(StringRedisTemplate redis,SessionRepository<? extends Session> sessions,JdbcTemplate jdbc,ObjectMapper json,BusinessCommands commands,AuditService audit,ApplicationEventPublisher events,SessionChecks checks,@Value("${spring.session.redis.namespace:erp:session:prod}") String namespace) {
+        this.redis=redis;this.sessions=sessions;this.jdbc=jdbc;this.json=json;this.commands=commands;this.audit=audit;this.events=events;this.checks=checks;this.prefix=namespace+":online:";
     }
     public static String publicId(String sid) {
         try {return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(sid.getBytes(StandardCharsets.UTF_8)));}
         catch(NoSuchAlgorithmException error) {throw new IllegalStateException("运行环境缺少会话摘要算法",error);}
     }
-    public void check(String sid) {if(Boolean.TRUE.equals(redis.hasKey(prefix+"revoked:"+publicId(sid)))) throw new ApiException(401,"SESSION_REVOKED","当前会话已下线，请重新登录");}
+    public void check(String sid) {
+        String reason=redis.opsForValue().get(prefix+"revoked:"+publicId(sid));
+        if ("rotated".equals(reason)) throw new ApiException(401,"SESSION_ROTATED","当前会话凭据已更新，请刷新后重试");
+        if (reason!=null) throw new ApiException(401,"SESSION_REVOKED","当前会话已下线，请重新登录");
+    }
     void touch(HttpServletRequest request,SessionAccount actor) {
         var session=request.getSession(false);String id=publicId(session.getId());
         long now=System.currentTimeMillis();if(touched.getOrDefault(id,0L)>now) return;
@@ -49,10 +54,11 @@ public class SessionAuthority {
         check(sid);var session=sessions.findById(sid);if(session==null||session.isExpired()) return false;
         Object value=session.getAttribute(SessionAccount.class.getName());
         if(!(value instanceof SessionAccount account)||account.tenantId()!=tenant||account.userId()!=user||account.passwordRevision()!=revision||account.isExpired(java.time.Instant.now())) return false;
-        return Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM sys_user u JOIN tenant t ON t.id=u.tenant_id WHERE u.tenant_id=? AND u.id=? AND u.status='active' AND t.status='active' AND "+AccessService.PASSWORD_REVISION+"=?)",Boolean.class,tenant,user,revision));
+        return checks.full(account);
     }
     public SocketIdentity socketIdentity(HttpServletRequest request) {
         var account=SessionAccount.read(request);check(request.getSession(false).getId());
+        if (!checks.full(account)) throw SessionAccount.expired();
         return new SocketIdentity(account.tenantId(),account.userId(),account.passwordRevision(),request.getSession(false).getId());
     }
     public record SocketIdentity(long tenantId,long userId,long revision,String sessionId) {}
@@ -81,8 +87,24 @@ public class SessionAuthority {
         },Map.class);
     }
     void revoke(String sid,long tenant,long user) {
-        String id=publicId(sid);touched.remove(id);redis.opsForValue().set(prefix+"revoked:"+id,"1",LIFETIME);sessions.deleteById(sid);redis.opsForZSet().remove(prefix+tenant,id);
-        events.publishEvent(new UserSignal(tenant,user,"session.kicked",Map.of("session",id)));
+        String id=publicId(sid);
+        redis.opsForValue().set(prefix+"revoked:"+id,"1",LIFETIME);
+        retire(sid,id,tenant,user,"session.kicked");
+    }
+    void rotate(String sid,long tenant,long user) {
+        String id=publicId(sid);
+        // 管理员先撤销或另一请求已换发时，旧会话不能再产生一个完整会话。
+        if (!Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(prefix+"revoked:"+id,"rotated",LIFETIME))) {
+            check(sid);
+            throw SessionAccount.expired();
+        }
+        retire(sid,id,tenant,user,"session.rotated");
+    }
+    private void retire(String sid,String id,long tenant,long user,String notification) {
+        touched.remove(id);
+        sessions.deleteById(sid);
+        redis.opsForZSet().remove(prefix+tenant,id);
+        events.publishEvent(new UserSignal(tenant,user,notification,Map.of("session",id)));
     }
     private Entry entry(String id) {String value=redis.opsForValue().get(prefix+"entry:"+id);return value==null?null:json.readValue(value,Entry.class);}
     static String safe(String value,int length) {if(value==null) return "";return value.replaceAll("[\\p{Cntrl}]","").substring(0,Math.min(value.replaceAll("[\\p{Cntrl}]","").length(),length));}

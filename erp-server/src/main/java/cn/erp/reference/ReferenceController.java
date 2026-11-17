@@ -28,7 +28,7 @@ class ReferenceController {
     @GetMapping("/partners")
     ApiResponse<Map<String,Object>> partners(HttpServletRequest req,@RequestParam(defaultValue="") String keyword,
             @RequestParam(required=false) String role,@RequestParam(required=false) String cursor,@RequestParam(defaultValue="20") int limit) {
-        return ApiResponse.success(partners.list(access.requireTenant(req,"partner:view"),keyword,role,cursor,limit));
+        return ApiResponse.success(partners.list(access.requireTenant(req,"partner:view"),keyword,role,cursor,limit,req.getParameterMap()));
     }
 
     @GetMapping("/partners/{id}")

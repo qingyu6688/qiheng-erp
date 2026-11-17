@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.util.List;
+import java.util.Map;
+import tools.jackson.databind.JsonNode;
 
 final class CatalogModels {
     private CatalogModels() {}
@@ -25,14 +27,15 @@ final class CatalogModels {
             @Pattern(regexp = "active|disabled", message = "商品状态无效") String status, Long version) {}
     record SkuInput(
             @NotNull(message = "请选择商品") Long productId,
-            @NotBlank(message = "请输入 SKU 编码") @Size(max = 32, message = "SKU 编码过长") String code,
+            @Size(max = 32, message = "SKU 编码过长") String code,
             @NotBlank(message = "请输入 SKU 名称") @Size(max = 100, message = "SKU 名称过长") String name,
             @Size(max = 100, message = "规格最多 100 个字符") String spec,
             @Pattern(regexp = "0(\\.[0-9]{1,6})?", message = "税率须小于 1，最多六位小数") String defaultTaxRate,
             @Pattern(regexp = "[0-9]{1,16}(\\.[0-9]{1,8})?", message = "采购价格式有误，最多八位小数") String purchasePrice,
             @Pattern(regexp = "[0-9]{1,16}(\\.[0-9]{1,8})?", message = "销售价格式有误，最多八位小数") String salePrice,
             @Pattern(regexp = "active|disabled", message = "SKU 状态无效") String status, Long version,
-            @Pattern(regexp="[0-9]{1,16}(\\.[0-9]{1,8})?",message="最低售价须为非负数，最多八位小数") String minSalePrice) {
+            @Pattern(regexp="[0-9]{1,16}(\\.[0-9]{1,8})?",message="最低售价须为非负数，最多八位小数") String minSalePrice, @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) JsonNode extJson) {
+        public SkuInput(Long productId,String code,String name,String spec,String defaultTaxRate,String purchasePrice,String salePrice,String status,Long version,String minSalePrice) {this(productId,code,name,spec,defaultTaxRate,purchasePrice,salePrice,status,version,minSalePrice,null);}
         public SkuInput(Long productId,String code,String name,String spec,String defaultTaxRate,String purchasePrice,String salePrice,String status,Long version) {this(productId,code,name,spec,defaultTaxRate,purchasePrice,salePrice,status,version,null);}
     }
     record Version(@NotNull(message = "请提供版本号") @PositiveOrZero(message = "版本号无效") Long version) {}
@@ -55,7 +58,7 @@ final class CatalogModels {
                   String categoryId, String itemType, String baseUnitId, List<Detail> skus,
                   String productId, String spec, String defaultTaxRate,
                   @JsonInclude(JsonInclude.Include.NON_NULL) String purchasePrice, String salePrice,
-                  List<UnitView> units, List<BarcodeView> barcodes, List<String> allowedActions,String minSalePrice) {}
+                  List<UnitView> units, List<BarcodeView> barcodes, List<String> allowedActions,String minSalePrice,Map<String,Object> extJson) {}
     record UnitView(String unitId, String unitName, String rateToBase, boolean isBase, boolean referenced) {}
     record BarcodeView(String barcode, String unitId) {}
     record Scan(Detail sku, String unitId, String unitName, String rateToBase) {}

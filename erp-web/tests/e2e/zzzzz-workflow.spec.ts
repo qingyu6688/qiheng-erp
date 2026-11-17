@@ -167,3 +167,120 @@ test('SIMPLE 设计发布绑定、双用户审批、单据进度和我的申请�
     await reviewerContext.close()
   }
 })
+
+test('M14 通用申请使用 BPMN 画布与审批节点字段权限', async ({ page, browser }, testInfo) => {
+  test.setTimeout(120_000)
+  const reviewerContext = await browser.newContext({ baseURL: 'http://127.0.0.1:15173' })
+  const reviewer = await reviewerContext.newPage()
+  const suffix = Date.now().toString().slice(-8)
+  const modelName = '费用审批流程' + suffix,
+    formName = '费用申请表' + suffix
+  try {
+    await login(page, 'admin')
+    await login(reviewer, 'reviewer')
+    const profile = (await (await page.request.get('/api/v1/auth/me')).json()).data as {
+      companies: { id: string }[]
+    }
+    const company = profile.companies[0]!.id
+    const csrf =
+      (await page.context().cookies()).find((cookie) => cookie.name === 'XSRF-TOKEN')?.value ?? ''
+    const metadata = await page.request.get('/api/v1/workflow/metadata', {
+      headers: { 'X-Company-Id': company },
+    })
+    expect(metadata.ok()).toBeTruthy()
+    const users = (await metadata.json()).data.users as { id: string; name: string }[]
+    const reviewerId = users.find((item) => item.name === '验收复核员')!.id
+    async function post(path: string, data: unknown): Promise<{ id: string; version: number }> {
+      const response = await page.request.post('/api/v1/workflow' + path, {
+        headers: {
+          'X-Company-Id': company,
+          'X-XSRF-TOKEN': csrf,
+          'Idempotency-Key': crypto.randomUUID(),
+        },
+        data,
+      })
+      expect(response.status(), await response.text()).toBe(200)
+      return (await response.json()).data as { id: string; version: number }
+    }
+    const model = await post('/models', {
+      companyId: company,
+      code: 'WF14_' + suffix,
+      name: modelName,
+      businessType: 'wf_generic_request',
+      version: 0,
+      simple: {
+        id: 'root',
+        type: 'start',
+        name: '发起人',
+        child: {
+          id: 'review',
+          type: 'approver',
+          name: '费用复核',
+          multi: 'and',
+          assignee: { strategy: 'users', userIds: [reviewerId], emptyHandler: 'reject' },
+          fieldAccess: { amount: 'write', memo: 'hidden' },
+        },
+      },
+    })
+    await post('/models/' + model.id + '/publish', { version: model.version })
+    await post('/forms', {
+      code: 'expense' + suffix,
+      name: formName,
+      modelId: model.id,
+      enabled: true,
+      version: 0,
+      fields: [
+        { key: 'amount', label: '费用金额', type: 'number', required: true },
+        { key: 'memo', label: '受限说明', type: 'text', required: false },
+      ],
+    })
+
+    await page.goto('/workflow/models')
+    await page
+      .getByRole('row')
+      .filter({ hasText: modelName })
+      .getByRole('button', { name: '设计与历史', exact: true })
+      .click()
+    await page.locator('.flow-designer .el-switch__core').click()
+    await expect(page.getByRole('switch', { name: '切换 BPMN 画布' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    const canvas = page.locator('.workflow-bpmn-canvas')
+    await expect(canvas.locator('.bjs-powered-by')).toBeVisible()
+    await expect(canvas.locator('[data-element-id="review"]').first()).toBeVisible()
+    await canvas.screenshot({ path: testInfo.outputPath('bpmn-phase-two.png') })
+
+    await page.goto('/workflow/start')
+    await select(page, field(page.locator('main'), '申请表单').locator('.el-select'), formName)
+    await page
+      .getByRole('textbox', { name: '申请标题', exact: true })
+      .fill('浏览器费用申请' + suffix)
+    await page.getByRole('textbox', { name: '费用金额', exact: true }).fill('10.20')
+    await page.getByRole('textbox', { name: '受限说明', exact: true }).fill('仅发起人可见')
+    await page.getByRole('button', { name: '提交申请', exact: true }).click()
+    await expect(page.getByRole('heading', { name: '申请已提交', exact: true })).toBeVisible()
+    await reviewer.goto('/workflow/todo')
+    await reviewer
+      .getByRole('row')
+      .filter({ hasText: '浏览器费用申请' + suffix })
+      .getByRole('button', { name: '查看并处理', exact: true })
+      .click()
+    const summary = reviewer.locator('.workflow-application-detail')
+    await expect(summary).toContainText('10.20')
+    await expect(summary).not.toContainText('仅发起人可见')
+    await reviewer
+      .locator('.flow-task-action')
+      .getByRole('button', { name: '同意', exact: true })
+      .click()
+    const decision = reviewer.getByRole('dialog', { name: '同意', exact: true })
+    await decision.getByRole('textbox', { name: '费用金额', exact: true }).fill('19.05')
+    await decision.getByRole('button', { name: '确认同意', exact: true }).click()
+    await expect(decision).toBeHidden()
+    await page.getByRole('link', { name: '查看审批进度', exact: true }).click()
+    await expect(page.locator('.workflow-application-detail')).toContainText('19.05')
+    await expect(page.locator('.workflow-application-detail')).toContainText('仅发起人可见')
+  } finally {
+    await reviewerContext.close()
+  }
+})

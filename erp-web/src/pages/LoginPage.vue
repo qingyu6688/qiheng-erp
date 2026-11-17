@@ -1,12 +1,22 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Box, Document, Lock, OfficeBuilding, User } from '@element-plus/icons-vue'
 import { availableLoginMethods, sendLoginCode, startWechatLogin } from '../api/auth'
 import { useSessionStore } from '../stores/session'
 import { ApiError, messageOf } from '../api/http'
 import BrandMark from '../components/BrandMark.vue'
-import type { AlternateLoginMethod, CodeRequest, LoginAvailability } from '../types/auth'
+import MfaEnrollment from '../components/MfaEnrollment.vue'
+import {
+  activateLoginMfa,
+  ldapLogin,
+  loginMfaSetup,
+  loginMfaStatus,
+  ssoStart,
+  verifyLoginMfa,
+} from '../api/platform-security'
+import type { MfaSetup } from '../api/platform-security'
+import type { AlternateLoginMethod, CodeRequest, LoginAvailability, SsoType } from '../types/auth'
 import {
   alternateMethods,
   contactLabel,
@@ -29,16 +39,31 @@ const input = reactive({
 const busy = ref(false)
 const sending = ref(false)
 const error = ref(
-  route.query.wechat === 'error'
-    ? '微信登录未完成，请重新扫码或使用账号密码。'
-    : route.query.wechat === 'success'
-      ? '微信登录会话已失效，请重新扫码。'
-      : '',
+  route.query.sso === 'unbound'
+    ? '当前外部身份尚未绑定，请联系管理员。'
+    : route.query.sso === 'pending'
+      ? '账户已提交，启用后可登录。'
+      : route.query.sso === 'error'
+        ? '企业登录未完成，请重新发起。'
+        : route.query.wechat === 'error'
+          ? '微信登录未完成，请重新扫码或使用账号密码。'
+          : route.query.wechat === 'success'
+            ? '微信登录会话已失效，请重新扫码。'
+            : '',
 )
 const notice = ref('')
-const method = ref<'password' | AlternateLoginMethod>('password')
+const method = ref<'password' | AlternateLoginMethod | SsoType>('password')
 const methods = ref<LoginAvailability>()
 const enabledMethods = computed(() => alternateMethods.filter((name) => methods.value?.[name]))
+const providers = computed(() => methods.value?.sso ?? [])
+const passwordAllowed = computed(() => methods.value?.password !== false)
+const passwordInput = computed(
+  () => (method.value === 'password' && passwordAllowed.value) || method.value === 'ldap',
+)
+const mfa = ref<'verify' | 'enroll' | null>(null),
+  enrollment = ref<MfaSetup>(),
+  mfaCode = ref('')
+const recoveryCodes = ref<string[]>([])
 const tenantCode = computed(() => input.tenantCode.trim())
 const destination = ref('')
 const code = ref('')
@@ -55,7 +80,11 @@ watch(
     const timer = window.setTimeout(() => {
       availableLoginMethods(tenant, controller.signal)
         .then((result) => {
-          if (!controller.signal.aborted) methods.value = result
+          if (!controller.signal.aborted) {
+            methods.value = result
+            if (result.password === false)
+              method.value = result.sso?.[0]?.id ?? enabledMethods.value[0] ?? 'password'
+          }
         })
         .catch(() => {
           // 备用登录方式查询失败时，账号密码仍可直接登录。
@@ -104,6 +133,47 @@ function startCountdown(): void {
 }
 
 onBeforeUnmount(() => window.clearInterval(clock))
+onMounted(() => {
+  if (route.query.mfa === 'verify' || route.query.mfa === 'enroll') {
+    void loginMfaStatus()
+      .then(({ step }) => {
+        mfa.value = step
+        error.value = ''
+      })
+      .catch((cause: unknown) => {
+        error.value = messageOf(cause)
+      })
+  }
+})
+
+async function finishLogin(): Promise<void> {
+  await router.replace(session.user?.mustChangePassword ? '/account/password' : '/')
+}
+
+async function submitMfa(): Promise<void> {
+  if (busy.value || !mfa.value) return
+  busy.value = true
+  error.value = ''
+  try {
+    if (mfa.value === 'enroll') {
+      if (!enrollment.value) {
+        enrollment.value = await loginMfaSetup()
+        return
+      }
+      const result = await activateLoginMfa(mfaCode.value.trim())
+      session.acceptLogin(result.user)
+      recoveryCodes.value = result.recoveryCodes
+      enrollment.value = undefined
+    } else {
+      session.acceptLogin(await verifyLoginMfa(mfaCode.value.trim()))
+      await finishLogin()
+    }
+  } catch (cause: unknown) {
+    error.value = messageOf(cause)
+  } finally {
+    busy.value = false
+  }
+}
 
 async function sendCode(): Promise<void> {
   if (sending.value || busy.value || countdown.value) return
@@ -125,12 +195,32 @@ async function submit(): Promise<void> {
   busy.value = true
   error.value = ''
   try {
+    if (method.value === 'ldap') {
+      session.acceptLogin(
+        await ldapLogin({
+          ...input,
+          tenantCode: tenantCode.value,
+          username: input.username.trim(),
+        }),
+      )
+      await finishLogin()
+      return
+    }
+    const provider = providers.value.find((item) => item.id === method.value)
+    if (provider) {
+      window.location.assign(ssoStart(provider.id, tenantCode.value))
+      return
+    }
     if (method.value === 'wechat') {
       const result = await startWechatLogin(tenantCode.value)
       goToWechat(result.authorizationUrl)
       return
     }
     if (method.value === 'password') {
+      if (!passwordAllowed.value) {
+        error.value = '本企业已关闭密码登录，请选择企业登录方式。'
+        return
+      }
       await session.signIn({
         ...input,
         tenantCode: tenantCode.value,
@@ -143,9 +233,15 @@ async function submit(): Promise<void> {
       }
       await session.signInByCode({ ...codeRequest(), code: code.value.trim() })
     }
-    await router.replace(session.user?.mustChangePassword ? '/account/password' : '/')
+    await finishLogin()
   } catch (cause: unknown) {
-    error.value = messageOf(cause)
+    if (
+      cause instanceof ApiError &&
+      ['MFA_REQUIRED', 'MFA_ENROLLMENT_REQUIRED'].includes(cause.code)
+    ) {
+      mfa.value = cause.code === 'MFA_REQUIRED' ? 'verify' : 'enroll'
+      input.password = ''
+    } else error.value = messageOf(cause)
   } finally {
     busy.value = false
   }
@@ -170,8 +266,40 @@ async function submit(): Promise<void> {
     </div>
     <section class="login-form-wrap" aria-labelledby="login-title">
       <div class="login-form-content">
-        <h1 id="login-title">登录工作台</h1>
-        <el-form label-position="top" @submit.prevent="submit">
+        <h1 id="login-title">{{ mfa ? '账号安全验证' : '登录工作台' }}</h1>
+        <section v-if="recoveryCodes.length">
+          <p>请保存恢复码。每个恢复码可使用一次，本页只显示一次。</p>
+          <ul>
+            <li v-for="value in recoveryCodes" :key="value">
+              <code>{{ value }}</code>
+            </li>
+          </ul>
+          <el-button class="login-submit" type="primary" @click="finishLogin"
+            >已保存，进入工作台</el-button
+          >
+        </section>
+        <el-form v-else-if="mfa" label-position="top" @submit.prevent="submitMfa">
+          <MfaEnrollment v-if="enrollment" :setup="enrollment" />
+          <p v-if="mfa === 'enroll' && !enrollment">当前角色需要绑定验证器才能进入工作台。</p>
+          <el-form-item
+            v-if="mfa === 'verify' || enrollment"
+            label="验证码或恢复码"
+            for="mfa-login-code"
+          >
+            <el-input
+              id="mfa-login-code"
+              v-model="mfaCode"
+              autocomplete="one-time-code"
+              maxlength="64"
+              required
+            />
+          </el-form-item>
+          <el-alert v-if="error" :title="error" type="error" :closable="false" />
+          <el-button class="login-submit" native-type="submit" type="primary" :loading="busy">
+            {{ mfa === 'enroll' && !enrollment ? '绑定验证器' : '验证' }}
+          </el-button>
+        </el-form>
+        <el-form v-else label-position="top" @submit.prevent="submit">
           <el-form-item label="企业编码" for="tenant">
             <el-input
               id="tenant"
@@ -185,12 +313,13 @@ async function submit(): Promise<void> {
             />
           </el-form-item>
           <div
-            v-if="enabledMethods.length"
+            v-if="enabledMethods.length || providers.length"
             class="login-methods"
             role="group"
             aria-label="登录方式"
           >
             <button
+              v-if="passwordAllowed"
               type="button"
               :aria-pressed="method === 'password'"
               :disabled="busy || sending"
@@ -208,8 +337,18 @@ async function submit(): Promise<void> {
             >
               {{ methodLabels[name] }}
             </button>
+            <button
+              v-for="provider in providers"
+              :key="provider.id"
+              type="button"
+              :aria-pressed="method === provider.id"
+              :disabled="busy || sending"
+              @click="selectMethod(provider.id)"
+            >
+              {{ provider.name }}
+            </button>
           </div>
-          <el-form-item v-if="method === 'password'" label="用户名" for="username">
+          <el-form-item v-if="passwordInput" label="用户名" for="username">
             <el-input
               id="username"
               v-model="input.username"
@@ -220,7 +359,7 @@ async function submit(): Promise<void> {
               required
             />
           </el-form-item>
-          <el-form-item v-if="method === 'password'" label="密码" for="password">
+          <el-form-item v-if="passwordInput" label="密码" for="password">
             <el-input
               id="password"
               v-model="input.password"

@@ -35,7 +35,7 @@ class IdentityAdminService {
     }
 
     UserView user(CompanyAccess actor,long id,boolean lock) {
-        var rows=jdbc.query("SELECT * FROM sys_user WHERE tenant_id=? AND id=?"+(lock?" FOR UPDATE":""),(r,n)->
+        var rows=jdbc.query("SELECT * FROM sys_user WHERE tenant_id=? AND id=? AND user_type='human'"+(lock?" FOR UPDATE":""),(r,n)->
                 new UserView(r.getString("id"),r.getString("username"),r.getString("display_name"),
                         actor.hasPermission("user:view_mobile")?r.getString("mobile"):null,r.getString("status"),r.getLong("version"),
                         r.getBoolean("must_change_password"),roleIds(actor,id),scopes(actor,id)),actor.tenantId(),id);
@@ -204,7 +204,8 @@ class IdentityAdminService {
         }
         String nameColumn=table.equals("sys_user")?"display_name":"name";
         String search=keyword==null?"":keyword;
-        return jdbc.queryForList("SELECT id FROM "+table+" WHERE tenant_id=? AND id>? AND (LOCATE(?,"+codeColumn+")>0 OR LOCATE(?,"+nameColumn+")>0) ORDER BY id LIMIT ?",
+        String humanOnly=table.equals("sys_user")?" AND user_type='human'":"";
+        return jdbc.queryForList("SELECT id FROM "+table+" WHERE tenant_id=? AND id>?"+humanOnly+" AND (LOCATE(?,"+codeColumn+")>0 OR LOCATE(?,"+nameColumn+")>0) ORDER BY id LIMIT ?",
                 Long.class,actor.tenantId(),after,search,search,limit+1);
     }
 

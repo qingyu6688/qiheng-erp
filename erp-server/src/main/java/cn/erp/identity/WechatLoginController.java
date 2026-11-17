@@ -97,6 +97,7 @@ class WechatLoginController {
     @GetMapping(IdentitySecurity.AUTH + "/wechat/callback")
     ResponseEntity<Void> callback(@RequestParam(required = false) String code, @RequestParam(required = false) String state,
                                   HttpServletRequest request, HttpServletResponse response) {
+        request.setAttribute("erp.login.method",METHOD);
         String page = LOGIN_PAGE;
         try {
             Attempt attempt = take(request, state);
@@ -119,6 +120,8 @@ class WechatLoginController {
             sessions.open(identities.authenticate(attempt.tenantId(), METHOD, subject), request, response);
             return redirect(page, "success");
         } catch (ApiException failure) {
+            var step=MfaController.step(failure);
+            if (step!=null) return SsoLoginController.redirect("/login?mfa="+step);
             if (failure.getStatus() >= 500) LOG.warn("微信回调未完成，错误码 {}", failure.getErrorCode());
             return redirect(page, "error");
         } catch (DataAccessException | JacksonException failure) {

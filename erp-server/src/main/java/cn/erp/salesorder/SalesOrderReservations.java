@@ -106,6 +106,7 @@ class SalesOrderReservations {
             VALUES(?,?,?,?,'reserve',?,?,?,?,?)
             """,Ids.next(),scope.tenantId(),scope.companyId(),id,delta,source.type(),source.id(),source.lineId(),scope.userId());
         jdbc.update("UPDATE sales_order_line SET reservation_state='reserved',version=version+1 WHERE id=?",lineId);
+        inventory.changed(scope,List.of(key));
     }
 
     private void release(CompanyAccess scope,Map<String,Object> reservation,BigDecimal qty,long changeId) {

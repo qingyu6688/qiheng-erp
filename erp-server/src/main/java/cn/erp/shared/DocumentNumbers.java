@@ -1,5 +1,6 @@
 package cn.erp.shared;
 
+import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -10,12 +11,27 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class DocumentNumbers {
     private final JdbcTemplate jdbc;
+    private final ConfiguredDocumentNumber rules;
 
-    public DocumentNumbers(JdbcTemplate jdbc) {this.jdbc=jdbc;}
+    public DocumentNumbers(JdbcTemplate jdbc, ConfiguredDocumentNumber rules) {
+        this.jdbc=jdbc;
+        this.rules=rules;
+    }
+
+    @Transactional(propagation=Propagation.REQUIRES_NEW)
+    public String next(ActorScope scope, String type, LocalDate date) {
+        if (date==null || type==null) throw new ApiException(400,"VALIDATION_FAILED","单据类型或日期无效");
+        String custom=rules.document(scope,type,date);
+        return custom==null ? defaultNumber(scope,"PR_RETURN".equals(type) ? "PR" : type,YearMonth.from(date)) : custom;
+    }
 
     /** 在独立短事务内分配单号，业务回滚时允许断号。 */
     @Transactional(propagation=Propagation.REQUIRES_NEW)
     public String next(ActorScope scope,String type,YearMonth month) {
+        return defaultNumber(scope,type,month);
+    }
+
+    private String defaultNumber(ActorScope scope,String type,YearMonth month) {
         if (type==null || !type.matches("[A-Z][A-Z0-9_]{0,31}") || month==null || month.getYear()<1000 || month.getYear()>9999) {
             throw new ApiException(400,"VALIDATION_FAILED","单据类型或月份无效");
         }

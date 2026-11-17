@@ -3,6 +3,8 @@ import { computed, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { records, record, writeRecord } from '../api/admin'
 import { isCancelled, messageOf, newIdempotencyKey } from '../api/http'
+import { customFields, formatField } from '../api/platform-rules'
+import type { CustomField, FieldEntity } from '../api/platform-rules'
 import { useSessionStore } from '../stores/session'
 import { flattenRows } from '../utils/admin'
 import type { DataRow } from '../types/admin'
@@ -17,6 +19,10 @@ const spec = computed(() => resourceSpecs[props.resource]!)
 const session = useSessionStore()
 const rows = ref<DataRow[]>([])
 const keyword = ref('')
+const fieldDefinitions = ref<CustomField[]>([])
+const fieldFilters = ref<Record<string, string>>({})
+const appliedFieldFilters = ref<Record<string, string>>({})
+const fieldError = ref('')
 const cursors = ref([''])
 const nextCursor = ref<string | null>(null)
 const busy = ref(false)
@@ -32,6 +38,7 @@ const dirty = ref(false),
   panelBusy = ref(false),
   panelRevision = ref(0)
 let revision = 0
+let fieldRevision = 0
 function confirmDiscard(): boolean {
   if (panelBusy.value) {
     notice.value = '正在保存资料，请稍候。'
@@ -73,6 +80,15 @@ const createPermission = computed(() =>
 const columns = computed(() =>
   spec.value.columns.filter((c) => c.key !== 'accountNo' || session.can('cash_account_no:view')),
 )
+const fieldEntity = computed<FieldEntity | undefined>(() => {
+  if (props.resource === 'skus') return 'sku'
+  if (props.resource === 'partners') return 'business_partner'
+  return undefined
+})
+const visibleFields = computed(() => fieldDefinitions.value.filter((field) => field.listVisible))
+const searchableFields = computed(() =>
+  fieldDefinitions.value.filter((field) => field.indexSlot != null),
+)
 const showStatus = computed(() => !['audit-logs', 'accounting-periods'].includes(props.resource))
 
 const labels: Record<string, string> = {
@@ -98,6 +114,21 @@ function display(row: DataRow, key: string): string {
     return value.map((item) => labels[String(item)] ?? String(item)).join('、')
   return labels[String(value)] ?? String(value)
 }
+function displayField(row: DataRow, fieldKey: string): string {
+  const values = row.extJson
+  return values && typeof values === 'object' && !Array.isArray(values)
+    ? formatField((values as Record<string, unknown>)[fieldKey])
+    : '—'
+}
+async function loadFields(entity: FieldEntity, current: number): Promise<void> {
+  try {
+    const definitions = await customFields(entity)
+    if (current === fieldRevision)
+      fieldDefinitions.value = definitions.filter((field) => field.enabled)
+  } catch (cause: unknown) {
+    if (current === fieldRevision && !isCancelled(cause)) fieldError.value = messageOf(cause)
+  }
+}
 function canEdit(row: DataRow): boolean {
   return (
     props.resource !== 'accounting-periods' &&
@@ -113,6 +144,7 @@ async function load(): Promise<void> {
   try {
     const data = await records(spec.value.path, spec.value.company, {
       keyword: keyword.value || undefined,
+      ...appliedFieldFilters.value,
       limit: 20,
       cursor: cursors.value.at(-1) || undefined,
     })
@@ -126,6 +158,12 @@ async function load(): Promise<void> {
   }
 }
 function search(): void {
+  const filters: Record<string, string> = {}
+  for (const field of searchableFields.value) {
+    const value = fieldFilters.value[field.fieldKey]?.trim()
+    if (value) filters[`cf.${field.fieldKey}`] = value
+  }
+  appliedFieldFilters.value = filters
   cursors.value = ['']
   void load()
 }
@@ -240,15 +278,23 @@ watch(
     editing.value = false
     selected.value = relations.value = statusRow.value = undefined
     keyword.value = error.value = notice.value = ''
+    fieldError.value = ''
+    fieldDefinitions.value = []
+    fieldFilters.value = {}
+    appliedFieldFilters.value = {}
     cursors.value = ['']
     rows.value = []
     nextCursor.value = null
+    const currentFields = ++fieldRevision
+    if (fieldEntity.value && session.can(spec.value.permission + ':view'))
+      void loadFields(fieldEntity.value, currentFields)
     void load()
   },
   { immediate: true },
 )
 onScopeDispose(() => {
   ++revision
+  ++fieldRevision
   unregisterCompanyGuard()
   window.removeEventListener('beforeunload', beforeUnload)
 })
@@ -280,13 +326,36 @@ onScopeDispose(() => {
           <label for="resource-search">名称或编码</label
           ><el-input id="resource-search" v-model="keyword" maxlength="100" clearable />
         </div>
+        <div v-for="field in searchableFields" :key="field.fieldKey" class="filter-field">
+          <label :for="'resource-' + field.fieldKey">{{ field.label }}</label>
+          <el-select
+            v-if="field.type === 'select' || field.type === 'bool'"
+            :id="'resource-' + field.fieldKey"
+            v-model="fieldFilters[field.fieldKey]"
+            clearable
+          >
+            <el-option
+              v-for="item in field.type === 'bool' ? ['true', 'false'] : field.choices"
+              :key="item"
+              :value="item"
+              :label="field.type === 'bool' ? (item === 'true' ? '是' : '否') : item"
+            />
+          </el-select>
+          <el-input
+            v-else
+            :id="'resource-' + field.fieldKey"
+            v-model="fieldFilters[field.fieldKey]"
+            maxlength="128"
+            clearable
+          />
+        </div>
         <el-button native-type="submit" :loading="busy">查询</el-button>
       </form>
       <el-alert
-        v-if="error"
+        v-if="error || fieldError"
         class="list-notice"
         type="error"
-        :title="error"
+        :title="error || fieldError"
         :closable="false"
         show-icon
       />
@@ -306,6 +375,14 @@ onScopeDispose(() => {
           :min-width="column.key.endsWith('Id') ? 180 : 130"
         >
           <template #default="{ row }">{{ display(row, column.key) }}</template>
+        </el-table-column>
+        <el-table-column
+          v-for="field in visibleFields"
+          :key="field.fieldKey"
+          :label="field.label"
+          min-width="130"
+        >
+          <template #default="{ row }">{{ displayField(row, field.fieldKey) }}</template>
         </el-table-column>
         <el-table-column
           v-if="showStatus || resource === 'accounting-periods'"

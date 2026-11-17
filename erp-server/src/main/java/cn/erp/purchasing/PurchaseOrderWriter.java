@@ -1,5 +1,6 @@
 package cn.erp.purchasing;
 
+import cn.erp.customfield.CustomFields;
 import cn.erp.identity.CompanyAccess;
 import cn.erp.pricing.*;
 import cn.erp.shared.*;
@@ -15,7 +16,8 @@ class PurchaseOrderWriter {
     private final JdbcTemplate jdbc;
     private final PricingService pricing;
     private final RequisitionLinks links;
-    PurchaseOrderWriter(JdbcTemplate jdbc,PricingService pricing,RequisitionLinks links) {this.jdbc=jdbc;this.pricing=pricing;this.links=links;}
+    private final CustomFields customFields;
+    PurchaseOrderWriter(JdbcTemplate jdbc,PricingService pricing,RequisitionLinks links,CustomFields customFields) {this.jdbc=jdbc;this.pricing=pricing;this.links=links;this.customFields=customFields;}
 
     PricingModels.Preview price(CompanyAccess scope,PurchaseOrderModels.Input input) {
         if(input.businessDate().isAfter(LocalDate.now(ZoneId.of("Asia/Shanghai")))) {throw invalid("业务日期不能晚于今天");}
@@ -46,6 +48,7 @@ class PurchaseOrderWriter {
             """,identifier(input.supplierId()),input.businessDate(),input.deliveryDate(),preview.priceTaxInclusive(),
             preview.goodsAmount(),preview.lineDiscountAmount(),preview.orderDiscountAmount(),preview.feeAmount(),preview.totalAmount(),preview.untaxedAmount(),preview.taxAmount(),
             input.remark(),scope.userId(),scope.tenantId(),scope.companyId(),orderId);
+        customFields.write(scope,"purchase_order",orderId,input.extJson(),newOrder);
         // 新表头在本事务中刚插入，不存在旧明细；锁空范围会让不同新订单争用索引尾部间隙。
         List<Map<String,Object>> old=newOrder?List.of():jdbc.queryForList("SELECT * FROM purchase_order_line WHERE tenant_id=? AND company_id=? AND order_id=? AND is_deleted=0 ORDER BY id FOR UPDATE",scope.tenantId(),scope.companyId(),orderId);
         Map<Long,Map<String,Object>> oldById=new HashMap<>();old.forEach(r->oldById.put(number(r,"id"),r));

@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import DynamicFields from '../DynamicFields.vue'
+import { customFields } from '../../api/platform-rules'
+import type { CustomField, FieldValues } from '../../api/platform-rules'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { allRecords, record } from '../../api/admin'
 import { pricePreview, saveDocument, commandResult, salesCommand } from '../../api/sales'
@@ -15,6 +18,8 @@ const props = defineProps<{ original?: SalesDocument; change?: boolean; inline?:
 const emit = defineEmits<{ close: []; saved: [SalesDocument]; dirty: [boolean] }>()
 const session = useSessionStore()
 const customerId = props.original?.customerId ?? props.original?.customer?.id ?? ''
+const fields = ref<CustomField[]>([]),
+  ext = ref<FieldValues>({ ...props.original?.extJson })
 const form = reactive({
   customerId,
   salesUserId: (props.original?.salesUserId === '0' ? '' : props.original?.salesUserId) ?? '',
@@ -27,7 +32,9 @@ const form = reactive({
   remark: props.original?.remark ?? '',
   reason: '',
 })
+const lineFields = ref<CustomField[]>([])
 interface InputLine {
+  extJson?: FieldValues
   id?: string
   skuId: string
   warehouseId: string
@@ -40,6 +47,7 @@ interface InputLine {
 const lines = ref<InputLine[]>(
   (props.original?.lines ?? []).map((l) => ({
     id: l.id,
+    extJson: l.extJson ? { ...l.extJson } : undefined,
     skuId: l.skuId ?? l.sku?.id ?? '',
     warehouseId: l.warehouseId ?? l.warehouse?.id ?? '',
     unitId: l.unitId ?? l.unit?.id ?? '',
@@ -80,6 +88,7 @@ const ready = computed(() =>
 function body(): Record<string, unknown> {
   return {
     ...form,
+    extJson: fields.value.length ? ext.value : undefined,
     salesUserId: form.salesUserId || null,
     deliveryAreaId: form.deliveryAreaId || null,
     deliveryAddress: form.deliveryAddress || null,
@@ -148,6 +157,16 @@ onUnmounted(() => {
 })
 onMounted(async () => {
   try {
+    if (session.companyId) {
+      const [header, detail] = await Promise.allSettled([
+        customFields('sales_order'),
+        customFields('sales_order_line'),
+      ])
+      if (header.status === 'fulfilled') fields.value = header.value
+      else if (!isCancelled(header.reason)) error.value = messageOf(header.reason)
+      if (detail.status === 'fulfilled') lineFields.value = detail.value
+      else if (!isCancelled(detail.reason)) error.value = messageOf(detail.reason)
+    }
     ;[customers.value, skus.value, warehouses.value] = await Promise.all([
       allRecords('partners', false),
       allRecords('skus'),
@@ -271,6 +290,10 @@ async function verify(): Promise<void> {
         <el-form-item label="备注" for="order-remark"
           ><el-input id="order-remark" v-model="form.remark" maxlength="500"
         /></el-form-item>
+        <template v-if="fields.length"
+          ><h3>其他信息</h3>
+          <DynamicFields v-model="ext" :fields="fields" prefix="sales-extra-"
+        /></template>
       </el-form>
       <div class="sales-lines-scroll">
         <table class="sales-input-table">
@@ -283,6 +306,7 @@ async function verify(): Promise<void> {
               <th>单价</th>
               <th>行优惠</th>
               <th v-if="session.can('document:change_tax_rate')">税率</th>
+              <th v-if="lineFields.length">明细其他信息</th>
               <th></th>
             </tr>
           </thead>
@@ -335,6 +359,18 @@ async function verify(): Promise<void> {
               </td>
               <td v-if="session.can('document:change_tax_rate')">
                 <el-input v-model="line.taxRate" :aria-label="'税率' + (index + 1)" />
+              </td>
+              <td v-if="lineFields.length">
+                <details>
+                  <summary>第 {{ index + 1 }} 行</summary>
+                  <el-form label-position="top"
+                    ><DynamicFields
+                      :model-value="line.extJson ?? {}"
+                      :fields="lineFields"
+                      :prefix="'sales-line-' + index + '-'"
+                      @update:model-value="line.extJson = $event"
+                  /></el-form>
+                </details>
               </td>
               <td><el-button text @click="lines.splice(index, 1)">移除</el-button></td>
             </tr>

@@ -18,6 +18,10 @@ public class SalesStockPosting {
     private final InventoryStore store;
     private final JdbcTemplate jdbc;
     private final ReservationService reservations;
+    private org.springframework.context.ApplicationEventPublisher events = unused -> {};
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void events(org.springframework.context.ApplicationEventPublisher events) { this.events=events; }
 
     public SalesStockPosting(InventoryStore store,JdbcTemplate jdbc,ReservationService reservations) {
         this.store=store;this.jdbc=jdbc;this.reservations=reservations;
@@ -52,6 +56,8 @@ public class SalesStockPosting {
         for(var input:inputs) {result.add(prepare(scope,input,balances,costs,reservationRows,writes));}
         writes.flush(jdbc);
         reservations.refreshLineStates(scope,lineIds);
+        events.publishEvent(new cn.erp.shared.InventoryBalanceChanged(scope.tenantId(),scope.companyId(),
+                keys.stream().map(Key::skuId).distinct().sorted().toList()));
         return List.copyOf(result);
     }
 

@@ -34,4 +34,14 @@ class DatabaseMigrationConfigurationTest {
         environment.withProperty("DB_MIGRATION_PASSWORD","迁移口令").withProperty("DB_MIGRATION_USER","runtime");
         assertThatThrownBy(() -> DatabaseMigrationConfiguration.credentials(environment)).hasMessageContaining("独立");
     }
+
+    @Test void productionAllowsOnlyTheProtectedOpenApiGenerator() {
+        var environment=environment("prod").withProperty("DB_MIGRATION_USER","migration")
+                .withProperty("DB_MIGRATION_PASSWORD","迁移口令").withProperty("springdoc.api-docs.enabled","true");
+        assertThatThrownBy(() -> DatabaseMigrationConfiguration.credentials(environment)).hasMessageContaining("调试文档");
+        environment.withProperty("springdoc.enable-default-api-docs","false");
+        assertThat(DatabaseMigrationConfiguration.credentials(environment).user()).isEqualTo("migration");
+        environment.withProperty("springdoc.use-management-port","true");
+        assertThatThrownBy(() -> DatabaseMigrationConfiguration.credentials(environment)).hasMessageContaining("调试文档");
+    }
 }

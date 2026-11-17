@@ -49,6 +49,7 @@ public class SalesBrowserFixture {
         if(admins.size()!=1) {throw new IllegalStateException("浏览器验收企业尚未完成开发账号初始化");}
         long tenant=number(admins.getFirst(),"tenant_id"),admin=number(admins.getFirst(),"user_id");
         long company=jdbc.queryForObject("SELECT id FROM company WHERE tenant_id=? AND code='DEMO-A'",Long.class,tenant);
+        prepareMfaUser(tenant,company);
         if(jdbc.queryForObject("SELECT COUNT(*) FROM business_partner WHERE tenant_id=? AND code='E2E-CUSTOMER'",Long.class,tenant)>0) {return;}
         long reviewer=Ids.next();
         jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,?,'reviewer','验收复核员',?)",reviewer,tenant,passwords.encode(password));
@@ -80,6 +81,22 @@ public class SalesBrowserFixture {
         ledger.post(scope,new LedgerService.Posting("opening_entry",opening,0,period,day,List.of(
                 new LedgerService.Line("INVENTORY","D",new BigDecimal("200.00"),null,null,warehouse,sku,opening,"浏览器验收库存期初"),
                 new LedgerService.Line("OPENING_EQUITY","C",new BigDecimal("200.00"),null,null,null,null,opening,"浏览器验收库存期初"))));
+    }
+
+    /** 独立账号仅访问验收公司，避免安全用例消耗其他业务场景的登录配额。 */
+    private void prepareMfaUser(long tenant,long company) {
+        if (!jdbc.queryForList("SELECT id FROM sys_user WHERE tenant_id=? AND username='mfa_tester'",Long.class,tenant).isEmpty()) return;
+        long user=Ids.next(), role=Ids.next();
+        jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,?,'mfa_tester','验收安全账号',?)",
+                user,tenant,passwords.encode(password));
+        jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(?,?,'E2E_MFA_TESTER','安全验收角色')",role,tenant);
+        jdbc.update("""
+                INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id)
+                SELECT ?,?,?,id FROM sys_permission WHERE code='warehouse:view'
+                """,Ids.next(),tenant,role);
+        jdbc.update("INSERT INTO sys_user_role(id,tenant_id,user_id,role_id) VALUES(?,?,?,?)",Ids.next(),tenant,user,role);
+        jdbc.update("INSERT INTO sys_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",
+                Ids.next(),tenant,user,company);
     }
 
     private long number(Map<String,Object> row,String field) {return ((Number)row.get(field)).longValue();}

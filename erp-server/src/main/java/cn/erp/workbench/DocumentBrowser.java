@@ -1,5 +1,6 @@
 package cn.erp.workbench;
 
+import cn.erp.customfield.CustomFields;
 import cn.erp.documents.DocumentAccess;
 import cn.erp.identity.CompanyAccess;
 import cn.erp.shared.ApiException;
@@ -40,27 +41,71 @@ public class DocumentBrowser {
         spec("document-reversals","document_reversal","reversal_no",null,false,"reversal"));
     private final NamedParameterJdbcTemplate jdbc;
     private final DocumentAccess documents;
-    public DocumentBrowser(NamedParameterJdbcTemplate jdbc,DocumentAccess documents) {this.jdbc=jdbc;this.documents=documents;}
+    private final CustomFields customFields;
+    public DocumentBrowser(NamedParameterJdbcTemplate jdbc,DocumentAccess documents,CustomFields customFields) {this.jdbc=jdbc;this.documents=documents;this.customFields=customFields;}
     private static Map.Entry<String,Spec> spec(String path,String type,String no,String party,boolean deleted,String warehouse) {
         return Map.entry(path,new Spec(type,no,party,type.equals("invoice_registration")?"invoice_date":"business_date",deleted,warehouse));
     }
     public Spec spec(String kind) {var value=SPECS.get(kind);if(value==null)throw invalid("单据类型无效");return value;}
     public String permission(String kind) {return documents.permission(spec(kind).type(),"view");}
     public Map<String,Object> page(CompanyAccess actor,String kind,Filter filter,Long cursor,int limit,boolean withTotal) {
+        return page(actor,kind,filter,cursor,limit,withTotal,Map.of(),false);
+    }
+    public Map<String,Object> page(CompanyAccess actor,String kind,Filter filter,Long cursor,int limit,boolean withTotal,Map<String,String[]> custom,boolean export) {
         if(limit<1||limit>200||cursor!=null&&cursor<=0)throw invalid("分页条件无效");
         var spec=spec(kind);DocumentAccess.require(actor,permission(kind));
         var parameters=params(actor);String where=where(actor,spec,filter,parameters);
+        if(order(spec)) {
+            var bindings=new ArrayList<Object>();
+            String extension=customFields.predicates(actor.tenantId(),spec.type(),"h",custom,bindings);
+            for(int i=0;i<bindings.size();i++) {String name="custom"+i;extension=extension.replaceFirst("\\?",":"+name);parameters.put(name,bindings.get(i));}
+            where+=extension;
+        }
         var counts=counts(spec,where,parameters);String list=where;
         if(filter.status()!=null&&!filter.status().isBlank()) {list+=" AND h.status=:status";parameters.put("status",filter.status());}
         if(cursor!=null) {list+=" AND h.id<:cursor";parameters.put("cursor",cursor);}
         parameters.put("limit",limit+1);
         var rows=jdbc.queryForList("SELECT h.* FROM "+spec.type()+" h WHERE "+list+" ORDER BY h.id DESC LIMIT :limit",parameters);
         var visible=rows.stream().limit(limit).toList();var names=referenceNames(actor,visible);
-        var items=visible.stream().map(row->listRow(spec,row,names)).toList();
+        var fields=order(spec)?customFields.fields(actor.tenantId(),spec.type()).stream()
+                .filter(field->export?field.importExport():field.listVisible()).toList():List.<CustomFields.Field>of();
+        var items=visible.stream().map(row->{
+            var result=listRow(spec,row,names);
+            if(!fields.isEmpty())result.put("extJson",customFields.visible((String)row.get("ext_json"),fields));
+            return result;
+        }).toList();
         var result=new LinkedHashMap<String,Object>();result.put("items",items);result.put("nextCursor",rows.size()>limit?rows.get(limit-1).get("id").toString():null);result.put("statusCounts",counts);
         if(withTotal)result.put("total",filter.status()==null||filter.status().isBlank()?counts.values().stream().mapToLong(Long::longValue).sum():counts.getOrDefault(filter.status(),0L));
         return result;
     }
+    public byte[] customExport(CompanyAccess actor,String kind,Filter filter,Long cursor,int limit,Map<String,String[]> parameters) {
+        var spec=spec(kind);
+        if(!order(spec))throw invalid("仅购销订单支持扩展字段列表导出");
+        var fields=customFields.fields(actor.tenantId(),spec.type()).stream().filter(CustomFields.Field::importExport).toList();
+        var body=new StringBuilder("\uFEFF");
+        var columns=new ArrayList<>(List.of("单号","状态","业务日期"));
+        fields.forEach(field->columns.add(field.label()));
+        csv(body,columns);
+        if(page(actor,kind,filter,cursor,limit,false,parameters,true).get("items") instanceof List<?> rows)
+            for(Object item:rows) if(item instanceof Map<?,?> row) {
+                var cells=new ArrayList<>(List.of(Objects.toString(row.get("documentNo"),""),Objects.toString(row.get("status"),""),Objects.toString(row.get("businessDate"),"")));
+                var values=row.get("extJson") instanceof Map<?,?> map?map:Map.of();
+                for(var field:fields) {
+                    Object value=values.get(field.fieldKey());
+                    cells.add(value instanceof Collection<?> many?String.join("|",many.stream().map(Object::toString).toList()):Objects.toString(value,""));
+                }
+                csv(body,cells);
+            }
+        return body.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
+    private void csv(StringBuilder body,List<String> cells) {
+        body.append(String.join(",",cells.stream().map(cell->{
+            String trimmed=cell.stripLeading();
+            String value=!trimmed.isEmpty()&&"=+-@".indexOf(trimmed.charAt(0))>=0?"'"+cell:cell;
+            return "\""+value.replace("\"","\"\"")+"\"";
+        }).toList())).append("\r\n");
+    }
+    private boolean order(Spec spec) {return List.of("sales_order","purchase_order").contains(spec.type());}
     // 列表只读取表头白名单，避免逐单加载明细、预留和历史变更；操作许可仍在详情及命令检查。
     private static final Set<String> LIST_FIELDS=Set.of("id","version","status","business_date","invoice_date","fulfillment_status","settlement_status","sign_date","snapshot_at","total_amount","receivable_amount","payable_amount","credit_amount","debit_amount","amount","created_at","receipt_type","payment_type","entry_type","adjust_type");
     private static final Map<String,String> REFERENCES=Map.ofEntries(Map.entry("customer_id","business_partner"),Map.entry("supplier_id","business_partner"),Map.entry("partner_id","business_partner"),Map.entry("warehouse_id","warehouse"),Map.entry("from_warehouse_id","warehouse"),Map.entry("to_warehouse_id","warehouse"),Map.entry("cash_account_id","cash_account"),Map.entry("from_account_id","cash_account"),Map.entry("to_account_id","cash_account"),Map.entry("requester_id","sys_user"));

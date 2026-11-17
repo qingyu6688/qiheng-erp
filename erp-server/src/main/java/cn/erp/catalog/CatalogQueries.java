@@ -1,11 +1,13 @@
 package cn.erp.catalog;
 
+import cn.erp.customfield.CustomFields;
 import cn.erp.identity.CompanyAccess;
 import cn.erp.shared.ApiException;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -13,9 +15,11 @@ import org.springframework.stereotype.Repository;
 class CatalogQueries {
     private final JdbcTemplate jdbc;
 
-    CatalogQueries(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    private final CustomFields customFields;
 
-    CatalogModels.Page list(CompanyAccess scope, String kind, String keyword, String status, int limit, String cursor) {
+    CatalogQueries(JdbcTemplate jdbc,CustomFields customFields) { this.jdbc=jdbc; this.customFields=customFields; }
+
+    CatalogModels.Page list(CompanyAccess scope, String kind, String keyword, String status, int limit, String cursor,Map<String,String[]> parameters) {
         if (limit < 1 || limit > 200 || (status != null && !List.of("active","disabled").contains(status))) {
             throw new ApiException(400, "VALIDATION_FAILED", "查询条件或每页数量无效");
         }
@@ -39,9 +43,11 @@ class CatalogQueries {
                 throw new ApiException(400, "VALIDATION_FAILED", "分页游标无效");
             }
         }
+        if (kind.equals("sku")) filter+=customFields.predicates(scope.tenantId(),"sku","sku",parameters,args);
         args.add(limit + 1);
+        var columns=columns(scope,kind);
         List<CatalogModels.Detail> all = jdbc.query("SELECT * FROM " + table(kind) + filter + " ORDER BY id DESC LIMIT ?",
-                (rs, n) -> map(rs, scope, kind), args.toArray());
+                (rs, n) -> map(rs, scope, kind,columns), args.toArray());
         boolean more = all.size() > limit;
         List<CatalogModels.Detail> items = all.subList(0, Math.min(limit, all.size()));
         return new CatalogModels.Page(List.copyOf(items), more ? items.getLast().id() : null);
@@ -117,7 +123,15 @@ class CatalogQueries {
         return new CatalogModels.Scan(detail(scope,"sku",row.sku()),row.unit(),row.name(),row.rate());
     }
 
+    private List<CustomFields.Field> columns(CompanyAccess scope,String kind) {
+        return kind.equals("sku") ? customFields.fields(scope.tenantId(),"sku") : List.of();
+    }
+
     private CatalogModels.Detail map(ResultSet rs, CompanyAccess scope, String kind) throws SQLException {
+        return map(rs,scope,kind,columns(scope,kind));
+    }
+
+    private CatalogModels.Detail map(ResultSet rs,CompanyAccess scope,String kind,List<CustomFields.Field> fields) throws SQLException {
         boolean category=kind.equals("product_category"), product=kind.equals("product"), sku=kind.equals("sku");
         String status=rs.getString("status");
         List<String> actions = scope.hasPermission(kind+":update") ? List.of("update",status.equals("active")?"disable":"enable") : List.of();
@@ -125,7 +139,8 @@ class CatalogQueries {
                 category?rs.getString("parent_id"):null,category?rs.getInt("sort_no"):null,null,
                 product?rs.getString("category_id"):null,product?rs.getString("item_type"):null,product?rs.getString("base_unit_id"):null,null,
                 sku?rs.getString("product_id"):null,sku?rs.getString("spec"):null,sku?rs.getBigDecimal("default_tax_rate").toPlainString():null,
-                sku && scope.hasPermission("cost:view")?decimal(rs,"purchase_price"):null,sku?decimal(rs,"sale_price"):null,null,null,actions,sku?decimal(rs,"min_sale_price"):null);
+                sku && scope.hasPermission("cost:view")?decimal(rs,"purchase_price"):null,sku?decimal(rs,"sale_price"):null,null,null,actions,sku?decimal(rs,"min_sale_price"):null,
+                sku?customFields.visible(rs.getString("ext_json"),fields):Map.of());
     }
 
     private static String decimal(ResultSet rs,String column) throws SQLException {
@@ -136,13 +151,13 @@ class CatalogQueries {
     private static CatalogModels.Detail withChildren(CatalogModels.Detail v,List<CatalogModels.Detail> children,List<CatalogModels.Detail> skus) {
         return new CatalogModels.Detail(v.id(),v.code(),v.name(),v.status(),v.version(),v.parentId(),v.sortNo(),children,
                 v.categoryId(),v.itemType(),v.baseUnitId(),skus,v.productId(),v.spec(),v.defaultTaxRate(),v.purchasePrice(),v.salePrice(),
-                v.units(),v.barcodes(),v.allowedActions(),v.minSalePrice());
+                v.units(),v.barcodes(),v.allowedActions(),v.minSalePrice(),v.extJson());
     }
 
     private static CatalogModels.Detail copySku(CatalogModels.Detail v,List<CatalogModels.UnitView> units,List<CatalogModels.BarcodeView> barcodes) {
         return new CatalogModels.Detail(v.id(),v.code(),v.name(),v.status(),v.version(),v.parentId(),v.sortNo(),v.children(),
                 v.categoryId(),v.itemType(),v.baseUnitId(),v.skus(),v.productId(),v.spec(),v.defaultTaxRate(),v.purchasePrice(),v.salePrice(),
-                units,barcodes,v.allowedActions(),v.minSalePrice());
+                units,barcodes,v.allowedActions(),v.minSalePrice(),v.extJson());
     }
 
     static String table(String kind) {

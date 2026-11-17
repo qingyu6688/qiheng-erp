@@ -5,6 +5,9 @@ import { ApiError, isCancelled, messageOf, newIdempotencyKey } from '../api/http
 import { fieldValues, editorPayload, optionsFrom } from '../utils/admin'
 import { useSessionStore } from '../stores/session'
 import type { DataRow, FormField, ResourceSpec, SelectOption } from '../types/admin'
+import DynamicFields from './DynamicFields.vue'
+import { customFields } from '../api/platform-rules'
+import type { CustomField, FieldValues } from '../api/platform-rules'
 import DataFields from './DataFields.vue'
 import RecordFrame from './RecordFrame.vue'
 
@@ -19,6 +22,10 @@ const session = useSessionStore()
 const fields = computed(() =>
   props.spec.fields.filter((f) => !f.permission || session.can(f.permission)),
 )
+const entity =
+  props.spec.path === 'skus' ? 'sku' : props.spec.path === 'partners' ? 'business_partner' : null
+const extended = ref<CustomField[]>([]),
+  ext = ref<FieldValues>({ ...(props.row?.extJson as FieldValues | undefined) })
 const values = reactive(fieldValues(fields.value, props.row))
 const options = reactive<Record<string, SelectOption[]>>({})
 const busy = ref(false)
@@ -27,20 +34,33 @@ const error = ref('')
 const conflict = ref(false)
 const uncertain = ref(false)
 const key = newIdempotencyKey()
-let baseline = JSON.stringify(editorPayload(fields.value, values, props.row))
+function payload(): Record<string, unknown> {
+  return {
+    ...editorPayload(fields.value, values, props.row),
+    ...(extended.value.length ? { extJson: ext.value } : {}),
+  }
+}
+let baseline = JSON.stringify(payload())
 watch(
-  () => JSON.stringify(editorPayload(fields.value, values, props.row)),
+  () => JSON.stringify(payload()),
   (value) => emit('dirty', value !== baseline),
   { flush: 'sync' },
 )
 watch(busy, (value) => emit('pending', value), { flush: 'sync' })
 function markClean(): void {
-  baseline = JSON.stringify(editorPayload(fields.value, values, props.row))
+  baseline = JSON.stringify(payload())
   emit('dirty', false)
 }
 
 onMounted(async () => {
   try {
+    if (entity) {
+      try {
+        extended.value = await customFields(entity)
+      } catch (cause: unknown) {
+        if (!isCancelled(cause)) error.value = messageOf(cause)
+      }
+    }
     const sources = fields.value.filter(
       (f) => f.source && (!f.sourcePermission || session.can(f.sourcePermission)),
     )
@@ -55,6 +75,7 @@ onMounted(async () => {
   } catch (cause: unknown) {
     if (!isCancelled(cause)) error.value = messageOf(cause)
   } finally {
+    markClean()
     loading.value = false
   }
 })
@@ -66,7 +87,13 @@ function empty(field: FormField): boolean {
 
 async function save(): Promise<void> {
   if (busy.value || loading.value || conflict.value || uncertain.value) return
-  const missing = fields.value.find((f) => f.required && !(props.row && f.createOnly) && empty(f))
+  const missing = fields.value.find(
+    (f) =>
+      f.required &&
+      !(props.row && f.createOnly) &&
+      !(entity && !props.row && f.key === 'code') &&
+      empty(f),
+  )
   if (missing) {
     error.value = '请填写' + missing.label
     return
@@ -74,7 +101,7 @@ async function save(): Promise<void> {
   busy.value = true
   error.value = ''
   try {
-    const body = editorPayload(fields.value, values, props.row)
+    const body = payload()
     await writeRecord(
       props.spec.path + (props.row ? '/' + props.row.id : ''),
       body,
@@ -140,6 +167,10 @@ async function checkResult(): Promise<void> {
         :disabled="busy || loading || uncertain || conflict"
         @change="(k, v) => (values[k] = v)"
       />
+      <el-form v-if="extended.length" label-position="top"
+        ><h3>其他信息</h3>
+        <DynamicFields v-model="ext" :fields="extended" prefix="master-extra-"
+      /></el-form>
     </fieldset>
     <p v-if="loading" role="status">正在加载可选资料…</p>
     <el-alert v-if="error" type="error" :title="error" :closable="false" show-icon />

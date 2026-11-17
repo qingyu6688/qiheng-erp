@@ -60,6 +60,7 @@ public class InventoryReversalService {
                 """,BigDecimal.class,scope.tenantId(),scope.companyId(),key.warehouseId(),key.skuId());
             jdbc.update("UPDATE inventory_cost SET last_in_unit_cost=? WHERE tenant_id=? AND company_id=? AND warehouse_id=? AND sku_id=?",inbound.isEmpty()?null:inbound.getFirst(),scope.tenantId(),scope.companyId(),key.warehouseId(),key.skuId());
         }
+        inventory.changed(scope,new ArrayList<>(changes.keySet()));
     }
     private void apply(CompanyAccess scope,Key key,BigDecimal[] changes) {
         var before=jdbc.queryForMap("SELECT on_hand_qty,reserved_qty,blocked_qty FROM inventory_balance WHERE tenant_id=? AND company_id=? AND warehouse_id=? AND sku_id=? AND location_key='' AND lot_key='' FOR UPDATE",scope.tenantId(),scope.companyId(),key.warehouseId(),key.skuId());

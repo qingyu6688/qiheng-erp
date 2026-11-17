@@ -41,6 +41,10 @@ class FlowableConfiguration {
                                 (JavaDelegate) e -> runtime.getObject().finished(e),
                                 "wfRejected",
                                 (JavaDelegate) e -> runtime.getObject().autoRejected(e),
+                                "wfDelay",
+                                (org.flowable.engine.delegate.ExecutionListener) e -> runtime.getObject().scheduleDelay(e),
+                                "wfTrigger",
+                                (JavaDelegate) e -> runtime.getObject().publishTrigger(e),
                                 "wfConditions",
                                 new Conditions(runtime))));
         return config.buildProcessEngine();

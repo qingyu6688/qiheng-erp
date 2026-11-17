@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.time.LocalDate;
 import java.util.List;
+import tools.jackson.databind.JsonNode;
 
 public final class SalesOrderModels {
     private SalesOrderModels() {}
@@ -15,15 +16,21 @@ public final class SalesOrderModels {
         @NotEmpty(message="请填写商品明细") @Size(max=500,message="明细最多500行") List<@NotNull @Valid Line> lines,
         @Size(max=50,message="费用最多50行") List<@NotNull @Valid Fee> fees,
         @Size(max=500,message="备注最多500字") String remark, Long version,
-        @Size(max=200,message="原因最多200字") String reason, @Positive(message="业务员编号无效") Long salesUserId,@Positive(message="送货区划编号无效") Long deliveryAreaId,@Size(max=200,message="送货地址最多200字") String deliveryAddress) {
-        public Input(String customerId,LocalDate businessDate,LocalDate deliveryDate,Boolean priceTaxInclusive,String orderDiscountAmount,List<Line> lines,List<Fee> fees,String remark,Long version,String reason,Long salesUserId) {this(customerId,businessDate,deliveryDate,priceTaxInclusive,orderDiscountAmount,lines,fees,remark,version,reason,salesUserId,null,null);}
-        public Input(String customerId,LocalDate businessDate,LocalDate deliveryDate,Boolean priceTaxInclusive,String orderDiscountAmount,List<Line> lines,List<Fee> fees,String remark,Long version,String reason) {this(customerId,businessDate,deliveryDate,priceTaxInclusive,orderDiscountAmount,lines,fees,remark,version,reason,null,null,null);}
+        @Size(max=200,message="原因最多200字") String reason, @Positive(message="业务员编号无效") Long salesUserId,@Positive(message="送货区划编号无效") Long deliveryAreaId,@Size(max=200,message="送货地址最多200字") String deliveryAddress, @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) JsonNode extJson) {
+        public Input(String customerId,LocalDate businessDate,LocalDate deliveryDate,Boolean priceTaxInclusive,String orderDiscountAmount,List<Line> lines,List<Fee> fees,String remark,Long version,String reason,Long salesUserId,Long deliveryAreaId,String deliveryAddress) {this(customerId,businessDate,deliveryDate,priceTaxInclusive,orderDiscountAmount,lines,fees,remark,version,reason,salesUserId,deliveryAreaId,deliveryAddress,null);}
+        public Input(String customerId,LocalDate businessDate,LocalDate deliveryDate,Boolean priceTaxInclusive,String orderDiscountAmount,List<Line> lines,List<Fee> fees,String remark,Long version,String reason,Long salesUserId) {this(customerId,businessDate,deliveryDate,priceTaxInclusive,orderDiscountAmount,lines,fees,remark,version,reason,salesUserId,null,null,null);}
+        public Input(String customerId,LocalDate businessDate,LocalDate deliveryDate,Boolean priceTaxInclusive,String orderDiscountAmount,List<Line> lines,List<Fee> fees,String remark,Long version,String reason) {this(customerId,businessDate,deliveryDate,priceTaxInclusive,orderDiscountAmount,lines,fees,remark,version,reason,null,null,null,null);}
     }
     public record Line(String id,
         @NotBlank(message="请选择商品") String skuId, String warehouseId,
         @NotBlank(message="请选择单位") String unitId,
         @NotBlank(message="请输入数量") String qty, String unitPrice, String amountInput,
-        String lineDiscountAmount,String lineDiscountRatio,String taxRate) {}
+        String lineDiscountAmount,String lineDiscountRatio,String taxRate,@com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) JsonNode extJson) {
+        public Line(String id,String skuId,String warehouseId,String unitId,String qty,String unitPrice,String amountInput,
+                    String lineDiscountAmount,String lineDiscountRatio,String taxRate) {
+            this(id,skuId,warehouseId,unitId,qty,unitPrice,amountInput,lineDiscountAmount,lineDiscountRatio,taxRate,null);
+        }
+    }
     public record Fee(String id,
         @NotBlank(message="请选择费用类型") String feeType,
         @NotBlank(message="请选择费用承担方") String bearer,

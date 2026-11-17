@@ -59,7 +59,7 @@ public class OpeningService {
         return execute(scope,"stock_adjustment.create",key,input,201,()->{
             validateStock(scope,input);long id=Ids.next();
             jdbc.update("INSERT INTO stock_adjustment(id,tenant_id,company_id,adjust_no,warehouse_id,adjust_type,reason,business_date,created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-                id,scope.tenantId(),scope.companyId(),numbers.next(scope,"SA",YearMonth.from(input.businessDate())),input.warehouseId(),adjustType(input),input.reason(),input.businessDate(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
+                id,scope.tenantId(),scope.companyId(),numbers.next(scope,"SA",input.businessDate()),input.warehouseId(),adjustType(input),input.reason(),input.businessDate(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             writeLines(scope,id,input.lines());return changed(scope,true,id,"create",null);
         });
     }
@@ -77,7 +77,7 @@ public class OpeningService {
             jdbc.update("""
                 INSERT INTO opening_entry(id,tenant_id,company_id,entry_no,entry_type,partner_id,cash_account_id,direction,amount,business_date,remark,created_by,updated_by,owner_user_id,owner_department_id)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """,id,scope.tenantId(),scope.companyId(),numbers.next(scope,"OE",YearMonth.from(input.businessDate())),input.entryType(),input.partnerId(),input.cashAccountId(),
+                """,id,scope.tenantId(),scope.companyId(),numbers.next(scope,"OE",input.businessDate()),input.entryType(),input.partnerId(),input.cashAccountId(),
                 input.direction(),amount(input.amount()),input.businessDate(),input.remark(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
             return changed(scope,false,id,"create",null);
         });

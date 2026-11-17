@@ -45,6 +45,14 @@ public class WarehouseService {
 
     public record ActiveSelections(List<ActiveSelection> items, boolean hasMore) {}
 
+    public WarehousePage openPage(CompanyAccess scope,String keyword,int limit,String cursor) {
+        var page=list(scope,keyword,"active",limit,cursor,false);
+        return new WarehousePage(page.items().stream().map(row -> new ActiveSelection(row.id(),row.code(),row.name())).toList(),
+                page.nextCursor());
+    }
+
+    public record WarehousePage(List<ActiveSelection> items,String nextCursor) {}
+
     WarehouseModels.View get(CompanyAccess scope, long id) {
         return queries.find(scope, id, false);
     }

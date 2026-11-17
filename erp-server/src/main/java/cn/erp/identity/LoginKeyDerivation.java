@@ -6,13 +6,13 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
 /** 登录子密钥使用 HKDF-SHA256，固定输出一个 32 字节分组。 */
-final class LoginKeyDerivation {
+public final class LoginKeyDerivation {
     private static final String HMAC = "HmacSHA256";
     private static final int KEY_BYTES = 32;
 
     private LoginKeyDerivation() {}
 
-    static byte[] derive(byte[] masterKey, String purpose) {
+    public static byte[] derive(byte[] masterKey, String purpose) {
         try {
             Mac mac = Mac.getInstance(HMAC);
             // RFC 5869 未提供盐时使用 HashLen 个零字节。

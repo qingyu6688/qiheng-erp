@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onScopeDispose, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onScopeDispose, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import {
   workflowEnd,
   workflowInstance,
   workflowList,
+  workflowRequest,
   workflowTaskAction,
   workflowTaskCandidates,
   readWorkflowCopy,
@@ -12,9 +13,11 @@ import {
 import { ApiError, isCancelled, messageOf, newIdempotencyKey } from '../../api/http'
 import type {
   Choice,
+  GenericWorkflowRequest,
   TaskDecision,
   WorkflowBusinessType,
   WorkflowInstance,
+  WorkflowFormValues,
   WorkflowListRow,
   WorkflowTask,
 } from '../../types/workflow'
@@ -22,6 +25,10 @@ import { actionLabels, businessLabels, businessRoutes, workflowStatus } from '..
 import { useSessionStore } from '../../stores/session'
 import { registerCompanyLeaveGuard } from '../../utils/unsaved'
 import { formatDateTime } from '../../utils/format'
+import DocumentFilesPanel from '../../components/DocumentFilesPanel.vue'
+const WorkflowFormFields = defineAsyncComponent(
+  () => import('../../components/workflow/WorkflowFormFields.vue'),
+)
 const props = defineProps<{ kind: 'todo' | 'done' | 'mine' | 'copies' | 'all' }>()
 const session = useSessionStore(),
   route = useRoute(),
@@ -32,6 +39,23 @@ const session = useSessionStore(),
   busy = ref(false),
   loading = ref(false),
   detailLoading = ref(false)
+const application = ref<GenericWorkflowRequest>(),
+  taskApplication = ref<GenericWorkflowRequest>()
+const editedFields = ref<WorkflowFormValues>({})
+const writableFields = computed(
+  () => taskApplication.value?.fields.filter((item) => item.access === 'write') ?? [],
+)
+function fieldChanges(): WorkflowFormValues {
+  return Object.fromEntries(
+    writableFields.value
+      .filter(
+        (item) =>
+          Object.hasOwn(editedFields.value, item.field.key) &&
+          editedFields.value[item.field.key] !== item.value,
+      )
+      .map((item) => [item.field.key, editedFields.value[item.field.key]]),
+  )
+}
 const businessType = ref<WorkflowBusinessType | ''>(''),
   status = ref(''),
   next = ref<string | null>(null),
@@ -99,7 +123,11 @@ function mayLeave(): boolean {
     !busy.value &&
     !uncertain.value &&
     (!decisionOpen.value ||
-      (!comment.value && !userId.value && !userIds.value.length && !taskIds.value.length) ||
+      (!comment.value &&
+        !userId.value &&
+        !userIds.value.length &&
+        !taskIds.value.length &&
+        !Object.keys(fieldChanges()).length) ||
       window.confirm('处理意见尚未提交，确定离开？'))
   )
 }
@@ -148,10 +176,12 @@ async function open(id: string, copy?: string): Promise<void> {
   detailLoading.value = true
   error.value = ''
   detail.value = undefined
+  application.value = undefined
   try {
     const value = await workflowInstance(id)
     if (current !== detailRevision) return
     detail.value = value
+    if (value.businessType === 'wf_generic_request') await loadApplication(value, current)
     if (copy) {
       await readWorkflowCopy(copy)
       window.dispatchEvent(new Event('erp:messages-changed'))
@@ -163,16 +193,32 @@ async function open(id: string, copy?: string): Promise<void> {
     if (current === detailRevision) detailLoading.value = false
   }
 }
+async function loadApplication(value: WorkflowInstance, token: number): Promise<void> {
+  try {
+    const request = await workflowRequest(value.businessId)
+    if (token === detailRevision) application.value = request
+  } catch (cause: unknown) {
+    if (
+      token === detailRevision &&
+      !(cause instanceof ApiError && [403, 404].includes(cause.status)) &&
+      !isCancelled(cause)
+    )
+      error.value = messageOf(cause)
+  }
+}
 function closeDetail(): void {
   if (!mayLeave()) return
   ++detailRevision
   detail.value = undefined
+  application.value = undefined
   if (route.params.id) void router.replace('/workflow/' + props.kind)
 }
 async function choose(name: string, task?: WorkflowTask): Promise<void> {
   if (busy.value || !detail.value) return
   action.value = name
   selected.value = task
+  taskApplication.value = undefined
+  editedFields.value = {}
   comment.value = ''
   userId.value = ''
   userIds.value = []
@@ -186,6 +232,27 @@ async function choose(name: string, task?: WorkflowTask): Promise<void> {
   choices.value = []
   error.value = ''
   decisionOpen.value = true
+  if (task && name === 'approve' && detail.value.businessType === 'wf_generic_request') {
+    const token = detailRevision
+    busy.value = true
+    try {
+      const request = await workflowRequest(detail.value.businessId, task.id)
+      if (token === detailRevision) {
+        taskApplication.value = request
+        editedFields.value = Object.fromEntries(
+          request.fields
+            .filter((item) => item.access === 'write')
+            .map((item) => [item.field.key, item.value]),
+        )
+      }
+    } catch (cause: unknown) {
+      if (token === detailRevision && !isCancelled(cause)) error.value = messageOf(cause)
+      decisionOpen.value = false
+    } finally {
+      busy.value = false
+    }
+    return
+  }
   if (task && ['transfer', 'delegate', 'add-sign'].includes(name)) {
     busy.value = true
     try {
@@ -223,6 +290,8 @@ async function submit(): Promise<void> {
       taskIds: taskIds.value.length ? [...taskIds.value] : undefined,
       position: action.value === 'add-sign' ? position.value : undefined,
       targetNodeKey: action.value === 'reject' ? target.value : undefined,
+      fields:
+        action.value === 'approve' && writableFields.value.length ? fieldChanges() : undefined,
     }
   busy.value = true
   const id = detail.value.id
@@ -245,6 +314,7 @@ async function submit(): Promise<void> {
     await load()
     const value = await workflowInstance(id)
     detail.value = value
+    if (value.businessType === 'wf_generic_request') await loadApplication(value, detailRevision)
   } catch (cause: unknown) {
     error.value = messageOf(cause)
     uncertain.value = !(cause instanceof ApiError) || cause.status === 0 || cause.status >= 500
@@ -277,6 +347,7 @@ watch(
     ++detailRevision
     rows.value = []
     detail.value = undefined
+    application.value = undefined
     decisionOpen.value = false
     uncertain.value = false
     cursors.value = [null]
@@ -411,6 +482,7 @@ onScopeDispose(() => {
         </div>
         <router-link
           class="text-link"
+          v-if="businessRoutes[detail.businessType]"
           :to="'/' + businessRoutes[detail.businessType] + '/' + detail.businessId"
           >查看来源单据</router-link
         >
@@ -421,6 +493,24 @@ onScopeDispose(() => {
         type="warning"
         :closable="false"
       />
+      <section v-if="application" class="flow-task-action workflow-application-detail">
+        <h3>申请表单</h3>
+        <dl class="workflow-application-fields">
+          <template v-for="item in application.fields" :key="item.field.key">
+            <dt>{{ item.field.label }}</dt>
+            <dd>
+              {{
+                typeof item.value === 'boolean' ? (item.value ? '是' : '否') : (item.value ?? '—')
+              }}
+            </dd>
+          </template>
+        </dl>
+        <DocumentFilesPanel
+          owner-type="wf_generic_request"
+          :owner-id="application.id"
+          :readonly="!application.canUpload"
+        />
+      </section>
       <section v-for="task in ownTasks" :key="task.id" class="flow-task-action">
         <div>
           <strong>{{ task.nodeName }}</strong>
@@ -437,8 +527,7 @@ onScopeDispose(() => {
             @click="choose('approve', task)"
             >{{
               task.ownerId ? '反馈委派意见' : task.nodeKind === 'handler' ? '完成办理' : '同意'
-            }}</el-button
-          ><el-button
+            }}</el-button><el-button
             v-if="task.status === 'pending' && task.nodeKind === 'approver' && !task.ownerId"
             :disabled="busy"
             @click="choose('reject', task)"
@@ -531,6 +620,12 @@ onScopeDispose(() => {
     :close-on-click-modal="false"
     append-to-body
   >
+    <WorkflowFormFields
+      v-if="writableFields.length"
+      v-model="editedFields"
+      :fields="writableFields.map((item) => item.field)"
+      :disabled="busy || uncertain"
+    />
     <el-form label-position="top" :disabled="busy || uncertain"
       ><el-form-item v-if="['transfer', 'delegate'].includes(action)" label="目标处理人"
         ><el-select v-model="userId" filterable
@@ -585,3 +680,18 @@ onScopeDispose(() => {
     >
   </el-dialog>
 </template>
+
+<style scoped>
+.workflow-application-detail {
+  display: block;
+}
+.workflow-application-fields {
+  display: grid;
+  grid-template-columns: minmax(90px, auto) 1fr;
+  gap: 10px 18px;
+}
+.workflow-application-fields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+</style>

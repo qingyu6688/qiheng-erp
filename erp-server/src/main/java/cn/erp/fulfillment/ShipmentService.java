@@ -52,7 +52,7 @@ public class ShipmentService {
         if(input==null || input.warehouseId()==null || !scope.allowsWarehouse(input.warehouseId())) {throw missing();}
         return command(scope,"create",key,input,201,()->{
             validateInput(scope,input);
-            String number=numbers.next(scope,"SH",YearMonth.from(input.businessDate()));
+            String number=numbers.next(scope,"SH",input.businessDate());
             long id=Ids.next();
             jdbc.update("""
                     INSERT INTO shipment(id,tenant_id,company_id,shipment_no,customer_id,warehouse_id,

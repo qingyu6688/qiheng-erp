@@ -27,6 +27,9 @@ class SalesOrderIT {
     @Autowired InventoryService inventory;
     @Autowired ReservationService reservations;
     @Autowired cn.erp.fulfillment.ShipmentService shipments;
+    @Autowired cn.erp.workbench.DocumentBrowser browser;
+    @Autowired cn.erp.documents.PrintService prints;
+    @Autowired tools.jackson.databind.ObjectMapper json;
     private CompanyAccess maker,reviewer;
     private long tenant,company,warehouse,otherWarehouse,customer,unit,sku,secondSku,thirdSku,period;
     private final LocalDate date=LocalDate.of(2026,11,15);
@@ -63,11 +66,41 @@ class SalesOrderIT {
     void clean() {
         for(String table:List.of("idempotency_record","audit_log","approval_record","document_change","outbox_event","inbox_event","journal_line","journal","partner_open_item","receivable","shipment_line","shipment","inventory_reservation_change",
                 "inventory_reservation","inventory_movement","inventory_cost","inventory_balance","sales_order_fee","sales_order_line",
-                "sales_order","document_sequence","unit_conversion","sku","product","product_category","unit","partner_role",
+                "sales_order","document_sequence","cf_definition","unit_conversion","sku","product","product_category","unit","partner_role",
                 "business_partner","accounting_period","warehouse","company_policy","company")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
         }
         jdbc.update("DELETE FROM tenant WHERE id=?",tenant);
+    }
+
+    @Test
+    void customValuesValidateAndExportThroughTheOriginalWarehouseScope() {
+        jdbc.update("""
+                INSERT INTO cf_definition(id,tenant_id,entity,field_key,label,field_type,choices,required,index_slot,list_visible,print_visible,import_export)
+                VALUES(?,?,'sales_order','cf_project','项目编号','text',JSON_ARRAY(),1,1,1,1,1)
+                """,Ids.next(),tenant);
+        var row=line(null,sku,warehouse,"1","20","0");
+        var missing=new Input(id(customer),date,null,true,"0",List.of(row),List.of(),null,null,null);
+        assertThatThrownBy(()->service.create(maker,key(),missing)).hasMessageContaining("项目编号");
+        var input=new Input(id(customer),date,null,true,"0",List.of(row),List.of(),null,null,null,null,null,null,
+                json.readTree("{\"cf_project\":\"P-001\",\"cf_unknown\":\"不得写入\"}"));
+        var saved=service.create(maker,key(),input);
+        assertThat(saved.get("extJson")).isEqualTo(Map.of("cf_project","P-001"));
+        assertThat(jdbc.queryForObject("SELECT cf_idx_1 FROM sales_order WHERE id=?",String.class,oid(saved))).isEqualTo("cf_project=P-001");
+        var filter=cn.erp.workbench.DocumentBrowser.Filter.empty();
+        var custom=Map.of("cf.cf_project",new String[]{"P-001"});
+        assertThat(browser.page(maker,"sales-orders",filter,null,20,true,custom,false)).containsEntry("total",1L);
+        var denied=new CompanyAccess(tenant,maker.userId(),company,false,Set.of(otherWarehouse),PERMISSIONS);
+        assertThat(browser.page(denied,"sales-orders",filter,null,20,true,custom,false)).containsEntry("total",0L);
+        assertThat(new String(browser.customExport(maker,"sales-orders",filter,null,20,custom),java.nio.charset.StandardCharsets.UTF_8))
+                .contains("项目编号","P-001").doesNotContain("不得写入");
+        assertThat(new String(browser.customExport(denied,"sales-orders",filter,null,20,custom),java.nio.charset.StandardCharsets.UTF_8)).doesNotContain("P-001");
+        var permissions=new HashSet<>(PERMISSIONS);permissions.add("sales_order:print");
+        var printScope=new CompanyAccess(tenant,maker.userId(),company,true,Set.of(),permissions);
+        assertThat(prints.get(printScope,"sales_order",oid(saved)).get("document").toString()).contains("printCustomFields={项目编号=P-001}");
+        jdbc.update("UPDATE cf_definition SET enabled=0 WHERE tenant_id=?",tenant);
+        assertThat(queries.get(maker,oid(saved)).get("extJson")).isEqualTo(Map.of());
+        assertThat(jdbc.queryForObject("SELECT ext_json FROM sales_order WHERE id=?",String.class,oid(saved))).contains("P-001");
     }
 
     @Test

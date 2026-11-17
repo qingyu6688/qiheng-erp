@@ -33,7 +33,11 @@ public class DatabaseMigrationConfiguration {
                 throw new IllegalStateException("跨主机生产数据库连接必须设置 DB_SSL_MODE=REQUIRED 或更严格的证书校验模式");
             }
             if(!environment.getProperty("server.servlet.session.cookie.secure", Boolean.class, true)) throw new IllegalStateException("生产环境会话 Cookie 必须启用 secure");
-            if(environment.getProperty("springdoc.api-docs.enabled", Boolean.class, false)) throw new IllegalStateException("生产环境不能公开接口调试文档");
+            boolean docsEnabled=environment.getProperty("springdoc.api-docs.enabled",Boolean.class,false);
+            boolean defaultDocs=environment.getProperty("springdoc.enable-default-api-docs",Boolean.class,true);
+            boolean managementDocs=environment.getProperty("springdoc.use-management-port",Boolean.class,false);
+            // 生产只启用受授权的开放平台分组生成器，默认和管理端口的直接规范继续关闭。
+            if(docsEnabled && (defaultDocs || managementDocs)) throw new IllegalStateException("生产环境不能公开接口调试文档");
         }
         return user.isEmpty()?new Credentials(runtimeUser,runtimePassword):new Credentials(user,password);
     }

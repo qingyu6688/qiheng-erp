@@ -9,10 +9,27 @@ import jakarta.servlet.http.HttpSession;
 
 import cn.erp.shared.ApiException;
 
-record SessionAccount(long tenantId, long userId, long passwordRevision, long loginMillis)
+record SessionAccount(long tenantId, long userId, long passwordRevision, long loginMillis,
+                      long identityId, long providerVersion, long mfaEnrollmentId)
         implements Serializable {
     private static final String ATTRIBUTE = SessionAccount.class.getName();
     private static final Duration ABSOLUTE_TIMEOUT = Duration.ofHours(12);
+
+    SessionAccount(long tenantId, long userId, long passwordRevision, long loginMillis) {
+        this(tenantId, userId, passwordRevision, loginMillis, 0, 0, 0);
+    }
+
+    SessionAccount withIdentity(long id, long version) {
+        return new SessionAccount(tenantId, userId, passwordRevision, loginMillis, id, version, mfaEnrollmentId);
+    }
+
+    SessionAccount withMfa(long enrollment) {
+        return new SessionAccount(tenantId, userId, passwordRevision, loginMillis, identityId, providerVersion, enrollment);
+    }
+
+    SessionAccount withPasswordRevision(long revision) {
+        return new SessionAccount(tenantId, userId, revision, loginMillis, identityId, providerVersion, mfaEnrollmentId);
+    }
 
     static SessionAccount read(HttpServletRequest request) {
         HttpSession session = request.getSession(false);

@@ -39,6 +39,7 @@ class AuditQueryService {
         for(long company:companies) if(!resolver.resolve(actor.tenantId(),company,actor.userId()).allDepartments()) restricted.add(company);
         if(!restricted.isEmpty()) {sql.append(" AND (a.company_id IS NULL OR a.company_id NOT IN ("+String.join(",",Collections.nCopies(restricted.size(),"?"))+"))");args.addAll(restricted);}
         financialVisibility(actor,sql,args);
+        openVisibility(actor,sql,args,restricted);
         add(sql,args,"a.action",text(filter.action(),64));add(sql,args,"a.object_type",text(filter.entityType(),32));
         add(sql,args,"a.object_id",positive(filter.entityId()));add(sql,args,"a.operator_id",positive(filter.operatorId()));
         add(sql,args,"a.company_id",positive(filter.companyId()));add(sql,args,"a.request_id",text(filter.requestId(),64));
@@ -83,6 +84,36 @@ class AuditQueryService {
             sql.append(" OR (c.status='active' AND (")
                 .append(String.join(" OR ", visible)).append("))");
             args.addAll(visibleArgs);
+        }
+        sql.append(")");
+    }
+
+    private void openVisibility(CompanyAccess actor,StringBuilder sql,List<Object> args,List<Long> restricted) {
+        sql.append(" AND (a.object_type NOT IN ('open_app','open_webhook','open_webhook_delivery')");
+        if (actor.hasPermission("open_platform:view")) {
+            var companies=jdbc.queryForList("""
+                    SELECT s.company_id FROM sys_user_data_scope s JOIN company c ON c.tenant_id=s.tenant_id
+                      AND c.id=s.company_id AND c.status='active'
+                    WHERE s.tenant_id=? AND s.user_id=? AND s.scope_type='company'
+                    """,Long.class,actor.tenantId(),actor.userId()).stream().filter(id -> !restricted.contains(id))
+                    .map(String::valueOf).toList();
+            String allowed=json.writeValueAsString(companies);
+            sql.append("""
+                    OR (EXISTS(
+                        SELECT 1 FROM open_app app WHERE app.tenant_id=a.tenant_id AND app.id=(CASE a.object_type
+                          WHEN 'open_app' THEN a.object_id
+                          WHEN 'open_webhook' THEN (SELECT w.app_id FROM open_webhook w WHERE w.tenant_id=a.tenant_id AND w.id=a.object_id)
+                          WHEN 'open_webhook_delivery' THEN (SELECT w.app_id FROM open_webhook_delivery d JOIN open_webhook w
+                            ON w.tenant_id=d.tenant_id AND w.id=d.webhook_id WHERE d.tenant_id=a.tenant_id AND d.id=a.object_id)
+                          ELSE 0 END)
+                        AND NOT EXISTS(SELECT 1 FROM open_app_company ac WHERE ac.tenant_id=app.tenant_id AND ac.app_id=app.id
+                          AND NOT JSON_CONTAINS(?,JSON_QUOTE(CAST(ac.company_id AS CHAR))))
+                      ) AND JSON_CONTAINS(?,COALESCE(JSON_EXTRACT(a.before_data,'$.companyIds'),JSON_ARRAY()))
+                        AND JSON_CONTAINS(?,COALESCE(JSON_EXTRACT(a.after_data,'$.companyIds'),JSON_ARRAY())))
+                    """);
+            args.add(allowed);
+            args.add(allowed);
+            args.add(allowed);
         }
         sql.append(")");
     }

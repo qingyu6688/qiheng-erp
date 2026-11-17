@@ -16,13 +16,15 @@ class LoginAuditFilter extends OncePerRequestFilter {
     private final LoginAudit audit;
     LoginAuditFilter(LoginAudit audit) {this.audit=audit;}
     @Override protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !(request.getMethod().equals("POST")&&java.util.Set.of("/api/v1/auth/login","/api/v1/auth/code/login").contains(request.getRequestURI())||request.getMethod().equals("GET")&&request.getRequestURI().equals("/api/v1/auth/wechat/callback"));
+        return !(request.getMethod().equals("POST")&&java.util.Set.of("/api/v1/auth/login","/api/v1/auth/code/login",
+                "/api/v1/auth/ldap/login","/api/v1/auth/mfa/verify","/api/v1/auth/mfa/activate").contains(request.getRequestURI())
+                ||request.getMethod().equals("GET")&&java.util.Set.of("/api/v1/auth/wechat/callback","/api/v1/auth/sso/callback").contains(request.getRequestURI()));
     }
     @Override protected void doFilterInternal(HttpServletRequest request,HttpServletResponse response,FilterChain chain) throws IOException,ServletException {
         try {chain.doFilter(request,response);} finally {
             String method=request.getAttribute("erp.login.method") instanceof String value?value:request.getRequestURI().contains("wechat")?"wechat":"password";
-            if(!java.util.Set.of("password","sms","email","wechat").contains(method)) method="password";
-            if(!Boolean.TRUE.equals(request.getAttribute("erp.login.binding"))) try {audit.record(request,method,request.getAttribute("erp.login.actor")!=null?"success":request.getAttribute("erp.login.result") instanceof String value?value:"failed");}
+            if(!java.util.Set.of("password","sms","email","wechat","sso").contains(method)) method="password";
+            if(!Boolean.TRUE.equals(request.getAttribute("erp.login.binding"))&&!Boolean.TRUE.equals(request.getAttribute("erp.login.pending"))) try {audit.record(request,method,request.getAttribute("erp.login.actor")!=null?"success":request.getAttribute("erp.login.result") instanceof String value?value:"failed");}
             catch(RuntimeException failure) {LOG.warn("登录日志写入失败，异常类型 {}",failure.getClass().getSimpleName());}
         }
     }
