@@ -95,7 +95,7 @@ onMounted(restore)
 
 <template>
   <header class="portal-header">
-    <div class="portal-brand"><BrandMark /><span>柒衡 ERP 客户门户</span></div>
+    <BrandMark class="portal-brand" label="柒衡 ERP 客户门户" />
     <div v-if="user" class="portal-account">
       <span>{{ user.customerName }} · {{ user.contactName }}</span>
       <button type="button" :disabled="busy" @click="logout">退出</button>

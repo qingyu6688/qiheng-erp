@@ -1,10 +1,21 @@
 <script setup lang="ts">
-import { Box } from '@element-plus/icons-vue'
+withDefaults(defineProps<{ compact?: boolean; label?: string }>(), { label: '柒衡 ERP' })
 
-defineProps<{ compact?: boolean }>()
+const iconUrl = `${import.meta.env.BASE_URL}qiheng-icon.svg`
 </script>
+
 <template>
-  <div class="brand" :role="compact ? 'img' : undefined" :aria-label="compact ? '柒衡 ERP' : undefined">
-    <span class="brand-icon"><Box aria-hidden="true" /></span><span v-if="!compact">柒衡 ERP</span>
+  <div class="brand" :role="compact ? 'img' : undefined" :aria-label="compact ? label : undefined">
+    <img class="brand-icon" :src="iconUrl" alt="" width="36" height="36" />
+    <span v-if="!compact">{{ label }}</span>
   </div>
 </template>
+
+<style scoped>
+.brand-icon {
+  display: block;
+  width: var(--brand-icon-size, 36px);
+  height: var(--brand-icon-size, 36px);
+  flex: none;
+}
+</style>
