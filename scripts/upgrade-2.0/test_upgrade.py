@@ -5,10 +5,10 @@ import tempfile
 import unittest
 from pathlib import Path, PureWindowsPath
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 from data import compare_scopes, normalize, permission_codes
-from engine import (UpgradeError, atomic_json, checked_test_output, configured_test_root, copy_objects,
+from engine import (MySql, UpgradeError, atomic_json, checked_test_output, configured_test_root, copy_objects,
                     identifier, load_json, object_manifest, sha256)
 from upgrade import Upgrade
 
@@ -105,6 +105,150 @@ class UpgradeSafetyTest(unittest.TestCase):
             with self.assertRaisesRegex(UpgradeError, "切换目标"):
                 task.finish()
             task.mysql.execute.assert_not_called()
+
+    def test_checkpoint_refuses_filtered_binary_log(self):
+        mysql = MySql.__new__(MySql)
+        for include, exclude in (("erp_candidate", ""), ("", "erp_candidate")):
+            with self.subTest(include=include, exclude=exclude):
+                mysql.query = Mock(return_value=[["bin.000001", "232", include, exclude, "uuid:1"]])
+                with self.assertRaisesRegex(UpgradeError, "过滤"):
+                    mysql.position()
+
+
+class UpgradeActivationRecoveryTest(unittest.TestCase):
+    def setUp(self):
+        folder = temporary_test_directory()
+        self.addCleanup(folder.cleanup)
+        task = Upgrade.__new__(Upgrade)
+        self.task = task
+        task.work = Path(folder.name)
+        task.state_path = task.work / "state.json"
+        self.handoff = task.work / "handoff.json"
+        self.objects = task.work / "objects"
+        self.objects.mkdir()
+        self.position = {"binlog": "bin.000001", "position": 100, "gtid": "uuid:1-4"}
+        task.server_id = "test-server"
+        task.args = SimpleNamespace(approve_scopes=True)
+        task.mysql = Mock()
+        task.mysql.position.return_value = self.position.copy()
+        self.offline = False
+        task.mysql.server.side_effect = self.server
+        task.mysql.scalar.side_effect = lambda sql: ("1" if self.offline else "0") if "persisted_variables" in sql else "0"
+        task.mysql.execute.side_effect = self.set_offline
+        task.hook = Mock()
+        task.drain = Mock()
+        task.state = {"runId": "test-run", "startedAt": "2026-11-18T02:00:00+00:00",
+                      "phase": "opening", "previousReady": "ready", "readyPosition": self.position, "handoffObjects": {}}
+        self.write_handoff(2)
+
+    def server(self):
+        return [self.task.server_id, "8.0.46", "1", "ON", "1" if self.offline else "0", "OFF", "0", "0", "1"]
+
+    def set_offline(self, sql):
+        self.offline = sql == "SET PERSIST offline_mode=ON;"
+
+    def write_handoff(self, major):
+        atomic_json(self.handoff, {"database": "erp_target", "objectRoot": str(self.objects), "apiMajor": major})
+        self.task.state["handoffSha256"] = sha256(self.handoff)
+        atomic_json(self.task.state_path, self.task.state)
+
+    def reports(self):
+        return [load_json(path) for path in self.task.work.glob("activation-recovery-*.json")]
+
+    def test_interrupted_activation_can_be_recovered_twice_without_reopening(self):
+        with self.assertRaisesRegex(UpgradeError, "recover"):
+            self.task.finish()
+        with self.assertRaisesRegex(UpgradeError, "recover"):
+            self.task.rollback()
+        self.task.recover()
+        self.task.recover()
+        self.assertTrue(self.offline)
+        self.assertEqual("ready", load_json(self.task.state_path)["phase"])
+        self.task.hook.assert_has_calls(
+            [call("stop", self.task.state_path), call("stopped", self.task.state_path)] * 2)
+        self.assertEqual(4, self.task.hook.call_count)
+        self.assertEqual(["verified", "verified"], [report["status"] for report in self.reports()])
+        self.task.finish()
+        self.assertFalse(self.offline)
+        self.assertEqual("active", load_json(self.task.state_path)["phase"])
+
+    def test_interrupted_rollback_activation_restores_rollback_ready(self):
+        self.task.state["previousReady"] = "rollback-ready"
+        self.write_handoff(1)
+        self.task.recover()
+        self.assertEqual("rollback-ready", load_json(self.task.state_path)["phase"])
+        self.task.args.approve_scopes = False
+        self.task.finish()
+        self.assertEqual("rollback-active", load_json(self.task.state_path)["phase"])
+
+    def test_recovery_keeps_newly_written_transactions_and_blocks_rollback(self):
+        updated = {**self.position, "position": 200, "gtid": "uuid:1-5"}
+        self.task.mysql.position.return_value = updated
+        with self.assertRaisesRegex(UpgradeError, "人工对账"):
+            self.task.recover()
+        self.assertTrue(self.offline)
+        self.assertEqual("opening", load_json(self.task.state_path)["phase"])
+        with self.assertRaisesRegex(UpgradeError, "recover"):
+            self.task.rollback()
+        report, = self.reports()
+        self.assertEqual(("blocked", self.position, updated),
+                         (report["status"], report["expectedPosition"], report["observedPosition"]))
+        self.task.hook.assert_has_calls([call("stop", self.task.state_path), call("stopped", self.task.state_path)])
+        self.task.mysql.execute.assert_called_once_with("SET PERSIST offline_mode=ON;")
+
+    def test_recovery_preserves_objects_when_watermark_is_unchanged(self):
+        (self.objects / "new.pdf").write_bytes(b"new")
+        with self.assertRaisesRegex(UpgradeError, "对象仓"):
+            self.task.recover()
+        self.assertTrue(self.offline)
+        self.assertEqual("opening", load_json(self.task.state_path)["phase"])
+        self.assertEqual("verify-handoff", self.reports()[0]["step"])
+        self.assertEqual(b"new", (self.objects / "new.pdf").read_bytes())
+
+    def test_recovery_detects_writes_during_handoff_verification(self):
+        self.task.mysql.position.side_effect = [self.position.copy(), {**self.position, "position": 220}]
+        with self.assertRaisesRegex(UpgradeError, "核验期间"):
+            self.task.recover()
+        self.assertTrue(self.offline)
+        self.assertEqual("opening", load_json(self.task.state_path)["phase"])
+
+    def test_repeat_recovery_blocks_a_previously_ready_state_when_evidence_changes(self):
+        self.task.recover()
+        self.task.mysql.position.return_value = {**self.position, "position": 220}
+        with self.assertRaisesRegex(UpgradeError, "人工对账"):
+            self.task.recover()
+        with self.assertRaisesRegex(UpgradeError, "recover"):
+            self.task.rollback()
+        self.assertTrue(self.offline)
+        self.assertEqual("opening", load_json(self.task.state_path)["phase"])
+
+    def test_recovery_can_resume_after_a_failed_stop_check(self):
+        self.task.hook.side_effect = [UpgradeError("维护命令未通过：stop"), None, None]
+        with self.assertRaisesRegex(UpgradeError, "维护命令未通过"):
+            self.task.recover()
+        self.assertTrue(self.offline)
+        self.assertEqual("opening", load_json(self.task.state_path)["phase"])
+        self.task.recover()
+        self.assertEqual("ready", load_json(self.task.state_path)["phase"])
+        self.assertCountEqual(["blocked", "verified"], [report["status"] for report in self.reports()])
+
+    def test_recovery_does_not_change_a_different_mysql_instance(self):
+        self.task.mysql.server.side_effect = None
+        self.task.mysql.server.return_value = ["other", *self.server()[1:]]
+        with self.assertRaisesRegex(UpgradeError, "实例身份"):
+            self.task.recover()
+        self.task.hook.assert_not_called()
+        self.task.mysql.execute.assert_not_called()
+
+    def test_failed_activation_uses_same_frozen_recovery_checks(self):
+        self.task.change_stage("ready")
+        self.offline = True
+        self.task.hook.side_effect = [None, UpgradeError("启动失败"), None, None]
+        with self.assertRaisesRegex(UpgradeError, "启动失败"):
+            self.task.finish()
+        self.assertTrue(self.offline)
+        self.assertEqual("ready", load_json(self.task.state_path)["phase"])
+        self.assertEqual("verified", self.reports()[0]["status"])
 
 
 class UpgradeTimingTest(unittest.TestCase):

@@ -86,7 +86,23 @@ def atomic_json(path, data):
         result.write("\n")
         result.flush()
         os.fsync(result.fileno())
+    if os.name == "nt":
+        from ctypes import WinDLL, WinError, get_last_error, wintypes
+
+        replace_existing, write_through = 0x1, 0x8
+        move_file = WinDLL("kernel32", use_last_error=True).MoveFileExW
+        move_file.argtypes = (wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD)
+        move_file.restype = wintypes.BOOL
+        if not move_file(str(pending), str(path), replace_existing | write_through):
+            raise WinError(get_last_error())
+        return
     os.replace(pending, path)
+    # 外部停写和放行前须持久化状态文件的替换，而不只是文件内容。
+    directory = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 def load_json(path):
@@ -188,7 +204,9 @@ class MySql:
         rows = self.query("SHOW MASTER STATUS;")
         if len(rows) != 1 or len(rows[0]) != 5 or not rows[0][4]:
             raise UpgradeError("无法取得最终 binlog 文件、位置和 GTID")
-        file, offset, _, _, gtid = rows[0]
+        file, offset, include, exclude, gtid = rows[0]
+        if include or exclude:
+            raise UpgradeError("binlog 配置过滤了部分数据库，无法证明写入水位")
         return {"binlog": file, "position": int(offset), "gtid": gtid}
 
     def server(self):

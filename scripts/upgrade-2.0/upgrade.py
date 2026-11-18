@@ -20,6 +20,7 @@ SOURCE_MIN = 87
 SOURCE_MAX = 97
 LAUNCHER = "org.springframework.boot.loader.launch.PropertiesLauncher"
 UPGRADE_MAIN = "cn.erp.upgrade.UpgradeMain"
+READY_PHASES = frozenset({"ready", "rollback-ready"})
 
 
 def utc(timespec="seconds"):
@@ -177,7 +178,9 @@ class Upgrade:
         environment = {key: value for key, value in os.environ.items()
                        if not key.startswith(("DB_", "MYSQL_PWD"))}
         environment.update(self.test_environment)
-        with (self.work / f"maintenance-{phase}.log").open("wb") as output:
+        with (self.work / f"maintenance-{phase}.log").open("ab") as output:
+            output.write(f"\n[{utc('milliseconds')}] {phase}\n".encode("utf-8"))
+            output.flush()
             result = subprocess.run([*command, phase, str(path)], stdout=output, stderr=subprocess.STDOUT,
                                     env=environment, timeout=900)
         if result.returncode:
@@ -196,15 +199,18 @@ class Upgrade:
         server = self.mysql.server()
         if server[1] != "8.0.46" or server[2:5] != ["1", "ON", "0"] or server[6:] != ["0", "0", "1"]:
             raise UpgradeError("需使用开启 binlog、GTID 和持久配置的 MySQL 8.0.46 可写专用实例")
-        enabled_events = self.mysql.scalar("SELECT COUNT(*) FROM information_schema.events WHERE STATUS='ENABLED'")
-        replication = self.mysql.scalar("SELECT COUNT(*) FROM performance_schema.replication_applier_status WHERE SERVICE_STATE='ON'")
-        if enabled_events != "0" or replication != "0":
-            raise UpgradeError("仍有 MySQL 事件或复制写入方，请纳入维护并停止")
+        self.require_no_background_writes()
         self.preflight("preflight")
         self.state = {"runId": uuid.uuid4().hex, "source": self.source, "serverId": self.server_id,
                       "objects": str(self.objects), "jarSha256": sha256(self.jar),
                       "target": target, "targetObjects": str(target_objects), "startedAt": utc("milliseconds")}
         self.change_stage("stopping")
+
+    def require_no_background_writes(self):
+        enabled_events = self.mysql.scalar("SELECT COUNT(*) FROM information_schema.events WHERE STATUS='ENABLED'")
+        replication = self.mysql.scalar("SELECT COUNT(*) FROM performance_schema.replication_applier_status WHERE SERVICE_STATE='ON'")
+        if enabled_events != "0" or replication != "0":
+            raise UpgradeError("仍有 MySQL 事件或复制写入方，请纳入维护并停止")
 
     def drain(self):
         until = time.monotonic() + 60
@@ -383,7 +389,9 @@ class Upgrade:
         self.change_stage(phase, readyPosition=self.mysql.position(), handoffSha256=sha256(path), handoffObjects=files)
 
     def rollback(self):
-        if not self.state or self.state["phase"] in {"active", "rollback-active", "opening"}:
+        if self.state.get("phase") == "opening":
+            raise UpgradeError("上次放行未完成，请先执行 recover 核对停写和交易水位")
+        if not self.state or self.state["phase"] in {"active", "rollback-active"}:
             raise UpgradeError("回退须在同一演练的停写窗口内进行")
         if self.state["phase"] == "stopping":
             with self.measure("freeze"):
@@ -424,39 +432,96 @@ class Upgrade:
 
     def finish(self):
         phase = self.state.get("phase")
-        if phase not in {"ready", "rollback-ready"}:
+        if phase == "opening":
+            raise UpgradeError("上次放行未完成，请先执行 recover")
+        if phase not in READY_PHASES:
             raise UpgradeError("当前升级或回退尚未通过核验")
         if phase == "ready" and not self.args.approve_scopes:
             raise UpgradeError("请审阅 02-data-scope.json 后提供 --approve-scopes")
         self.require_frozen()
-        path = self.work / "handoff.json"
-        if sha256(path) != self.state["handoffSha256"] or self.mysql.position() != self.state["readyPosition"]:
-            raise UpgradeError("切换目标或核验后的 MySQL 水位已变化")
-        target = load_json(path)
-        if object_manifest(Path(target["objectRoot"])) != self.state["handoffObjects"]:
-            raise UpgradeError("核验后的对象仓已变化")
+        path = self.verified_handoff(phase)
+        if self.mysql.position() != self.state["readyPosition"]:
+            raise UpgradeError("核验后的 MySQL 水位已变化")
         with self.measure("activation" if phase == "ready" else "rollback-activation"):
             self.activate(phase, path)
+
+    def verified_handoff(self, phase):
+        path = self.work / "handoff.json"
+        if sha256(path) != self.state["handoffSha256"]:
+            raise UpgradeError("切换目标的交接清单已变化")
+        target = load_json(path)
+        if target["apiMajor"] != (2 if phase == "ready" else 1):
+            raise UpgradeError("切换目标的版本与停写核验状态不符")
+        objects = Path(target["objectRoot"])
+        if configured_test_root() is not None:
+            checked_test_output(objects)
+        if object_manifest(objects) != self.state["handoffObjects"]:
+            raise UpgradeError("核验后的对象仓已变化")
+        return path
 
     def activate(self, phase, path):
         self.change_stage("opening", previousReady=phase)
         try:
             self.mysql.execute("SET PERSIST offline_mode=OFF;")
             self.hook("activate", path)
-        except (UpgradeError, OSError, subprocess.TimeoutExpired):
+        except (UpgradeError, OSError, subprocess.TimeoutExpired) as failure:
+            try:
+                self.recover()
+            except (UpgradeError, OSError, ValueError, subprocess.TimeoutExpired) as recovery:
+                raise UpgradeError(f"放行失败，恢复检查未通过。{recovery}") from failure
+            raise
+        self.change_stage("active" if phase == "ready" else "rollback-active", activatedAt=utc("milliseconds"))
+
+    def recover(self):
+        phase = self.state.get("phase")
+        if phase in READY_PHASES:
+            self.change_stage("opening", previousReady=phase)
+        elif phase != "opening":
+            raise UpgradeError("当前状态不支持放行中断恢复，已接收的交易须先保全和核对")
+        with self.measure("activation-recovery"):
+            self.recover_activation(self.state.get("previousReady"))
+
+    def recover_activation(self, destination):
+        report_path = self.work / f"activation-recovery-{uuid.uuid4().hex}.json"
+        report = {"runId": self.state["runId"], "startedAt": utc("milliseconds"),
+                  "serverId": self.server_id, "status": "running",
+                  "expectedPosition": self.state.get("readyPosition"), "resumePhase": destination}
+        atomic_json(report_path, report)
+        try:
+            report["step"] = "verify-instance"
+            server = self.mysql.server()
+            if server[:4] != [self.server_id, "8.0.46", "1", "ON"] or server[6:] != ["0", "0", "1"]:
+                raise UpgradeError("实例身份或持久停写、binlog、GTID 配置已变化，请先核对现场状态")
+            report["step"] = "stop-writers"
             try:
                 self.hook("stop", self.state_path)
             finally:
+                # 写入方状态不明时也先拦住新连接，后续核验仍须全部通过才能恢复。
                 self.mysql.execute("SET PERSIST offline_mode=ON;")
-                # 新应用如果曾写入，保留记录供人工确认，禁止自动丢弃该批数据。
-                self.change_stage(phase if self.mysql.position() == self.state["readyPosition"] else "opening")
+            self.require_frozen()
+            self.require_no_background_writes()
+            report["step"] = "verify-watermark"
+            report["observedPosition"] = self.mysql.position()
+            if destination not in READY_PHASES or report["observedPosition"] != report["expectedPosition"]:
+                raise UpgradeError("无法证明放行后水位未变化，请保留当前数据、对象及 binlog，人工对账后决定回退")
+            report["step"] = "verify-handoff"
+            self.verified_handoff(destination)
+            report["step"] = "verify-watermark"
+            report["observedPosition"] = self.mysql.position()
+            if report["observedPosition"] != report["expectedPosition"]:
+                raise UpgradeError("交接核验期间 MySQL 水位已变化，请保留数据并人工对账")
+        except (UpgradeError, OSError, ValueError, subprocess.TimeoutExpired):
+            report.update(status="blocked", checkedAt=utc("milliseconds"))
+            atomic_json(report_path, report)
             raise
-        self.change_stage("active" if phase == "ready" else "rollback-active", activatedAt=utc("milliseconds"))
+        report.update(status="verified", step="complete", checkedAt=utc("milliseconds"))
+        atomic_json(report_path, report)
+        self.change_stage(destination, activationRecovery=report_path.name)
 
 
 def arguments():
     parser = argparse.ArgumentParser(description="柒衡 ERP 2.0 停写升级与回退")
-    parser.add_argument("action", choices=("preflight", "upgrade", "rollback", "finish"))
+    parser.add_argument("action", choices=("preflight", "upgrade", "rollback", "finish", "recover"))
     for option in ("settings", "jar", "objects", "work-dir"):
         parser.add_argument("--" + option, type=Path, required=True)
     parser.add_argument("--mysql", default="mysql")
