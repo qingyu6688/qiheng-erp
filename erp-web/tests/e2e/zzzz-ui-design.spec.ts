@@ -54,6 +54,10 @@ async function verifyWorkspaceNavigation(page: Page, testInfo: TestInfo): Promis
   await page.keyboard.press('Escape')
   await expect(search).toBeHidden()
   await page.setViewportSize({ width: 1024, height: 768 })
+  await expect(page.getByRole('button', { name: '展开导航', exact: true })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  )
   const inventory = page.getByRole('button', { name: '库存', exact: true })
   await inventory.press('Enter')
   const inventoryLink = page.getByRole('link', { name: '实时库存', exact: true })

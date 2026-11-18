@@ -95,7 +95,7 @@ test('部门分栏支持键盘拖动、搜索树、下级成员和公司隔离�
   await expect(separator).toHaveAttribute('aria-valuenow', draggedWidth!)
   await page.setViewportSize({ width: 375, height: 812 })
   await expect(separator).toBeHidden()
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(375)
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(375)
   await page.screenshot({
     path: testInfo.outputPath('organization-ui2-mobile.png'),
     fullPage: true,
