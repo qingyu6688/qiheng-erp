@@ -29,17 +29,27 @@ public class WorkflowTimeout {
         this.state = state;
         this.engine = engine;
         transaction = new TransactionTemplate(manager);
-        jobs.register("workflow.timeout", this::poll);
+        jobs.registerBatch("workflow.timeout", this::poll);
     }
 
-    void poll(long tenant) {
-        for (long task :
-                state.jdbc.queryForList(
-                        "SELECT id FROM wf_task_ext WHERE tenant_id=? AND status='pending' AND"
-                            + " next_remind_at<=UTC_TIMESTAMP(3) ORDER BY next_remind_at,id LIMIT"
-                            + " 100",
-                        Long.class,
-                        tenant)) runOne(tenant, task);
+    void poll(long tenant, ManagedJobs.Batch batch) {
+        for (var row : state.jdbc.queryForList("""
+                SELECT t.id,t.company_id,t.instance_id,t.version,t.next_remind_at
+                FROM wf_task_ext t JOIN wf_instance i ON i.tenant_id=t.tenant_id
+                  AND i.company_id=t.company_id AND i.id=t.instance_id AND i.status='running'
+                WHERE t.tenant_id=? AND t.status='pending' AND t.next_remind_at<=UTC_TIMESTAMP(3)
+                ORDER BY t.next_remind_at,t.id LIMIT 100
+                """, tenant)) {
+            long task = number(row.get("id"));
+            long company = number(row.get("company_id"));
+            long instance = number(row.get("instance_id"));
+            batch.run(company, Long.toString(task), instance, () -> runOne(tenant, task),
+                    minutes -> state.jdbc.update("""
+                            UPDATE wf_task_ext SET next_remind_at=TIMESTAMPADD(MINUTE,?,UTC_TIMESTAMP(3))
+                            WHERE tenant_id=? AND company_id=? AND id=? AND status='pending'
+                              AND version=? AND next_remind_at=?
+                            """, minutes, tenant, company, task, row.get("version"), row.get("next_remind_at")) == 1);
+        }
     }
 
     public boolean runOne(long tenant, long id) {

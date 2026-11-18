@@ -98,8 +98,12 @@ public class SalesOrderQueries {
         if(limit<1 || limit>200) {throw invalid("每页条数须在1到200之间");}
         if(status!=null && !Set.of("draft","pending","approved","change_pending","closed","cancelled").contains(status)) {throw invalid("订单状态无效");}
         long last=cursor==null||cursor.isBlank()?Long.MAX_VALUE:identifier(cursor);
-        var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),last,keyword,keyword));
-        String filter=" WHERE tenant_id=? AND company_id=? AND is_deleted=0 AND id<? AND (LOCATE(?,order_no)>0 OR LOCATE(?,COALESCE(remark,''))>0)";
+        var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),last));
+        String filter=" WHERE tenant_id=? AND company_id=? AND is_deleted=0 AND id<?";
+        if(keyword!=null&&!keyword.isEmpty()) {
+            filter+=" AND (LOCATE(?,order_no)>0 OR LOCATE(?,COALESCE(remark,''))>0)";
+            args.add(keyword);args.add(keyword);
+        }
         if(status!=null) {filter+=" AND status=?";args.add(status);}
         if(customerId!=null) {filter+=" AND customer_id=?";args.add(identifier(customerId));}
         if(!scope.allWarehouses()) {
@@ -110,7 +114,8 @@ public class SalesOrderQueries {
         }
         filter+=cn.erp.shared.OrgOwnership.filter(scope,"sales_order");
         filter+=customFields.predicates(scope.tenantId(),"sales_order","sales_order",parameters,args);args.add(limit+1);
-        var rows=jdbc.queryForList("SELECT * FROM sales_order"+filter+" ORDER BY id DESC LIMIT ?",args.toArray());
+        // 公司内按 ID 翻页，排除跨租户的全局主键倒扫，保留状态和日期索引供优化器选择。
+        var rows=jdbc.queryForList("SELECT * FROM sales_order IGNORE INDEX (PRIMARY)"+filter+" ORDER BY id DESC LIMIT ?",args.toArray());
         var customers=ScopedReferences.load(jdbc,scope,"business_partner",rows.stream().limit(limit).map(row->number(row,"customer_id")).toList());
         var fieldColumns=customFields.fields(scope.tenantId(),"sales_order");
         var items=rows.stream().limit(limit).map(row->{var item=camel(row);item.put("extJson",customFields.visible((String)row.get("ext_json"),fieldColumns));item.put("documentNo",row.get("order_no"));item.put("customer",ScopedReferences.get(customers,number(row,"customer_id")));item.put("allowedActions",actions(scope,row));return item;}).toList();

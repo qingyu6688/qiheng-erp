@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
+import ScanFeedback from './ScanFeedback.vue'
 import ScanInput from './ScanInput.vue'
+import TaskLineEditor from './TaskLineEditor.vue'
 import WorkList from './WorkList.vue'
 import { errorText } from '../api/http'
 import { browse, command, idPart, resolveCode, stockWork } from '../api/work'
@@ -9,8 +11,8 @@ import { feedback } from '../composables/useScanner'
 import { useTaskFlow } from '../composables/useTaskFlow'
 import { useSession } from '../stores/session'
 import type { Id } from '../types/api'
-import type { StockLine, StockWork, WorkRow } from '../types/work'
-import { quantity, remaining, serialLines } from '../utils/quantity'
+import type { StockConfirmation, StockLine, StockWork, WorkRow } from '../types/work'
+import { remaining } from '../utils/quantity'
 import { lineForScan, listRow, pendingLine, statusTitle } from '../utils/work'
 
 const props = defineProps<{ type: 'putaway' | 'pick'; initialId?: Id; initialLineId?: Id }>()
@@ -22,24 +24,21 @@ const task = ref<StockWork>()
 const selected = ref<StockLine>()
 const scan = ref('')
 const taskScan = ref('')
-const from = ref('')
-const to = ref('')
-const batch = ref('')
-const qty = ref('')
-const serial = ref('')
-const serials = ref<string[]>([])
-const fromInput = ref<InstanceType<typeof ScanInput>>()
-const toInput = ref<InstanceType<typeof ScanInput>>()
-const batchInput = ref<InstanceType<typeof ScanInput>>()
-const serialInput = ref<InstanceType<typeof ScanInput>>()
+const confirmed = ref('')
+const scanner = ref<InstanceType<typeof ScanInput>>()
 const error = ref('')
 const opening = ref(false)
+const scanning = ref(false)
+const confirming = ref(false)
 const { items, cursor, busy, failure, load } = usePage((after) => browse<WorkRow>(scope, {}, after))
 const { busy: sending, failure: commandError, success, run } = useTaskFlow()
 const writable = computed(() => session.profile?.permissions.includes('wms_task:execute'))
 const canWork = computed(() => writable.value && task.value?.assigneeId === session.profile?.id
   && ['assigned', 'in_progress'].includes(task.value?.status ?? ''))
-const complete = computed(() => task.value?.lines.every((line) => remaining(line.planQty, line.doneQty) === '0'))
+const completedLines = computed(() => task.value?.lines.filter((line) => remaining(line.planQty, line.doneQty) === '0').length ?? 0)
+const complete = computed(() => !!task.value && completedLines.value === task.value.lines.length)
+const nextLine = computed(() => task.value?.lines.find((line) => remaining(line.planQty, line.doneQty) !== '0'))
+const working = computed(() => sending.value || scanning.value || confirming.value)
 
 onMounted(() => {
   if (props.initialId) void open(props.initialId)
@@ -47,8 +46,9 @@ onMounted(() => {
 })
 
 async function open(id: Id): Promise<void> {
+  if (opening.value || working.value) return
   opening.value = true
-  error.value = ''
+  clearFeedback()
   selected.value = undefined
   scan.value = ''
   try {
@@ -58,6 +58,7 @@ async function open(id: Id): Promise<void> {
     error.value = errorText(cause)
   } finally {
     opening.value = false
+    if (!task.value) void nextTick(() => scanner.value?.focusScanner())
   }
 }
 
@@ -71,61 +72,61 @@ function openScanned(code: string): void {
   const row = items.value.find((entry) => entry.no === code || entry.id === code)
   if (!row && !/^[1-9]\d{0,18}$/.test(code)) {
     error.value = '当前列表未找到作业，请加载更多或按单据选择'
+    taskScan.value = ''
     feedback(false)
+    scanner.value?.focusScanner()
     return
   }
   void open(row?.id ?? code)
 }
 
 function back(): void {
+  if (working.value || opening.value) return
+  clearFeedback()
+  if (selected.value || confirmed.value) {
+    selected.value = undefined
+    confirmed.value = ''
+    return
+  }
   if (props.initialId) emit('exit')
   else {
-    selected.value = undefined
     task.value = undefined
     taskScan.value = ''
-    error.value = ''
     void load()
   }
 }
 
-function editLine(line: StockLine): void {
-  selected.value = line
+function clearFeedback(): void {
   error.value = ''
-  from.value = ''
-  to.value = ''
-  batch.value = ''
-  qty.value = remaining(line.planQty, line.doneQty)
-  serial.value = ''
-  serials.value = []
-  void nextTick(() => fromInput.value?.focusScanner())
+  commandError.value = ''
+  success.value = ''
+}
+
+function editLine(line: StockLine): void {
+  confirmed.value = ''
+  clearFeedback()
+  selected.value = line
 }
 
 async function scanProduct(code: string): Promise<void> {
-  if (!task.value || !canWork.value) return
-  error.value = ''
+  const current = task.value
+  if (!current || !canWork.value || working.value) return
+  clearFeedback()
+  scanning.value = true
   try {
-    const match = await resolveCode(code, task.value.warehouseId)
-    editLine(lineForScan(task.value.lines, match))
+    const match = await resolveCode(code, current.warehouseId)
+    const line = lineForScan(current.lines, match)
+    if (!pendingLine(current.lines, line.id)) throw new Error('该作业行已经完成')
+    editLine(line)
     feedback(true)
   } catch (cause: unknown) {
     error.value = errorText(cause)
     feedback(false)
   } finally {
     scan.value = ''
+    scanning.value = false
+    if (!selected.value) void nextTick(() => scanner.value?.focusScanner())
   }
-}
-
-function confirmSerial(code: string): void {
-  if (serials.value.includes(code)) {
-    error.value = '序列号已录入'
-    feedback(false)
-    return
-  }
-  serials.value.push(code)
-  serial.value = ''
-  error.value = ''
-  feedback(true)
-  serialInput.value?.focusScanner()
 }
 
 async function revise(action: 'claim' | 'finish', shortPick = false): Promise<void> {
@@ -133,34 +134,32 @@ async function revise(action: 'claim' | 'finish', shortPick = false): Promise<vo
   if (!current) return
   const path = `${scope}/${idPart(current.id)}/${action}`
   const body = { version: current.version, ...(shortPick ? { shortPick: true } : {}) }
-  await run([path, body], async (key) => {
+  const done = await run([path, body], async (key) => {
     await command(path, body, key)
     task.value = await stockWork(scope, current.id)
     if (action === 'claim') selectRouteLine()
     return true
   }, action === 'claim' ? '已领取作业' : '作业已完成')
+  if (!done) feedback(false)
 }
 
-async function confirm(): Promise<void> {
+async function confirm(input: StockConfirmation): Promise<void> {
   const current = task.value
   const line = selected.value
-  if (!current || !line || sending.value) return
-  error.value = ''
+  if (!current || !line || !canWork.value || working.value) return
+  const company = session.company
+  clearFeedback()
+  confirming.value = true
   try {
-    const fromLocationCode = from.value.trim()
-    const toLocationCode = to.value.trim()
-    if (!fromLocationCode || !toLocationCode) throw new Error('请扫描来源库位和目标库位')
+    const target = input.toLocationCode.replace(/^L:/i, '')
     const recommended = line.toLocationCode ?? line.recommendedLocationCode
-    if (recommended && toLocationCode.replace(/^L:/i, '') !== recommended
+    if (recommended && target !== recommended
       && props.type === 'putaway') {
-      const result = await uni.showModal({ title: '更改上架库位', content: `确认改放到 ${toLocationCode}？` })
+      const result = await uni.showModal({ title: '更改上架库位', content: `确认改放到 ${target}？` })
       if (!result.confirm) return
     }
-    const body = {
-      fromLocationCode, toLocationCode, batchNo: batch.value || null,
-      qty: quantity(qty.value), serialNos: serialLines([...serials.value, serial.value].join('\n')),
-      version: current.version,
-    }
+    if (session.company !== company || !canWork.value) return
+    const body = { ...input, version: current.version }
     const path = `${scope}/${idPart(current.id)}/lines/${idPart(line.id)}/confirm`
     const done = await run([path, body], async (key) => {
       await command(path, body, key)
@@ -171,12 +170,15 @@ async function confirm(): Promise<void> {
       feedback(false)
       return
     }
-    feedback(true)
+    confirmed.value = `${line.skuCode} × ${input.qty} → ${target}`
     selected.value = undefined
+    feedback(true)
     if (complete.value) await revise('finish')
   } catch (cause: unknown) {
     error.value = errorText(cause)
     feedback(false)
+  } finally {
+    confirming.value = false
   }
 }
 
@@ -190,52 +192,70 @@ async function shortFinish(): Promise<void> {
 </script>
 
 <template>
-  <view class="panel">
-    <view class="section-title">
+  <view class="panel" :class="{ 'task-with-footer': (selected && canWork) || confirmed, 'task-with-error': error || commandError }">
+    <view class="section-title task-heading">
+      <button v-if="task || initialId" class="secondary task-back" role="button" aria-label="返回"
+        :disabled="working || opening" @click="back">‹</button>
       <text class="heading">{{ title }}{{ task ? ' ' + task.no : '任务' }}</text>
-      <button v-if="task || initialId" class="compact secondary" :disabled="sending" @click="back">返回</button>
+      <text v-if="task" class="task-progress">{{ completedLines }} / {{ task.lines.length }} 行</text>
     </view>
-    <text v-if="failure || commandError || error" class="error" role="alert">{{ error || commandError || failure }}</text>
-    <text v-if="success" class="success" role="status">{{ success }}</text>
     <template v-if="!task">
-      <ScanInput v-model="taskScan" label="扫描任务码" :disabled="opening" pda-focus @scan="openScanned" />
+      <ScanInput ref="scanner" v-model="taskScan" label="扫描任务码" :disabled="opening" pda-focus @scan="openScanned" />
+      <ScanFeedback v-if="error || failure" :ok="false" title="作业无法打开" :detail="error || failure" />
       <button class="secondary" :disabled="busy || opening" @click="load()">刷新任务</button>
       <WorkList :rows="items.map(listRow)" :more="!!cursor" :busy="busy || opening"
         @select="open" @more="load(true)" />
     </template>
+    <TaskLineEditor v-else-if="selected && canWork" :key="selected.id" :line="selected" :task-type="type"
+      :busy="working" :failure="error || commandError" @edit="clearFeedback" @confirm="confirm" />
+    <template v-else-if="confirmed">
+      <ScanFeedback ok :title="title + '成功'" :detail="confirmed" />
+      <ScanFeedback v-if="error || commandError" :ok="false" title="作业尚未结束" :detail="error || commandError" />
+      <view v-if="nextLine && canWork" class="task-next">
+        <text class="muted">下一待处理行</text>
+        <text class="subheading">{{ nextLine.skuCode }} {{ nextLine.skuName }}</text>
+        <text class="muted">
+          {{ nextLine.toLocationCode ?? nextLine.recommendedLocationCode ?? nextLine.fromLocationCode }} ·
+          待确认 {{ remaining(nextLine.planQty, nextLine.doneQty) }}
+        </text>
+      </view>
+      <text v-else-if="task.status === 'done'" class="success" role="status">作业已完成</text>
+      <view class="task-footer">
+        <button class="secondary" :disabled="working" @click="back">返回作业行</button>
+        <view v-if="nextLine && canWork" class="task-footer-primary">
+          <wd-button role="button" block :round="false" :disabled="working" @click="editLine(nextLine)">继续作业</wd-button>
+        </view>
+        <view v-else-if="canWork && complete" class="task-footer-primary">
+          <wd-button role="button" block :round="false" :loading="working" :disabled="working" @click="revise('finish')">完成任务</wd-button>
+        </view>
+      </view>
+    </template>
     <template v-else>
+      <ScanInput v-if="canWork && !complete" ref="scanner" v-model="scan" label="扫描商品或批次"
+        :disabled="working" pda-focus @scan="scanProduct" />
+      <ScanFeedback v-if="error || commandError" :ok="false" title="作业未处理" :detail="error || commandError" />
+      <text v-if="success" class="success" role="status">{{ success }}</text>
       <text class="muted">{{ statusTitle(task.status) }} {{ task.shipmentNo }}</text>
-      <wd-button v-if="task.status === 'created' && writable" block :loading="sending" @click="revise('claim')">
+      <wd-button v-if="task.status === 'created' && writable" role="button" block :round="false"
+        :loading="working" @click="revise('claim')">
         领取任务
       </wd-button>
-      <template v-if="selected && canWork">
-        <text class="subheading">{{ selected.skuCode }} {{ selected.skuName }}</text>
-        <text class="muted">待确认 {{ remaining(selected.planQty, selected.doneQty) }}</text>
-        <ScanInput ref="fromInput" v-model="from" :label="'来源库位 · ' + (selected.fromLocationCode ?? '')"
-          :disabled="sending" @scan="toInput?.focusScanner()" />
-        <ScanInput ref="toInput" v-model="to" :label="'目标库位 · ' + (selected.toLocationCode ?? selected.recommendedLocationCode ?? '按现场确认')"
-          :disabled="sending" @scan="selected?.batchNo && batchInput?.focusScanner()" />
-        <ScanInput v-if="selected.batchNo" ref="batchInput" v-model="batch" :label="'批次 · ' + selected.batchNo" :disabled="sending" />
-        <text class="field-label">确认数量</text>
-        <input v-model="qty" class="field" type="digit" aria-label="确认数量" :disabled="sending">
-        <ScanInput ref="serialInput" v-model="serial" label="序列号" :disabled="sending" @scan="confirmSerial" />
-        <view v-if="serials.length" class="chips">
-          <button v-for="(code, index) in serials" :key="code" class="compact secondary"
-            :disabled="sending" @click="serials.splice(index, 1)">{{ code }} ×</button>
-        </view>
-        <wd-button block :loading="sending" @click="confirm">{{ sending ? '正在提交' : '确认本次作业' }}</wd-button>
-        <button class="secondary" :disabled="sending" @click="selected = undefined">返回作业行</button>
-      </template>
-      <template v-else>
-        <ScanInput v-if="canWork" v-model="scan" label="扫描商品或批次" :disabled="sending" pda-focus @scan="scanProduct" />
-        <button v-for="line in task.lines" :key="line.id" class="secondary work-list-row"
-          :disabled="sending || !canWork || remaining(line.planQty, line.doneQty) === '0'" @click="editLine(line)">
-          <text>{{ line.skuCode }} {{ line.skuName }}</text>
-          <text class="muted">{{ line.fromLocationCode }} · {{ line.batchNo || '无批次' }} · {{ line.doneQty || '0' }}/{{ line.planQty }}</text>
-        </button>
-        <button v-if="canWork && complete" :disabled="sending" @click="revise('finish')">完成任务</button>
-        <button v-if="type === 'pick' && canWork && !complete" class="secondary" :disabled="sending" @click="shortFinish">短拣结束</button>
-      </template>
+      <button v-for="line in task.lines" :key="line.id" class="secondary work-list-row"
+        :disabled="working || !canWork || remaining(line.planQty, line.doneQty) === '0'" @click="editLine(line)">
+        <text>{{ line.skuCode }} {{ line.skuName }}</text>
+        <text class="muted">{{ line.fromLocationCode }} · {{ line.batchNo || '无批次' }} · {{ line.doneQty || '0' }}/{{ line.planQty }}</text>
+      </button>
+      <button v-if="canWork && complete" :disabled="working" @click="revise('finish')">完成任务</button>
+      <button v-if="type === 'pick' && canWork && !complete" class="secondary" :disabled="working" @click="shortFinish">短拣结束</button>
     </template>
   </view>
 </template>
+
+<style>
+.task-heading { justify-content: flex-start; }
+.task-with-error { background: var(--mobile-danger-bg); }
+.task-heading .heading { flex: 1; min-width: 0; }
+.task-back { flex: 0 0 var(--mobile-touch); height: var(--mobile-touch); padding: 0; font-size: 28px; }
+.task-progress { flex: 0 0 auto; color: var(--mobile-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.task-next { border: 1px solid var(--mobile-divider); border-radius: var(--mobile-radius); padding: 12px; }
+</style>

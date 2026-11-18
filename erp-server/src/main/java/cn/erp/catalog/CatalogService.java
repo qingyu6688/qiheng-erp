@@ -36,6 +36,14 @@ class CatalogService {
         return kind.equals("product_category") ? queries.categories(scope) : queries.list(scope,kind,keyword,status,limit,cursor,parameters);
     }
 
+    CatalogModels.Page listProducts(CompanyAccess scope,String keyword,String status,int limit,String cursor,
+            Long categoryId,boolean includeChildren) {
+        if (categoryId!=null && !scope.hasPermission("product_category:view")) {
+            throw new ApiException(403,"FORBIDDEN","没有查看商品分类的权限");
+        }
+        return queries.products(scope,keyword,status,limit,cursor,categoryId,includeChildren);
+    }
+
     CatalogModels.Detail detail(CompanyAccess scope,String kind,long id) { return queries.detail(scope,kind,id); }
     CatalogModels.Scan scan(CompanyAccess scope,String barcode) { return queries.scan(scope,barcode); }
 

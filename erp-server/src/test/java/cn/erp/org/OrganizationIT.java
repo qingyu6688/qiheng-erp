@@ -109,4 +109,30 @@ class OrganizationIT {
         assertThatThrownBy(()->users.assign(denied,user,"forbidden",new Assignment(List.of(),List.of(),0L))).isInstanceOfSatisfying(ApiException.class,e->assertThat(e.getStatus()).isEqualTo(403));
         assertThat(users.candidates(actor,null,null,20).items()).extracting(User::id).contains(Long.toString(user));
     }
+    @Test void subtreeMembersAreDeduplicatedPagedAndCompanyScoped() {
+        var parent=create("PARENT",null);
+        var child=create("CHILD",Long.valueOf(parent.id()));
+        var sibling=create("SIBLING",null);
+        long secondUser=Ids.next();
+        jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,?,'second-member','下级成员','非登录测试散列')",secondUser,tenant);
+        jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,secondUser,company);
+        users.assign(actor,user,"multi-department",new Assignment(
+                List.of(new Membership(Long.valueOf(parent.id()),true),new Membership(Long.valueOf(child.id()),false)),List.of(),0L));
+        users.assign(actor,secondUser,"child-member",new Assignment(
+                List.of(new Membership(Long.valueOf(child.id()),true)),List.of(),0L));
+        long parentId=Long.parseLong(parent.id());
+        assertThat(departments.members(actor,parentId,null,20).items()).extracting(User::id).containsExactly(Long.toString(user));
+        var first=departments.members(actor,parentId,null,1,true);
+        assertThat(first.items()).extracting(User::id).containsExactly(Long.toString(user));
+        assertThat(first.nextCursor()).isEqualTo(Long.toString(user));
+        var next=departments.members(actor,parentId,first.nextCursor(),1,true);
+        assertThat(next.items()).extracting(User::id).containsExactly(Long.toString(secondUser));
+        assertThat(next.nextCursor()).isNull();
+        assertThat(departments.members(actor,Long.parseLong(sibling.id()),null,20,true).items()).isEmpty();
+        assertThatThrownBy(()->departments.members(other,parentId,null,20,true))
+                .isInstanceOfSatisfying(ApiException.class,error->assertThat(error.getStatus()).isEqualTo(404));
+        var denied=new CompanyAccess(tenant,user,company,true,Set.of(),Set.of());
+        assertThatThrownBy(()->departments.members(denied,parentId,null,20,true))
+                .isInstanceOfSatisfying(ApiException.class,error->assertThat(error.getStatus()).isEqualTo(403));
+    }
 }

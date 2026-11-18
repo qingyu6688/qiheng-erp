@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工作台 · v2</title>
+<link rel="stylesheet" href="assets/v2.css">
+<style>
+  .hello { display: flex; align-items: center; gap: 16px; padding: 20px; }
+  .hello h1 { font-size: 20px; line-height: 28px; font-weight: 600; }
+  .shortcuts { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; padding: 0 20px 20px; }
+  .shortcut { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 4px; border-radius: var(--erp-radius-card); color: var(--erp-text-1); font-size: 13px; }
+  .shortcut:hover { background: var(--erp-fill-1); color: var(--erp-text-1); }
+  .shortcut .ico { width: 40px; height: 40px; }
+  .shortcut .ico svg { width: 20px; height: 20px; }
+  .chart { width: 100%; height: 240px; display: block; }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--erp-text-2); }
+  .legend i { display: inline-block; width: 12px; height: 2px; vertical-align: middle; margin-right: 6px; }
+  .side-col { width: 340px; flex: none; display: flex; flex-direction: column; gap: 16px; }
+  @media (max-width: 1199px) { .shortcuts { grid-template-columns: repeat(4, minmax(0, 1fr)); } .side-col { width: 100%; } }
+</style>
+</head>
+<body data-module="home" data-menu="workbench" data-tabs="工作台|01-workbench.html|current;销售订单|02-document-list.html">
+<main id="page">
+  <section class="card">
+    <div class="hello">
+      <span class="avatar" style="width:48px;height:48px;font-size:18px" aria-hidden="true">李</span>
+      <div>
+        <h1>上午好，李娜</h1>
+        <p class="muted">2026 年 11 月 17 日 星期二 · 你有 <a href="05-approval-center.html">5 项待办</a>，其中 1 项签收已超期</p>
+      </div>
+      <div class="actions" style="margin-left:auto"><button class="btn" type="button">自定义工作台</button></div>
+    </div>
+    <div class="shortcuts" aria-label="快捷入口">
+      <a class="shortcut" href="03-order-editor.html"><span class="ico blue"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>新建销售订单</a>
+      <a class="shortcut" href="#"><span class="ico green"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg></span>登记收款</a>
+      <a class="shortcut" href="#"><span class="ico purple"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h16l-1.5 12.5a1 1 0 0 1-1 .9H6.5a1 1 0 0 1-1-.9z"/><path d="M9 7V5.5a3 3 0 0 1 6 0V7"/></svg></span>新建采购订单</a>
+      <a class="shortcut" href="#"><span class="ico cyan"><svg class="i" viewBox="0 0 24 24"><path d="M3 8 12 3l9 5-9 5z"/><path d="M3 8v8l9 5 9-5V8"/></svg></span>库存查询</a>
+      <a class="shortcut" href="#"><span class="ico orange"><svg class="i" viewBox="0 0 24 24"><path d="M3 21V9l9-5 9 5v12"/><path d="M7 21v-8h10v8"/></svg></span>发货与签收</a>
+      <a class="shortcut" href="#"><span class="ico blue"><svg class="i" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span>销售报表</a>
+      <a class="shortcut" href="#"><span class="ico green"><svg class="i" viewBox="0 0 24 24"><path d="m8.5 12 2.5 2.5 4.5-5"/><rect x="4" y="3" width="16" height="18" rx="2"/></svg></span>核销工作台</a>
+      <a class="shortcut" href="#"><span class="ico purple"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>会计期间</a>
+    </div>
+  </section>
+
+  <div class="grid-4">
+    <section class="card metric">
+      <div class="label">本月销售确认额 <span class="tag tag-neutral">元</span></div>
+      <div class="value">356,200.00</div>
+      <div class="cmp"><span>同比 <b class="up">↑ 12.3%</b></span><span>环比 <b class="down">↓ 2.1%</b></span></div>
+      <svg class="spark" viewBox="0 0 120 36" preserveAspectRatio="none" aria-hidden="true"><polyline fill="none" stroke="#165DFF" stroke-width="1.5" points="0,28 12,24 24,26 36,18 48,20 60,14 72,16 84,10 96,12 108,8 120,11"/></svg>
+    </section>
+    <section class="card metric">
+      <div class="label">本月采购收货额</div>
+      <div class="value">210,480.00</div>
+      <div class="cmp"><span>同比 <b class="up">↑ 6.8%</b></span><span>环比 <b class="up">↑ 3.4%</b></span></div>
+      <svg class="spark" viewBox="0 0 120 36" preserveAspectRatio="none" aria-hidden="true"><polyline fill="none" stroke="#14C9C9" stroke-width="1.5" points="0,22 12,24 24,20 36,22 48,18 60,19 72,15 84,16 96,13 108,12 120,10"/></svg>
+    </section>
+    <section class="card metric">
+      <div class="label">应收余额</div>
+      <div class="value">128,630.38</div>
+      <div class="cmp"><span>其中逾期 <b class="down">18,400.00</b></span><span>3 家客户</span></div>
+      <svg class="spark" viewBox="0 0 120 36" preserveAspectRatio="none" aria-hidden="true"><polyline fill="none" stroke="#F7BA1E" stroke-width="1.5" points="0,14 12,16 24,15 36,18 48,17 60,20 72,19 84,22 96,21 108,24 120,23"/></svg>
+    </section>
+    <section class="card metric">
+      <div class="label">库存金额</div>
+      <div class="value">592,104.80</div>
+      <div class="cmp"><span>周转 <b>38 天</b></span><span>临期批次 <b class="down">2</b></span></div>
+      <svg class="spark" viewBox="0 0 120 36" preserveAspectRatio="none" aria-hidden="true"><polyline fill="none" stroke="#722ED1" stroke-width="1.5" points="0,18 12,17 24,19 36,16 48,18 60,15 72,17 84,14 96,16 108,15 120,14"/></svg>
+    </section>
+  </div>
+
+  <div class="row wrap-md">
+    <section class="card grow">
+      <div class="card-head" style="min-height:0;padding-top:0;padding-bottom:0">
+        <div class="tabs" role="tablist" aria-label="待办分类">
+          <button class="tab" role="tab" aria-selected="true">全部 <span class="count">5</span></button>
+          <button class="tab" role="tab" aria-selected="false">审批 <span class="count">3</span></button>
+          <button class="tab" role="tab" aria-selected="false">签收超期 <span class="count">1</span></button>
+          <button class="tab" role="tab" aria-selected="false">待确认收款 <span class="count">1</span></button>
+          <button class="tab empty" role="tab" aria-selected="false">待确认付款 <span class="count">0</span></button>
+          <button class="tab empty" role="tab" aria-selected="false">库存不足 <span class="count">0</span></button>
+        </div>
+        <div class="actions"><a href="05-approval-center.html">进入审批中心</a></div>
+      </div>
+      <div class="table-wrap">
+        <table class="t">
+          <thead><tr><th>类型</th><th>事项</th><th>对象</th><th class="num">金额</th><th>已等待</th><th><span class="sr-only">操作</span></th></tr></thead>
+          <tbody>
+            <tr><td><span class="tag tag-info">审批</span></td><td>销售订单 SO-C01-202611-000124 待你审批</td><td>华东商贸</td><td class="num">62,400.00</td><td>2 小时</td><td><a class="btn btn-text" href="05-approval-center.html">处理</a></td></tr>
+            <tr><td><span class="tag tag-info">审批</span></td><td>采购订单 PO-C01-202611-000056 待你审批</td><td>宁波甬达五金</td><td class="num">18,250.00</td><td>5 小时</td><td><a class="btn btn-text" href="05-approval-center.html">处理</a></td></tr>
+            <tr><td><span class="tag tag-info">审批</span></td><td>退款申请 RF-C01-202611-000009 待你复核</td><td>杭州云帆电商</td><td class="num">1,200.00</td><td>1 天</td><td><a class="btn btn-text" href="05-approval-center.html">处理</a></td></tr>
+            <tr><td><span class="tag tag-warning">签收超期</span></td><td>发货单 SH-C01-202611-000041 已发出 4 天未签收</td><td>合肥新瑞家居</td><td class="num">4,860.00</td><td>4 天</td><td><a class="btn btn-text" href="#">跟进</a></td></tr>
+            <tr><td><span class="tag tag-neutral">收款</span></td><td>收款单 RC-C01-202611-000077 待确认到账</td><td>华东商贸</td><td class="num">50,000.00</td><td>30 分钟</td><td><a class="btn btn-text" href="#">确认</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="side-col">
+      <section class="card">
+        <div class="card-head"><h2>公告</h2><div class="actions"><a href="#">全部</a></div></div>
+        <ul class="list">
+          <li><span class="tag tag-danger">重要</span><div class="grow">11 月关账安排：11 月 30 日 18:00 停止录单<div class="small muted">财务部 · 昨天 16:20</div></div></li>
+          <li><span class="tag tag-neutral">通知</span><div class="grow">新增批次管理，保温杯系列已启用<div class="small muted">系统管理员 · 11-15 10:02</div></div></li>
+        </ul>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>最近访问</h2></div>
+        <ul class="list">
+          <li><a href="04-document-detail.html">SO-C01-202611-000123</a><span class="small muted" style="margin-left:auto">10 分钟前</span></li>
+          <li><a href="#">华东商贸有限公司</a><span class="small muted" style="margin-left:auto">1 小时前</span></li>
+          <li><a href="#">销售汇总报表</a><span class="small muted" style="margin-left:auto">昨天 17:40</span></li>
+        </ul>
+      </section>
+    </div>
+  </div>
+
+  <section class="card">
+    <div class="card-head"><h2>近 12 个月销售与采购</h2><div class="legend"><span><i style="background:#165DFF"></i>销售确认额</span><span><i style="background:#14C9C9"></i>采购收货额</span></div><div class="actions small muted">单位：万元 · 数据截至 11-17 09:30</div></div>
+    <div class="card-body">
+      <svg class="chart" viewBox="0 0 960 240" preserveAspectRatio="none" role="img" aria-label="近 12 个月销售与采购趋势折线图">
+        <g stroke="#E5E6EB" stroke-width="1"><line x1="40" y1="20" x2="950" y2="20"/><line x1="40" y1="70" x2="950" y2="70"/><line x1="40" y1="120" x2="950" y2="120"/><line x1="40" y1="170" x2="950" y2="170"/><line x1="40" y1="210" x2="950" y2="210"/></g>
+        <g fill="#6B7380" font-size="12" font-family="sans-serif"><text x="8" y="24">40</text><text x="8" y="74">30</text><text x="8" y="124">20</text><text x="8" y="174">10</text><text x="14" y="214">0</text></g>
+        <polyline fill="none" stroke="#165DFF" stroke-width="2" points="60,128 140,120 220,110 300,116 380,100 460,92 540,96 620,80 700,72 780,64 860,52 940,58"/>
+        <polyline fill="none" stroke="#14C9C9" stroke-width="2" points="60,160 140,158 220,150 300,152 380,140 460,136 540,138 620,130 700,128 780,120 860,114 940,110"/>
+        <g fill="#6B7380" font-size="12" font-family="sans-serif" text-anchor="middle"><text x="60" y="232">12月</text><text x="220" y="232">2月</text><text x="380" y="232">4月</text><text x="540" y="232">6月</text><text x="700" y="232">8月</text><text x="860" y="232">10月</text><text x="940" y="232">11月</text></g>
+      </svg>
+    </div>
+  </section>
+
+  <aside class="spec-note"><strong>设计说明</strong><ul>
+    <li>对应 <code>pages/WorkbenchPage.vue</code>（规范 U-09、第 5.6 节）。待办合并为一张列表卡，数量为 0 的类型在页签中灰显，不再各占一张卡片。</li>
+    <li>指标卡新增同比、环比和迷你趋势；数据与现有 <code>/workbench/trade-summary</code> 和报表口径一致，同比、环比需在接口中补充上年同期、上月数据。</li>
+    <li>快捷入口最多 8 个，按用户配置；没有权限的入口不显示。</li>
+  </ul></aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

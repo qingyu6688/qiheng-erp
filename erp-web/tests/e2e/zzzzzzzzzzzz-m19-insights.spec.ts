@@ -33,12 +33,10 @@ test('M19 报表导航、打印模板与预警按当前账户权限访问', asyn
   const company = current.data.companies[0]
   if (!company) throw new Error('验收复核员缺少公司范围')
   const headers = { 'X-Company-Id': company.id }
-  const reportGroup = page.locator('.nav-group').filter({
-    has: page.locator('summary').getByText('报表与数据', { exact: true }),
-  })
   for (const entry of entries) {
-    const link = reportGroup.getByRole('link', { name: entry.label, exact: true })
-    if (!(await link.isVisible())) await reportGroup.locator('summary').click()
+    const module = entry.route === '/dashboard' ? '工作台' : entry.route === '/print-templates' ? '设置' : '分析'
+    await page.getByRole('button', { name: module, exact: true }).click()
+    const link = page.getByRole('link', { name: entry.label, exact: true })
     await link.click()
     await expect(page).toHaveURL(new RegExp(`${entry.route}(?:\\?.*)?$`))
     expect(

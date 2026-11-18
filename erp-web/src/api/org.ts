@@ -45,12 +45,13 @@ export function departmentMembers(
   id: string,
   cursor?: string,
   signal?: AbortSignal,
+  includeChildren = false,
 ): Promise<PageResult<OrgUser>> {
   return request(
     {
       method: 'GET',
       url: '/org/departments/' + id + '/members',
-      params: { cursor, limit: 50 },
+      params: { cursor, limit: 50, includeChildren },
       signal,
     },
     true,

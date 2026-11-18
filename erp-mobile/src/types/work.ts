@@ -51,6 +51,14 @@ export interface StockWork extends WorkRow {
   lines: StockLine[]
 }
 
+export interface StockConfirmation {
+  fromLocationCode: string
+  toLocationCode: string
+  batchNo: string | null
+  qty: string
+  serialNos: string[]
+}
+
 export interface WaveRow extends WorkRow {
   shipments: WorkRow[]
   lines: (StockLine & { taskId: Id; shipmentNo?: string })[]

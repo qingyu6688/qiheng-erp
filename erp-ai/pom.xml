@@ -48,4 +48,50 @@
       </plugin>
     </plugins>
   </build>
+  <profiles>
+    <profile>
+      <id>external-test-data</id>
+      <activation>
+        <property><name>env.ERP_TEST_ROOT</name></property>
+      </activation>
+      <properties>
+        <erp.test.ai-root>${env.ERP_TEST_ROOT}/erp-ai</erp.test.ai-root>
+        <erp.test.tmp>${erp.test.ai-root}/tmp</erp.test.tmp>
+        <argLine></argLine>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+              <reportsDirectory>${erp.test.ai-root}/surefire-reports</reportsDirectory>
+              <argLine>${argLine} "-Djava.io.tmpdir=${erp.test.tmp}"</argLine>
+              <environmentVariables>
+                <TMP>${erp.test.tmp}</TMP>
+                <TEMP>${erp.test.tmp}</TEMP>
+                <TMPDIR>${erp.test.tmp}</TMPDIR>
+                <ERP_AI_KB_STORAGE>${erp.test.ai-root}/knowledge</ERP_AI_KB_STORAGE>
+              </environmentVariables>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <configuration>
+              <reportsDirectory>${erp.test.ai-root}/failsafe-reports</reportsDirectory>
+              <summaryFile>${erp.test.ai-root}/failsafe-reports/failsafe-summary.xml</summaryFile>
+              <argLine>${argLine} "-Djava.io.tmpdir=${erp.test.tmp}"</argLine>
+              <environmentVariables>
+                <TMP>${erp.test.tmp}</TMP>
+                <TEMP>${erp.test.tmp}</TEMP>
+                <TMPDIR>${erp.test.tmp}</TMPDIR>
+                <ERP_AI_KB_STORAGE>${erp.test.ai-root}/knowledge</ERP_AI_KB_STORAGE>
+              </environmentVariables>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

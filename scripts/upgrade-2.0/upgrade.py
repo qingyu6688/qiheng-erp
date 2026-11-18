@@ -5,13 +5,15 @@ import subprocess
 import sys
 import time
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 from data import (attachment_check, capture_table_fingerprints, compare_permissions, compare_scopes,
                   convert_permissions, permission_codes, retired_calls, running_work, verify_business, verify_copy)
-from engine import (DATABASE, MySql, UpgradeError, atomic_json, copy_objects, identifier, literal,
-                    load_json, object_manifest, read_settings, sha256)
+from engine import (DATABASE, MySql, UpgradeError, atomic_json, checked_test_output, configured_test_root,
+                    copy_objects, identifier, literal, load_json, object_manifest, read_settings, sha256,
+                    temporary_environment)
 
 
 SOURCE_MIN = 87
@@ -20,25 +22,40 @@ LAUNCHER = "org.springframework.boot.loader.launch.PropertiesLauncher"
 UPGRADE_MAIN = "cn.erp.upgrade.UpgradeMain"
 
 
-def utc():
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+def utc(timespec="seconds"):
+    return datetime.now(timezone.utc).isoformat(timespec=timespec)
 
 
 class Upgrade:
     def __init__(self, args):
         self.args = args
         self.settings = read_settings(args.settings)
-        self.mysql = MySql(self.settings, args.mysql, args.mysqldump)
         self.source = self.settings["DB_NAME"]
         self.jar = args.jar.resolve(strict=True)
         self.objects = args.objects.absolute()
         self.work = args.work_dir.absolute()
+        self.temp_dir = None
+        self.test_environment = {}
+        test_root = configured_test_root()
+        if test_root is not None:
+            for directory in (self.work, self.objects, args.target_objects, args.rollback_objects):
+                if directory is not None:
+                    checked_test_output(directory)
+            self.temp_dir = checked_test_output(self.work / "tmp")
+            self.test_environment = temporary_environment(self.temp_dir)
+            self.test_environment["ERP_HTTP_LOG_FILE"] = str(checked_test_output(self.work / "upgrade-http.log"))
         if self.work.resolve().is_relative_to(self.objects.resolve()) or self.objects.resolve().is_relative_to(self.work.resolve()):
             raise UpgradeError("升级记录和源对象仓必须使用各自的目录")
         self.work.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.state_path = self.work / "state.json"
-        self.server_id = self.mysql.server()[0]
         self.state = load_json(self.state_path) if self.state_path.exists() else {}
+        if test_root is not None:
+            for key in ("targetObjects", "backup"):
+                if self.state.get(key):
+                    checked_test_output(Path(self.state[key]))
+            self.temp_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.mysql = MySql(self.settings, args.mysql, args.mysqldump, temp_dir=self.temp_dir)
+        self.server_id = self.mysql.server()[0]
         if self.state:
             identity = (self.server_id, self.source, str(self.objects), sha256(self.jar))
             saved = tuple(self.state[key] for key in ("serverId", "source", "objects", "jarSha256"))
@@ -55,10 +72,13 @@ class Upgrade:
                        if not key.startswith(("SPRING_", "ERP_REPORT_", "STORAGE_", "DB_"))}
         environment.update({key: value for key, value in self.settings.items()
                             if key in {"DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_SSL_MODE", "UPGRADE_DIAGNOSTICS"}})
+        environment.update(self.test_environment)
         environment["REDIS_PASSWORD"] = ""
         command = [executable, "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8",
                    "-Dloader.main=" + UPGRADE_MAIN,
                    "-cp", str(self.jar), LAUNCHER, action, database, self.server_id, str(objects), str(report)]
+        if self.temp_dir is not None:
+            command.insert(1, "-Djava.io.tmpdir=" + str(self.temp_dir))
         with log.open("wb") as output:
             result = subprocess.run(command, env=environment, stdout=output, stderr=subprocess.STDOUT)
         if result.returncode:
@@ -94,6 +114,59 @@ class Upgrade:
         self.state.update(phase=phase, changedAt=utc(), **details)
         atomic_json(self.state_path, self.state)
 
+    @contextmanager
+    def measure(self, step):
+        began = utc("milliseconds")
+        start_ns = time.monotonic_ns()
+        status = "failed"
+        try:
+            yield
+            status = "success"
+        finally:
+            attempt = {"step": step, "startedAt": began, "endedAt": utc("milliseconds"),
+                       "elapsedMs": (time.monotonic_ns() - start_ns) // 1_000_000, "status": status}
+            self.record_timing(attempt)
+
+    def record_timing(self, attempt):
+        path = self.work / "upgrade-timing.json"
+        try:
+            run_id = self.state["runId"]
+            data = load_json(path) if path.exists() else {"format": 1, "runId": run_id, "steps": []}
+            if data["runId"] != run_id:
+                raise UpgradeError("耗时报告属于另一次演练")
+            data["steps"].append(attempt)
+            start = self.state["startedAt"]
+            finish = self.state.get("activatedAt")
+            window = {"startedAt": start, "mysqlFrozenAt": self.state.get("frozenAt"),
+                      "activationCompletedAt": finish}
+            if finish:
+                elapsed = datetime.fromisoformat(finish) - datetime.fromisoformat(start)
+                if elapsed.total_seconds() >= 0:
+                    window["elapsedMs"] = round(elapsed.total_seconds() * 1_000)
+            data["maintenanceWindow"] = window
+            atomic_json(path, data)
+        except (OSError, UpgradeError, ValueError, KeyError, TypeError, AttributeError):
+            # 计时失败不改变核验、放行和回退结论，错误内容不写入公开输出。
+            print("未能记录阶段耗时，请检查私有记录目录中的 upgrade-timing.json。", file=sys.stderr)
+
+    def record_flyway_timing(self, target):
+        try:
+            source_version = int(load_json(self.work / "frozen-preflight.json")["schema"]["version"])
+            rows = self.mysql.query(f"""
+                SELECT installed_rank,version,script,execution_time,success
+                  FROM flyway_schema_history
+                 WHERE type='SQL' AND CAST(version AS UNSIGNED)>{source_version}
+                 ORDER BY installed_rank
+                """, target)
+            migrations = [{"installedRank": int(rank), "version": version, "script": script,
+                           "elapsedMs": int(elapsed), "status": "success" if ok == "1" else "failed"}
+                          for rank, version, script, elapsed, ok in rows]
+            atomic_json(self.work / "flyway-timing.json", {
+                "format": 1, "runId": self.state["runId"], "sourceVersion": source_version,
+                "collectedAt": utc("milliseconds"), "migrations": migrations})
+        except (OSError, UpgradeError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
+            print("未能记录 Flyway 耗时，请核对目标库 flyway_schema_history.execution_time。", file=sys.stderr)
+
     def hook(self, phase, path):
         try:
             command = json.loads(self.settings.get("UPGRADE_MAINTENANCE_HOOK", "null"))
@@ -103,6 +176,7 @@ class Upgrade:
             raise UpgradeError("请配置 UPGRADE_MAINTENANCE_HOOK，接管 API、Worker 和入口停写")
         environment = {key: value for key, value in os.environ.items()
                        if not key.startswith(("DB_", "MYSQL_PWD"))}
+        environment.update(self.test_environment)
         with (self.work / f"maintenance-{phase}.log").open("wb") as output:
             result = subprocess.run([*command, phase, str(path)], stdout=output, stderr=subprocess.STDOUT,
                                     env=environment, timeout=900)
@@ -129,7 +203,7 @@ class Upgrade:
         self.preflight("preflight")
         self.state = {"runId": uuid.uuid4().hex, "source": self.source, "serverId": self.server_id,
                       "objects": str(self.objects), "jarSha256": sha256(self.jar),
-                      "target": target, "targetObjects": str(target_objects), "startedAt": utc()}
+                      "target": target, "targetObjects": str(target_objects), "startedAt": utc("milliseconds")}
         self.change_stage("stopping")
 
     def drain(self):
@@ -145,7 +219,7 @@ class Upgrade:
         self.drain()
         self.mysql.execute("SET PERSIST offline_mode=ON;")
         self.require_frozen()
-        self.change_stage("frozen", frozenAt=utc(), cutoff=self.mysql.position())
+        self.change_stage("frozen", frozenAt=utc("milliseconds"), cutoff=self.mysql.position())
 
     def require_frozen(self):
         server = self.mysql.server()
@@ -231,10 +305,18 @@ class Upgrade:
                            + ") ON DUPLICATE KEY UPDATE completed_at=completed_at", database)
 
     def migrate(self, target, objects):
-        schema = self.java("migrate", target, objects, "flyway")
-        self.journal(target, "flyway", {**schema, "cutoff": self.state["cutoff"],
-                     "manifestSha256": self.state["manifestSha256"]})
-        self.change_stage("migrated")
+        with self.measure("flyway"):
+            try:
+                schema = self.java("migrate", target, objects, "flyway")
+                self.journal(target, "flyway", {**schema, "cutoff": self.state["cutoff"],
+                             "manifestSha256": self.state["manifestSha256"]})
+                self.change_stage("migrated")
+            finally:
+                self.record_flyway_timing(target)
+        with self.measure("data-conversion"):
+            return self.convert_data(target, objects)
+
+    def convert_data(self, target, objects):
         workflows = self.java("01-default-workflows", target, objects, "01-default-workflows")
         self.journal(target, "01-default-workflows", {"bindings": workflows["bindings"], "resumed": len(workflows["resumed"])})
         scopes = self.java("scope", target, objects, "02-data-scope-after")
@@ -256,17 +338,24 @@ class Upgrade:
         if not self.state:
             self.start_run()
         if self.state["phase"] == "stopping":
-            self.freeze()
+            with self.measure("freeze"):
+                self.freeze()
         self.require_frozen()
         if self.state["phase"] == "frozen":
-            self.snapshot()
+            with self.measure("backup"):
+                self.snapshot()
         target, objects = self.state["target"], Path(self.state["targetObjects"])
         if self.state["phase"] == "snapshot":
-            self.restore(target, objects, "restore-before-migration")
-            self.change_stage("restored")
+            with self.measure("restore"):
+                self.restore(target, objects, "restore-before-migration")
+                self.change_stage("restored")
         if self.state["phase"] not in {"restored", "migrated"}:
             raise UpgradeError("当前阶段无需再次迁移，请使用相应的放行或回退入口")
         workflows, permissions = self.migrate(target, objects)
+        with self.measure("verification"):
+            self.verify_upgrade(target, objects, workflows, permissions)
+
+    def verify_upgrade(self, target, objects, workflows, permissions):
         inspection = self.java("inspect", target, objects, "upgrade-inspection")
         flow_check = self.java("workflow-check", target, objects, "workflow-check")
         if inspection["mappingsMissing"] or inspection["invalidJournals"] or any(
@@ -297,23 +386,33 @@ class Upgrade:
         if not self.state or self.state["phase"] in {"active", "rollback-active", "opening"}:
             raise UpgradeError("回退须在同一演练的停写窗口内进行")
         if self.state["phase"] == "stopping":
-            self.freeze()
+            with self.measure("freeze"):
+                self.freeze()
         self.require_frozen()
         if self.state["phase"] in {"frozen", "snapshot"}:
-            if self.state["phase"] == "frozen" and self.mysql.position() != self.state["cutoff"]:
-                raise UpgradeError("原 1.x 停写水位已变化，请先核对原库")
-            if self.state["phase"] == "snapshot":
-                _, manifest = self.backup()
-                verify_copy(self.mysql, self.source, manifest["tables"])
-            report = self.preflight("rollback-source", frozen=True)
-            self.ready(self.source, self.objects, 1, "rollback-ready", object_manifest(self.objects))
-            return report
+            with self.measure("rollback-verification"):
+                return self.verify_rollback_source()
         database = self.args.rollback_db
         if not database or not DATABASE.fullmatch(database) or database in {self.source, self.state["target"]} \
                 or self.args.rollback_objects is None:
             raise UpgradeError("请为回退指定新的恢复库和对象目录")
         objects = self.safe_target_objects(self.args.rollback_objects)
-        self.restore(database, objects, "rollback-restore")
+        with self.measure("rollback-restore"):
+            self.restore(database, objects, "rollback-restore")
+        with self.measure("rollback-verification"):
+            self.verify_rollback_restore(database, objects)
+
+    def verify_rollback_source(self):
+        if self.state["phase"] == "frozen" and self.mysql.position() != self.state["cutoff"]:
+            raise UpgradeError("原 1.x 停写水位已变化，请先核对原库")
+        if self.state["phase"] == "snapshot":
+            _, manifest = self.backup()
+            verify_copy(self.mysql, self.source, manifest["tables"])
+        report = self.preflight("rollback-source", frozen=True)
+        self.ready(self.source, self.objects, 1, "rollback-ready", object_manifest(self.objects))
+        return report
+
+    def verify_rollback_restore(self, database, objects):
         original = load_json(self.work / "frozen-preflight.json")
         restored = self.java("inspect", database, objects, "rollback-inspection")
         for area in ("reconciliation", "pending", "scopes", "mappingsMissing", "invalidJournals"):
@@ -336,6 +435,10 @@ class Upgrade:
         target = load_json(path)
         if object_manifest(Path(target["objectRoot"])) != self.state["handoffObjects"]:
             raise UpgradeError("核验后的对象仓已变化")
+        with self.measure("activation" if phase == "ready" else "rollback-activation"):
+            self.activate(phase, path)
+
+    def activate(self, phase, path):
         self.change_stage("opening", previousReady=phase)
         try:
             self.mysql.execute("SET PERSIST offline_mode=OFF;")
@@ -348,7 +451,7 @@ class Upgrade:
                 # 新应用如果曾写入，保留记录供人工确认，禁止自动丢弃该批数据。
                 self.change_stage(phase if self.mysql.position() == self.state["readyPosition"] else "opening")
             raise
-        self.change_stage("active" if phase == "ready" else "rollback-active", activatedAt=utc())
+        self.change_stage("active" if phase == "ready" else "rollback-active", activatedAt=utc("milliseconds"))
 
 
 def arguments():

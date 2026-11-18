@@ -27,23 +27,37 @@ export function displayValue(item: DashboardValue): string {
 }
 
 export function chartOption(plot: DashboardPlot, screen: boolean): EChartsCoreOption {
-  const color = screen ? '#56d4ca' : '#176b9d'
-  const text = screen ? '#c8d5e6' : '#566174'
+  const color = screen ? '#3c7eff' : '#165dff'
+  const text = screen ? '#c5c5c5' : '#626975'
+  const border = screen ? '#333335' : '#e5e6eb'
   const months = plot.points.every((item) => /^\d{4}-\d{2}$/.test(item.label))
   return {
-    color: [color],
+    color: [color, '#14c9c9', '#f7ba1e', '#722ed1', '#f77234', '#3491fa'],
+    backgroundColor: 'transparent',
+    textStyle: { color: text, fontSize: 12 },
     aria: { enabled: true },
-    grid: { left: 14, right: 18, top: 14, bottom: 12, containLabel: true },
-    tooltip: { trigger: 'axis', renderMode: 'richText' },
+    grid: { left: 14, right: 18, top: 30, bottom: 12, containLabel: true },
+    tooltip: {
+      trigger: 'axis',
+      renderMode: 'richText',
+      backgroundColor: screen ? '#232324' : '#ffffff',
+      borderColor: border,
+      textStyle: { color: screen ? '#f6f6f6' : '#1d2129', fontSize: 12 },
+    },
     xAxis: {
       type: 'category',
       data: plot.points.map((item) => item.label),
+      axisLine: { lineStyle: { color: border } },
+      axisTick: { lineStyle: { color: border } },
       axisLabel: { color: text, rotate: months ? 0 : 24, width: 90, overflow: 'truncate' },
     },
     yAxis: {
       type: 'value',
+      name: plot.points[0]?.unit ?? '',
+      nameGap: 12,
+      nameTextStyle: { color: text },
       axisLabel: { color: text },
-      splitLine: { lineStyle: { color: screen ? '#304359' : '#e1e7ef' } },
+      splitLine: { lineStyle: { color: border } },
     },
     series: [
       {
@@ -55,4 +69,11 @@ export function chartOption(plot: DashboardPlot, screen: boolean): EChartsCoreOp
       },
     ],
   }
+}
+
+export function hasPlotData(plot: DashboardPlot): boolean {
+  return plot.points.some(
+    (point) =>
+      point.value !== null && point.value.trim() !== '' && Number.isFinite(Number(point.value)),
+  )
 }

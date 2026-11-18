@@ -23,6 +23,8 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -45,6 +47,8 @@ class MfgCostIT {
     @Autowired JdbcTemplate jdbc;
     @Autowired MfgBomService boms;
     @Autowired MfgWorkOrderService orders;
+    @Autowired MfgShortClose shortClose;
+    @Autowired MfgStockReversal reversal;
     @Autowired MfgStockDocuments stock;
     @Autowired MfgCostService costs;
     @Autowired MfgReports reports;
@@ -75,6 +79,7 @@ class MfgCostIT {
     @BeforeEach void seed() {
         warehouse=Ids.next();unit=Ids.next();period=Ids.next();
         var permissions=Set.of("cost:view","mfg_report:view","mfg_cost:view","mfg_cost:manage","mfg_cost:post",
+                "mfg_work_order:view","mfg_work_order:short_close","mfg_work_order:approve_short_close",
                 "mfg_issue:view","mfg_issue:create","mfg_issue:submit","mfg_issue:approve","mfg_issue:post",
                 "mfg_receipt:view","mfg_receipt:create","mfg_receipt:submit","mfg_receipt:approve","mfg_receipt:post");
         maker=new CompanyAccess(tenant,Ids.next(),company,true,Set.of(),permissions);
@@ -88,6 +93,78 @@ class MfgCostIT {
         jdbc.update("INSERT INTO product(id,tenant_id,category_id,code,name,base_unit_id) VALUES(?,?,?,'MC','生产验收产品',?)",
                 product,tenant,category,unit);
         finished=sku(product,"FG");semi=sku(product,"HALF");raw=sku(product,"RAW");alternate=sku(product,"ALT");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings={"expense","allocate"})
+    void shortCloseRequiresSecondReviewerAndClearsWipAfterPartialReceipt(String disposition) {
+        opening(raw,"100","1000.00");
+        long definition=bom(finished,List.of(line(raw)));
+        long orderId=id(orders.create(maker,key(),new WorkOrderDraft(finished,definition,unit,"100",
+                warehouse,warehouse,day,day,"0",null,null)));
+        var order=orders.command(maker,orderId,"release",key(),new Revision(0L));
+        long material=material(order,raw);
+        post(ISSUE,orderId,List.of(new MfgStockModels.InputLine(material,null,"100",null,null)));
+        long receipt=post(RECEIPT,orderId,List.of(receive("60")));
+        var active=orders.detail(maker,orderId);
+        long version=((Number)active.get("version")).longValue();
+        assertThat(active).containsEntry("status","in_progress");
+        assertThatThrownBy(()->orders.command(maker,orderId,"close",key(),new Revision(version)))
+                .isInstanceOf(ApiException.class);
+        assertThatThrownBy(()->shortClose.request(maker,orderId,key(),
+                new ShortCloseDraft(version,day,"订单部分取消",disposition,List.of())))
+                .isInstanceOf(ApiException.class).hasMessageContaining("尚有净领料");
+        assertThatThrownBy(()->shortClose.request(maker,orderId,key(),new ShortCloseDraft(version,day,"订单部分取消",
+                disposition,List.of(new ShortCloseMaterial(Long.toString(material),"60","40",null)))))
+                .isInstanceOf(ApiException.class).hasMessageContaining("报废说明");
+
+        var draft=new ShortCloseDraft(version,day,"订单部分取消",disposition,
+                List.of(new ShortCloseMaterial(Long.toString(material),"60","40","剩余已领材料经确认报废")));
+        var commandKey=key();
+        var pending=shortClose.request(maker,orderId,commandKey,draft);
+        assertThat(pending).containsEntry("status","in_progress");
+        assertThat(shortClose.request(maker,orderId,commandKey,draft).get("version")).isEqualTo(pending.get("version"));
+        assertThat(pending.get("allowedActions")).asList().doesNotContain("approve_short_close");
+        assertThat(orders.detail(reviewer,orderId).get("allowedActions")).asList().contains("approve_short_close");
+        long revision=((Number)pending.get("version")).longValue();
+        assertThatThrownBy(()->shortClose.approve(maker,orderId,key(),new Revision(revision)))
+                .isInstanceOf(ApiException.class).hasMessageContaining("另一位");
+        var readOnly=new CompanyAccess(tenant,Ids.next(),company,true,Set.of(),Set.of("mfg_work_order:view"));
+        assertThatThrownBy(()->shortClose.approve(readOnly,orderId,key(),new Revision(revision)))
+                .isInstanceOf(ApiException.class).hasMessageContaining("没有短交");
+        var otherWarehouse=new CompanyAccess(tenant,reviewer.userId(),company,false,Set.of(Ids.next()),reviewer.permissions());
+        assertThatThrownBy(()->shortClose.approve(otherWarehouse,orderId,key(),new Revision(revision)))
+                .isInstanceOf(ApiException.class).hasMessageContaining("不存在或无权");
+        var otherTenant=new CompanyAccess(Ids.next(),reviewer.userId(),company,true,Set.of(),reviewer.permissions());
+        assertThatThrownBy(()->shortClose.approve(otherTenant,orderId,key(),new Revision(revision)))
+                .isInstanceOf(ApiException.class).hasMessageContaining("不存在或无权");
+
+        var closed=shortClose.approve(reviewer,orderId,key(),new Revision(revision));
+        assertThat(closed).containsEntry("status","closed");
+        assertThatThrownBy(()->stock.create(maker,RECEIPT,key(),
+                new MfgStockModels.Draft(orderId,warehouse,day,null,null,null,List.of(receive("1")))))
+                .isInstanceOf(ApiException.class);
+        assertThatThrownBy(()->stock.create(maker,ISSUE,key(),
+                new MfgStockModels.Draft(orderId,warehouse,day,"issue",null,null,
+                        List.of(new MfgStockModels.InputLine(material,null,"1",null,null)))))
+                .isInstanceOf(ApiException.class);
+        assertThatThrownBy(()->reversal.source(reviewer,RECEIPT.head,receipt,true))
+                .isInstanceOf(ApiException.class).hasMessageContaining("已短交关闭");
+
+        costs.collect(maker,period,key(),new MfgCostService.Collect(0L,"equivalent",List.of()));
+        costs.allocate(maker,period,key(),new MfgCostService.Allocate(1L,List.of()));
+        var snapshot=costs.calculate(maker,period,"calculate",key(),new MfgCostService.Revision(2L));
+        var row=findCost(snapshot,orderId);
+        boolean expensed=disposition.equals("expense");
+        money(row,"wipEnd","0");
+        money(row,"shortCloseExpense",expensed?"400.00":"0");
+        money(row,"finishedCost",expensed?"600.00":"1000.00");
+        costs.post(maker,period,key(),new MfgCostService.Revision(3L));
+        assertThat(ledgerBalance("WIP")).isZero();
+        assertThat(ledgerBalance("PRODUCTION_VARIANCE")).isEqualByComparingTo(expensed?"400.00":"0");
+        assertThat(inventory.balance(maker,new Key(warehouse,finished)).cost()).isEqualByComparingTo(expensed?"600.00":"1000.00");
+        assertThat(rows(periods.closeCheck(maker,period),"items")).anyMatch(check->
+                "production_wip".equals(check.get("check")) && Boolean.TRUE.equals(check.get("passed")));
     }
 
     @Test void fromTwoLevelBomToPostedCostWithSoldInventoryAndWip() {
@@ -188,11 +265,12 @@ class MfgCostIT {
         return orders.command(maker,id,"release",key(),new Revision(0L));
     }
 
-    private void post(MfgStockModels.Type type,long order,List<MfgStockModels.InputLine> lines) {
+    private long post(MfgStockModels.Type type,long order,List<MfgStockModels.InputLine> lines) {
         long id=id(stock.create(maker,type,key(),new MfgStockModels.Draft(order,warehouse,day,type==ISSUE?"issue":null,null,null,lines)));
         stock.command(maker,type,id,"submit",key(),new MfgStockModels.Revision(0L,null,null));
         stock.command(reviewer,type,id,"approve",key(),new MfgStockModels.Revision(1L,null,null));
         stock.command(maker,type,id,"post",key(),new MfgStockModels.Revision(2L,null,null));
+        return id;
     }
 
     private MfgStockModels.InputLine receive(String qty) {return new MfgStockModels.InputLine(null,null,qty,null,null);}

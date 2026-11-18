@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>新建销售订单 · v2</title>
+<link rel="stylesheet" href="assets/v2.css">
+<style>
+  .edit-t { min-width: 1080px; }
+  .avail-low { color: var(--erp-warning-text); font-weight: 500; }
+  .err-tip { position: relative; }
+  .err-tip .tip { position: absolute; left: 4px; top: 32px; z-index: 5; background: var(--erp-text-1); color: #fff; font-size: 12px; line-height: 18px; padding: 4px 8px; border-radius: var(--erp-radius); white-space: nowrap; box-shadow: var(--erp-shadow-2); }
+  .section-title { font-size: 14px; font-weight: 500; }
+</style>
+</head>
+<body data-module="sales" data-menu="sales-orders" data-tabs="工作台|01-workbench.html;销售订单|02-document-list.html;新建销售订单|03-order-editor.html|current,unsaved">
+<main id="page">
+  <header class="page-head">
+    <div class="line">
+      <a class="back" href="02-document-list.html" aria-label="返回销售订单列表"><svg class="i" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></a>
+      <h1>新建销售订单</h1><span class="tag tag-neutral">草稿</span>
+      <span class="small muted" style="margin-left:8px">有未保存的修改</span>
+      <div class="actions"><button class="btn" type="button">从历史订单复制</button></div>
+    </div>
+  </header>
+
+  <section class="card">
+    <div class="card-head"><h2>基础信息</h2></div>
+    <div class="card-body">
+      <div class="form-grid">
+        <div class="field"><label for="f-cus"><span class="req">*</span>客户</label><select id="f-cus" class="select"><option>华东商贸有限公司（CUS1）</option></select></div>
+        <div class="field"><label for="f-date"><span class="req">*</span>业务日期</label><input id="f-date" class="input tnum" value="2026-11-17"></div>
+        <div class="field"><label for="f-due">交货日期</label><input id="f-due" class="input tnum" value="2026-11-20"></div>
+        <div class="field"><label for="f-rep">销售员</label><select id="f-rep" class="select"><option>李娜</option></select></div>
+        <div class="field"><label for="f-wh">默认仓库</label><select id="f-wh" class="select"><option>主仓 W1</option></select></div>
+        <div class="field"><label for="f-tax">价格口径</label><select id="f-tax" class="select"><option>含税价</option><option>未税价</option></select></div>
+        <div class="field"><label for="f-area">收货地区</label><select id="f-area" class="select"><option>上海市 / 闵行区</option></select></div>
+        <div class="field"><label for="f-addr">详细地址</label><input id="f-addr" class="input" value="虹梅路 300 号 3 号门"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>商品明细</h2><span class="small muted">共 4 行 · 金额由服务端试算</span>
+      <div class="actions"><button class="btn btn-sm" type="button">批量粘贴</button><button class="btn btn-sm" type="button">扫码添加</button><button class="btn btn-sm" type="button">+ 添加行</button></div>
+    </div>
+    <div class="table-wrap">
+      <table class="t edit-t">
+        <thead><tr>
+          <th style="width:40px;text-align:center">#</th><th style="width:260px"><span style="color:var(--erp-danger-text)">*</span> 商品</th><th style="width:120px">仓库</th><th style="width:76px">单位</th><th class="num" style="width:96px"><span style="color:var(--erp-danger-text)">*</span> 数量</th><th class="num" style="width:110px">单价（含税）</th><th class="num" style="width:84px">折扣 %</th><th class="num" style="width:76px">税率</th><th class="num" style="width:120px">金额</th><th class="num" style="width:80px">可用</th><th style="width:48px"><span class="sr-only">操作</span></th>
+        </tr></thead>
+        <tbody>
+          <tr><td class="idx">1</td><td><div class="sku">SKU-A 保温杯 500ml<small>银色 · 条码 6901234567890</small></div></td><td><select class="cell select" aria-label="第 1 行仓库"><option>主仓 W1</option></select></td><td><select class="cell select" aria-label="第 1 行单位"><option>件</option></select></td><td><input class="cell num" value="10" aria-label="第 1 行数量"></td><td><input class="cell num" value="115.00" aria-label="第 1 行单价"></td><td><input class="cell num" value="0" aria-label="第 1 行折扣"></td><td><input class="cell num ro" value="13%" aria-label="第 1 行税率"></td><td class="calc">1,150.00</td><td class="calc">86</td><td><button class="btn btn-icon btn-sm" type="button" aria-label="删除第 1 行">✕</button></td></tr>
+          <tr><td class="idx">2</td><td><div class="sku">SKU-B 陶瓷餐具四件套<small>白色 · 条码 6901234567906</small></div></td><td><select class="cell select" aria-label="第 2 行仓库"><option>主仓 W1</option></select></td><td><select class="cell select" aria-label="第 2 行单位"><option>套</option></select></td><td><input class="cell num" value="5" aria-label="第 2 行数量"></td><td><input class="cell num" value="55.00" aria-label="第 2 行单价"></td><td><input class="cell num" value="5" aria-label="第 2 行折扣"></td><td><input class="cell num ro" value="13%" aria-label="第 2 行税率"></td><td class="calc">261.25</td><td class="calc">42</td><td><button class="btn btn-icon btn-sm" type="button" aria-label="删除第 2 行">✕</button></td></tr>
+          <tr><td class="idx">3</td><td><div class="sku">SKU-C 电热水壶 1.7L<small>不锈钢 · 条码 6901234567913</small></div></td><td><select class="cell select" aria-label="第 3 行仓库"><option>二仓 W2</option></select></td><td><select class="cell select" aria-label="第 3 行单位"><option>台</option></select></td><td><input class="cell num" value="2" aria-label="第 3 行数量"></td><td><input class="cell num" value="210.00" aria-label="第 3 行单价"></td><td><input class="cell num" value="0" aria-label="第 3 行折扣"></td><td><input class="cell num ro" value="13%" aria-label="第 3 行税率"></td><td class="calc">420.00</td><td class="calc"><span class="avail-low" title="需求 2 台，可用 1 台">1 ⚠</span></td><td><button class="btn btn-icon btn-sm" type="button" aria-label="删除第 3 行">✕</button></td></tr>
+          <tr><td class="idx">4</td><td class="err-tip"><input class="cell err" placeholder="输入编码、名称或扫码" aria-label="第 4 行商品" aria-invalid="true" aria-describedby="tip4"><span class="tip" id="tip4" role="tooltip">请选择商品</span></td><td><select class="cell select" aria-label="第 4 行仓库"><option>主仓 W1</option></select></td><td><select class="cell select" aria-label="第 4 行单位"><option></option></select></td><td><input class="cell num" value="1" aria-label="第 4 行数量"></td><td><input class="cell num" placeholder="—" aria-label="第 4 行单价"></td><td><input class="cell num" value="0" aria-label="第 4 行折扣"></td><td><input class="cell num ro" value="" aria-label="第 4 行税率"></td><td class="calc muted">—</td><td class="calc muted">—</td><td><button class="btn btn-icon btn-sm" type="button" aria-label="删除第 4 行">✕</button></td></tr>
+          <tr class="total"><td></td><td>合计</td><td></td><td></td><td class="num">17</td><td></td><td></td><td></td><td class="num">1,831.25</td><td></td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card-body small muted" style="padding-top:8px;padding-bottom:12px">键盘：Enter / Tab 下一格 · ↑↓ 换行 · 最后一行 Enter 新增 · Ctrl+Delete 删除行 · 可从 Excel 粘贴“编码、数量、单价”三列</div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>费用与备注</h2></div>
+    <div class="card-body">
+      <div class="form-grid">
+        <div class="field"><label for="f-disc">整单优惠</label><input id="f-disc" class="input num" value="31.25"></div>
+        <div class="field"><label for="f-fee">运费（买方承担）</label><input id="f-fee" class="input num" value="0.00"></div>
+        <div class="field span-2"><label for="f-memo">备注</label><input id="f-memo" class="input" value="月底前送达，送货前电话联系"></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="footer-bar" role="region" aria-label="订单合计与操作">
+    <div class="sum">
+      <span>商品金额 <b>1,831.25</b></span><span>整单优惠 <b>−31.25</b></span><span>税额 <b>207.08</b></span>
+      <span>合计 <span class="total">¥ 1,800.00</span></span>
+    </div>
+    <a class="errors" href="#tip4"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>1 处需要修改</a>
+    <div class="actions"><a class="btn" href="02-document-list.html">取消</a><button class="btn" type="button">保存草稿</button><button class="btn btn-primary" type="button">提交审核</button></div>
+  </div>
+
+  <aside class="spec-note"><strong>设计说明</strong><ul>
+    <li>对应 <code>components/sales/OrderEditor.vue</code> 与 <code>pages/OrderEditPage.vue</code>，采购订单 <code>ProcurementEditor.vue</code> 同构（规范 U-07、第 5.2 节）。</li>
+    <li>明细单元格默认无边框，悬停出现浅边框，聚焦为主色边框；行高 36px，50 行订单在 1440×900 下一屏可见约 14 行。</li>
+    <li>金额、合计、税额只显示 <code>POST /pricing/preview</code> 的返回值；试算中金额列显示骨架占位，底部合计显示“计算中”。</li>
+    <li>“可用”列按实时库存提示，需求超过可用时橙色加 ⚠ 并有悬停说明，不阻止保存（R1-10）。</li>
+    <li>底部操作栏始终可见；错误计数可点击定位到第一处错误。页签名前的圆点表示有未保存修改。</li>
+  </ul></aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

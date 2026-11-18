@@ -5,27 +5,36 @@ param(
     [string]$SourceObjectRoot = (Join-Path $env:USERPROFILE '.erp\private-objects'),
     [ValidateRange(1024,65535)][int]$Port = 13308,
     [switch]$KeepInstance,
-    [string]$MySqlDirectory = 'D:\mysql-8.0.46-winx64\bin'
+    [string]$MySqlDirectory = 'D:\mysql-8.0.46-winx64\bin',
+    [string]$WorkDirectory
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$workspace = [IO.Path]::GetFullPath((Join-Path $root ('.local\m8-recovery-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))))
-if (!$workspace.StartsWith([IO.Path]::GetFullPath((Join-Path $root '.local')) + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) { throw '恢复演练目录不在本项目私有目录。' }
+. (Join-Path $PSScriptRoot 'test-storage.ps1')
+$testRoot = if (!$WorkDirectory) { Get-ErpTestRoot $SourceSettingsFile }
+$runName = 'm8-recovery-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
+if ($WorkDirectory) {
+    if (![IO.Path]::IsPathFullyQualified($WorkDirectory)) { throw '-WorkDirectory 必须使用绝对路径。' }
+    $workspace = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($WorkDirectory))
+} elseif ($testRoot) {
+    $workspace = Join-Path $testRoot $runName
+} elseif ($IsWindows) {
+    throw '恢复演练会写入数据库副本，请先设置 ERP_TEST_ROOT 或指定非 C 盘的 -WorkDirectory。'
+} else {
+    $workspace = Join-Path (Join-Path $root '.local') $runName
+}
+Assert-ErpTestOutputPath $workspace
+if ($IsWindows -and $workspace -match '[^\x00-\x7F]') { throw 'MySQL 恢复演练目录请使用非 C 盘英文路径。' }
 if (Test-Path -LiteralPath $workspace) { throw '演练目录已存在，禁止覆盖。' }
 if (Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue) { throw '恢复演练端口被占用，未停止任何现有服务。' }
-New-Item -ItemType Directory -Path $workspace | Out-Null
-$nativeWorkspace=$workspace
-if($workspace -match '[^\x00-\x7F]') {
-    $alias='F:\projects\erp'
-    $link=Get-Item -LiteralPath $alias -ErrorAction Stop
-    if($link.LinkType -ne 'Junction' -or [IO.Path]::GetFullPath(@($link.Target)[0]).TrimEnd('\') -ne [IO.Path]::GetFullPath($root).TrimEnd('\')) {throw '中文目录的 MySQL 演练需要已核验的英文项目联接。'}
-    $nativeWorkspace=Join-Path $alias ([IO.Path]::GetRelativePath($root,$workspace))
-}
 $mysql = Join-Path $MySqlDirectory 'mysql.exe'; $mysqld = Join-Path $MySqlDirectory 'mysqld.exe'; $dump = Join-Path $MySqlDirectory 'mysqldump.exe'; $binlog = Join-Path $MySqlDirectory 'mysqlbinlog.exe'
 $settings=@{}
 foreach($line in [IO.File]::ReadAllLines((Resolve-Path -LiteralPath $SourceSettingsFile))) { if($line -match '^([A-Z][A-Z0-9_]*)=(.*)$') {$settings[$matches[1]]=$matches[2].TrimEnd("`r")} }
 if($settings.TEST_DB_NAME -notmatch '^erp_test(?:_[a-z0-9]+)*$' -or $settings.DB_HOST -notin '127.0.0.1','localhost') { throw '源数据只允许本机项目隔离测试库。' }
-$previousPassword=$env:MYSQL_PWD
+$previousEnvironment = @{}
+foreach ($key in 'MYSQL_PWD','ERP_TEST_ROOT','TEMP','TMP','TMPDIR','ERP_HTTP_LOG_FILE','ERP_STORAGE_LOCAL_ROOT','ERP_AI_KB_STORAGE') {
+    $previousEnvironment[$key] = [Environment]::GetEnvironmentVariable($key)
+}
 $instance=$null
 $timer=[Diagnostics.Stopwatch]::StartNew()
 function Invoke-SandboxSql([string]$Sql) {
@@ -41,6 +50,11 @@ function Import-SandboxFile([string]$Path,[string]$Database) {
     try{$input=[IO.File]::OpenRead($Path);try{$input.CopyTo($process.StandardInput.BaseStream);$process.StandardInput.Close()}finally{$input.Dispose()};$process.WaitForExit();if($process.ExitCode -ne 0){throw '独立恢复实例导入失败。'}}finally{$process.Dispose()}
 }
 try {
+    $workspaceParent = Split-Path -Parent $workspace
+    [IO.Directory]::CreateDirectory($workspaceParent) | Out-Null
+    New-Item -ItemType Directory -Path $workspace | Out-Null
+    Set-ErpTestStorage $workspaceParent (Split-Path -Leaf $workspace)
+    $temp = Join-Path $workspace 'tmp'
     $seed=Join-Path $workspace 'seed.sql'
     $env:MYSQL_PWD=$settings.TEST_DB_PASSWORD
     & $dump --no-defaults --host=$($settings.DB_HOST) --port=$($settings.DB_PORT) --user=$($settings.TEST_DB_USER) --single-transaction --no-tablespaces --set-gtid-purged=OFF --hex-blob --result-file=$seed $settings.TEST_DB_NAME
@@ -49,14 +63,14 @@ try {
     if($LASTEXITCODE -ne 0){throw '无法核对测试对象仓。'}
     $objects=Join-Path $workspace 'source-objects';New-Item -ItemType Directory -Path $objects | Out-Null
     foreach($key in $active){if($key -notmatch '^[A-Za-z0-9][A-Za-z0-9/_-]*$'){throw '源对象键格式无效。'};$source=Join-Path $SourceObjectRoot $key;if(!(Test-Path -LiteralPath $source -PathType Leaf)){throw '测试库存在缺失的有效附件，先修复测试数据再演练。'};$destination=Join-Path $objects $key;New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null;Copy-Item -LiteralPath $source -Destination $destination}
-    $datadir=Join-Path $nativeWorkspace 'data'
-    $initialize=@('--no-defaults','--initialize-insecure',('--basedir=' + (Split-Path -Parent $MySqlDirectory)),('--datadir=' + $datadir),'--innodb-buffer-pool-size=64M','--innodb-redo-log-capacity=32M',('--log-error=' + (Join-Path $nativeWorkspace 'initialize.log')))
+    $datadir=Join-Path $workspace 'data'
+    $initialize=@('--no-defaults','--initialize-insecure',('--basedir=' + (Split-Path -Parent $MySqlDirectory)),"--datadir=$datadir","--tmpdir=$temp",'--innodb-buffer-pool-size=64M','--innodb-redo-log-capacity=32M',('--log-error=' + (Join-Path $workspace 'initialize.log')))
     & $mysqld @initialize
     if($LASTEXITCODE -ne 0){throw '独立 MySQL 数据目录初始化失败。'}
-    $arguments=@('--no-defaults','--console',('--basedir=' + (Split-Path -Parent $MySqlDirectory)),('--datadir=' + $datadir),'--bind-address=127.0.0.1',"--port=$Port",'--mysqlx=OFF','--server-id=108','--log-bin=mysql-bin','--binlog-format=ROW','--gtid-mode=ON','--enforce-gtid-consistency=ON','--max-connections=40','--performance-schema=OFF','--innodb-buffer-pool-size=64M','--innodb-redo-log-capacity=32M','--sync-binlog=1','--innodb-flush-log-at-trx-commit=1')
-    # Start-Process 的数组仍会拼成命令行，路径逐个引用以兼容中文工作目录。
+    $arguments=@('--no-defaults','--console',('--basedir=' + (Split-Path -Parent $MySqlDirectory)),"--datadir=$datadir","--tmpdir=$temp",'--bind-address=127.0.0.1',"--port=$Port",'--mysqlx=OFF','--server-id=108','--log-bin=mysql-bin','--binlog-format=ROW','--gtid-mode=ON','--enforce-gtid-consistency=ON','--max-connections=40','--performance-schema=OFF','--innodb-buffer-pool-size=64M','--innodb-redo-log-capacity=32M','--sync-binlog=1','--innodb-flush-log-at-trx-commit=1')
+    # Start-Process 会将参数数组拼成命令行，逐个引用以保留路径中的空格。
     $quoted=$arguments | ForEach-Object {'"'+$_.Replace('"','\"')+'"'}
-    $instance=Start-Process -FilePath $mysqld -ArgumentList $quoted -WorkingDirectory $nativeWorkspace -WindowStyle Hidden -RedirectStandardOutput (Join-Path $workspace 'server.log') -RedirectStandardError (Join-Path $workspace 'server.err.log') -PassThru
+    $instance=Start-Process -FilePath $mysqld -ArgumentList $quoted -WorkingDirectory $workspace -WindowStyle Hidden -RedirectStandardOutput (Join-Path $workspace 'server.log') -RedirectStandardError (Join-Path $workspace 'server.err.log') -PassThru
     $env:MYSQL_PWD=$null
     $ready=$false
     for($attempt=0;$attempt -lt 120;$attempt++){Start-Sleep -Milliseconds 500;$result='SELECT 1;' | & $mysql --no-defaults --host=127.0.0.1 --port=$Port --user=root --batch --skip-column-names 2>$null;if($LASTEXITCODE -eq 0 -and $result -eq '1'){$ready=$true;break};if($instance.HasExited){break}}
@@ -96,7 +110,10 @@ try {
     @{completedAt=[DateTime]::UtcNow.ToString('o');mysqlVersion='8.0.46';port=$Port;sourceDatabase='erp_restore_source';targetDatabase=$target;sourceBinlog=$startPosition[0];startPosition=[long]$startPosition[1];stopPosition=[long]$endPosition[1];markerIds=$markers;tablesVerified=$checks.Count;objectsVerified=@($manifest.objects).Count;rpoAtSelectedPositionSeconds=0;restoreSeconds=[Math]::Round($restoreTimer.Elapsed.TotalSeconds,3);totalSeconds=[Math]::Round($timer.Elapsed.TotalSeconds,3);result='passed';notes='完整表校验含业务事实、账本、幂等、Outbox和任务；全部业务对账须通过隔离应用另行执行。'} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $workspace 'recovery-result.json') -Encoding utf8NoBOM
     Write-Output ('指定 binlog 恢复点和完整表/附件摘要验证通过；结果位于 ' + (Join-Path $workspace 'recovery-result.json'))
 } finally {
-    if($instance -and !$instance.HasExited -and !$KeepInstance){$current=Get-CimInstance Win32_Process -Filter "ProcessId=$($instance.Id)";if(!$current.CommandLine.Contains($workspace) -and !$current.CommandLine.Contains($nativeWorkspace)){throw '实例归属核验失败，未停止其他进程。'};$instance.Kill();$instance.WaitForExit()}
-    if($instance){$instance.Dispose()}
-    $env:MYSQL_PWD=$previousPassword
+    try {
+        if($instance -and !$instance.HasExited -and !$KeepInstance){$current=Get-CimInstance Win32_Process -Filter "ProcessId=$($instance.Id)";if(!$current.CommandLine.Contains($workspace)){throw '实例归属核验失败，未停止其他进程。'};$instance.Kill();$instance.WaitForExit()}
+    } finally {
+        if($instance){$instance.Dispose()}
+        foreach ($key in $previousEnvironment.Keys) { [Environment]::SetEnvironmentVariable($key, $previousEnvironment[$key], 'Process') }
+    }
 }

@@ -13,13 +13,17 @@ import {
   Fold,
   House,
   Lock,
+  MoreFilled,
   OfficeBuilding,
+  Search,
   Setting,
   ShoppingCart,
   SwitchButton,
   Tickets,
   Wallet,
 } from '@element-plus/icons-vue'
+import { ElDropdown, ElDropdownItem, ElDropdownMenu, type DropdownInstance } from 'element-plus/es/components/dropdown/index.mjs'
+import 'element-plus/theme-chalk/el-dropdown.css'
 import { useSessionStore } from '../stores/session'
 import { messageOf, isCancelled } from '../api/http'
 import { workbenchSummary } from '../api/workbench'
@@ -27,12 +31,15 @@ import { openAiDocument } from '../hooks/ai-document'
 import type { AiDocumentContext } from '../types/ai'
 import BrandMark from './BrandMark.vue'
 import NotificationBell from './NotificationBell.vue'
+import DisplayDensitySelect from './DisplayDensitySelect.vue'
+import WorkspaceSearch from './WorkspaceSearch.vue'
 import { reportSpecs, reportPermission } from '../types/reporting'
 import { importSpecs } from '../types/file-jobs'
 import { documentPrintPermissions } from '../types/documents'
 import { crmCoreNavigation, crmCycleNavigation } from '../types/crm-navigation'
 import { manufacturingNavigation } from '../types/manufacturing'
-import { confirmCompanyLeave } from '../utils/unsaved'
+import { confirmCompanyLeave, hasUnsavedWork } from '../utils/unsaved'
+import { recentPaths, recentWorkPages, shortcuts, visitWorkPage, workbenchScope } from '../utils/workbench-preferences'
 const route = useRoute(),
   router = useRouter(),
   session = useSessionStore()
@@ -314,33 +321,128 @@ const groups = computed(() =>
         }))
         .filter((group) => group.items.length),
 )
-const expanded = ref<Record<string, boolean>>({})
+const recentScope = computed(() => workbenchScope(session.user?.id, session.companyId))
+const visited = ref<string[]>([])
+const recentPages = computed(() => {
+  const pages = new Map<string, string>()
+  for (const group of groups.value) {
+    for (const item of group.items) if (item.path) pages.set('/' + item.path, item.title)
+  }
+  for (const shortcut of shortcuts) {
+    if (!shortcut.permission || session.can(shortcut.permission)) pages.set(shortcut.path, shortcut.title)
+  }
+  return pages
+})
+provide(recentWorkPages, computed(() => recentScope.value ? visited.value.flatMap((path) => {
+  const title = recentPages.value.get(path)
+  return title ? [{ path, title }] : []
+}) : []))
+watch(recentScope, (scope) => { visited.value = recentPaths(scope) }, { immediate: true, flush: 'sync' })
+watch(() => route.path, (path) => {
+  if (recentScope.value && recentPages.value.has(path)) {
+    visited.value = visitWorkPage(recentScope.value, path, visited.value)
+  }
+}, { immediate: true })
+const moduleDefinitions = [
+  { title: '工作台', icon: House, sections: ['工作台'] },
+  { title: '销售', icon: Tickets, sections: ['销售'] },
+  { title: '采购', icon: ShoppingCart, sections: ['采购'] },
+  { title: '库存', icon: Box, sections: ['库存'] },
+  { title: '仓储', icon: OfficeBuilding, sections: ['仓储'] },
+  { title: '生产', icon: Box, sections: ['生产'] },
+  { title: '财务', icon: Wallet, sections: ['资金与往来', '财务总账', '财务期间'] },
+  { title: '客户', icon: OfficeBuilding, sections: ['客户关系', '客服'] },
+  { title: '审批', icon: Tickets, sections: ['审批中心'] },
+  { title: '分析', icon: DataAnalysis, sections: ['报表与数据', 'AI 与知识'] },
+  { title: '设置', icon: Setting, sections: ['基础资料', '系统管理'] },
+]
+const modules = computed(() => {
+  if (session.user?.mustChangePassword) return []
+  const itemsFor = (title: string) => groups.value.find((group) => group.title === title)?.items ?? []
+  const matching = (title: string, paths: string[]) => itemsFor(title).filter((item) => paths.includes(item.path))
+  const dashboard = matching('报表与数据', ['dashboard'])
+  const pricing = matching('客户关系', ['crm/price-lists'])
+  const printing = matching('报表与数据', ['print-templates'])
+  const warehouse = [...matching('库存', ['wms-tasks', 'warehouse-work']), ...matching('基础资料', ['warehouse-locations'])]
+  const moved = new Set([...dashboard, ...pricing, ...printing, ...warehouse])
+  const sections = new Map(groups.value.map((group) => [group.title, group.items.filter((item) => !moved.has(item))]))
+  sections.set('工作台', [{ path: '', title: '工作台' }, ...dashboard])
+  sections.set('销售', [...(sections.get('销售') ?? []), ...pricing])
+  sections.set('仓储', warehouse)
+  sections.set('系统管理', [...(sections.get('系统管理') ?? []), ...printing])
+  return moduleDefinitions.map((module) => ({
+    ...module,
+    sections: module.sections.map((title) => ({ title, items: sections.get(title) ?? [] })).filter((section) => section.items.length),
+  })).filter((module) => module.sections.length)
+})
+const activeModule = computed(() =>
+  modules.value.find((module) => module.sections.some((section) => section.items.some((item) => active(item.path)))),
+)
+const selectedModuleTitle = ref('')
+const selectedModule = computed(() =>
+  modules.value.find((module) => module.title === selectedModuleTitle.value) ?? activeModule.value ?? modules.value[0],
+)
 const activeGroup = computed(() =>
   groups.value.find((group) => group.items.some((item) => active(item.path))),
 )
 const activeItem = computed(() => activeGroup.value?.items.find((item) => active(item.path)))
-const compactViewport = window.matchMedia('(max-width: 800px)')
-const mobile = ref(compactViewport.matches)
-const desktopNavigation = ref(true)
+const compactViewport = window.matchMedia('(max-width: 1199px)')
+const mobileViewport = window.matchMedia('(max-width: 767px)')
+const mobile = ref(mobileViewport.matches)
+const desktopNavigation = ref(!compactViewport.matches)
 const mobileNavigation = ref(false)
+const floatingMenu = ref(false)
 const navigationVisible = computed(() =>
-  mobile.value ? mobileNavigation.value : desktopNavigation.value,
+  mobile.value ? mobileNavigation.value : desktopNavigation.value || floatingMenu.value,
 )
 const menuButton = ref<HTMLButtonElement>()
 const closeButton = ref<HTMLButtonElement>()
-function syncViewport(event: MediaQueryListEvent): void {
-  mobile.value = event.matches
+const sidebar = ref<HTMLElement>()
+const moduleMenu = ref<HTMLElement>()
+const searchOpen = ref(false)
+const searchButton = ref<HTMLButtonElement>()
+const searchableMenus = computed(() => modules.value.flatMap((module) =>
+  module.sections.flatMap((section) => section.items.map((item) => ({ ...item, module: module.title }))),
+))
+function syncViewport(): void {
+  mobile.value = mobileViewport.matches
+  desktopNavigation.value = !compactViewport.matches
+  floatingMenu.value = false
   mobileNavigation.value = false
 }
 compactViewport.addEventListener('change', syncViewport)
-onScopeDispose(() => compactViewport.removeEventListener('change', syncViewport))
+mobileViewport.addEventListener('change', syncViewport)
+onScopeDispose(() => {
+  compactViewport.removeEventListener('change', syncViewport)
+  mobileViewport.removeEventListener('change', syncViewport)
+})
 function closeNavigation(): void {
   mobileNavigation.value = false
   void nextTick(() => menuButton.value?.focus())
 }
+function escapeNavigation(): void {
+  if (mobileNavigation.value) closeNavigation()
+  else if (floatingMenu.value) {
+    floatingMenu.value = false
+    sidebar.value?.querySelector<HTMLElement>('.module-link.is-current')?.focus()
+  }
+}
+function trapNavigationFocus(event: KeyboardEvent): void {
+  if (!mobileNavigation.value) return
+  const actions = sidebar.value?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href]')
+  const first = actions?.[0]
+  const last = actions?.[actions.length - 1]
+  if (event.shiftKey ? event.target === first : event.target === last) {
+    event.preventDefault()
+    const target = event.shiftKey ? last : first
+    target?.focus()
+  }
+}
 function toggleNavigation(): void {
   if (!mobile.value) {
-    desktopNavigation.value = !desktopNavigation.value
+    const wasOpen = navigationVisible.value
+    floatingMenu.value = false
+    desktopNavigation.value = !wasOpen
   } else if (mobileNavigation.value) {
     closeNavigation()
   } else {
@@ -348,17 +450,53 @@ function toggleNavigation(): void {
     void nextTick(() => closeButton.value?.focus())
   }
 }
+function selectModule(module: string, fromKeyboard = false): void {
+  selectedModuleTitle.value = module
+  if (!mobile.value && !desktopNavigation.value) floatingMenu.value = true
+  if (fromKeyboard) void nextTick(() => moduleMenu.value?.querySelector<HTMLElement>('a')?.focus())
+}
+function closeFloatingMenu(event: FocusEvent | PointerEvent): void {
+  const sidebar = event.currentTarget as HTMLElement
+  if (!sidebar.contains(event.relatedTarget as Node | null) &&
+      (event.type === 'focusout' || !sidebar.contains(document.activeElement))) {
+    floatingMenu.value = false
+  }
+}
+function handleShortcuts(event: KeyboardEvent): void {
+  if (session.user?.mustChangePassword) return
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k' && !mobileNavigation.value) {
+    event.preventDefault()
+    searchOpen.value = true
+  }
+  if (event.key === '[' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.repeat &&
+      !searchOpen.value && !(event.target instanceof Element &&
+        event.target.closest('input, textarea, select, [contenteditable]'))) {
+    event.preventDefault()
+    toggleNavigation()
+  }
+}
+window.addEventListener('keydown', handleShortcuts)
+onScopeDispose(() => window.removeEventListener('keydown', handleShortcuts))
+watch(() => session.companyId, () => {
+  searchOpen.value = false
+  selectedModuleTitle.value = ''
+}, { flush: 'sync' })
 
 interface WorkTab {
   key: string
   title: string
   to: string
+  pinned: boolean
 }
 const workTabs = ref<WorkTab[]>([])
-const workTabKey = computed(
-  () => activeItem.value?.path ?? (route.name === 'password' ? 'password' : ''),
-)
-const MAX_WORK_TABS = 8
+const workTabMenus = new Map<string, DropdownInstance>()
+function setWorkTabMenu(key: string, menu: DropdownInstance | null): void {
+  if (menu) workTabMenus.set(key, menu)
+  else workTabMenus.delete(key)
+}
+const workTabKey = computed(() => activeItem.value || route.name === 'password' ? route.path : '')
+const MAX_WORK_TABS = 14
+const contentRevision = ref(0)
 watch(
   () => session.companyId,
   () => {
@@ -370,29 +508,55 @@ watch(
   [() => route.fullPath, workTabKey, () => session.companyId],
   () => {
     if (!workTabKey.value || session.user?.mustChangePassword) return
-    const tab = {
+    const index = workTabs.value.findIndex((item) => item.key === workTabKey.value)
+    const item = activeItem.value
+    const tab: WorkTab = {
       key: workTabKey.value,
-      title: activeItem.value?.title ?? title.value,
+      title: item && route.path === '/' + item.path ? item.title : title.value,
       to: route.fullPath,
+      pinned: workTabs.value[index]?.pinned ?? false,
     }
-    const index = workTabs.value.findIndex((item) => item.key === tab.key)
     if (index >= 0) workTabs.value[index] = tab
-    else workTabs.value = [...workTabs.value, tab].slice(-MAX_WORK_TABS)
+    else {
+      workTabs.value.push(tab)
+      if (workTabs.value.length > MAX_WORK_TABS) {
+        const oldest = workTabs.value.findIndex((item) => !item.pinned)
+        workTabs.value.splice(oldest, 1)
+      }
+    }
   },
   { immediate: true },
 )
-async function closeWorkTab(tab: WorkTab): Promise<void> {
-  if (tab.key === workTabKey.value) {
-    const adjacent = workTabs.value.filter((item) => item.key !== tab.key).at(-1)
-    if (await router.push(adjacent?.to ?? '/')) return
+async function closeWorkTabs(tabs: WorkTab[], fallback?: string): Promise<void> {
+  const removing = new Set(tabs.map((tab) => tab.key))
+  if (removing.has(workTabKey.value)) {
+    const adjacent = workTabs.value.filter((tab) => !removing.has(tab.key)).at(-1)
+    if (await router.push(fallback ?? adjacent?.to ?? '/')) return
   }
-  workTabs.value = workTabs.value.filter((item) => item.key !== tab.key)
+  workTabs.value = workTabs.value.filter((tab) => !removing.has(tab.key))
+}
+function tabAction(command: string, tab: WorkTab): void {
+  if (command === 'pin') {
+    tab.pinned = !tab.pinned
+  } else if (command === 'close') {
+    void closeWorkTabs([tab])
+  } else if (command === 'others' || command === 'right') {
+    const candidates = command === 'right' ? workTabs.value.slice(workTabs.value.indexOf(tab) + 1) : workTabs.value
+    void closeWorkTabs(candidates.filter((item) => item.key !== tab.key && !item.pinned), tab.to)
+  } else if (command === 'refresh') {
+    if (tab.key === workTabKey.value) {
+      if (confirmCompanyLeave()) contentRevision.value++
+    } else {
+      void router.push(tab.to)
+    }
+  }
 }
 
 watch(
-  [() => route.fullPath, activeGroup],
-  ([, group]) => {
-    if (group) expanded.value[group.title] = true
+  [() => route.fullPath, activeModule],
+  ([, module]) => {
+    selectedModuleTitle.value = module?.title ?? ''
+    floatingMenu.value = false
     if (mobileNavigation.value) closeNavigation()
   },
   { immediate: true },
@@ -439,8 +603,8 @@ async function logout(): Promise<void> {
 <template>
   <div
     class="shell"
-    :class="{ 'shell-with-sidebar': navigationVisible && !mobile }"
-    @keydown.esc="mobileNavigation && closeNavigation()"
+    :class="{ 'shell-with-sidebar': !mobile && modules.length, 'shell-with-menu': !mobile && desktopNavigation && modules.length }"
+    @keydown.esc="escapeNavigation"
   >
     <div
       v-if="mobileNavigation"
@@ -448,18 +612,21 @@ async function logout(): Promise<void> {
       aria-hidden="true"
       @click="closeNavigation()"
     />
-    <aside
-      v-show="navigationVisible"
+    <div
+      v-show="modules.length && (!mobile || mobileNavigation)"
       id="workspace-sidebar"
+      ref="sidebar"
       class="sidebar"
       :role="mobile ? 'dialog' : undefined"
       :aria-modal="mobile ? true : undefined"
       :aria-label="mobile ? '业务导航' : undefined"
+      @pointerleave="closeFloatingMenu"
+      @focusout="closeFloatingMenu"
+      @keydown.tab="trapNavigationFocus"
     >
-      <div class="sidebar-head">
+      <div v-if="mobile" class="sidebar-head">
         <BrandMark />
         <button
-          v-if="mobile"
           ref="closeButton"
           class="shell-button"
           type="button"
@@ -469,55 +636,71 @@ async function logout(): Promise<void> {
           <Close class="icon" aria-hidden="true" />
         </button>
       </div>
-      <nav v-if="!session.user?.mustChangePassword" aria-label="主导航">
-        <router-link
-          class="nav-link home-link"
-          to="/"
-          :class="{ 'is-current': route.path === '/' }"
-          @click="mobileNavigation && route.fullPath === '/' && closeNavigation()"
-          ><House class="icon" aria-hidden="true" />工作台</router-link
+      <nav v-if="modules.length" class="module-rail" aria-label="业务模块">
+        <BrandMark v-if="!mobile" compact />
+        <button
+          v-for="module in modules"
+          :key="module.title"
+          class="module-link"
+          :class="{ 'is-current': selectedModule?.title === module.title }"
+          type="button"
+          :aria-current="activeModule?.title === module.title ? 'true' : undefined"
+          :aria-expanded="navigationVisible && selectedModule?.title === module.title"
+          aria-controls="workspace-module-menu"
+          @click="selectModule(module.title, $event.detail === 0)"
+          @pointerenter="$event.pointerType === 'mouse' && !mobile && !desktopNavigation && selectModule(module.title)"
         >
-        <div v-if="groups.length" class="nav-caption">业务菜单</div>
-        <details
-          v-for="group in groups"
-          :key="group.title"
-          class="nav-group"
-          :open="expanded[group.title]"
-          @toggle="expanded[group.title] = ($event.target as HTMLDetailsElement).open"
-        >
-          <summary :class="{ 'has-current': activeGroup?.title === group.title }">
-            <component :is="group.icon" class="icon" aria-hidden="true" />{{ group.title }}
-            <ArrowRight class="nav-arrow" aria-hidden="true" />
-          </summary>
+          <component :is="module.icon" class="icon" aria-hidden="true" />{{ module.title }}
+        </button>
+      </nav>
+      <nav
+        v-show="navigationVisible && selectedModule"
+        id="workspace-module-menu"
+        ref="moduleMenu"
+        class="module-menu"
+        :class="{ 'is-floating': floatingMenu }"
+        :aria-label="selectedModule?.title + '菜单'"
+      >
+        <div class="module-title"><BrandMark v-if="!mobile" /> <strong v-else>{{ selectedModule?.title }}</strong></div>
+        <section v-for="section in selectedModule?.sections" :key="section.title" class="nav-group">
+          <h2 v-if="selectedModule && selectedModule.sections.length > 1" class="nav-caption">{{ section.title }}</h2>
           <router-link
-            v-for="item in group.items"
+            v-for="item in section.items"
             :key="item.path"
             class="nav-link"
             :class="{ 'is-current': active(item.path) }"
             :to="'/' + item.path"
-            @click="mobileNavigation && route.fullPath === '/' + item.path && closeNavigation()"
-            >{{ item.title
-            }}<span v-if="item.path === 'shipments' && overdue" class="nav-count">{{
-              overdue
-            }}</span></router-link
-          >
-        </details>
+            @click="mobileNavigation && active(item.path) && closeNavigation()"
+          >{{ item.title }}<span v-if="item.path === 'shipments' && overdue" class="nav-count">{{ overdue }}</span></router-link>
+        </section>
       </nav>
-    </aside>
+    </div>
     <div class="workspace" :inert="mobileNavigation">
       <header class="topbar">
         <div class="topbar-start">
           <button
+            v-if="modules.length"
             ref="menuButton"
             class="shell-button"
             type="button"
             :aria-label="navigationVisible ? '收起导航' : '展开导航'"
             :aria-expanded="navigationVisible"
-            aria-controls="workspace-sidebar"
+            :aria-controls="mobile ? 'workspace-sidebar' : 'workspace-module-menu'"
             @click="toggleNavigation"
           >
             <Fold v-if="navigationVisible" class="icon" aria-hidden="true" />
             <Expand v-else class="icon" aria-hidden="true" />
+          </button>
+          <button
+            v-if="modules.length"
+            ref="searchButton"
+            class="shell-search"
+            type="button"
+            aria-label="搜索菜单、单号、客户、商品 Ctrl K"
+            aria-keyshortcuts="Control+K"
+            @click="searchOpen = true"
+          >
+            <Search class="icon" aria-hidden="true" /><span>搜索菜单、单号、客户、商品</span><kbd>Ctrl K</kbd>
           </button>
           <nav class="breadcrumb" aria-label="当前位置">
             <router-link
@@ -569,11 +752,12 @@ async function logout(): Promise<void> {
           </button>
           <NotificationBell v-if="!session.user?.mustChangePassword" />
           <details class="account-menu">
-            <summary :aria-label="accountName + '账户菜单'">
+            <summary>
               <span class="account-avatar" aria-hidden="true">{{
                 accountName.charAt(0).toUpperCase()
               }}</span>
               <span class="account-label">{{ accountName }}</span>
+              <span class="account-menu-name">账户菜单</span>
               <ArrowDown class="account-arrow" aria-hidden="true" />
             </summary>
             <div class="account-options">
@@ -603,6 +787,11 @@ async function logout(): Promise<void> {
               >
                 <Lock class="icon" aria-hidden="true" />账户安全
               </router-link>
+              <DisplayDensitySelect
+                v-if="!session.user?.mustChangePassword"
+                class="account-density"
+                label="界面密度"
+              />
             </div>
           </details>
           <button
@@ -631,24 +820,55 @@ async function logout(): Promise<void> {
           :key="tab.key"
           class="work-tab"
           :class="{ 'is-current': tab.key === workTabKey }"
+          @contextmenu.prevent="workTabMenus.get(tab.key)?.handleOpen()"
         >
-          <router-link :to="tab.to" :aria-label="'切换到' + tab.title">{{ tab.title }}</router-link>
+          <router-link :to="tab.to" :aria-label="'切换到' + tab.title">
+            <Lock v-if="tab.pinned" class="icon" aria-label="已固定" />
+            <span v-if="tab.key === workTabKey && hasUnsavedWork" class="tab-dirty" aria-label="未保存" />
+            {{ tab.title }}
+          </router-link>
           <button
             type="button"
             :aria-label="'关闭' + tab.title + '标签'"
             :title="'关闭' + tab.title + '标签'"
-            @click="closeWorkTab(tab)"
+            @click="closeWorkTabs([tab])"
           >
             <Close aria-hidden="true" />
           </button>
+          <el-dropdown
+            :ref="(menu) => setWorkTabMenu(tab.key, menu as DropdownInstance | null)"
+            trigger="click"
+            placement="bottom-start"
+            @command="tabAction($event, tab)"
+          >
+            <button type="button" class="tab-menu-button" :aria-label="tab.title + '标签操作'">
+              <MoreFilled aria-hidden="true" />
+            </button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="refresh">刷新</el-dropdown-item>
+                <el-dropdown-item command="close">关闭</el-dropdown-item>
+                <el-dropdown-item command="others">关闭其他</el-dropdown-item>
+                <el-dropdown-item command="right">关闭右侧</el-dropdown-item>
+                <el-dropdown-item command="pin" :disabled="!tab.pinned && workTabs.filter((item) => item.pinned).length >= MAX_WORK_TABS - 1">
+                  {{ tab.pinned ? '取消固定' : '固定' }}
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </nav>
       <main class="content">
         <el-alert v-if="error" type="error" :title="error" :closable="false" /><router-view
-          :key="route.path + ':' + session.companyId"
+          :key="route.path + ':' + session.companyId + ':' + contentRevision"
         />
       </main>
     </div>
+    <WorkspaceSearch
+      v-model="searchOpen"
+      :menu="searchableMenus"
+      @closed="searchButton?.focus()"
+    />
     <AiAssistantDrawer
       v-if="showAssistant && assistantOpened"
       v-model="assistantOpen"

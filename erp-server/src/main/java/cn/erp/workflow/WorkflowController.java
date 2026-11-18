@@ -22,6 +22,7 @@ class WorkflowController {
     private final WorkflowModels models;
     private final WorkflowQueries queries;
     private final WorkflowTasks tasks;
+    private final WorkflowBatchApproval batch;
     private final JdbcTemplate jdbc;
     private final BusinessCommands commands;
     private final AuditService audit;
@@ -31,6 +32,7 @@ class WorkflowController {
             WorkflowModels models,
             WorkflowQueries queries,
             WorkflowTasks tasks,
+            WorkflowBatchApproval batch,
             JdbcTemplate jdbc,
             BusinessCommands commands,
             AuditService audit) {
@@ -38,6 +40,7 @@ class WorkflowController {
         this.models = models;
         this.queries = queries;
         this.tasks = tasks;
+        this.batch = batch;
         this.jdbc = jdbc;
         this.commands = commands;
         this.audit = audit;
@@ -118,8 +121,9 @@ class WorkflowController {
             @PathVariable String kind,
             @RequestParam(required = false) Long cursor,
             @RequestParam(defaultValue = "20") int limit,
+            @RequestParam(required = false) String keyword,
             @ModelAttribute WorkflowQueries.Filter filter) {
-        return ApiResponse.success(queries.list(actor(req), kind, cursor, limit, filter));
+        return ApiResponse.success(queries.list(actor(req), kind, cursor, limit, filter, keyword));
     }
 
     @GetMapping("/instances/{kind:mine|all}")
@@ -160,6 +164,14 @@ class WorkflowController {
             @Valid @RequestBody Version input) {
         return ApiResponse.success(
                 tasks.end(actor(req), id, action, key, input.version(), input.comment()));
+    }
+
+    @PostMapping("/tasks/batch-approve")
+    ApiResponse<?> batchApprove(
+            HttpServletRequest req,
+            @RequestHeader(value = "Idempotency-Key", required = false) String key,
+            @Valid @RequestBody WorkflowBatchApproval.Input input) {
+        return ApiResponse.success(batch.approve(actor(req), key, input));
     }
 
     @PostMapping("/tasks/{id:[0-9]+}/{action}")

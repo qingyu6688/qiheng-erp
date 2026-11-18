@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { Connection, DocumentDelete, Lock, Warning } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { messageOf } from '../api/http'
 import BrandMark from '../components/BrandMark.vue'
@@ -12,6 +13,7 @@ const messages = {
   503: ['暂时无法连接服务', '请检查网络与后端服务后重试。'],
 }
 const info = computed(() => messages[props.status])
+const resultIcon = computed(() => ({ 401: Warning, 403: Lock, 404: DocumentDelete, 503: Connection })[props.status])
 const router = useRouter()
 const error = ref('')
 async function leave(): Promise<void> {
@@ -26,6 +28,7 @@ async function leave(): Promise<void> {
   <main class="auth-page">
     <section class="login-panel">
       <BrandMark />
+      <component :is="resultIcon" class="status-icon" aria-hidden="true" />
       <div class="status-code">{{ status }}</div>
       <h1>{{ info[0] }}</h1>
       <p>{{ info[1] }}</p>
@@ -36,3 +39,13 @@ async function leave(): Promise<void> {
     </section>
   </main>
 </template>
+
+<style scoped>
+.status-icon {
+  display: block;
+  width: 48px;
+  height: 48px;
+  margin-top: 16px;
+  color: var(--erp-primary-7);
+}
+</style>

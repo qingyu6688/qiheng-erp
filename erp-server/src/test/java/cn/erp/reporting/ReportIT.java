@@ -62,6 +62,24 @@ class ReportIT {
         assertThatThrownBy(()->service.summary(denied,12)).isInstanceOfSatisfying(ApiException.class,error->assertThat(error.getStatus()).isEqualTo(403));
         assertThatThrownBy(()->service.summary(actor(),13)).isInstanceOf(ApiException.class);
     }
+    @Test void workbenchComparisonAndBalancesUseReportFactsWithTheSameDataScope() {
+        var current=actor();
+        var service=trade("2026-11-06T01:00:00Z");
+        var summary=service.summary(current,12);
+        assertThat(summary).containsEntry("inventory","102.00").containsKey("receivable");
+        assertThat(summary.get("comparison")).isInstanceOfSatisfying(Map.class,comparison->
+                assertThat(comparison.get("sales")).isEqualTo(Map.of("previousMonth","0.00","previousYear","0.00")));
+        assertThat(summary.get("trend")).asList().last().asString().contains("inventory=102.00","receivable=");
+
+        var restricted=new CompanyAccess(current.tenantId(),current.userId(),current.companyId(),true,Set.of(),permissions,
+                cn.erp.shared.OrgScope.restricted(Set.of(),Set.of(),0));
+        assertThat(service.summary(restricted,12)).doesNotContainKey("inventory");
+        var warehouseScope=new CompanyAccess(current.tenantId(),current.userId(),current.companyId(),false,Set.of(),permissions);
+        assertThat(service.summary(warehouseScope,12)).doesNotContainKey("receivable").containsEntry("inventory","0.00");
+        var noCost=new CompanyAccess(current.tenantId(),current.userId(),current.companyId(),true,Set.of(),
+                Set.of("report:inventory_summary","report:sales_summary"));
+        assertThat(service.summary(noCost,12)).doesNotContainKeys("inventory","receivable");
+    }
     @Test void departmentRestrictionFiltersExistingFactsAndSeparatesTradeCache() {
         var current=actor();
         var restricted=new CompanyAccess(current.tenantId(),current.userId(),current.companyId(),true,Set.of(),permissions,cn.erp.shared.OrgScope.restricted(Set.of(),Set.of(),0));

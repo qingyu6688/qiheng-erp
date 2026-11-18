@@ -152,9 +152,13 @@ export interface WorkflowListRow {
   businessType: WorkflowBusinessType
   businessNo: string
   status: string
+  automaticProcessingFailed?: boolean
   nodeName?: string
   taskStatus?: string
   taskVersion?: number
+  starterName?: string | null
+  totalAmount?: string | null
+  batchGroup?: string | null
   ownerId?: string
   readAt?: string
   action?: string
@@ -175,6 +179,7 @@ export interface WorkflowTask {
   signPosition?: 'before' | 'after'
   status: string
   priceApproval?: boolean | number
+  canHandle?: boolean
   approvalEpoch?: number
   comment?: string
   version: number
@@ -198,7 +203,9 @@ export interface WorkflowInstance {
   businessNo: string
   title: string
   status: string
+  automaticProcessingFailed?: boolean
   starterId: string
+  starterName?: string | null
   modelVersion: number
   version: number
   startedAt: string
@@ -242,6 +249,15 @@ export interface TaskDecision {
   position?: 'before' | 'after'
   targetNodeKey?: string
   fields?: WorkflowFormValues
+}
+export interface WorkflowBatchInput {
+  group: string
+  items: { id: string; version: number }[]
+}
+export interface WorkflowBatchResult {
+  id: string
+  approved: boolean
+  message?: string | null
 }
 export type WorkflowFormValues = Record<string, string | boolean | null>
 export interface WorkflowFormField {

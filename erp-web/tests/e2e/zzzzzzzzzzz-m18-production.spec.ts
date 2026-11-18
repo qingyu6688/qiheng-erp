@@ -30,9 +30,7 @@ test('M18 生产导航、成本与报表使用真实接口，普通仓储角色�
 }) => {
   test.setTimeout(90_000)
   await login(page, 'admin')
-  const link = page.getByRole('link', { name: '物料清单', exact: true })
-  if (!(await link.isVisible()))
-    page.locator('.nav-group summary').getByText('生产', { exact: true }).click()
+  await page.getByRole('button', { name: '生产', exact: true }).click()
   const areas = [
     ['物料清单', '/api/v1/mfg/boms', '新建 BOM'],
     ['生产工单', '/api/v1/mfg/work-orders', '新建工单'],
@@ -59,7 +57,7 @@ test('M18 生产导航、成本与报表使用真实接口，普通仓储角色�
   try {
     await login(clerk.page, 'supply_tester')
     await expect(
-      clerk.page.locator('.nav-group summary').getByText('生产', { exact: true }),
+      clerk.page.getByRole('button', { name: '生产', exact: true }),
     ).toHaveCount(0)
     await clerk.page.goto('/mfg/cost-periods')
     await expect(clerk.page).toHaveURL(/\/403(?:\?|$)/)

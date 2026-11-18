@@ -3,6 +3,7 @@ import { computed, defineAsyncComponent, onScopeDispose, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import {
   workflowEnd,
+  workflowBatchApprove,
   workflowInstance,
   workflowList,
   workflowRequest,
@@ -15,6 +16,8 @@ import type {
   Choice,
   GenericWorkflowRequest,
   TaskDecision,
+  WorkflowBatchInput,
+  WorkflowBatchResult,
   WorkflowBusinessType,
   WorkflowInstance,
   WorkflowFormValues,
@@ -26,6 +29,9 @@ import { useSessionStore } from '../../stores/session'
 import { registerCompanyLeaveGuard } from '../../utils/unsaved'
 import { formatDateTime } from '../../utils/format'
 import DocumentFilesPanel from '../../components/DocumentFilesPanel.vue'
+import SplitPane from '../../components/SplitPane.vue'
+import WorkflowApprovalPreview from '../../components/workflow/WorkflowApprovalPreview.vue'
+import WorkflowTodoList from '../../components/workflow/WorkflowTodoList.vue'
 const WorkflowFormFields = defineAsyncComponent(
   () => import('../../components/workflow/WorkflowFormFields.vue'),
 )
@@ -39,6 +45,16 @@ const session = useSessionStore(),
   busy = ref(false),
   loading = ref(false),
   detailLoading = ref(false)
+const activeRow = ref<string>()
+const previewRegion = ref<HTMLElement>()
+const batchIds = ref<string[]>([])
+const batchOpen = ref(false)
+const batchResults = ref<(WorkflowBatchResult & { title: string })[]>([])
+const batchRows = computed(() => rows.value.filter((row) => batchIds.value.includes(row.id)))
+const batchGroup = computed(() => batchRows.value[0]?.batchGroup ?? undefined)
+let batchPending: WorkflowBatchInput | undefined
+let batchKey = ''
+let batchTitles = new Map<string, string>()
 const application = ref<GenericWorkflowRequest>(),
   taskApplication = ref<GenericWorkflowRequest>()
 const editedFields = ref<WorkflowFormValues>({})
@@ -57,6 +73,7 @@ function fieldChanges(): WorkflowFormValues {
   )
 }
 const businessType = ref<WorkflowBusinessType | ''>(''),
+  keyword = ref(''),
   status = ref(''),
   next = ref<string | null>(null),
   cursors = ref<(string | null)[]>([null])
@@ -88,7 +105,9 @@ const ownTasks = computed(
   () =>
     detail.value?.tasks.filter(
       (task) =>
-        task.assigneeId === session.user?.id && ['pending', 'waiting_sign'].includes(task.status),
+        task.assigneeId === session.user?.id &&
+        task.canHandle !== false &&
+        ['pending', 'waiting_sign'].includes(task.status),
     ) ?? [],
 )
 const pastNodes = computed(() => [
@@ -134,10 +153,10 @@ function mayLeave(): boolean {
 const unregister = registerCompanyLeaveGuard(mayLeave)
 onBeforeRouteLeave(mayLeave)
 function beforeUnload(event: BeforeUnloadEvent): void {
-  if (decisionOpen.value || busy.value || uncertain.value) event.preventDefault()
+  if (decisionOpen.value || batchOpen.value || busy.value || uncertain.value) event.preventDefault()
 }
 window.addEventListener('beforeunload', beforeUnload)
-async function load(): Promise<void> {
+async function load(autoOpen = true): Promise<void> {
   const current = ++revision
   loading.value = true
   error.value = ''
@@ -146,11 +165,31 @@ async function load(): Promise<void> {
       cursor: cursors.value.at(-1),
       limit: 20,
       businessType: businessType.value || undefined,
-      status: status.value || undefined,
+      status: props.kind === 'todo' ? undefined : status.value || undefined,
+      keyword: props.kind === 'todo' ? keyword.value.trim() || undefined : undefined,
     })
     if (current === revision) {
       rows.value = page.items
       next.value = page.nextCursor
+      batchIds.value = batchIds.value.filter((id) =>
+        page.items.some((row) => row.id === id && row.batchGroup),
+      )
+      if (
+        autoOpen &&
+        props.kind === 'todo' &&
+        !route.params.id &&
+        !detailLoading.value &&
+        !busy.value
+      ) {
+        const first = page.items[0]
+        if (
+          !detail.value ||
+          (activeRow.value && !page.items.some((row) => row.id === activeRow.value))
+        ) {
+          if (first) void open(first.instanceId, undefined, first.id)
+          else closeDetail()
+        }
+      }
     }
   } catch (cause: unknown) {
     if (current === revision && !isCancelled(cause)) {
@@ -163,16 +202,31 @@ async function load(): Promise<void> {
 }
 function search(): void {
   cursors.value = [null]
+  batchIds.value = []
   void load()
 }
 function paginate(forward: boolean): void {
+  batchIds.value = []
   if (forward && next.value) cursors.value.push(next.value)
   else if (!forward && cursors.value.length > 1) cursors.value.pop()
   void load()
 }
-async function open(id: string, copy?: string): Promise<void> {
+async function open(id: string, copy?: string, taskId?: string): Promise<void> {
   if (!mayLeave()) return
+  decisionOpen.value = false
+  pending = undefined
+  await loadDetail(id, taskId, copy)
+}
+async function openTodo(row: WorkflowListRow): Promise<void> {
+  await open(row.instanceId, undefined, row.id)
+  if (activeRow.value === row.id && window.matchMedia?.('(max-width: 767px)').matches) {
+    previewRegion.value?.focus({ preventScroll: true })
+    previewRegion.value?.scrollIntoView({ block: 'start' })
+  }
+}
+async function loadDetail(id: string, taskId?: string, copy?: string): Promise<void> {
   const current = ++detailRevision
+  activeRow.value = taskId
   detailLoading.value = true
   error.value = ''
   detail.value = undefined
@@ -181,7 +235,7 @@ async function open(id: string, copy?: string): Promise<void> {
     const value = await workflowInstance(id)
     if (current !== detailRevision) return
     detail.value = value
-    if (value.businessType === 'wf_generic_request') await loadApplication(value, current)
+    if (value.businessType === 'wf_generic_request') await loadApplication(value, current, taskId)
     if (copy) {
       await readWorkflowCopy(copy)
       window.dispatchEvent(new Event('erp:messages-changed'))
@@ -193,9 +247,13 @@ async function open(id: string, copy?: string): Promise<void> {
     if (current === detailRevision) detailLoading.value = false
   }
 }
-async function loadApplication(value: WorkflowInstance, token: number): Promise<void> {
+async function loadApplication(
+  value: WorkflowInstance,
+  token: number,
+  taskId?: string,
+): Promise<void> {
   try {
-    const request = await workflowRequest(value.businessId)
+    const request = await workflowRequest(value.businessId, taskId)
     if (token === detailRevision) application.value = request
   } catch (cause: unknown) {
     if (
@@ -209,9 +267,94 @@ async function loadApplication(value: WorkflowInstance, token: number): Promise<
 function closeDetail(): void {
   if (!mayLeave()) return
   ++detailRevision
+  activeRow.value = undefined
+  detailLoading.value = false
   detail.value = undefined
   application.value = undefined
   if (route.params.id) void router.replace('/workflow/' + props.kind)
+}
+function toggleBatch(row: WorkflowListRow): void {
+  if (
+    busy.value ||
+    !row.batchGroup ||
+    row.taskVersion === undefined ||
+    (batchGroup.value && row.batchGroup !== batchGroup.value)
+  )
+    return
+  if (batchIds.value.includes(row.id)) batchIds.value = batchIds.value.filter((id) => id !== row.id)
+  else batchIds.value = [...batchIds.value, row.id]
+}
+function chooseBatch(): void {
+  if (busy.value || !batchGroup.value || batchRows.value.length < 2) return
+  const items = batchRows.value.flatMap((row) =>
+    row.taskVersion === undefined ? [] : [{ id: row.id, version: row.taskVersion }],
+  )
+  if (items.length !== batchRows.value.length) return
+  batchPending = { group: batchGroup.value, items }
+  batchTitles = new Map(batchRows.value.map((row) => [row.id, row.title]))
+  batchKey = newIdempotencyKey()
+  batchResults.value = []
+  error.value = ''
+  batchOpen.value = true
+}
+function closeBatch(): void {
+  if (busy.value || uncertain.value) return
+  batchOpen.value = false
+  batchPending = undefined
+  error.value = ''
+}
+function unknownResult(cause: unknown): boolean {
+  return !(cause instanceof ApiError) || cause.status === 0 || cause.status >= 500
+}
+async function refreshHandled(
+  token: number,
+  id: string | undefined,
+  preferred: string | undefined,
+): Promise<void> {
+  const index = rows.value.findIndex((row) => row.id === preferred)
+  await load(false)
+  if (token !== detailRevision) return
+  if (props.kind === 'todo' && preferred && !route.params.id) {
+    const row =
+      rows.value.find((item) => item.id === preferred) ??
+      rows.value[Math.max(0, index)] ??
+      rows.value.at(-1)
+    if (row) {
+      await loadDetail(row.instanceId, row.id)
+      return
+    }
+    detail.value = undefined
+    application.value = undefined
+    activeRow.value = undefined
+    return
+  }
+  if (id) await loadDetail(id)
+}
+async function submitBatch(): Promise<void> {
+  if (!batchPending || busy.value) return
+  busy.value = true
+  error.value = ''
+  const token = detailRevision
+  try {
+    const results = await workflowBatchApprove(batchPending, batchKey)
+    if (token !== detailRevision) return
+    batchResults.value = results.map((result) => ({
+      ...result,
+      title: batchTitles.get(result.id) ?? result.id,
+    }))
+    batchIds.value = []
+    batchOpen.value = false
+    batchPending = undefined
+    uncertain.value = false
+    window.dispatchEvent(new Event('erp:messages-changed'))
+    await refreshHandled(token, detail.value?.id, activeRow.value)
+  } catch (cause: unknown) {
+    if (token !== detailRevision) return
+    error.value = messageOf(cause)
+    uncertain.value = unknownResult(cause)
+  } finally {
+    busy.value = false
+  }
 }
 async function choose(name: string, task?: WorkflowTask): Promise<void> {
   if (busy.value || !detail.value) return
@@ -295,6 +438,8 @@ async function submit(): Promise<void> {
     }
   busy.value = true
   const id = detail.value.id
+  const token = detailRevision
+  const taskId = activeRow.value ?? selected.value?.id
   try {
     if (action.value === 'cancel' || action.value === 'terminate')
       await workflowEnd(
@@ -306,18 +451,17 @@ async function submit(): Promise<void> {
       )
     else if (selected.value)
       await workflowTaskAction(selected.value.id, action.value, pending, requestKey)
+    if (token !== detailRevision) return
     uncertain.value = false
     decisionOpen.value = false
     pending = undefined
     comment.value = ''
     window.dispatchEvent(new Event('erp:messages-changed'))
-    await load()
-    const value = await workflowInstance(id)
-    detail.value = value
-    if (value.businessType === 'wf_generic_request') await loadApplication(value, detailRevision)
+    await refreshHandled(token, id, taskId)
   } catch (cause: unknown) {
+    if (token !== detailRevision) return
     error.value = messageOf(cause)
-    uncertain.value = !(cause instanceof ApiError) || cause.status === 0 || cause.status >= 500
+    uncertain.value = unknownResult(cause)
     if (!uncertain.value) {
       pending = undefined
       requestKey = newIdempotencyKey()
@@ -333,9 +477,9 @@ async function submit(): Promise<void> {
 function changed(): void {
   clearTimeout(refreshTimer)
   refreshTimer = setTimeout(() => {
-    if (!busy.value && !decisionOpen.value) {
+    if (!busy.value && !decisionOpen.value && !batchOpen.value) {
       void load()
-      if (detail.value) void open(detail.value.id)
+      if (detail.value) void open(detail.value.id, undefined, activeRow.value)
     }
   }, 350)
 }
@@ -346,7 +490,13 @@ watch(
     ++revision
     ++detailRevision
     rows.value = []
+    activeRow.value = undefined
+    batchIds.value = []
+    batchResults.value = []
+    batchOpen.value = false
+    batchPending = undefined
     detail.value = undefined
+    detailLoading.value = false
     application.value = undefined
     decisionOpen.value = false
     uncertain.value = false
@@ -375,9 +525,18 @@ onScopeDispose(() => {
   <div class="page-heading">
     <div>
       <h1>{{ titles[kind] }}</h1>
-      <p>处理前会重新校验来源单据权限、审批人资格和业务规则。</p>
     </div>
-    <el-button :loading="loading" @click="search">刷新</el-button>
+    <div class="row-actions">
+      <el-button :loading="loading" :disabled="busy" @click="search">刷新</el-button>
+      <el-button
+        v-if="kind === 'todo' && batchIds.length"
+        type="primary"
+        :disabled="busy || batchIds.length < 2"
+        @click="chooseBatch"
+      >
+        批量同意（{{ batchIds.length }}）
+      </el-button>
+    </div>
   </div>
   <nav class="flow-tabs" aria-label="审批列表">
     <router-link
@@ -394,8 +553,102 @@ onScopeDispose(() => {
       >{{ label }}</router-link
     >
   </nav>
-  <el-alert v-if="error && !decisionOpen" :title="error" type="error" :closable="false" />
-  <section class="panel table-panel" :aria-busy="loading">
+  <el-alert
+    v-if="error && !decisionOpen && !batchOpen"
+    :title="error"
+    type="error"
+    :closable="false"
+  />
+  <section
+    v-if="batchResults.length"
+    class="panel batch-results"
+    aria-label="批量审批结果"
+    aria-live="polite"
+  >
+    <div class="row-actions">
+      <strong>批量审批结果</strong>
+      <el-button size="small" text @click="batchResults = []">关闭结果</el-button>
+    </div>
+    <ul>
+      <li v-for="result in batchResults" :key="result.id">
+        {{ result.title }} ·
+        {{ result.approved ? '已同意' : `处理失败（${result.message ?? '请刷新后查看'}）` }}
+      </li>
+    </ul>
+  </section>
+  <SplitPane
+    v-if="kind === 'todo'"
+    :initial-width="380"
+    :min-width="260"
+    :min-secondary-width="380"
+    :storage-key="`workflow-todo-split:${session.user?.id}:${session.companyId}`"
+    label="调整待办列表宽度"
+  >
+    <template #primary>
+      <WorkflowTodoList
+        :rows="rows"
+        :active="activeRow"
+        :selection="batchIds"
+        :selection-group="batchGroup"
+        :busy="busy"
+        :loading="loading"
+        @open="openTodo"
+        @toggle="toggleBatch"
+      >
+        <template #filters>
+          <form class="todo-filters" @submit.prevent="search">
+            <el-input
+              v-model="keyword"
+              clearable
+              :disabled="busy"
+              maxlength="100"
+              aria-label="搜索待办"
+              placeholder="单号、标题或发起人"
+            />
+            <el-select
+              v-model="businessType"
+              clearable
+              aria-label="审批业务类型"
+              placeholder="全部业务类型"
+              :disabled="busy"
+            >
+              <el-option
+                v-for="(label, type) in businessLabels"
+                :key="type"
+                :label="label"
+                :value="type"
+              />
+            </el-select>
+            <el-button native-type="submit" :disabled="busy" :loading="loading">查询</el-button>
+          </form>
+        </template>
+        <template #pagination>
+          <div v-if="cursors.length > 1 || next" class="pagination">
+            <el-button :disabled="busy || loading || cursors.length === 1" @click="paginate(false)"
+              >上一页</el-button
+            >
+            <el-button :disabled="busy || loading || !next" @click="paginate(true)"
+              >下一页</el-button
+            >
+          </div>
+        </template>
+      </WorkflowTodoList>
+    </template>
+    <template #secondary>
+      <div ref="previewRegion" tabindex="-1" class="approval-preview-region">
+        <WorkflowApprovalPreview
+          :detail="detail"
+          :application="application"
+          :active-task-id="activeRow"
+          :user-id="session.user?.id"
+          :loading="detailLoading"
+          :busy="busy"
+          @choose="choose"
+        />
+      </div>
+    </template>
+  </SplitPane>
+  <section v-else class="panel table-panel" :aria-busy="loading">
     <form class="filters" @submit.prevent="search">
       <el-select
         v-model="businessType"
@@ -436,10 +689,13 @@ onScopeDispose(() => {
         label="环节"
         min-width="160"
         show-overflow-tooltip
-      /><el-table-column label="流程状态" width="110"
-        ><template #default="{ row }">{{
-          workflowStatus[row.status] ?? row.status
-        }}</template></el-table-column
+      /><el-table-column label="流程状态" width="130"
+        ><template #default="{ row }">
+          <el-tag v-if="row.automaticProcessingFailed" type="warning" size="small">
+            自动处理失败
+          </el-tag>
+          <template v-else>{{ workflowStatus[row.status] ?? row.status }}</template>
+        </template></el-table-column
       ><el-table-column v-if="kind === 'done'" label="我的操作" min-width="140"
         ><template #default="{ row }">{{
           actionLabels[row.action] ?? row.action
@@ -454,7 +710,7 @@ onScopeDispose(() => {
             class="text-link"
             @click="open(row.instanceId, kind === 'copies' ? row.id : undefined)"
           >
-            {{ kind === 'todo' ? '查看并处理' : '查看进度' }}
+            查看进度
           </button></template
         ></el-table-column
       ></el-table
@@ -466,6 +722,7 @@ onScopeDispose(() => {
     </div>
   </section>
   <el-drawer
+    v-if="kind !== 'todo'"
     :model-value="Boolean(detail) || detailLoading"
     title="审批详情"
     size="min(1100px, 96vw)"
@@ -487,6 +744,12 @@ onScopeDispose(() => {
           >查看来源单据</router-link
         >
       </div>
+      <el-alert
+        v-if="detail.automaticProcessingFailed"
+        title="自动处理失败。系统会退避重试，也可按权限处理当前任务或终止流程。"
+        type="warning"
+        :closable="false"
+      />
       <el-alert
         v-if="detail.summary.belowMinPrice"
         title="本单低于最低售价；需要审批时，必须由具备价格审批权限的人员完成人工复核。"
@@ -613,6 +876,26 @@ onScopeDispose(() => {
     </template>
   </el-drawer>
   <el-dialog
+    v-model="batchOpen"
+    title="批量同意"
+    width="min(500px, 94vw)"
+    :before-close="closeBatch"
+    :close-on-click-modal="false"
+    append-to-body
+  >
+    <p>确认同意所选的 {{ batchPending?.items.length }} 项待办？系统将逐项校验和处理。</p>
+    <el-alert v-if="error" :title="error" type="error" :closable="false" />
+    <p v-if="uncertain" class="muted">
+      请求结果尚未确认。请使用原请求重试，已处理任务会返回原结果。
+    </p>
+    <template #footer>
+      <el-button :disabled="busy || uncertain" @click="closeBatch">取消</el-button>
+      <el-button type="primary" :loading="busy" @click="submitBatch">{{
+        uncertain ? '使用原请求重试' : '确认批量同意'
+      }}</el-button>
+    </template>
+  </el-dialog>
+  <el-dialog
     v-model="decisionOpen"
     :title="decisionTitle"
     width="min(660px, 94vw)"
@@ -682,6 +965,36 @@ onScopeDispose(() => {
 </template>
 
 <style scoped>
+.todo-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+}
+.todo-filters .el-select {
+  flex: 1;
+  min-width: 0;
+}
+.todo-filters .el-input {
+  flex: 1 0 100%;
+}
+.todo-filters {
+  flex-wrap: wrap;
+}
+.approval-preview-region {
+  scroll-margin-top: 140px;
+}
+.batch-results {
+  padding: 12px 16px;
+  margin-bottom: 12px;
+}
+.batch-results .row-actions {
+  justify-content: space-between;
+}
+.batch-results ul {
+  margin: 4px 0;
+  padding-left: 18px;
+}
 .workflow-application-detail {
   display: block;
 }

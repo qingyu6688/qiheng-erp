@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onScopeDispose, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import {
   inbox,
   readMessage,
@@ -12,6 +13,7 @@ import { isCancelled, messageOf } from '../api/http'
 import { useSessionStore } from '../stores/session'
 import { formatDateTime } from '../utils/format'
 const session = useSessionStore(),
+  route = useRoute(),
   rows = ref<MessageRow[]>([]),
   category = ref(''),
   unread = ref(true),
@@ -124,8 +126,10 @@ function refresh(): void {
 }
 window.addEventListener('erp:messages-changed', refresh)
 watch(
-  () => session.companyId,
+  [() => session.companyId, () => route.query.category],
   () => {
+    category.value = route.query.category === 'notice' ? 'notice' : ''
+    unread.value = category.value !== 'notice'
     notice.value = undefined
     preferencesOpen.value = false
     search()

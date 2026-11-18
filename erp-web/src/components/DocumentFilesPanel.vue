@@ -6,7 +6,7 @@ import { isCancelled, messageOf, newIdempotencyKey } from '../api/http'
 import { documentPermission } from '../types/documents'
 import type { Attachment } from '../types/documents'
 import { useSessionStore } from '../stores/session'
-const props = defineProps<{ ownerType: string; ownerId: string; readonly?: boolean }>(),
+const props = defineProps<{ ownerType: string; ownerId: string; readonly?: boolean; hidePrint?: boolean }>(),
   session = useSessionStore()
 const rows = ref<Attachment[]>([]),
   file = ref<File>(),
@@ -138,7 +138,7 @@ onScopeDispose(() => {
         <p>每张单据最多 20 个文件；下载时重新检查权限。</p>
       </div>
       <router-link
-        v-if="session.can(permission + ':print')"
+        v-if="!hidePrint && session.can(permission + ':print')"
         class="text-link"
         :to="'/print/' + ownerType + '/' + ownerId"
         >打印预览</router-link

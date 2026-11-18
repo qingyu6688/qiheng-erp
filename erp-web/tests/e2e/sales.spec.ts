@@ -48,13 +48,13 @@ async function documentSaved(
 ): Promise<string> {
   await page.getByRole('dialog').getByRole('button', { name: '保存单据', exact: true }).click()
   await expect(page).toHaveURL(new RegExp('/' + kind + '/[0-9]+$'))
-  await expect(page.locator('.sales-detail-header .el-tag').first()).toBeVisible()
+  await expect(page.locator('.sales-detail-header .status-tag, [data-order-status]').first()).toBeVisible()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(expectedNo)
   return new URL(page.url()).pathname
 }
 
 async function status(page: Page, text: string): Promise<void> {
-  await expect(page.locator('.sales-detail-header .el-tag').first()).toHaveText(text)
+  await expect(page.locator('.sales-detail-header .status-tag, [data-order-status]').first()).toHaveText(text)
 }
 
 test('销售订单、发货签收、收款核销、开票和退货退款形成完整闭环', async ({
@@ -77,7 +77,7 @@ test('销售订单、发货签收、收款核销、开票和退货退款形成�
     await selectName(page, '仓库1', warehouse)
     await page.getByRole('textbox', { name: '数量1', exact: true }).fill('4')
     await page.getByRole('textbox', { name: '单价1', exact: true }).fill('100')
-    await expect(page.locator('.sales-totals')).toContainText('400.00')
+    await expect(page.locator('.order-editor-footer')).toContainText('400.00')
     await page.screenshot({ path: testInfo.outputPath('sales-order-form.png'), fullPage: true })
     await page.getByRole('button', { name: '保存订单', exact: true }).click()
     await expect(page).toHaveURL(/\/sales-orders\/[0-9]+$/)
@@ -241,7 +241,11 @@ test('销售订单、发货签收、收款核销、开票和退货退款形成�
     await page.goto(shipmentPath)
     await status(page, '已签收')
     await page.goto(orderPath)
-    await expect(page.locator('.sales-progress')).toContainText('结算 已完成')
+    await expect(page.locator('[data-order-metric="allocated-cash"]')).toHaveText('400.00')
+    await expect(page.locator('[data-order-metric="open-amount"]')).toHaveText('0.00')
+    await expect(page.getByRole('region', { name: '订单摘要' }).getByText('已确认金额结清', { exact: true })).toBeVisible()
+    const settlement = page.getByRole('list', { name: '订单进度' }).getByRole('listitem').filter({ hasText: '结清' })
+    await expect(settlement).toHaveAttribute('data-state', 'done')
     await page.screenshot({
       path: testInfo.outputPath('sales-order-completed.png'),
       fullPage: true,

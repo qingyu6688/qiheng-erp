@@ -1,9 +1,21 @@
 import { env } from 'node:process'
+import { relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
+import { webTestStorage } from './scripts/test-storage'
+
+const testStorage = webTestStorage()
+const testMode = Boolean(env.VITEST) || env.NODE_ENV === 'test'
+const redirectedTests = Boolean(testStorage.root)
+const testOutput = (name: string, fallback: string): string =>
+  testStorage.output('vitest/' + name, fallback)
 
 export default defineConfig(({ command }) => ({
+  cacheDir:
+    testMode || redirectedTests
+      ? testOutput('cache', testStorage.webRoot + '/node_modules/.vite')
+      : undefined,
   define: {
     'import.meta.env.VITE_DEV_TENANT': JSON.stringify(
       command === 'serve' ? env.ERP_DEV_TENANT_CODE || 'DEMO' : '',
@@ -65,5 +77,28 @@ export default defineConfig(({ command }) => ({
       '/ws': { target: env.ERP_API_ORIGIN || 'http://127.0.0.1:8080', ws: true },
     },
   },
-  test: { environment: 'jsdom', clearMocks: true, include: ['tests/**/*.test.ts'] },
+  test: {
+    environment: 'jsdom',
+    clearMocks: true,
+    include: ['tests/**/*.test.ts'],
+    ...(testMode || redirectedTests
+      ? {
+          coverage: { reportsDirectory: testOutput('coverage', testStorage.webRoot + '/coverage') },
+          ...(redirectedTests
+            ? {
+                outputFile: {
+                  json: testOutput('results.json', ''),
+                  junit: testOutput('junit.xml', ''),
+                  html: testOutput('html/index.html', ''),
+                },
+                resolveSnapshotPath: (testPath: string, extension: string): string =>
+                  testOutput(
+                    'snapshots/' + relative(testStorage.webRoot, testPath) + extension,
+                    '',
+                  ),
+              }
+            : {}),
+        }
+      : {}),
+  },
 }))

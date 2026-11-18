@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, reactive } from 'vue'
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, type DOMWrapper } from '@vue/test-utils'
 import DocumentBrowserPanel from '../src/components/DocumentBrowserPanel.vue'
 import DocumentEditorFrame from '../src/components/DocumentEditorFrame.vue'
 import * as api from '../src/api/document-browser'
@@ -9,7 +9,7 @@ import { ApiError } from '../src/api/http'
 import { documentStateTag, quantityDifference } from '../src/types/document-ui'
 
 const route = reactive({ path: '/sales-orders', query: {} as Record<string, string> })
-const security = reactive({ companyId: '1' })
+const security = reactive({ companyId: '1', userId: '9' })
 const navigation = vi.hoisted(() => ({ replace: vi.fn() }))
 vi.mock('../src/api/document-browser')
 vi.mock('../src/api/admin')
@@ -18,6 +18,9 @@ vi.mock('../src/stores/session', () => ({
   useSessionStore: () => ({
     get companyId() {
       return security.companyId
+    },
+    get user() {
+      return { id: security.userId }
     },
     can: () => true,
   }),
@@ -52,9 +55,11 @@ const stubs = {
 }
 beforeEach(() => {
   vi.resetAllMocks()
+  localStorage.clear()
   route.path = '/sales-orders'
   route.query = {}
   security.companyId = '1'
+  security.userId = '9'
   vi.mocked(api.browseDocuments).mockResolvedValue({
     items: [],
     nextCursor: null,
@@ -68,6 +73,154 @@ beforeEach(() => {
   )
 })
 describe('单据列表筛选与状态', () => {
+  it('列顺序和固定位置按用户公司保存，单号与操作始终固定并可恢复默认', async () => {
+    const wrapper = mount(DocumentBrowserPanel, {
+      props: { kind: 'sales-orders' },
+      global: { stubs: { ...stubs, ElTable: { template: '<div><slot /></div>' } } },
+    })
+    await flushPromises()
+    const columns = (): string[] =>
+      wrapper.findAll('el-table-column-stub[column-key]').map((column) => column.attributes('column-key')!)
+    const fixed = (key: string): string | undefined =>
+      wrapper.get('[column-key="' + key + '"]').attributes('fixed')
+    expect(columns()).toEqual([
+      'documentNo',
+      'party',
+      'date',
+      'status',
+      'progress',
+      'amount',
+      'actions',
+    ])
+    expect(fixed('documentNo')).toBe('left')
+    expect(fixed('actions')).toBe('right')
+    expect(wrapper.get('[aria-label="单号固定位置"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[aria-label="操作固定位置"]').attributes('disabled')).toBeDefined()
+    const requests = vi.mocked(api.browseDocuments).mock.calls.length
+    await wrapper.get('[aria-label="上移业务日期"]').trigger('click')
+    await wrapper.get('[aria-label="金额（元）固定位置"]').setValue('left')
+    expect(columns()).toEqual([
+      'documentNo',
+      'amount',
+      'date',
+      'party',
+      'status',
+      'progress',
+      'actions',
+    ])
+    expect(fixed('amount')).toBe('left')
+    expect(api.browseDocuments).toHaveBeenCalledTimes(requests)
+
+    security.companyId = '2'
+    await flushPromises()
+    expect(columns()).toEqual([
+      'documentNo',
+      'party',
+      'date',
+      'status',
+      'progress',
+      'amount',
+      'actions',
+    ])
+    expect(fixed('amount')).toBeUndefined()
+    security.companyId = '1'
+    await flushPromises()
+    expect(columns()).toEqual([
+      'documentNo',
+      'amount',
+      'date',
+      'party',
+      'status',
+      'progress',
+      'actions',
+    ])
+    security.userId = '10'
+    await flushPromises()
+    expect(fixed('amount')).toBeUndefined()
+    security.userId = '9'
+    await flushPromises()
+    expect(fixed('amount')).toBe('left')
+    await wrapper.get('.reset-columns').trigger('click')
+    expect(columns()).toEqual([
+      'documentNo',
+      'party',
+      'date',
+      'status',
+      'progress',
+      'amount',
+      'actions',
+    ])
+    expect(fixed('amount')).toBeUndefined()
+    wrapper.unmount()
+  })
+  it('旧列设置与异常数据兼容，必需列不会被隐藏或移到错误侧', async () => {
+    localStorage.setItem(
+      'erp.document-list.9.1.sales-orders',
+      JSON.stringify({
+        expanded: true,
+        hidden: ['date', 'documentNo', 'actions'],
+        order: ['不存在的列', 'actions', 'status', 'status', 99, 'party', 'documentNo'],
+        fixed: { documentNo: 'right', actions: 'left', status: 'center', party: 'right' },
+      }),
+    )
+    const wrapper = mount(DocumentBrowserPanel, {
+      props: { kind: 'sales-orders' },
+      global: { stubs: { ...stubs, ElTable: { template: '<div><slot /></div>' } } },
+    })
+    await flushPromises()
+    const columns = wrapper.findAll('el-table-column-stub[column-key]')
+    expect(columns.map((column) => column.attributes('column-key'))).toEqual([
+      'documentNo',
+      'status',
+      'progress',
+      'amount',
+      'party',
+      'actions',
+    ])
+    expect(columns[0]?.attributes('fixed')).toBe('left')
+    expect(columns.at(-1)?.attributes('fixed')).toBe('right')
+    expect(
+      wrapper.get('[aria-controls="sales-orders-advanced-filters"]').attributes('aria-expanded'),
+    ).toBe('true')
+    await wrapper.get('.document-column-options summary').trigger('click')
+    await wrapper.get('.document-column-options').trigger('keydown', { key: 'Escape' })
+    expect(wrapper.get('.document-column-options').attributes('open')).toBeUndefined()
+    wrapper.unmount()
+  })
+  it('列显隐与展开状态分别按用户和公司恢复', async () => {
+    const wrapper = mount(DocumentBrowserPanel, {
+      props: { kind: 'sales-orders' },
+      global: { stubs },
+    })
+    await flushPromises()
+    const chooseColumn = (): Omit<DOMWrapper<HTMLInputElement>, 'exists'> =>
+      wrapper
+        .findAll('.document-column-options label')
+        .find((label) => label.text() === '业务日期')!
+        .get('input')
+    const findExpand = (): ReturnType<typeof wrapper.get> =>
+      wrapper.get('[aria-controls="sales-orders-advanced-filters"]')
+    await findExpand().trigger('click')
+    await chooseColumn().setValue(false)
+    expect(findExpand().attributes('aria-expanded')).toBe('true')
+    expect(chooseColumn().element.checked).toBe(false)
+
+    security.companyId = '2'
+    await flushPromises()
+    expect(findExpand().attributes('aria-expanded')).toBe('false')
+    expect(chooseColumn().element.checked).toBe(true)
+
+    security.companyId = '1'
+    await flushPromises()
+    expect(findExpand().attributes('aria-expanded')).toBe('true')
+    expect(chooseColumn().element.checked).toBe(false)
+
+    security.userId = '10'
+    await flushPromises()
+    expect(findExpand().attributes('aria-expanded')).toBe('false')
+    expect(chooseColumn().element.checked).toBe(true)
+    wrapper.unmount()
+  })
   it.each(['purchase-requisitions', 'document-reversals'])(
     '不为%s提供服务端不支持的仓库筛选',
     async (kind) => {
@@ -152,6 +305,49 @@ describe('单据列表筛选与状态', () => {
       .trigger('click')
     await flushPromises()
     expect(vi.mocked(api.browseDocuments).mock.calls.at(-1)?.[1].cursor).toBeUndefined()
+    wrapper.unmount()
+  })
+  it('页容量写入地址栏，改变容量从首页重新查询', async () => {
+    route.query = { status: 'approved', pageSize: '50', cursor: '80', pageCursors: '80' }
+    const wrapper = mount(DocumentBrowserPanel, {
+      props: { kind: 'sales-orders' },
+      global: { stubs },
+    })
+    await flushPromises()
+    expect(api.browseDocuments).toHaveBeenLastCalledWith(
+      'sales-orders',
+      expect.objectContaining({ status: 'approved', limit: 50, cursor: '80' }),
+      expect.any(AbortSignal),
+    )
+    await wrapper.get('.document-pagination-controls select').setValue('100')
+    await flushPromises()
+    expect(navigation.replace).toHaveBeenLastCalledWith({
+      path: '/sales-orders',
+      query: { status: 'approved', pageSize: '100' },
+    })
+    expect(api.browseDocuments).toHaveBeenLastCalledWith(
+      'sales-orders',
+      expect.objectContaining({ status: 'approved', limit: 100, cursor: undefined }),
+      expect.any(AbortSignal),
+    )
+    wrapper.unmount()
+  })
+  it('重置查询条件时保留已选状态页签', async () => {
+    route.query = { status: 'approved', keyword: '当前筛选', dateFrom: '2026-11-01' }
+    const wrapper = mount(DocumentBrowserPanel, {
+      props: { kind: 'sales-orders' },
+      global: { stubs },
+    })
+    await flushPromises()
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '重置')!
+      .trigger('click')
+    await flushPromises()
+    expect(navigation.replace).toHaveBeenLastCalledWith({
+      path: '/sales-orders',
+      query: { status: 'approved' },
+    })
     wrapper.unmount()
   })
   it('首次读取地址栏日期与客户，大ID保留为字符串', async () => {
@@ -270,14 +466,23 @@ describe('单据列表筛选与状态', () => {
     })
     expect(wrapper.find('[role=dialog]').exists()).toBe(false)
     expect(wrapper.get('.order-editor-footer').text()).toBe('保存订单')
+    const body = wrapper.get('[role=region][aria-label="新建销售订单表单内容"]')
+    expect(body.attributes('tabindex')).toBe('0')
     wrapper.unmount()
   })
 })
 describe('状态与签收差异', () => {
-  it('状态颜色区分待处理、完成和冲销', () => {
-    expect(documentStateTag('shipments', 'posted')).toBe('primary')
-    expect(documentStateTag('sales-orders', 'pending')).toBe('warning')
+  it('状态颜色区分草稿、待处理、差异、完成和异常', () => {
+    expect(documentStateTag('sales-orders', 'draft')).toBe('neutral')
+    expect(documentStateTag('sales-orders', 'closed')).toBe('neutral')
+    expect(documentStateTag('sales-orders', 'cancelled')).toBe('neutral')
+    expect(documentStateTag('shipments', 'posted')).toBe('info')
+    expect(documentStateTag('sales-orders', 'pending')).toBe('info')
+    expect(documentStateTag('shipments', 'signed_with_diff')).toBe('warning')
+    expect(documentStateTag('sales-orders', 'approved')).toBe('success')
     expect(documentStateTag('payments', 'confirmed')).toBe('success')
+    expect(documentStateTag('document-reversals', 'rejected')).toBe('danger')
+    expect(documentStateTag('shipments', 'voided')).toBe('danger')
     expect(documentStateTag('shipments', 'reversed')).toBe('danger')
   })
   it('大数量和六位小数差值不经过浮点计算', () => {

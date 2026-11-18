@@ -41,6 +41,14 @@ class MfgCostPosting {
         journal(actor,period,id,entries,journals);
         valuationJournals(actor,period,id,plan.inventory(),"INVENTORY",journals);
         valuationJournals(actor,period,id,plan.issued(),"PRODUCTION_VARIANCE",journals);
+        var shortCloseExpense=plan.orders().stream().map(OrderCost::shortCloseExpense)
+                .filter(java.util.Objects::nonNull).reduce(ZERO,BigDecimal::add);
+        if(shortCloseExpense.signum()!=0) {
+            entries.clear();
+            add(entries,"PRODUCTION_VARIANCE","D",shortCloseExpense,null,null);
+            add(entries,"WIP","C",shortCloseExpense,null,null);
+            journal(actor,period,id,entries,journals);
+        }
         var operations=new Operations(plan.inventory(),plan.issued(),journals);
         jdbc.update("INSERT INTO mfg_cost_posting(id,tenant_id,company_id,period_id,journal_id,operations) VALUES(?,?,?,?,?,?)",
                 id,actor.tenantId(),actor.companyId(),period.id(),journals.isEmpty()?null:journals.getFirst(),json.writeValueAsString(operations));

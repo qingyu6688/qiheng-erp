@@ -66,6 +66,7 @@ foreach($file in 'engine.py','data.py','upgrade.py','03-permission-codes.tsv','r
  Copy-Item -LiteralPath (Join-Path $root "scripts/upgrade-2.0/$file") -Destination $upgradeDirectory
 }
 Copy-Item -LiteralPath (Join-Path $root 'scripts/verify-observability.py') -Destination (Join-Path $stage 'scripts')
+Copy-Item -LiteralPath (Join-Path $root 'scripts/check_deployment_resources.py') -Destination (Join-Path $stage 'scripts')
 $javaDirectory=Join-Path $root 'scripts/java'
 if(Test-Path -LiteralPath $javaDirectory -PathType Container){
  New-Item -ItemType Directory -Path (Join-Path $stage 'scripts/java') | Out-Null

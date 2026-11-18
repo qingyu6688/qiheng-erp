@@ -147,7 +147,7 @@ function copyPairingCode(): void {
           <button v-if="menu !== 'home'" class="compact secondary" @click="menu = 'home'; pairing = undefined">工作台</button>
           <picker v-if="session.profile.companies.length > 1" :range="session.profile.companies"
             range-key="name" :value="Math.max(index, 0)" @change="companyChanged">
-            <view role="button" aria-label="切换公司" class="company">{{ company?.name ?? '请选择公司' }} ▾</view>
+            <view role="button" aria-label="切换公司" class="company company-picker">{{ company?.name ?? '请选择公司' }} ▾</view>
           </picker>
           <text v-else class="company">{{ company?.name ?? session.profile.displayName }}</text>
         </view>
@@ -192,44 +192,3 @@ function copyPairingCode(): void {
     </template>
   </view>
 </template>
-
-<style>
-.layout { width: 100%; max-width: 780px; margin: 0 auto; padding: 0 14px 28px; box-sizing: border-box; }
-.masthead { margin: 0 -14px 14px; background: #142b49; color: #fff; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; }
-.product, .mast-context, .heading, .subheading, .muted, .error, .success, .field-label { display: block; }
-.product { font-size: 21px; font-weight: 700; letter-spacing: .5px; }
-.mast-context { font-size: 18px; color: #dce8f9; }
-.heading { font-size: 24px; font-weight: 700; }
-.subheading { font-size: 20px; font-weight: 650; }
-.panel { display: flex; flex-direction: column; gap: 12px; border: 1px solid #dbe3ee; border-radius: 10px; background: #fff; padding: 16px; }
-.muted { color: #41536a; font-size: 18px; }
-.field-label { font-size: 18px; font-weight: 600; }
-.field { font-size: 18px; background: #fff; border: 1px solid #8294ae; box-sizing: border-box; border-radius: 7px; min-height: 48px; width: 100%; padding: 10px 12px; }
-.field-text { height: auto; min-height: 64px; }
-.scan-field { display: flex; flex-direction: column; gap: 6px; }
-.scan-line .field { flex: 1; width: auto; min-width: 0; }
-.inline, .workspace, .section-title, .work-row-title { display: flex; align-items: center; gap: 8px; }
-.workspace, .section-title, .work-row-title { justify-content: space-between; }
-.workspace { margin-bottom: 14px; min-height: 48px; }
-.company { font-weight: 600; }
-.module-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-button { color: #fff; background: #1553ac; font-size: 18px; line-height: 1.3; padding: 10px 13px; min-height: 48px; margin: 0; border: 1px solid transparent; border-radius: 7px; }
-button::after { border: 0; }
-button[disabled] { opacity: .62; }
-.secondary { background: #f3f7fd; color: #164480; border-color: #d5e2f5; }
-.compact { min-width: 64px; }
-.mast-button { color: #fff; background: transparent; border-color: #8197b3; }
-.work-list-row { width: 100%; background: #fff; border-color: #dbe3ee; color: #182e48; text-align: left; padding: 12px; margin-bottom: 8px; }
-.work-list-row text { display: block; overflow-wrap: anywhere; }
-.status { color: #174780; font-size: 17px; white-space: nowrap; }
-.line-edit { display: flex; flex-direction: column; gap: 8px; border: 1px solid #dbe3ee; border-radius: 7px; padding: 10px; }
-.highlighted, .selected { background: #ebf4ff; border-color: #4074b4; }
-.error, .success { padding: 8px 10px; border-radius: 7px; overflow-wrap: anywhere; }
-.error { color: #8b2424; background: #ffeded; }
-.success { color: #18542e; background: #eaf6ed; }
-.danger { color: #8b2424; }
-.summary-line { justify-content: space-between; }
-.pair-code { display: block; overflow-wrap: anywhere; font-family: monospace; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.scan-preview { background: #142b49; border-radius: 8px; padding: 6px; }
-</style>

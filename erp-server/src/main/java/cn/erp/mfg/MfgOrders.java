@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -20,6 +21,7 @@ import static cn.erp.mfg.MfgPlanning.*;
 class MfgOrders {
     private static final Set<String> STATUSES=Set.of("draft","released","in_progress","completed","closed","cancelled");
     private static final TypeReference<List<String>> SKU_PATH=new TypeReference<>() {};
+    static final TypeReference<List<MfgPlanningModels.ShortCloseMaterial>> MATERIAL_DISPOSITIONS=new TypeReference<>() {};
     private static final String HEAD="""
             SELECT o.*,s.code sku_code,s.name sku_name,u.name unit_name,b.version_no bom_version_no,
                 iw.code issue_warehouse_code,rw.code receive_warehouse_code
@@ -120,7 +122,44 @@ class MfgOrders {
         }).toList());
         if(actor.hasPermission("mfg_issue:view")) result.put("issues",activity(actor,id,true));
         if(actor.hasPermission("mfg_receipt:view")) result.put("receipts",activity(actor,id,false));
+        var close=shortClose(actor,id,false);
+        close.ifPresent(row->{
+            var summary=ApiRows.row(row);
+            summary.put("materials",json.readValue(row.get("materials").toString(),MATERIAL_DISPOSITIONS));
+            result.put("shortClose",summary);
+        });
+        result.put("allowedActions",actions(actor,result.get("status"),((Number)result.get("version")).longValue(),close.orElse(null)));
         return result;
+    }
+
+    private List<String> actions(CompanyAccess actor,Object state,long version,Map<String,Object> close) {
+        var result=new ArrayList<String>();
+        if("draft".equals(state) && actor.hasPermission("mfg_work_order:release")) result.add("release");
+        if("completed".equals(state) && actor.hasPermission("mfg_work_order:close")) result.add("close");
+        if(Set.of("draft","released").contains(state) && actor.hasPermission("mfg_work_order:cancel")) result.add("cancel");
+        if(Set.of("released","in_progress").contains(state)) {
+            if(actor.hasPermission("mfg_work_order:short_close")) result.add("short_close");
+            if(actor.hasPermission("mfg_work_order:approve_short_close") && close!=null && "pending".equals(close.get("status"))
+                    && version==number(close,"order_version") && actor.userId()!=number(close,"requested_by"))
+                result.add("approve_short_close");
+        }
+        return List.copyOf(result);
+    }
+
+    Optional<Map<String,Object>> shortClose(CompanyAccess actor,long id,boolean lock) {
+        return jdbc.queryForList("""
+                SELECT period_id,order_version,business_date,reason,cost_disposition,materials,status,requested_by,reviewed_by,reviewed_at
+                FROM mfg_work_order_short_close WHERE tenant_id=? AND company_id=? AND work_order_id=?
+                """+(lock?" FOR UPDATE":""),actor.tenantId(),actor.companyId(),id).stream().findFirst();
+    }
+
+    boolean hasDocuments(CompanyAccess actor,long id,boolean pendingOnly) {
+        String states=pendingOnly ? "status IN ('draft','pending','approved')" : "status NOT IN ('reversed','cancelled','voided')";
+        for(String table:List.of("mfg_issue_doc","mfg_receipt_doc")) {
+            if(!jdbc.queryForList("SELECT id FROM "+table+" WHERE tenant_id=? AND company_id=? AND work_order_id=? AND "+states+" LIMIT 1 FOR SHARE",
+                    Long.class,actor.tenantId(),actor.companyId(),id).isEmpty()) return true;
+        }
+        return false;
     }
 
     private List<Map<String,Object>> activity(CompanyAccess actor,long id,boolean issue) {

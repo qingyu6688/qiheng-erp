@@ -14,6 +14,16 @@ import static cn.erp.workflow.WorkflowDocuments.*;
 @Service
 @Transactional(readOnly = true)
 public class WorkflowQueries {
+    private static final String AUTOMATIC_FAILURE = """
+            i.status='running' AND EXISTS(
+                SELECT 1 FROM job_item_failure f WHERE f.tenant_id=i.tenant_id AND f.company_id=i.company_id AND f.target_id=i.id AND (
+                    f.job_code='workflow.timeout' AND EXISTS(
+                        SELECT 1 FROM wf_task_ext t WHERE t.tenant_id=f.tenant_id AND t.company_id=f.company_id
+                          AND t.id=CAST(f.item_key AS UNSIGNED) AND t.instance_id=i.id AND t.status='pending')
+                    OR f.job_code='workflow.delay' AND EXISTS(
+                        SELECT 1 FROM wf_delay d WHERE d.tenant_id=f.tenant_id AND d.company_id=f.company_id
+                          AND d.instance_id=i.id AND BINARY d.execution_id=BINARY f.item_key)))
+            """;
     public record Filter(
             String businessType,
             String status,
@@ -34,6 +44,11 @@ public class WorkflowQueries {
 
     public Map<String, Object> list(
             CompanyAccess actor, String kind, Long cursor, int limit, Filter filter) {
+        return list(actor, kind, cursor, limit, filter, null);
+    }
+
+    public Map<String, Object> list(
+            CompanyAccess actor, String kind, Long cursor, int limit, Filter filter, String keyword) {
         if (limit < 1 || limit > 200 || cursor != null && cursor <= 0)
             throw SimpleModel.invalid("分页条件无效");
         if (!Set.of("todo", "done", "mine", "copies", "all").contains(kind))
@@ -49,7 +64,8 @@ public class WorkflowQueries {
                 join = " JOIN wf_task_ext t ON t.tenant_id=i.tenant_id AND t.instance_id=i.id";
                 fields =
                         "t.id entry_id,t.node_name,t.status task_status,t.version"
-                                + " task_version,t.owner_id,t.created_at item_created_at";
+                                + " task_version,t.owner_id,t.node_kind,t.node_key,t.parent_task_id,"
+                                + "t.created_at item_created_at";
                 owner = " AND " + visibility.task(actor, "t", "i");
                 key = "t.id";
             }
@@ -68,6 +84,11 @@ public class WorkflowQueries {
             }
             default -> {}
         }
+        if (kind.equals("todo")) {
+            join += " LEFT JOIN sys_user s ON s.tenant_id=i.tenant_id AND s.id=i.starter_id";
+            fields += ",s.display_name starter_name";
+        }
+        if (kind.equals("all")) fields += ",(" + AUTOMATIC_FAILURE + ") automatic_processing_failed";
         String base =
                 "SELECT i.*,"
                         + fields
@@ -79,6 +100,12 @@ public class WorkflowQueries {
                         + visibility.business(actor, "i", false);
         var args = new ArrayList<Object>(List.of(actor.tenantId(), actor.companyId()));
         if (Set.of("done", "mine", "copies").contains(kind)) args.add(actor.userId());
+        if (kind.equals("todo") && keyword != null && !keyword.isBlank()) {
+            String term = keyword.strip();
+            if (term.length() > 100) throw SimpleModel.invalid("搜索关键词最多100个字");
+            base += " AND (LOCATE(?,i.business_no)>0 OR LOCATE(?,i.title)>0 OR LOCATE(?,s.display_name)>0)";
+            Collections.addAll(args, term, term, term);
+        }
         if (filter.businessType() != null && !filter.businessType().isBlank()) {
             if (!SimpleModel.TYPES.contains(filter.businessType()))
                 throw SimpleModel.invalid("业务类型无效");
@@ -129,6 +156,20 @@ public class WorkflowQueries {
                     var result = new LinkedHashMap<String, Object>();
                     result.put("id", row.get("entry_id").toString());
                     result.put("instanceId", row.get("id").toString());
+                    if (kind.equals("todo")) {
+                        result.put("starter_name", row.get("starter_name"));
+                        var summary = state.summary(row);
+                        if (amountVisible(actor, row, summary)
+                                && Set.of("sales_order", "purchase_order", "refund_request", "document_reversal",
+                                        "stock_adjustment", "credit_increase", "crm_contract", "gl_voucher", "ar_bad_debt")
+                                        .contains(row.get("business_type")))
+                            result.put("total_amount", Objects.toString(summary.get("totalAmount"), null));
+                        result.put("batch_group", WorkflowBatchApproval.group(
+                                row, row.get("task_status"), row.get("node_kind"), row.get("node_key"),
+                                row.get("owner_id"), row.get("parent_task_id")));
+                    }
+                    if (kind.equals("all"))
+                        result.put("automaticProcessingFailed", number(row.get("automatic_processing_failed")) == 1);
                     for (String name :
                             List.of(
                                     "title",
@@ -171,17 +212,15 @@ public class WorkflowQueries {
         var items = new ArrayList<Map<String, Object>>();
         if (page.get("items") instanceof List<?> rows)
             for (Object value : rows)
-                if (value instanceof Map<?, ?> row)
-                    items.add(
-                            Map.of(
-                                    "id",
-                                    row.get("id"),
-                                    "label",
-                                    Objects.toString(row.get("nodeName"), "审批待办"),
-                                    "documentNo",
-                                    row.get("businessNo"),
-                                    "url",
-                                    "/workflow/instances/" + row.get("instanceId")));
+                if (value instanceof Map<?, ?> row) {
+                    var item = new LinkedHashMap<String, Object>();
+                    item.put("id", row.get("id"));
+                    item.put("label", Objects.toString(row.get("nodeName"), "审批待办"));
+                    item.put("documentNo", row.get("businessNo"));
+                    item.put("url", "/workflow/instances/" + row.get("instanceId"));
+                    if (row.get("itemCreatedAt") != null) item.put("createdAt", row.get("itemCreatedAt"));
+                    items.add(item);
+                }
         return Map.of("count", count, "items", items);
     }
 
@@ -190,17 +229,19 @@ public class WorkflowQueries {
         if (!participant(actor, instance)) throw missing();
         var result = WorkflowModels.view(instance);
         result.remove("selections");
+        result.put("starterName", state.jdbc.queryForList(
+                "SELECT display_name FROM sys_user WHERE tenant_id=? AND id=?",
+                String.class, actor.tenantId(), instance.get("starter_id")).stream().findFirst().orElse(null));
+        if (actor.hasPermission("workflow_instance:view_all"))
+            result.put("automaticProcessingFailed", Boolean.TRUE.equals(state.jdbc.queryForObject(
+                    "SELECT " + AUTOMATIC_FAILURE + " FROM wf_instance i WHERE i.tenant_id=? AND i.company_id=? AND i.id=?",
+                    Boolean.class, actor.tenantId(), actor.companyId(), id)));
         var summary = state.summary(instance);
         summary.remove("priceFingerprint");
         summary.remove("creditFingerprint");
         if(!WorkflowDocuments.creditVisible(actor)) {summary.remove("creditExposure");summary.remove("creditLimit");summary.remove("creditOverdueDays");}
         summary.remove("belowMinPriceLineIds");
-        if (!actor.hasPermission("cost:view")
-                && (instance.get("business_type").equals("stock_adjustment")
-                        || instance.get("business_type").equals("document_reversal")
-                                && Set.of("stock_adjustment", "stock_misc_doc", "goods_receipt", "purchase_return", "mfg_issue_doc", "mfg_receipt_doc")
-                                        .contains(Objects.toString(summary.get("sourceType"), ""))))
-            summary.remove("totalAmount");
+        if (!amountVisible(actor, instance, summary)) summary.remove("totalAmount");
         result.put("summary", summary);
         result.put(
                 "tasks",
@@ -214,7 +255,14 @@ public class WorkflowQueries {
                                 actor.tenantId(),
                                 id)
                         .stream()
-                        .map(WorkflowModels::view)
+                        .map(task -> {
+                            var view = WorkflowModels.view(task);
+                            if (number(task.get("assignee_id")) == actor.userId()
+                                    && Set.of("pending", "waiting_sign").contains(task.get("status")))
+                                view.put("canHandle", "running".equals(instance.get("status"))
+                                        && WorkflowTasks.eligible(state, actor, instance, task));
+                            return view;
+                        })
                         .toList());
         result.put(
                 "actions",
@@ -239,6 +287,15 @@ public class WorkflowQueries {
                 instance.get("status").equals("running")
                         && actor.hasPermission("workflow_instance:terminate"));
         return result;
+    }
+
+    private static boolean amountVisible(
+            CompanyAccess actor, Map<String, Object> instance, Map<String, Object> summary) {
+        return actor.hasPermission("cost:view")
+                || !(instance.get("business_type").equals("stock_adjustment")
+                        || instance.get("business_type").equals("document_reversal")
+                                && Set.of("stock_adjustment", "stock_misc_doc", "goods_receipt", "purchase_return", "mfg_issue_doc", "mfg_receipt_doc")
+                                        .contains(Objects.toString(summary.get("sourceType"), "")));
     }
 
     public Map<String, Object> progress(CompanyAccess actor, String type, long id) {

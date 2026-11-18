@@ -143,4 +143,52 @@
       </plugin>
     </plugins>
   </build>
+  <profiles>
+    <profile>
+      <id>external-test-data</id>
+      <activation>
+        <property><name>env.ERP_TEST_ROOT</name></property>
+      </activation>
+      <properties>
+        <erp.test.server-root>${env.ERP_TEST_ROOT}/erp-server</erp.test.server-root>
+        <erp.test.tmp>${erp.test.server-root}/tmp</erp.test.tmp>
+        <argLine></argLine>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+              <reportsDirectory>${erp.test.server-root}/surefire-reports</reportsDirectory>
+              <argLine>${argLine} "-Djava.io.tmpdir=${erp.test.tmp}"</argLine>
+              <environmentVariables>
+                <TMP>${erp.test.tmp}</TMP>
+                <TEMP>${erp.test.tmp}</TEMP>
+                <TMPDIR>${erp.test.tmp}</TMPDIR>
+                <ERP_STORAGE_LOCAL_ROOT>${erp.test.server-root}/objects</ERP_STORAGE_LOCAL_ROOT>
+                <ERP_HTTP_LOG_FILE>${erp.test.server-root}/logs/surefire-http.log</ERP_HTTP_LOG_FILE>
+              </environmentVariables>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <configuration>
+              <reportsDirectory>${erp.test.server-root}/failsafe-reports</reportsDirectory>
+              <summaryFile>${erp.test.server-root}/failsafe-reports/failsafe-summary.xml</summaryFile>
+              <argLine>${argLine} "-Djava.io.tmpdir=${erp.test.tmp}"</argLine>
+              <environmentVariables>
+                <TMP>${erp.test.tmp}</TMP>
+                <TEMP>${erp.test.tmp}</TEMP>
+                <TMPDIR>${erp.test.tmp}</TMPDIR>
+                <ERP_STORAGE_LOCAL_ROOT>${erp.test.server-root}/objects</ERP_STORAGE_LOCAL_ROOT>
+                <ERP_HTTP_LOG_FILE>${erp.test.server-root}/logs/failsafe-http.log</ERP_HTTP_LOG_FILE>
+              </environmentVariables>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

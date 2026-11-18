@@ -1,5 +1,11 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { ElDatePicker } from 'element-plus/es/components/date-picker/index.mjs'
+import { ElEmpty } from 'element-plus/es/components/empty/index.mjs'
+import { ElSkeleton } from 'element-plus/es/components/skeleton/index.mjs'
+import 'element-plus/theme-chalk/el-date-picker.css'
+import 'element-plus/theme-chalk/el-empty.css'
+import 'element-plus/theme-chalk/el-skeleton.css'
 import {
   dashboardData,
   dashboardLayout,
@@ -10,7 +16,7 @@ import { isCancelled, messageOf } from '../../api/http'
 import { useSessionStore } from '../../stores/session'
 import type { DashboardData, DashboardLayout, DashboardMetric } from '../../types/dashboard'
 import { formatDateTimeSeconds } from '../../utils/format'
-import { businessMonth, chartOption, displayValue, moveMetric } from './model'
+import { businessMonth, chartOption, displayValue, hasPlotData, moveMetric } from './model'
 
 const EChart = defineAsyncComponent(() => import('../../components/EChart.vue'))
 const REFRESH_INTERVAL = 300_000
@@ -185,6 +191,7 @@ onBeforeUnmount(() => {
           type="month"
           value-format="YYYY-MM"
           aria-label="统计月份"
+          :teleported="false"
           :clearable="false"
           :disabled-date="(date: Date) => businessMonth(date) > businessMonth()"
           @change="loadData()"
@@ -239,13 +246,9 @@ onBeforeUnmount(() => {
       <div v-if="item.plots.length" class="dashboard-plots">
         <figure v-for="plot in item.plots" :key="plot.name">
           <figcaption>{{ plot.name }}</figcaption>
-          <EChart
-            v-if="plot.points.length"
-            :option="chartOption(plot, screen)"
-            :label="plot.name"
-          />
+          <EChart v-if="hasPlotData(plot)" :option="chartOption(plot, screen)" :label="plot.name" />
           <el-empty v-else description="本期无统计数据" :image-size="56" />
-          <details v-if="plot.points.length && !screen">
+          <details v-if="hasPlotData(plot) && !screen">
             <summary>查看数值</summary>
             <dl class="dashboard-plot-values">
               <div v-for="(point, index) in plot.points" :key="index">
@@ -412,21 +415,52 @@ onBeforeUnmount(() => {
   width: 8em;
 }
 .dashboard--screen {
+  --erp-bg: #232324;
+  --erp-fill-1: #232324;
+  --erp-fill-2: #2c2c2e;
+  --erp-border-1: #333335;
+  --erp-border-2: #333335;
+  --erp-text-1: #f6f6f6;
+  --erp-text-2: #c5c5c5;
+  --erp-text-3: #c5c5c5;
+  --erp-primary-6: #3c7eff;
+  --el-bg-color: var(--erp-bg);
+  --el-bg-color-overlay: var(--erp-bg);
+  --el-bg-color-page: #17171a;
+  --el-fill-color-blank: var(--erp-bg);
+  --el-fill-color-light: var(--erp-fill-2);
+  --el-fill-color-lighter: var(--erp-fill-2);
+  --el-fill-color: var(--erp-fill-2);
+  --el-text-color-primary: var(--erp-text-1);
+  --el-text-color-regular: var(--erp-text-2);
+  --el-text-color-secondary: var(--erp-text-2);
+  --el-text-color-placeholder: var(--erp-text-3);
+  --el-border-color: var(--erp-border-1);
+  --el-border-color-light: var(--erp-border-1);
+  --el-border-color-lighter: var(--erp-border-1);
+  --el-color-primary: var(--erp-primary-6);
+  --el-color-primary-light-3: #6599ff;
+  --el-color-primary-light-5: #283d65;
+  --el-color-primary-light-9: #202e49;
   box-sizing: border-box;
   overflow: auto;
   padding: clamp(16px, 4vw, 60px);
   align-content: start;
-  background: #102038;
-  color: #f0f6ff;
-  --el-text-color-secondary: #c8d5e6;
-  --el-text-color-primary: #f0f6ff;
-  --el-border-color: #405571;
+  background: var(--el-bg-color-page);
+  color: var(--erp-text-1);
 }
 .dashboard--screen .dashboard-block {
-  background: #192e49;
-  border-color: #405571;
+  background: var(--erp-bg);
+  border-color: var(--erp-border-1);
 }
 .dashboard--screen .dashboard-values dd {
   font-size: clamp(1.4rem, 3.5vw, 3.4rem);
+}
+.dashboard--screen :deep(.el-picker-panel) {
+  --el-datepicker-active-color: #0e42d2;
+  --el-datepicker-hover-text-color: #6599ff;
+}
+.dashboard--screen :deep(.el-month-table td.today .el-date-table-cell__text) {
+  color: #6599ff;
 }
 </style>

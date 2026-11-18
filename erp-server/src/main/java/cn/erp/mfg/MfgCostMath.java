@@ -1,6 +1,7 @@
 package cn.erp.mfg;
 
 import cn.erp.shared.ApiException;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayDeque;
@@ -15,7 +16,8 @@ final class MfgCostMath {
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
 
     record Work(long id,BigDecimal plan,BigDecimal finished,BigDecimal lifetimeFinished,BigDecimal material,
-                BigDecimal estimate,BigDecimal beginning,BigDecimal beginningMaterial,BigDecimal hours,BigDecimal progress) {}
+                BigDecimal estimate,BigDecimal beginning,BigDecimal beginningMaterial,BigDecimal hours,BigDecimal progress,
+                String shortCloseDisposition) {}
 
     record Destination(String type,long warehouse,long sku,long order) {
         static Destination inventory(long warehouse,long sku) {return new Destination("inventory",warehouse,sku,0);}
@@ -26,7 +28,8 @@ final class MfgCostMath {
     record OrderCost(long workOrderId,BigDecimal finishedQty,BigDecimal materialCost,BigDecimal rolledMaterial,
                      BigDecimal laborCost,BigDecimal overheadCost,BigDecimal wipBegin,BigDecimal wipEnd,
                      BigDecimal wipEndMaterial,BigDecimal finishedCost,BigDecimal estimatedCost,BigDecimal variance,
-                     BigDecimal inventoryVariance,BigDecimal issuedVariance,BigDecimal rolledVariance) {}
+                     BigDecimal inventoryVariance,BigDecimal issuedVariance,BigDecimal rolledVariance,
+                     @JsonInclude(JsonInclude.Include.NON_NULL) BigDecimal shortCloseExpense) {}
 
     record Valuation(long warehouseId,long skuId,BigDecimal amount) {}
     record Plan(List<OrderCost> orders,List<Valuation> inventory,List<Valuation> issued,BigDecimal labor,BigDecimal overhead) {}
@@ -46,9 +49,11 @@ final class MfgCostMath {
             var burden=overhead.getOrDefault(id,ZERO);
             var material=data.beginningMaterial().add(data.material()).add(rolled);
             var conversion=data.beginning().subtract(data.beginningMaterial()).add(wages).add(burden);
-            var closing=closing(data,material,conversion,method);
+            requireNonNegative(data,material,conversion);
+            var closing=data.shortCloseDisposition()==null?closing(data,material,conversion,method):new Closing(ZERO,ZERO);
             var balance=closing.material().add(closing.conversion());
-            var actual=material.add(conversion).subtract(balance);
+            var expense=shortCloseExpense(data,material.add(conversion));
+            var actual=material.add(conversion).subtract(balance).subtract(expense==null?ZERO:expense);
             var variance=actual.subtract(data.estimate());
             var shares=split(variance,exposures.getOrDefault(id,Map.of()));
             var inv=ZERO;
@@ -65,16 +70,27 @@ final class MfgCostMath {
                 }
             }
             costs.add(new OrderCost(id,data.finished(),data.material(),rolled,wages,burden,data.beginning(),balance,
-                    closing.material(),actual,data.estimate(),variance,inv,out,roll));
+                    closing.material(),actual,data.estimate(),variance,inv,out,roll,expense));
         }
         return new Plan(List.copyOf(costs),valuations(inventory),valuations(issued),sum(labor),sum(overhead));
     }
 
     private record Closing(BigDecimal material,BigDecimal conversion) {}
 
-    private static Closing closing(Work data,BigDecimal material,BigDecimal conversion,String method) {
+    private static void requireNonNegative(Work data,BigDecimal material,BigDecimal conversion) {
         if (material.signum()<0 || conversion.signum()<0 || data.finished().signum()<0)
             throw invalid("工单在制成本或完工数量为负，请核对原始领退料和冲销");
+    }
+
+    private static BigDecimal shortCloseExpense(Work data,BigDecimal total) {
+        if (!"expense".equals(data.shortCloseDisposition())) return null;
+        if (data.finished().signum()==0) return total;
+        var unfinished=data.plan().subtract(data.lifetimeFinished()).max(BigDecimal.ZERO);
+        // 同期成本池按本期完工与剩余计划量分开，前期已结转成本继续保留原凭证。
+        return weighted(total,unfinished,data.finished());
+    }
+
+    private static Closing closing(Work data,BigDecimal material,BigDecimal conversion,String method) {
         if (data.finished().signum()==0) return new Closing(material,conversion);
         var unfinished=data.plan().subtract(data.lifetimeFinished()).max(BigDecimal.ZERO);
         if (unfinished.signum()==0) return new Closing(ZERO,ZERO);

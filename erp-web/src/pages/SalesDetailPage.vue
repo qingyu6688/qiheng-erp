@@ -2,7 +2,13 @@
 import WorkflowProgressPanel from '../components/workflow/WorkflowProgressPanel.vue'
 import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { document, candidates, financeWrite, commandResult, saveShipmentLogistics } from '../api/sales'
+import {
+  document,
+  candidates,
+  financeWrite,
+  commandResult,
+  saveShipmentLogistics,
+} from '../api/sales'
 import { ApiError, isCancelled, messageOf, newIdempotencyKey } from '../api/http'
 import type { SalesKind, SalesDocument } from '../types/sales'
 import type { WorkOrder } from '../types/manufacturing'
@@ -13,6 +19,12 @@ import CommandDialog from '../components/sales/CommandDialog.vue'
 import { useSessionStore } from '../stores/session'
 import DocumentFilesPanel from '../components/DocumentFilesPanel.vue'
 import AiDocumentButton from '../components/AiDocumentButton.vue'
+import StatusTag from '../components/StatusTag.vue'
+import PageHeader from '../components/PageHeader.vue'
+import DocumentMoreActions from '../components/DocumentMoreActions.vue'
+import DocumentDetailLayout from '../components/DocumentDetailLayout.vue'
+import DocumentLineTable from '../components/DocumentLineTable.vue'
+import OrderDetailOverview from '../components/OrderDetailOverview.vue'
 import { documentStateTag } from '../types/document-ui'
 import { formatDateTime, formatMoney, formatQuantity } from '../utils/format'
 const props = defineProps<{ kind: SalesKind }>()
@@ -27,6 +39,23 @@ const value = ref<SalesDocument>(),
   changing = ref(false),
   action = ref('')
 const history = ref<Record<string, unknown>[]>([])
+const orderPage = computed(() => props.kind === 'sales-orders')
+const orderRelations = computed(() => orderPage.value && value.value ? {
+  kind: 'sales-orders' as const, id: value.value.id, version: value.value.version,
+} : undefined)
+const moreActions = computed(() =>
+  orderPage.value
+    ? (value.value?.allowedActions ?? []).filter((action) =>
+        ['cancel', 'delete', 'revoke_approval'].includes(action),
+      )
+    : [],
+)
+const mainActions = computed(() =>
+  (value.value?.allowedActions ?? []).filter((action) => !moreActions.value.includes(action)),
+)
+function actionLabel(action: string): string {
+  return actionLabels[action] ?? action
+}
 const WorkOrderEditor = defineAsyncComponent(() => import('./mfg/WorkOrderEditor.vue'))
 const generatingWork = ref(false)
 const generatedWork = ref<WorkOrder>()
@@ -35,7 +64,11 @@ function workOrderSaved(order: WorkOrder): void {
   generatingWork.value = false
 }
 const commandWarnings = ref<{ message: string }[]>([])
-const logisticsOpen = ref(false), logisticsNumber = ref(''), carrierCode = ref(''), logisticsBusy = ref(false), logisticsError = ref('')
+const logisticsOpen = ref(false),
+  logisticsNumber = ref(''),
+  carrierCode = ref(''),
+  logisticsBusy = ref(false),
+  logisticsError = ref('')
 function editLogistics(): void {
   logisticsNumber.value = value.value?.logisticsNo ?? ''
   carrierCode.value = value.value?.carrierCode ?? ''
@@ -48,11 +81,18 @@ async function saveLogistics(): Promise<void> {
   logisticsBusy.value = true
   logisticsError.value = ''
   try {
-    value.value = await saveShipmentLogistics(shipment.id, shipment.version, logisticsNumber.value.trim(), carrierCode.value.trim())
+    value.value = await saveShipmentLogistics(
+      shipment.id,
+      shipment.version,
+      logisticsNumber.value.trim(),
+      carrierCode.value.trim(),
+    )
     logisticsOpen.value = false
   } catch (cause: unknown) {
     if (!isCancelled(cause)) logisticsError.value = messageOf(cause)
-  } finally { logisticsBusy.value = false }
+  } finally {
+    logisticsBusy.value = false
+  }
 }
 const decision = ref<{
   action: 'approve' | 'reject'
@@ -179,25 +219,55 @@ async function verifyDecision(): Promise<void> {
     decisionBusy.value = false
   }
 }
-onMounted(load)
+onMounted(async () => {
+  const path = route.path
+  await load()
+  if (route.path !== path || !orderPage.value || route.query.next !== 'submit' || !value.value) return
+  const query = { ...route.query }
+  delete query.next
+  if (value.value.allowedActions.includes('submit')) choose('submit')
+  else error.value = '订单已保存，当前状态或权限不允许提交审核。'
+  await router.replace({ path, query })
+})
 function closeEditor(): void {
   editing.value = false
   changing.value = false
 }
 </script>
 <template>
-  <div class="page-heading">
-    <div>
-      <router-link class="text-link" :to="'/' + kind">返回{{ spec.title }}</router-link>
-      <h1>{{ value?.documentNo ?? value?.invoiceNo ?? spec.singular }}</h1>
-    </div>
-    <div v-if="value" class="sales-actions">
-      <el-button v-if="kind === 'sales-orders' && value.status === 'approved' && session.can('mfg_work_order:create')" @click="generatingWork = true">生成工单</el-button>
+  <PageHeader
+    :title="value?.documentNo ?? value?.invoiceNo ?? spec.singular"
+    :back-to="'/' + kind"
+    :back-label="'返回' + spec.title"
+  >
+    <template v-if="value && orderPage" #status>
+      <StatusTag
+        data-order-status
+        :label="salesStatusLabel(kind, value.status)"
+        :tone="documentStateTag(kind, value.status)"
+      />
+    </template>
+    <template v-if="value" #actions>
+      <el-button
+        v-if="
+          kind === 'sales-orders' &&
+          value.status === 'approved' &&
+          session.can('mfg_work_order:create')
+        "
+        @click="generatingWork = true"
+        >生成工单</el-button
+      >
       <router-link
-        v-if="kind === 'receipts' && value.status !== 'reversed' && session.can('crm_receivable:view') && session.can('crm_receivable:manage')"
+        v-if="
+          kind === 'receipts' &&
+          value.status !== 'reversed' &&
+          session.can('crm_receivable:view') &&
+          session.can('crm_receivable:manage')
+        "
         class="text-link"
         :to="{ path: '/crm/receivables', query: { receiptId: value.id } }"
-      >关联 CRM 合同</router-link>
+        >关联 CRM 合同</router-link
+      >
       <AiDocumentButton
         v-if="kind === 'sales-orders' || kind === 'shipments'"
         :document="{
@@ -206,7 +276,13 @@ function closeEditor(): void {
           label: value.documentNo ?? value.id,
         }"
       />
-      <template v-for="name in value.allowedActions" :key="name"
+      <router-link
+        v-if="orderPage && session.can(spec.permission + ':print')"
+        class="text-link"
+        :to="'/print/' + spec.permission + '/' + value.id"
+        >打印</router-link
+      >
+      <template v-for="name in mainActions" :key="name"
         ><el-button
           v-if="name !== 'change_approve' && name !== 'change_reject'"
           :type="
@@ -222,22 +298,36 @@ function closeEditor(): void {
           >{{ actionLabels[name] }}</el-button
         ></template
       >
-    </div>
-  </div>
+      <DocumentMoreActions :actions="moreActions" :label="actionLabel" @choose="choose" />
+    </template>
+  </PageHeader>
   <el-alert v-if="error" type="error" :title="error" :closable="false" />
   <p v-if="generatedWork" role="status">
     已生成生产工单 {{ generatedWork.documentNo }}。
-    <router-link v-if="session.can('mfg_work_order:view')" class="text-link" :to="'/mfg/work-orders/' + generatedWork.id">查看生产工单</router-link>
+    <router-link
+      v-if="session.can('mfg_work_order:view')"
+      class="text-link"
+      :to="'/mfg/work-orders/' + generatedWork.id"
+      >查看生产工单</router-link
+    >
   </p>
   <p v-if="loading" role="status">正在加载单据…</p>
   <template v-if="value">
-    <section class="panel sales-detail-header">
+    <OrderDetailOverview
+      v-if="orderPage"
+      kind="sales-orders"
+      :order="value"
+      :party="value.customer?.name ?? (typeof value.customerName === 'string' ? value.customerName : value.partnerName)"
+      :representative="value.salesUserName"
+    />
+    <section v-else class="panel sales-detail-header">
       <dl>
         <dt>状态</dt>
         <dd>
-          <el-tag :type="documentStateTag(kind, value.status)">{{
-            salesStatusLabel(kind, value.status)
-          }}</el-tag>
+          <StatusTag
+            :label="salesStatusLabel(kind, value.status)"
+            :tone="documentStateTag(kind, value.status)"
+          />
         </dd>
         <template v-if="value.salesUserName"
           ><dt>销售员</dt>
@@ -267,23 +357,22 @@ function closeEditor(): void {
         <dd>{{ value.version }}</dd>
         <template v-if="kind === 'shipments' && value.deliveryMethod === 'delivery'">
           <dt>物流单号</dt>
-          <dd>{{ value.logisticsNo || '—' }}
-            <el-button v-if="session.can('shipment:update') && !['voided', 'reversed'].includes(value.status)" link type="primary" @click="editLogistics">编辑运单号</el-button>
+          <dd>
+            {{ value.logisticsNo || '—' }}
+            <el-button
+              v-if="
+                session.can('shipment:update') && !['voided', 'reversed'].includes(value.status)
+              "
+              link
+              type="primary"
+              @click="editLogistics"
+              >编辑运单号</el-button
+            >
           </dd>
           <dt>承运商编码</dt>
           <dd>{{ value.carrierCode || '—' }}</dd>
         </template>
       </dl>
-      <div v-if="kind === 'sales-orders'" class="sales-progress">
-        <span
-          >履约
-          {{ statusLabels[value.fulfillmentStatus ?? 'none'] ?? value.fulfillmentStatus }}</span
-        ><span
-          >结算 {{ statusLabels[value.settlementStatus ?? 'none'] ?? value.settlementStatus }}</span
-        ><span
-          >售后 {{ statusLabels[value.afterSaleStatus ?? 'none'] ?? value.afterSaleStatus }}</span
-        >
-      </div>
       <p v-if="value.createdAt" class="document-meta-time">
         制单时间 {{ formatDateTime(String(value.createdAt))
         }}<template v-if="value.approvedAt">
@@ -302,120 +391,132 @@ function closeEditor(): void {
       :title="warning.message"
       :closable="false"
     />
-    <section v-if="value.lines?.length" class="panel">
-      <div class="document-section-title">
-        <h2>明细与进度</h2>
-        <span>数量按单据单位显示</span>
-      </div>
-      <el-table :data="value.lines" row-key="id">
-        <el-table-column label="商品 / 来源" min-width="160"
-          ><template #default="{ row }">{{
-            row.sku?.name ??
-            row.skuName ??
-            row.sourceNo ??
-            row.orderLineId ??
-            row.receivableId ??
-            row.id
-          }}</template></el-table-column
+    <DocumentDetailLayout :split="orderPage" :order="orderRelations">
+      <section v-if="value.lines?.length" class="panel" aria-labelledby="document-lines-title">
+        <div class="document-section-title">
+          <h2 id="document-lines-title">明细与进度</h2>
+          <span>数量按单据单位显示</span>
+        </div>
+        <DocumentLineTable :rows="value.lines">
+          <el-table-column label="商品 / 来源" min-width="160"
+            ><template #default="{ row }">{{
+              row.sku?.name ??
+              row.skuName ??
+              row.sourceNo ??
+              row.orderLineId ??
+              row.receivableId ??
+              row.id
+            }}</template></el-table-column
+          >
+          <el-table-column label="数量" min-width="100"
+            ><template #default="{ row }">{{
+              formatQuantity(row.qty ?? row.baseQty)
+            }}</template></el-table-column
+          >
+          <el-table-column label="单位" min-width="80"
+            ><template #default="{ row }">{{
+              row.unit?.name ?? row.unitName ?? '—'
+            }}</template></el-table-column
+          >
+          <el-table-column label="金额" min-width="120"
+            ><template #default="{ row }">{{
+              formatMoney(
+                row.receivableNet ?? row.receivableAmount ?? row.creditAmount ?? row.amount,
+              )
+            }}</template></el-table-column
+          >
+          <el-table-column v-if="kind === 'sales-orders'" label="可发 / 预留" min-width="140"
+            ><template #default="{ row }"
+              >{{ row.progress?.shippableQty }} /
+              {{ statusLabels[row.reservationState ?? 'none'] ?? row.reservationState }}</template
+            ></el-table-column
+          >
+          <el-table-column v-if="kind === 'shipments'" label="签收 / 差异" min-width="140"
+            ><template #default="{ row }"
+              >{{ row.signedQty ?? '—' }} / {{ row.diffQty ?? '—' }}
+              {{ row.diffDisposition === 'pending' ? '待处理' : '' }}</template
+            ></el-table-column
+          >
+          <el-table-column
+            v-if="session.can('cost:view') && kind !== 'sales-orders'"
+            label="成本"
+            min-width="100"
+            ><template #default="{ row }">{{
+              formatMoney(row.costAmount)
+            }}</template></el-table-column
+          >
+        </DocumentLineTable>
+      </section>
+      <section v-if="value.fees?.length" class="panel sales-detail-header">
+        <h2>费用</h2>
+        <p v-for="(fee, index) in value.fees" :key="index">
+          {{ fee.feeType === 'freight' ? '运费' : '其他费用' }} ·
+          {{ fee.bearer === 'buyer' ? '买方承担' : '我方承担' }} · ¥{{ fee.amount }}
+        </p>
+      </section>
+      <section v-if="kind === 'sales-orders' && history.length" class="panel sales-detail-header">
+        <h2>库存预留记录</h2>
+        <el-table :data="history"
+          ><el-table-column prop="remainingQty" label="剩余预留" /><el-table-column label="状态"
+            ><template #default="{ row }">{{
+              statusLabels[row.status] ?? row.status
+            }}</template></el-table-column
+          ><el-table-column label="到期时间"
+            ><template #default="{ row }">{{
+              formatDateTime(String(row.expireAt ?? ''))
+            }}</template></el-table-column
+          ></el-table
         >
-        <el-table-column label="数量" min-width="100"
-          ><template #default="{ row }">{{
-            formatQuantity(row.qty ?? row.baseQty)
-          }}</template></el-table-column
-        >
-        <el-table-column label="单位" min-width="80"
-          ><template #default="{ row }">{{
-            row.unit?.name ?? row.unitName ?? '—'
-          }}</template></el-table-column
-        >
-        <el-table-column label="金额" min-width="120"
-          ><template #default="{ row }">{{
-            formatMoney(row.receivableNet ?? row.receivableAmount ?? row.creditAmount ?? row.amount)
-          }}</template></el-table-column
-        >
-        <el-table-column v-if="kind === 'sales-orders'" label="可发 / 预留" min-width="140"
-          ><template #default="{ row }"
-            >{{ row.progress?.shippableQty }} /
-            {{ statusLabels[row.reservationState ?? 'none'] ?? row.reservationState }}</template
-          ></el-table-column
-        >
-        <el-table-column v-if="kind === 'shipments'" label="签收 / 差异" min-width="140"
-          ><template #default="{ row }"
-            >{{ row.signedQty ?? '—' }} / {{ row.diffQty ?? '—' }}
-            {{ row.diffDisposition === 'pending' ? '待处理' : '' }}</template
-          ></el-table-column
-        >
-        <el-table-column
-          v-if="session.can('cost:view') && kind !== 'sales-orders'"
-          label="成本"
-          min-width="100"
-          ><template #default="{ row }">{{
-            formatMoney(row.costAmount)
-          }}</template></el-table-column
-        >
-      </el-table>
-    </section>
-    <section v-if="value.fees?.length" class="panel sales-detail-header">
-      <h2>费用</h2>
-      <p v-for="(fee, index) in value.fees" :key="index">
-        {{ fee.feeType === 'freight' ? '运费' : '其他费用' }} ·
-        {{ fee.bearer === 'buyer' ? '买方承担' : '我方承担' }} · ¥{{ fee.amount }}
-      </p>
-    </section>
-    <section v-if="kind === 'sales-orders' && history.length" class="panel sales-detail-header">
-      <h2>库存预留记录</h2>
-      <el-table :data="history"
-        ><el-table-column prop="remainingQty" label="剩余预留" /><el-table-column label="状态"
-          ><template #default="{ row }">{{
-            statusLabels[row.status] ?? row.status
-          }}</template></el-table-column
-        ><el-table-column label="到期时间"
-          ><template #default="{ row }">{{
-            formatDateTime(String(row.expireAt ?? ''))
-          }}</template></el-table-column
-        ></el-table
-      >
-    </section>
+      </section>
+      <el-alert
+        v-if="kind === 'sales-orders' && value?.lines?.some((line) => line.belowMinPrice)"
+        title="此单含低于最低售价的商品，请核对折扣及价格审批要求。"
+        type="warning"
+        :closable="false"
+      />
+      <template #progress>
+        <WorkflowProgressPanel
+          v-if="
+            value &&
+            (kind === 'sales-orders'
+              ? 'sales_order'
+              : kind === 'refund-requests'
+                ? 'refund_request'
+                : undefined)
+          "
+          :business-type="
+            (kind === 'sales-orders'
+              ? 'sales_order'
+              : kind === 'refund-requests'
+                ? 'refund_request'
+                : undefined)!
+          "
+          :business-id="value.id"
+          :instance-id="value.workflowInstanceId"
+        />
+      </template>
+      <template #attachments>
+        <DocumentFilesPanel
+          :key="value.version"
+          :owner-type="spec.permission"
+          :owner-id="value.id"
+          :hide-print="orderPage"
+        />
+      </template>
+    </DocumentDetailLayout>
   </template>
-  <el-alert
-    v-if="kind === 'sales-orders' && value?.lines?.some((line) => line.belowMinPrice)"
-    title="此单含低于最低售价的商品，请核对折扣及价格审批要求。"
-    type="warning"
-    :closable="false"
-  />
-  <WorkflowProgressPanel
-    v-if="
-      value &&
-      (kind === 'sales-orders'
-        ? 'sales_order'
-        : kind === 'refund-requests'
-          ? 'refund_request'
-          : undefined)
-    "
-    :business-type="
-      (kind === 'sales-orders'
-        ? 'sales_order'
-        : kind === 'refund-requests'
-          ? 'refund_request'
-          : undefined)!
-    "
-    :business-id="value.id"
-    :instance-id="value.workflowInstanceId"
-  />
   <el-dialog v-model="logisticsOpen" title="编辑运单号" width="min(440px, 95vw)">
     <el-alert v-if="logisticsError" :title="logisticsError" type="error" :closable="false" />
     <el-form label-position="top" @submit.prevent="saveLogistics">
-      <el-form-item label="物流单号"><el-input v-model.trim="logisticsNumber" maxlength="100" /></el-form-item>
-      <el-form-item label="承运商编码"><el-input v-model.trim="carrierCode" maxlength="48" /></el-form-item>
+      <el-form-item label="物流单号"
+        ><el-input v-model.trim="logisticsNumber" maxlength="100"
+      /></el-form-item>
+      <el-form-item label="承运商编码"
+        ><el-input v-model.trim="carrierCode" maxlength="48"
+      /></el-form-item>
       <el-button type="primary" native-type="submit" :loading="logisticsBusy">保存</el-button>
     </el-form>
   </el-dialog>
-  <DocumentFilesPanel
-    v-if="value"
-    :key="value.version"
-    :owner-type="spec.permission"
-    :owner-id="value.id"
-  />
   <OrderEditor
     v-if="(editing || changing) && value && kind === 'sales-orders'"
     :original="value"
@@ -423,7 +524,12 @@ function closeEditor(): void {
     @close="closeEditor"
     @saved="saved"
   />
-  <WorkOrderEditor v-if="generatingWork && value" :sales="value" @close="generatingWork = false" @saved="workOrderSaved" />
+  <WorkOrderEditor
+    v-if="generatingWork && value"
+    :sales="value"
+    @close="generatingWork = false"
+    @saved="workOrderSaved"
+  />
   <DocumentEditor
     v-if="editing && value && kind !== 'sales-orders'"
     :kind="kind"

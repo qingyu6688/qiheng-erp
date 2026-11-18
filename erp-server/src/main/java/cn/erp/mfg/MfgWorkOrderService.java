@@ -220,7 +220,7 @@ class MfgWorkOrderService {
     private void close(CompanyAccess actor,long id,Map<String,Object> order) {
         current(order,"completed");
         if(decimal(order,"completed_qty").compareTo(decimal(order,"plan_qty"))<0) throw conflict("工单尚未完成计划数量");
-        if(hasDocuments(actor,id,true)) throw conflict("请先处理未过账的领退料和完工单据");
+        if(orders.hasDocuments(actor,id,true)) throw conflict("请先处理未过账的领退料和完工单据");
         jdbc.update("""
                 UPDATE mfg_work_order SET status='closed',closed_at=UTC_TIMESTAMP(3),updated_by=?,version=version+1
                 WHERE tenant_id=? AND company_id=? AND id=?
@@ -229,18 +229,9 @@ class MfgWorkOrderService {
 
     private void cancel(CompanyAccess actor,long id,Map<String,Object> order) {
         current(order,"draft","released");
-        if(hasDocuments(actor,id,false)) throw conflict("工单已有生产单据，须先处理后才能取消");
+        if(orders.hasDocuments(actor,id,false)) throw conflict("工单已有生产单据，须先处理后才能取消");
         jdbc.update("UPDATE mfg_work_order SET status='cancelled',updated_by=?,version=version+1 WHERE tenant_id=? AND company_id=? AND id=?",
                 actor.userId(),actor.tenantId(),actor.companyId(),id);
-    }
-
-    private boolean hasDocuments(CompanyAccess actor,long id,boolean pendingOnly) {
-        String states=pendingOnly ? "status IN ('draft','pending','approved')" : "status NOT IN ('reversed','cancelled','voided')";
-        for(String table:List.of("mfg_issue_doc","mfg_receipt_doc")) {
-            if(!jdbc.queryForList("SELECT id FROM "+table+" WHERE tenant_id=? AND company_id=? AND work_order_id=? AND "+states+" LIMIT 1 FOR SHARE",
-                    Long.class,actor.tenantId(),actor.companyId(),id).isEmpty()) return true;
-        }
-        return false;
     }
 
     private void current(Map<String,Object> order,String... states) {

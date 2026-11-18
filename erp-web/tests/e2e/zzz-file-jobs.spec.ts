@@ -70,7 +70,7 @@ test('模板下载、部分成功错误清单、同文件去重和库存期初�
   await expect(page.getByRole('link', { name: '第 2 行 · 查看期初草稿', exact: true })).toBeVisible({ timeout: 30_000 })
   await page.getByRole('link', { name: '第 2 行 · 查看期初草稿', exact: true }).click()
   await expect(page).toHaveURL(/\/stock-adjustments\/[0-9]+$/)
-  await expect(page.locator('.sales-detail-header .el-tag').first()).toHaveText('草稿')
+  await expect(page.locator('.sales-detail-header .status-tag').first()).toHaveText('草稿')
   await expect(page.locator('.sales-detail-header')).toContainText('导入验收期初')
   await page.screenshot({ path: testInfo.outputPath('import-opening-draft.png'), fullPage: true })
   expect(errors).toEqual([])

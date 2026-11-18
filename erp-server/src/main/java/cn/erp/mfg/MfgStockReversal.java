@@ -41,7 +41,10 @@ class MfgStockReversal implements ManufacturingReversalPort {
         if (!scope.hasPermission(resource.permission("view"))) throw forbidden();
         var snapshot = queries.header(scope, resource, id, false);
         if (!lock) return snapshot;
-        orders.header(scope, id(snapshot, "work_order_id"), true);
+        long order=id(snapshot,"work_order_id");
+        orders.header(scope,order,true);
+        if(orders.shortClose(scope,order,true).filter(close->"approved".equals(close.get("status"))).isPresent())
+            throw dependency("工单已短交关闭，不能冲销原生产单据或恢复原工单");
         return queries.header(scope, resource, id, true);
     }
 

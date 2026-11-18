@@ -11,6 +11,8 @@ import {
   slotBalances,
   warehouseLayout,
 } from '../api/supply-chain'
+import SplitPane from '../components/SplitPane.vue'
+import StatusTag from '../components/StatusTag.vue'
 import type {
   Slot,
   SlotBalance,
@@ -30,6 +32,9 @@ const available = ref<Warehouse[]>([])
 const warehouseId = ref('')
 const current = ref<WarehouseLayout>()
 const zoneId = ref('')
+const zoneKeyword = ref('')
+const slotKeyword = ref('')
+const slotStatus = ref<'all' | 'active' | 'disabled'>('all')
 const filterLocationId = ref('')
 const balances = ref<SlotBalance[]>([])
 const moreBalances = ref(false)
@@ -51,20 +56,47 @@ const batchForm = ref<{
   positions: number
 }>()
 const defaults = ref({ receivingId: '', shippingId: '' })
+const zoneById = computed(() => new Map(current.value?.zones.map((zone) => [zone.id, zone])))
+const selectedZone = computed(() => zoneById.value.get(zoneId.value))
+const paneKey = computed(() =>
+  session.user && session.companyId
+    ? `erp.warehouse-locations.pane.${session.user.id}.${session.companyId}`
+    : undefined,
+)
 const activeZones = computed(
   () => current.value?.zones.filter((zone) => zone.status === 'active') ?? [],
 )
 const activeSlots = computed(
   () =>
     current.value?.locations.filter(
-      (slot) =>
-        slot.status === 'active' && activeZones.value.some((zone) => zone.id === slot.zoneId),
+      (slot) => slot.status === 'active' && zoneById.value.get(slot.zoneId)?.status === 'active',
     ) ?? [],
 )
-const visibleSlots = computed(
-  () =>
-    current.value?.locations.filter((slot) => !zoneId.value || slot.zoneId === zoneId.value) ?? [],
+const defaultZone = computed(() =>
+  selectedZone.value?.status === 'active'
+    ? selectedZone.value.id
+    : (activeZones.value[0]?.id ?? ''),
 )
+const visibleZones = computed(() => {
+  const keyword = zoneKeyword.value.trim().toLowerCase()
+  return (
+    current.value?.zones.filter(
+      (zone) =>
+        zone.code.toLowerCase().includes(keyword) || zone.name.toLowerCase().includes(keyword),
+    ) ?? []
+  )
+})
+const visibleSlots = computed(() => {
+  const keyword = slotKeyword.value.trim().toLowerCase()
+  return (
+    current.value?.locations.filter(
+      (slot) =>
+        (!zoneId.value || slot.zoneId === zoneId.value) &&
+        (slotStatus.value === 'all' || slot.status === slotStatus.value) &&
+        (slot.code.toLowerCase().includes(keyword) || slot.name.toLowerCase().includes(keyword)),
+    ) ?? []
+  )
+})
 const dialog = computed(() =>
   zoneForm.value ? '库区' : slotForm.value ? '库位' : batchForm.value ? '批量生成库位' : '',
 )
@@ -98,6 +130,7 @@ async function load(): Promise<void> {
     const result = await warehouseLayout(warehouseId.value)
     if (generation !== loadingId) return
     current.value = result
+    if (zoneId.value && !zoneById.value.has(zoneId.value)) zoneId.value = ''
     defaults.value = {
       receivingId: result.warehouse.defaultReceivingLocationId ?? '',
       shippingId: result.warehouse.defaultShippingLocationId ?? '',
@@ -129,6 +162,8 @@ async function loadBalances(append = false): Promise<void> {
 watch(warehouseId, () => {
   current.value = undefined
   zoneId.value = filterLocationId.value = notice.value = ''
+  zoneKeyword.value = slotKeyword.value = ''
+  slotStatus.value = 'all'
   balances.value = []
   close()
   void load()
@@ -162,7 +197,7 @@ function editSlot(row?: Slot): void {
     slotForm.value = { ...fields, enabled: status === 'active' }
   } else {
     slotForm.value = {
-      zoneId: zoneId.value || activeZones.value[0]?.id || '',
+      zoneId: defaultZone.value,
       code: '',
       name: '',
       aisle: null,
@@ -180,7 +215,7 @@ function editSlot(row?: Slot): void {
 function batch(): void {
   error.value = ''
   batchForm.value = {
-    zoneId: zoneId.value || activeZones.value[0]?.id || '',
+    zoneId: defaultZone.value,
     prefix: '',
     aisles: 1,
     shelves: 1,
@@ -247,59 +282,108 @@ async function perform(configure = false): Promise<void> {
     </div>
     <el-tabs v-if="current" v-model="tab">
       <el-tab-pane name="layout" label="库区与库位">
-        <div class="filters">
-          <el-select
-            v-model="zoneId"
-            aria-label="筛选库区"
-            placeholder="全部库区"
-            filterable
-            clearable
-          >
-            <el-option
-              v-for="zone in current.zones"
-              :key="zone.id"
-              :label="zone.code + ' ' + zone.name"
-              :value="zone.id"
-            />
-          </el-select>
-          <el-button v-if="write" @click="editZone()">新增库区</el-button>
-          <el-button
-            v-if="write && zoneId"
-            @click="editZone(current.zones.find((zone) => zone.id === zoneId))"
-            >编辑库区</el-button
-          >
-          <el-button v-if="write" :disabled="!activeZones.length" @click="editSlot()"
-            >新增库位</el-button
-          >
-          <el-button v-if="write" :disabled="!activeZones.length" @click="batch"
-            >批量生成</el-button
-          >
-        </div>
-        <el-table :data="visibleSlots" row-key="id" empty-text="暂无库位">
-          <el-table-column prop="code" label="库位编码" min-width="170" />
-          <el-table-column prop="name" label="库位名称" min-width="140" />
-          <el-table-column label="所属库区" min-width="100">
-            <template #default="{ row }">{{
-              current.zones.find((zone) => zone.id === row.zoneId)?.name
-            }}</template>
-          </el-table-column>
-          <el-table-column prop="pickSequence" label="拣货顺序" width="100" />
-          <el-table-column label="状态" width="90"
-            ><template #default="{ row }">{{
-              row.status === 'active' ? '启用' : '停用'
-            }}</template></el-table-column
-          >
-          <el-table-column label="操作" min-width="140">
-            <template #default="{ row }">
-              <el-button v-if="write" type="primary" link @click="editSlot(row)">编辑</el-button>
-              <router-link
-                class="text-link"
-                :to="'/warehouse-locations/' + warehouseId + '/labels/' + row.id"
-                >标签</router-link
+        <SplitPane :storage-key="paneKey" label="调整库区列表宽度">
+          <template #primary>
+            <section class="zone-index" aria-label="库区列表">
+              <div class="location-panel-heading">
+                <h2>库区</h2>
+                <el-button v-if="write" @click="editZone()">新增库区</el-button>
+              </div>
+              <el-input
+                v-model="zoneKeyword"
+                aria-label="搜索库区"
+                placeholder="库区编码或名称"
+                clearable
+              />
+              <ul class="zone-list" aria-label="库区选择">
+                <li>
+                  <button type="button" :aria-pressed="!zoneId" @click="zoneId = ''">
+                    全部库区
+                  </button>
+                </li>
+                <li v-for="zone in visibleZones" :key="zone.id">
+                  <button
+                    type="button"
+                    :aria-pressed="zoneId === zone.id"
+                    @click="zoneId = zone.id"
+                  >
+                    <span class="zone-list-name">{{ zone.code }} {{ zone.name }}</span>
+                    <span class="zone-list-meta"
+                      >{{ zoneTypes[zone.type] }} ·
+                      {{ zone.status === 'active' ? '启用' : '停用' }}</span
+                    >
+                  </button>
+                </li>
+              </ul>
+              <p v-if="!visibleZones.length" class="muted zone-empty">
+                {{ zoneKeyword.trim() ? '未找到匹配的库区' : '暂无库区' }}
+              </p>
+            </section>
+          </template>
+          <template #secondary>
+            <section class="location-details" aria-label="库位列表">
+              <div class="location-panel-heading">
+                <h2>{{ selectedZone ? selectedZone.name + ' · 库位' : '全部库位' }}</h2>
+                <div v-if="write" class="location-actions">
+                  <el-button v-if="selectedZone" @click="editZone(selectedZone)"
+                    >编辑库区</el-button
+                  >
+                  <el-button :disabled="!activeZones.length" @click="editSlot()"
+                    >新增库位</el-button
+                  >
+                  <el-button :disabled="!activeZones.length" @click="batch">批量生成</el-button>
+                </div>
+              </div>
+              <div class="filters location-filters">
+                <el-input
+                  v-model="slotKeyword"
+                  aria-label="搜索库位"
+                  placeholder="库位编码或名称"
+                  clearable
+                />
+                <el-select v-model="slotStatus" aria-label="筛选库位状态">
+                  <el-option value="all" label="全部状态" />
+                  <el-option value="active" label="启用" />
+                  <el-option value="disabled" label="停用" />
+                </el-select>
+              </div>
+              <el-table
+                :data="visibleSlots"
+                row-key="id"
+                :empty-text="
+                  slotKeyword.trim() || slotStatus !== 'all' ? '未找到匹配的库位' : '暂无库位'
+                "
               >
-            </template>
-          </el-table-column>
-        </el-table>
+                <el-table-column prop="code" label="库位编码" min-width="170" />
+                <el-table-column prop="name" label="库位名称" min-width="140" />
+                <el-table-column label="所属库区" min-width="100">
+                  <template #default="{ row }">{{ zoneById.get(row.zoneId)?.name }}</template>
+                </el-table-column>
+                <el-table-column prop="pickSequence" label="拣货顺序" width="100" />
+                <el-table-column label="状态" width="90">
+                  <template #default="{ row }">
+                    <StatusTag
+                      :tone="row.status === 'active' ? 'success' : 'neutral'"
+                      :label="row.status === 'active' ? '启用' : '停用'"
+                    />
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" min-width="140">
+                  <template #default="{ row }">
+                    <el-button v-if="write" type="primary" link @click="editSlot(row)"
+                      >编辑</el-button
+                    >
+                    <router-link
+                      class="text-link"
+                      :to="'/warehouse-locations/' + warehouseId + '/labels/' + row.id"
+                      >标签</router-link
+                    >
+                  </template>
+                </el-table-column>
+              </el-table>
+            </section>
+          </template>
+        </SplitPane>
       </el-tab-pane>
       <el-tab-pane name="balances" label="库位余额" v-if="session.can('inventory:view')">
         <div class="filters">
@@ -482,6 +566,94 @@ async function perform(configure = false): Promise<void> {
 }
 .filters .el-select {
   max-width: 280px;
+}
+.zone-index,
+.location-details {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+}
+.zone-index {
+  padding-right: 12px;
+}
+.location-details {
+  padding-left: 12px;
+}
+.location-panel-heading,
+.location-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.location-panel-heading {
+  justify-content: space-between;
+}
+.location-panel-heading h2 {
+  margin: 0;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.location-actions .el-button + .el-button {
+  margin-left: 0;
+}
+.zone-list {
+  display: grid;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 2px;
+  max-height: 420px;
+  overflow: auto;
+}
+.zone-list button {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  color: var(--el-text-color-primary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--el-border-radius-base);
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.zone-list button:hover {
+  background: var(--el-fill-color-light);
+}
+.zone-list button[aria-pressed='true'] {
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  border-color: var(--el-color-primary-light-7);
+}
+.zone-list button:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: -2px;
+}
+.zone-list-meta,
+.zone-empty {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+.zone-empty {
+  margin: 0;
+}
+.location-filters .el-input {
+  width: min(240px, 100%);
+}
+.location-filters .el-select {
+  width: min(128px, 100%);
+}
+@media (max-width: 767px) {
+  .zone-index,
+  .location-details {
+    padding: 0;
+  }
+  .zone-list {
+    max-height: 200px;
+  }
 }
 .slot-fields {
   display: flex;

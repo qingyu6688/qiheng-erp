@@ -17,6 +17,7 @@ import StockCommandDialog from '../components/stock-operations/StockCommandDialo
 import DocumentFilesPanel from '../components/DocumentFilesPanel.vue'
 import { documentType } from '../types/documents'
 import DocumentBrowserPanel from '../components/DocumentBrowserPanel.vue'
+import StatusTag from '../components/StatusTag.vue'
 import { documentStateTag } from '../types/document-ui'
 import { formatDateTime, formatMoney, formatQuantity } from '../utils/format'
 
@@ -113,9 +114,10 @@ function closeAction(): void {
       <dl>
         <dt>状态</dt>
         <dd>
-          <el-tag :type="documentStateTag(kind, value.status)">{{
-            stockStatusLabels[value.status] ?? value.status
-          }}</el-tag>
+          <StatusTag
+            :label="stockStatusLabels[value.status] ?? value.status"
+            :tone="documentStateTag(kind, value.status)"
+          />
         </dd>
         <dt>业务日期</dt>
         <dd>{{ value.businessDate }}</dd>

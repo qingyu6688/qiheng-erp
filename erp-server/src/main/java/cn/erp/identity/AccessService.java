@@ -11,6 +11,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.ObjectMapper;
 
 import cn.erp.shared.ApiException;
 
@@ -26,14 +27,14 @@ public class AccessService {
                 WHERE u.tenant_id = ? AND u.id = ? AND u.status = 'active' AND t.status = 'active'
                   AND %s = ? %s
             )
-            SELECT 0 AS row_kind, username, display_name, must_change_password, NULL AS permission_code,
+            SELECT 0 AS row_kind, a.username, a.display_name, a.must_change_password,
+                   (SELECT STRAIGHT_JOIN JSON_ARRAYAGG(p.code)
+                    FROM sys_user_role ur
+                    %s
+                    WHERE ur.tenant_id = a.tenant_id AND ur.user_id = a.id) AS permission_codes,
                    NULL AS company_id, NULL AS company_code, NULL AS company_name,
                    NULL AS scope_type, NULL AS warehouse_id, NULL AS warehouse_key
-            FROM active_account
-            UNION ALL
-            SELECT 1, NULL, NULL, NULL, p.code, NULL, NULL, NULL, NULL, NULL, NULL
-            %s
-            JOIN active_account a ON a.tenant_id = ur.tenant_id AND a.id = ur.user_id
+            FROM active_account a
             UNION ALL
             SELECT 2, NULL, NULL, NULL, NULL, c.id, c.code, c.name, s.scope_type, s.warehouse_id, s.warehouse_key
             FROM active_account a
@@ -42,15 +43,18 @@ public class AccessService {
             ORDER BY row_kind, company_id, warehouse_key
             """;
     private static final String HUMAN_PROFILE = PROFILE_SQL.formatted(PASSWORD_REVISION,
-            SessionChecks.PRIMARY + SessionChecks.MFA,UserAccessMapper.ROLE_PERMISSIONS);
-    private static final String BACKGROUND_PROFILE = PROFILE_SQL.formatted(PASSWORD_REVISION,"",UserAccessMapper.ROLE_PERMISSIONS);
+            SessionChecks.PRIMARY + SessionChecks.MFA,UserAccessMapper.ROLE_PERMISSION_JOINS);
+    private static final String BACKGROUND_PROFILE = PROFILE_SQL.formatted(PASSWORD_REVISION,"",UserAccessMapper.ROLE_PERMISSION_JOINS);
     private static final String LEGACY_PROFILE = BACKGROUND_PROFILE.replace("org_user_data_scope", "sys_user_data_scope");
     private final JdbcTemplate jdbc;
     private final OrgScopeResolver orgScopes;
 
-    AccessService(JdbcTemplate jdbc,OrgScopeResolver orgScopes) {
+    private final ObjectMapper json;
+
+    AccessService(JdbcTemplate jdbc, OrgScopeResolver orgScopes, ObjectMapper json) {
         this.jdbc = jdbc;
-        this.orgScopes=orgScopes;
+        this.orgScopes = orgScopes;
+        this.json = json;
     }
 
     /** 同一请求内复用校验结果，下一次请求重新检查账号、角色和数据范围。 */
@@ -147,14 +151,10 @@ public class AccessService {
         String username = rows.getString("username");
         String displayName = rows.getString("display_name");
         boolean mustChangePassword = rows.getBoolean("must_change_password");
-        var permissions = new LinkedHashSet<String>();
+        String codes = rows.getString("permission_codes");
+        Set<String> permissions = codes == null ? Set.of() : Set.copyOf(List.of(json.readValue(codes, String[].class)));
         var companies = new LinkedHashMap<String, CompanyView>();
         while (rows.next()) {
-            String permission = rows.getString("permission_code");
-            if (permission != null) {
-                permissions.add(permission);
-                continue;
-            }
             String id = rows.getString("company_id");
             CompanyView company = companies.get(id);
             if (company == null) {
@@ -168,7 +168,7 @@ public class AccessService {
             }
         }
         return new UserView(Long.toString(userId), username, displayName, mustChangePassword,
-                Set.copyOf(permissions), List.copyOf(companies.values()));
+                permissions, List.copyOf(companies.values()));
     }
 
     record UserView(String id, String username, String displayName, boolean mustChangePassword,

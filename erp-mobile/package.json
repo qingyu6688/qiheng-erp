@@ -11,7 +11,7 @@
     "postbuild:app": "node scripts/copy-licenses.mjs app",
     "type-check": "vue-tsc --noEmit",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "node ../erp-web/scripts/run-tests.mjs vitest run"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-5030420261029002",

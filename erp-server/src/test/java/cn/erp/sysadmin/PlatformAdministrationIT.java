@@ -61,10 +61,14 @@ class PlatformAdministrationIT {
     @Test void Y04_01_noticeSanitizesHtmlChecksAudienceAndWithdrawsUnreadMessages() {
         var notice=notices.save(actor,null,key(),new NoticeService.Input("重要公告","<p>正文<script>窃取()</script><a href='javascript:alert(1)'>链接</a></p>","important",null,null,List.of(new NoticeService.Target("user",89002)),0L));long id=Long.parseLong(notice.get("id").toString());
         assertThat(notice.get("content").toString()).doesNotContain("script","javascript");notices.change(actor,id,"publish",0,key());assertThat(messages.important(other)).hasSize(1);assertThat(messages.important(actor)).isEmpty();
+        assertThat(messages.summary(other).get("announcements")).asList().singleElement().asString()
+                .contains("id="+id,"title=重要公告","level=important").doesNotContain("content=");
+        assertThat(messages.summary(actor).get("announcements")).asList().isEmpty();
         assertThatThrownBy(()->messages.notice(actor,id)).isInstanceOfSatisfying(ApiException.class,e->assertThat(e.getStatus()).isEqualTo(404));
         var inbox=messages.list(other,"notice",true,null,50);assertThat(inbox.get("items")).asList().hasSize(1);long messageId=jdbc.queryForObject("SELECT id FROM notify_message WHERE notice_id=? AND user_id=89002",Long.class,id);
         messages.read(other,messageId);assertThat(messages.important(other)).isEmpty();assertThatThrownBy(()->messages.read(actor,messageId)).isInstanceOf(ApiException.class);
         notices.change(actor,id,"withdraw",1,key());assertThat(messages.list(other,"notice",null,null,50).get("items")).asList().isEmpty();assertThatThrownBy(()->messages.notice(other,id)).isInstanceOf(ApiException.class);
+        assertThat(messages.summary(other).get("announcements")).asList().isEmpty();
     }
     @Test void Y05_01_todoAndCountsRespectDepartmentWarehouseCompanyAndRevocation() {
         jdbc.update("UPDATE sales_order SET status='pending',owner_department_id=10,owner_user_id=89001,created_by=89001 WHERE id=71201");

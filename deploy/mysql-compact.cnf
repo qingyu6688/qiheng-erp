@@ -1,0 +1,10 @@
+[mysqld]
+# 与 mysql-primary.cnf 一起使用，本文件只覆盖核心业务小规模试运行的内存预算。
+# 根据真实单量复测后再调整，事务刷盘与 binlog 的耐久性配置沿用主配置。
+innodb-buffer-pool-size=256M
+max-connections=50
+table-open-cache=400
+table-definition-cache=400
+temptable-max-ram=32M
+tmp-table-size=16M
+max-heap-table-size=16M

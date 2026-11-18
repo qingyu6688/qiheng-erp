@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>审批中心 · v2</title>
+<link rel="stylesheet" href="assets/v2.css">
+<style>
+  .split { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 16px; min-height: 640px; }
+  .todo .meta { font-size: 12px; color: var(--erp-text-3); }
+  .todo .amt { font-weight: 500; font-variant-numeric: tabular-nums; }
+  .preview { display: flex; flex-direction: column; }
+  .preview .body { padding: 16px 20px; display: flex; flex-direction: column; gap: 16px; flex: 1; }
+  .preview .foot { position: sticky; bottom: 0; display: flex; gap: 8px; justify-content: flex-end; padding: 12px 20px; border-top: 1px solid var(--erp-border-1); background: #fff; box-shadow: var(--erp-shadow-1); }
+  .reason { background: var(--erp-warning-bg); color: var(--erp-warning-text); border-radius: var(--erp-radius); padding: 8px 12px; font-size: 13px; }
+  textarea.input { height: 64px; padding: 6px 11px; resize: vertical; }
+  @media (max-width: 1199px) { .split { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body data-module="approve" data-menu="todo" data-tabs="工作台|01-workbench.html;待办|05-approval-center.html|current">
+<main id="page">
+  <header class="page-head"><div class="line"><div><h1>待办</h1><p class="meta">需要你处理的审批任务，按到达时间排序</p></div><div class="actions"><button class="btn" type="button">批量同意</button></div></div></header>
+
+  <div class="split">
+    <section class="card todo" aria-label="待办列表">
+      <div class="card-head" style="gap:8px">
+        <input class="input" placeholder="搜索单号、发起人" aria-label="搜索待办" style="flex:1">
+        <select class="select" aria-label="业务类型" style="width:120px"><option>全部类型</option><option>销售订单</option><option>采购订单</option><option>退款申请</option></select>
+      </div>
+      <ul class="list">
+        <li class="current"><input class="chk" type="checkbox" aria-label="选择"><span class="ico blue"><svg class="i" viewBox="0 0 24 24"><path d="M3 4h2l2.4 11.2a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 8H6.2"/></svg></span><div class="grow"><div>销售订单 · 华东商贸</div><div class="meta">李娜 · SO-C01-202611-000124 · 2 小时前</div></div><span class="amt">62,400.00</span></li>
+        <li><input class="chk" type="checkbox" aria-label="选择"><span class="ico purple"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h16l-1.5 12.5a1 1 0 0 1-1 .9H6.5a1 1 0 0 1-1-.9z"/></svg></span><div class="grow"><div>采购订单 · 宁波甬达五金</div><div class="meta">王涛 · PO-C01-202611-000056 · 5 小时前</div></div><span class="amt">18,250.00</span></li>
+        <li><input class="chk" type="checkbox" aria-label="选择"><span class="ico orange"><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></span><div class="grow"><div>退款申请 · 杭州云帆电商</div><div class="meta">陈洁 · RF-C01-202611-000009 · 1 天前</div></div><span class="amt">1,200.00</span></li>
+        <li><input class="chk" type="checkbox" aria-label="选择"><span class="ico cyan"><svg class="i" viewBox="0 0 24 24"><path d="M3 8 12 3l9 5-9 5z"/><path d="M3 8v8l9 5 9-5V8"/></svg></span><div class="grow"><div>库存调整 · 报废</div><div class="meta">王强 · AD-C01-202611-000012 · 1 天前</div></div><span class="amt">−167.25</span></li>
+        <li><input class="chk" type="checkbox" aria-label="选择"><span class="ico green"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg></span><div class="grow"><div>记账凭证 · 记-0032</div><div class="meta">周敏 · 计提 11 月工资 · 2 天前</div></div><span class="amt">86,400.00</span></li>
+      </ul>
+    </section>
+
+    <section class="card preview" aria-label="待办详情">
+      <div class="card-head">
+        <h2 class="tnum">SO-C01-202611-000124</h2><span class="tag tag-info">待审核</span>
+        <div class="actions"><a class="btn btn-sm" href="04-document-detail.html">打开单据</a></div>
+      </div>
+      <div class="body">
+        <div class="reason">进入此审批的原因：订单金额 62,400.00 超过 50,000.00，需要部门经理与财务会签。当前节点：部门经理审批（你）。</div>
+        <dl class="desc" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+          <div><dt>客户</dt><dd>华东商贸有限公司</dd></div>
+          <div><dt>业务日期</dt><dd class="tnum">2026-11-17</dd></div>
+          <div><dt>交货日期</dt><dd class="tnum">2026-11-25</dd></div>
+          <div><dt>销售员</dt><dd>李娜</dd></div>
+          <div><dt>信用占用</dt><dd>186,000.00 / 300,000.00</dd></div>
+          <div><dt>最低售价</dt><dd><span class="tag tag-success">均不低于最低价</span></dd></div>
+        </dl>
+        <div class="table-wrap">
+          <table class="t">
+            <thead><tr><th>商品</th><th class="num">数量</th><th class="num">单价</th><th class="num">金额</th></tr></thead>
+            <tbody>
+              <tr><td>SKU-A 保温杯 500ml 银色</td><td class="num">400</td><td class="num">108.00</td><td class="num">43,200.00</td></tr>
+              <tr><td>SKU-C 电热水壶 1.7L</td><td class="num">100</td><td class="num">192.00</td><td class="num">19,200.00</td></tr>
+              <tr class="total"><td>合计</td><td class="num">500</td><td></td><td class="num">62,400.00</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <div class="strong" style="margin-bottom:8px">审批轨迹</div>
+          <ol class="timeline">
+            <li class="ok"><div class="who">李娜 提交</div><div class="when">11-17 08:12</div></li>
+            <li class="now"><div class="who">部门经理审批 · 赵敏（你）</div><div class="when">等待 2 小时</div></li>
+            <li><div class="who">财务会签 · 周涛、陈洁</div><div class="when">全部同意后通过</div></li>
+          </ol>
+        </div>
+        <div class="field"><label for="opinion">审批意见</label><textarea id="opinion" class="input" placeholder="同意时可不填；驳回、转办时必填"></textarea></div>
+      </div>
+      <div class="foot">
+        <button class="btn" type="button">转办</button>
+        <button class="btn" type="button">更多</button>
+        <button class="btn btn-danger" type="button">驳回</button>
+        <button class="btn btn-primary" type="button">同意</button>
+      </div>
+    </section>
+  </div>
+
+  <aside class="spec-note"><strong>设计说明</strong><ul>
+    <li>对应 <code>pages/workflow/</code> 下的待办页（规范第 5.4 节）。左侧列表、右侧预览，处理后自动跳到下一条待办。</li>
+    <li>预览顶部写明“进入此审批的原因”，来自流程条件（金额、最低售价、信用超额），审批人不用打开流程设计就能知道为什么轮到自己。</li>
+    <li>按钮只在当前用户是处理人时出现；制单人与审批人相同被经办复核规则拦截时，按钮区显示原因而不是按钮。</li>
+    <li>批量同意只对同一流程、没有字段权限限制的待办开放，逐条返回结果。</li>
+  </ul></aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

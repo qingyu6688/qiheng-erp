@@ -10,7 +10,7 @@ const emit = defineEmits<{ select: [id: Id]; more: [] }>()
 </script>
 
 <template>
-  <view>
+  <view class="work-list">
     <text v-if="!rows.length" class="muted">{{ busy ? '正在加载…' : '暂无记录' }}</text>
     <button
       v-for="row in rows" :key="row.id" class="work-list-row secondary"
@@ -24,3 +24,7 @@ const emit = defineEmits<{ select: [id: Id]; more: [] }>()
     <button v-if="more" class="secondary" :disabled="busy" @click="emit('more')">加载更多</button>
   </view>
 </template>
+
+<style scoped>
+.work-list { display: flex; flex-direction: column; gap: 8px; }
+</style>

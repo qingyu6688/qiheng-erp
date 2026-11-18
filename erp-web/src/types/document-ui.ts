@@ -2,11 +2,11 @@ import { salesStatusLabel, salesSpecs, salesStatuses, statusLabels } from './sal
 import type { SalesKind } from './sales'
 import { procurementSpecs } from './procurement'
 import { stockSpecs, stockStatusLabels } from './stock-operations'
+import type { StatusTone } from './status'
 
-export function documentStateType(
-  status: string,
-): 'info' | 'warning' | 'primary' | 'success' | 'danger' {
-  if (status === 'reversed') return 'danger'
+export function documentStateType(status: string): StatusTone {
+  if (['reversed', 'rejected', 'voided', 'failed'].includes(status)) return 'danger'
+  if (['received_with_diff', 'signed_with_diff', 'expired'].includes(status)) return 'warning'
   if (
     [
       'pending',
@@ -14,19 +14,32 @@ export function documentStateType(
       'pending_payment',
       'pending_confirm',
       'change_pending',
-      'received_with_diff',
-      'signed_with_diff',
+      'submitted',
+      'shipped',
+      'counting',
+      'partial',
+      'processing',
     ].includes(status)
   )
-    return 'warning'
-  if (['approved', 'submitted', 'shipped', 'counting'].includes(status)) return 'primary'
+    return 'info'
   if (
-    ['signed', 'confirmed', 'paid', 'registered_paid', 'refunded', 'received', 'posted'].includes(
-      status,
-    )
+    [
+      'approved',
+      'signed',
+      'confirmed',
+      'paid',
+      'registered',
+      'registered_paid',
+      'refunded',
+      'received',
+      'posted',
+      'full',
+      'complete',
+      'completed',
+    ].includes(status)
   )
     return 'success'
-  return 'info'
+  return 'neutral'
 }
 
 export function documentSpec(kind: string): {
@@ -49,11 +62,8 @@ export function documentStateLabel(kind: string, status: string): string {
   return stockStatusLabels[status] ?? statusLabels[status] ?? status
 }
 
-export function documentStateTag(
-  kind: string,
-  status: string,
-): ReturnType<typeof documentStateType> {
-  return kind === 'shipments' && status === 'posted' ? 'primary' : documentStateType(status)
+export function documentStateTag(kind: string, status: string): StatusTone {
+  return kind === 'shipments' && status === 'posted' ? 'info' : documentStateType(status)
 }
 
 /** 数量只为交互提示做精确差值，签收确认与应收金额仍以服务端结果为准。 */

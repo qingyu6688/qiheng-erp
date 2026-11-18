@@ -91,7 +91,9 @@ public class DocumentBrowser {
         if(filter.status()!=null&&!filter.status().isBlank()) {list+=" AND h.status=:status";parameters.put("status",filter.status());}
         if(cursor!=null) {list+=" AND h.id<:cursor";parameters.put("cursor",cursor);}
         parameters.put("limit",limit+1);
-        var rows=jdbc.queryForList("SELECT h.* FROM "+spec.type()+" h WHERE "+list+" ORDER BY h.id DESC LIMIT :limit",parameters);
+        // 只调整销售订单列表的索引选择，状态计数继续使用独立的聚合计划。
+        String hint = "sales_order".equals(spec.type()) ? " IGNORE INDEX (PRIMARY)" : "";
+        var rows=jdbc.queryForList("SELECT h.* FROM "+spec.type()+" h"+hint+" WHERE "+list+" ORDER BY h.id DESC LIMIT :limit",parameters);
         var visible=rows.stream().limit(limit).toList();var names=referenceNames(actor,visible);
         var fields=order(spec)?customFields.fields(actor.tenantId(),spec.type()).stream()
                 .filter(field->export?field.importExport():field.listVisible()).toList():List.<CustomFields.Field>of();
@@ -124,6 +126,42 @@ public class DocumentBrowser {
             }
         return body.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
     }
+
+    public byte[] exportSelection(CompanyAccess actor, String kind, List<Long> ids) {
+        String amount = switch (kind) {
+            case "sales-orders", "purchase-orders" -> "total_amount";
+            case "receipts" -> "amount";
+            default -> throw invalid("该单据类型暂不支持导出所选");
+        };
+        if (ids == null || ids.isEmpty() || ids.size() > 100
+                || ids.stream().anyMatch(id -> id == null || id <= 0)
+                || new HashSet<>(ids).size() != ids.size()) {
+            throw invalid("请选择 1 至 100 张不重复的单据");
+        }
+        var spec = spec(kind);
+        DocumentAccess.require(actor, permission(kind));
+        var parameters = params(actor);
+        parameters.put("selection", ids);
+        var rows = jdbc.queryForList(
+                "SELECT h.id,h." + spec.number() + " document_no,h." + spec.date() + " business_date,"
+                + "h.status,h." + amount + " amount FROM " + spec.type() + " h WHERE "
+                + where(actor, spec, Filter.empty(), parameters) + " AND h.id IN (:selection)", parameters);
+        if (rows.size() != ids.size()) {
+            throw new ApiException(404, "NOT_FOUND", "所选单据已变更或无权查看，请刷新后重试");
+        }
+        var byId = new HashMap<Long, Map<String, Object>>();
+        for (var row : rows) byId.put(((Number) row.get("id")).longValue(), row);
+        var body = new StringBuilder("\uFEFF");
+        csv(body, List.of("单号", "业务日期", "状态", "金额"));
+        for (var id : ids) {
+            var row = byId.get(id);
+            csv(body, List.of(
+                    Objects.toString(row.get("document_no"), ""), Objects.toString(row.get("business_date"), ""),
+                    Objects.toString(row.get("status"), ""), Objects.toString(row.get("amount"), "")));
+        }
+        return body.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
     private void csv(StringBuilder body,List<String> cells) {
         body.append(String.join(",",cells.stream().map(cell->{
             String trimmed=cell.stripLeading();
@@ -161,6 +199,8 @@ public class DocumentBrowser {
     Map<String,Object> params(CompanyAccess actor) {var values=new HashMap<String,Object>();values.put("tenant",actor.tenantId());values.put("company",actor.companyId());values.put("warehouses",actor.warehouseIds().isEmpty()?Set.of(-1L):actor.warehouseIds());return values;}
     String where(CompanyAccess actor,Spec spec,Filter filter,Map<String,Object> params) {
         if(filter.keyword()!=null&&filter.keyword().length()>100)throw invalid("单号筛选最多100个字符");
+        if(filter.documentNo()!=null&&(filter.documentNo().isBlank()||filter.documentNo().length()>100))
+            throw invalid("精确单号筛选须填写1至100个字符");
         if(filter.dateFrom()!=null&&filter.dateTo()!=null&&filter.dateFrom().isAfter(filter.dateTo()))throw invalid("开始日期不能晚于结束日期");
         if(filter.partnerId()!=null&&filter.partnerId()<=0||filter.warehouseId()!=null&&filter.warehouseId()<=0)throw invalid("筛选对象编号无效");
         String sql="h.tenant_id=:tenant AND h.company_id=:company"+cn.erp.shared.OrgOwnership.filter(actor,"h")+(spec.deleted()?" AND h.is_deleted=0":"");

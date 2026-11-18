@@ -185,6 +185,7 @@ class GlTestData {
                         "partner_role",
                         "business_partner",
                         "accounting_period",
+                        "org_department",
                         "org_user_data_scope",
                         "sys_user_role",
                         "sys_role_permission",

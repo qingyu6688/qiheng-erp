@@ -21,6 +21,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -193,10 +194,13 @@ class MfgCostService implements ProductionCostPort {
 
     private void earlierCosts(ActorScope actor,MfgCostFacts.Period period) {
         if (has("""
-                SELECT EXISTS(SELECT 1 FROM mfg_cost_movement m JOIN accounting_period p ON p.tenant_id=m.tenant_id
-                    AND p.company_id=m.company_id AND p.id=m.period_id
+                SELECT EXISTS(SELECT 1 FROM accounting_period p
                   LEFT JOIN mfg_cost_period c ON c.tenant_id=p.tenant_id AND c.company_id=p.company_id AND c.period_id=p.id
-                  WHERE m.tenant_id=? AND m.company_id=? AND p.period<? AND COALESCE(c.status,'open')<>'posted')
+                  WHERE p.tenant_id=? AND p.company_id=? AND p.period<? AND COALESCE(c.status,'open')<>'posted'
+                  AND (EXISTS(SELECT 1 FROM mfg_cost_movement m
+                      WHERE m.tenant_id=p.tenant_id AND m.company_id=p.company_id AND m.period_id=p.id)
+                    OR EXISTS(SELECT 1 FROM mfg_work_order_short_close s
+                      WHERE s.tenant_id=p.tenant_id AND s.company_id=p.company_id AND s.period_id=p.id AND s.status='approved')))
                 """,actor.tenantId(),actor.companyId(),period.number())) throw invalid("请先完成之前有生产业务的期间成本过账");
     }
 
@@ -228,7 +232,11 @@ class MfgCostService implements ProductionCostPort {
         var pending=unposted(actor,period);
         long movements=jdbc.queryForObject("SELECT COUNT(*) FROM mfg_cost_movement WHERE tenant_id=? AND company_id=? AND period_id=?",
                 Long.class,actor.tenantId(),actor.companyId(),periodId);
-        if (movements==0 && pending.isEmpty() && "open".equals(state(actor,periodId,false).get("status"))) return List.of();
+        boolean shortClosed=has("""
+                SELECT EXISTS(SELECT 1 FROM mfg_work_order_short_close
+                WHERE tenant_id=? AND company_id=? AND period_id=? AND status='approved')
+                """,actor.tenantId(),actor.companyId(),periodId);
+        if (movements==0 && !shortClosed && pending.isEmpty() && "open".equals(state(actor,periodId,false).get("status"))) return List.of();
         var result=new ArrayList<Map<String,Object>>();
         result.add(check("production_unposted_documents",pending.isEmpty(),pending.size(),"生产单据均已处理","本期仍有待处理的生产单据",pending));
         boolean posted="posted".equals(state(actor,periodId,false).get("status"));
@@ -280,11 +288,12 @@ class MfgCostService implements ProductionCostPort {
     private void saveItems(ActorScope actor,long id,List<OrderCost> items) {
         jdbc.batchUpdate("""
                 INSERT INTO mfg_cost_item(id,tenant_id,company_id,period_id,work_order_id,finished_qty,material_cost,rolled_material,
-                   labor_cost,overhead_cost,wip_begin,wip_end,wip_end_material,finished_cost,estimated_cost,variance,inventory_variance,issued_variance,rolled_variance)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   labor_cost,overhead_cost,wip_begin,wip_end,wip_end_material,finished_cost,estimated_cost,variance,inventory_variance,
+                   issued_variance,rolled_variance,short_close_expense)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,items.stream().map(i->new Object[]{Ids.next(),actor.tenantId(),actor.companyId(),id,i.workOrderId(),i.finishedQty(),i.materialCost(),
                 i.rolledMaterial(),i.laborCost(),i.overheadCost(),i.wipBegin(),i.wipEnd(),i.wipEndMaterial(),i.finishedCost(),i.estimatedCost(),
-                i.variance(),i.inventoryVariance(),i.issuedVariance(),i.rolledVariance()}).toList());
+                i.variance(),i.inventoryVariance(),i.issuedVariance(),i.rolledVariance(),Objects.requireNonNullElse(i.shortCloseExpense(),ZERO)}).toList());
     }
 
     private List<Map<String,Object>> itemRows(ActorScope actor,long id) {
@@ -374,6 +383,7 @@ class MfgCostService implements ProductionCostPort {
         result.put("skuId",Long.toString(data.sku()));result.put("skuCode",data.skuCode());result.put("planQty",row.plan().toPlainString());
         result.put("periodCompletedQty",row.finished().toPlainString());result.put("hours",row.hours().toPlainString());
         result.put("progressPct",row.progress()==null?null:row.progress().toPlainString());
+        if(row.shortCloseDisposition()!=null) result.put("shortCloseDisposition",row.shortCloseDisposition());
         return result;
     }
 

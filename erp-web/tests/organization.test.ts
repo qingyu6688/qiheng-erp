@@ -175,6 +175,75 @@ describe('Y-01 用户任职', () => {
   })
 })
 describe('Y-01 部门维护', () => {
+  it('搜索树保留祖先，含下级切换重置成员分页，公司切换清除旧结果', async () => {
+    useSessionStore().user!.permissions.push('org_department:view')
+    const child = {
+      ...department,
+      id: '11',
+      name: '华东组',
+      code: 'EAST',
+      parentId: '10',
+      path: '/10/11/',
+      depth: 2,
+    }
+    const sibling = { ...department, id: '12', name: '采购部', code: 'BUY', path: '/12/' }
+    vi.mocked(api.departments).mockResolvedValue([department, child, sibling])
+    vi.mocked(api.departmentMembers)
+      .mockResolvedValueOnce({
+        items: [{ id: '2', username: 'first', displayName: '直属成员', status: 'active' }],
+        nextCursor: '2',
+      })
+      .mockResolvedValue({
+        items: [{ id: '3', username: 'child', displayName: '下级成员', status: 'active' }],
+        nextCursor: null,
+      })
+    const wrapper = mount(OrganizationPage, {
+      global: {
+        stubs: {
+          ...stubs,
+          ElTable: {
+            props: ['data'],
+            template: '<div class="members">{{ JSON.stringify(data) }}</div>',
+          },
+          ElTableColumn: true,
+        },
+      },
+    })
+    await flushPromises()
+    await wrapper.get('[aria-label="搜索部门"]').setValue('east')
+    await flushPromises()
+    const visible = wrapper
+      .findAll('.el-tree-node__content')
+      .filter((node) => node.isVisible())
+      .map((node) => node.text())
+    expect(visible).toContain('销售部')
+    expect(visible).toContain('华东组')
+    expect(visible).not.toContain('采购部')
+    await wrapper.get('input[type="checkbox"]').setValue(true)
+    await flushPromises()
+    expect(api.departmentMembers).toHaveBeenLastCalledWith(
+      '10',
+      undefined,
+      expect.any(AbortSignal),
+      true,
+    )
+    expect(wrapper.get('.members').text()).toContain('下级成员')
+    expect(wrapper.get('.members').text()).not.toContain('直属成员')
+    useSessionStore().companyId = '3'
+    await flushPromises()
+    expect(wrapper.get('input[type="checkbox"]').element).toHaveProperty('checked', false)
+    expect(api.departmentMembers).toHaveBeenLastCalledWith(
+      '10',
+      undefined,
+      expect.any(AbortSignal),
+      false,
+    )
+    expect(wrapper.get('[aria-label="搜索部门"]').element).toHaveProperty('value', '')
+    useSessionStore().user!.permissions = []
+    await flushPromises()
+    expect(wrapper.find('.members').exists()).toBe(false)
+    wrapper.unmount()
+  })
   it('真实部门树组件在加载节点后正常渲染详情与成员', async () => {
     useSessionStore().user!.permissions.push('org_department:view')
     vi.mocked(api.departments).mockResolvedValue([department])

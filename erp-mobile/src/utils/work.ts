@@ -2,6 +2,41 @@ import type { Id, ScanMatch } from '../types/api'
 import type { StockLine, WorkRow } from '../types/work'
 import { remaining } from './quantity'
 
+export type StockTaskType = 'putaway' | 'pick'
+export type FixedScanField = 'from' | 'to' | 'batch'
+
+const MAX_PUTAWAY_LOCATION_LENGTH = 48
+
+function sameCode(left: string, right: string): boolean {
+  return left.length === right.length && (left.toUpperCase() === right.toUpperCase() || left.toLowerCase() === right.toLowerCase())
+}
+
+/** 核对任务行已有的编码；可替换库位的启用状态和容量仍由提交接口判定。 */
+export function scanMismatch(type: StockTaskType, field: FixedScanField, input: string, line: StockLine): string {
+  let code = input.trim()
+  if (field === 'batch') {
+    if (line.batchNo == null || line.batchNo === '') return ''
+    const prefix = 'B:' + line.skuCode + '|'
+    const matchesSku = sameCode(code.slice(0, prefix.length), prefix)
+    // 上架只把大写 B: 识别为标签；拣货按完整前缀匹配，其余输入照原文比较。
+    if (type === 'putaway' && code.startsWith('B:') && !matchesSku) {
+      return '扫描批次的商品编码与作业行不一致，请重扫'
+    }
+    if (matchesSku && (type === 'pick' || code.startsWith('B:'))) code = code.slice(prefix.length)
+    return code === line.batchNo ? '' : '扫描的批次号与作业行不一致，请重扫'
+  }
+
+  const tagged = type === 'putaway' ? code.startsWith('L:') : /^L:/i.test(code)
+  if (tagged) code = code.slice(2)
+  if (type === 'putaway') {
+    if (!code || code.length > MAX_PUTAWAY_LOCATION_LENGTH || /\p{Cc}/u.test(code)) return '库位编码无效，请重扫'
+    if (field === 'to') return ''
+  }
+  const expected = field === 'from' ? line.fromLocationCode : line.toLocationCode
+  if (!expected || sameCode(code, expected)) return ''
+  return field === 'from' ? '扫描的源库位与作业行不一致，请重扫' : '扫描的发货库位与作业行不一致，请重扫'
+}
+
 const stateNames: Record<string, string> = {
   created: '待领取', assigned: '已领取', in_progress: '作业中', done: '已完成',
   short: '已短拣', cancelled: '已取消', draft: '草稿', submitted: '已提交',

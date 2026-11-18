@@ -107,6 +107,42 @@ class AlertCenterIT {
         }
     }
 
+    @Test void repeatedItemFailureProducesOneCompanyScopedVisibleAlertAndResolvesOnRecovery() {
+        long id = Ids.next();
+        jdbc.update("""
+                INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id)
+                SELECT ?,r.tenant_id,r.id,p.id FROM sys_role r CROSS JOIN sys_permission p
+                WHERE r.tenant_id=? AND r.code='SYSTEM_ADMIN' AND p.code='job:view'
+                """, Ids.next(), tenant);
+        jdbc.update("""
+                INSERT INTO job_definition(tenant_id,code,name,schedule,last_result)
+                VALUES(?,'crm.pool_reclaim','公海回收','interval:1000','partial_failed')
+                """, tenant);
+        jdbc.update("INSERT INTO crm_pool_rule(tenant_id,company_id,enabled,apply_to_levels) VALUES(?,?,1,JSON_ARRAY())", tenant, company);
+        jdbc.update("""
+                INSERT INTO job_item_failure(id,tenant_id,company_id,job_code,item_key,target_id,failure_count,error_code,last_failed_at)
+                VALUES(?,?,?,'crm.pool_reclaim',?,?,2,'COMPANY_FAULT',UTC_TIMESTAMP(3))
+                """, id, tenant, company, Long.toString(company), company);
+        scanner.scan(tenant, company, AlertKind.JOB_FAILED, now, false);
+        var admin = new CompanyAccess(tenant, user, company, true, Set.of(), Set.of("alert:view", "job:view"));
+        assertThat(events.unhandled(admin)).isZero();
+
+        jdbc.update("UPDATE job_item_failure SET failure_count=3 WHERE id=?", id);
+        scanner.scan(tenant, company, AlertKind.JOB_FAILED, now.plus(1, ChronoUnit.HOURS), false);
+        scanner.scan(tenant, company, AlertKind.JOB_FAILED, now.plus(2, ChronoUnit.HOURS), false);
+        assertThat(events.unhandled(admin)).isEqualTo(1);
+        assertThat(events.unhandled(actor)).isZero();
+        assertThat(events.unhandled(new CompanyAccess(tenant, user, companyTwo, true, Set.of(), admin.permissions()))).isZero();
+        assertThat(events.unhandled(new CompanyAccess(otherTenant, user, otherCompany, true, Set.of(), admin.permissions()))).isZero();
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM notify_message WHERE tenant_id=? AND company_id=? AND source_type='alert_event' AND user_id=?
+                """, Long.class, tenant, company, user)).isEqualTo(1);
+
+        jdbc.update("DELETE FROM job_item_failure WHERE id=?", id);
+        scanner.scan(tenant, company, AlertKind.JOB_FAILED, now.plus(3, ChronoUnit.HOURS), false);
+        assertThat(events.unhandled(admin)).isZero();
+    }
+
     @Test void emptyRealTimeSignalDoesNotWriteSetupAndScheduledScanPersistsNextRunWithoutAlert() {
         scanner.scan(tenant,company,AlertKind.NEGATIVE_MARGIN,now,true);
         assertThat(rules.current(tenant,company,AlertKind.NEGATIVE_MARGIN).id()).isZero();

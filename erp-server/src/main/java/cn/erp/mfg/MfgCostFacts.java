@@ -53,20 +53,24 @@ class MfgCostFacts {
                 SELECT w.id,w.document_no,w.sku_id,s.code sku_code,w.plan_qty,
                    COALESCE(a.material,0) material,COALESCE(a.estimate,0) estimate,COALESCE(a.finished,0) finished,
                    COALESCE(a.lifetime_finished,0) lifetime_finished,COALESCE(prior.wip_end,0) beginning,
-                   COALESCE(prior.wip_end_material,0) beginning_material,COALESCE(input.hours,0) hours,input.progress_pct
+                   COALESCE(prior.wip_end_material,0) beginning_material,COALESCE(input.hours,0) hours,input.progress_pct,
+                   short_close.cost_disposition short_close_disposition
                 FROM mfg_work_order w JOIN sku s ON s.tenant_id=w.tenant_id AND s.id=w.sku_id
                 LEFT JOIN activity a ON a.work_order_id=w.id
                 LEFT JOIN previous prior ON prior.work_order_id=w.id AND prior.prior_row=1
                 LEFT JOIN mfg_cost_input input ON input.tenant_id=w.tenant_id AND input.company_id=w.company_id
                     AND input.work_order_id=w.id AND input.period_id=?
-                WHERE w.tenant_id=? AND w.company_id=? AND (a.period_moves>0 OR prior.wip_end<>0)
+                LEFT JOIN mfg_work_order_short_close short_close ON short_close.tenant_id=w.tenant_id AND short_close.company_id=w.company_id
+                    AND short_close.work_order_id=w.id AND short_close.period_id=? AND short_close.status='approved'
+                WHERE w.tenant_id=? AND w.company_id=? AND (a.period_moves>0 OR prior.wip_end<>0 OR short_close.id IS NOT NULL)
                 ORDER BY w.id
                 """,(r,i)->new WorkRow(new Work(r.getLong("id"),r.getBigDecimal("plan_qty"),r.getBigDecimal("finished"),
                 r.getBigDecimal("lifetime_finished"),r.getBigDecimal("material"),r.getBigDecimal("estimate"),r.getBigDecimal("beginning"),
-                r.getBigDecimal("beginning_material"),r.getBigDecimal("hours"),r.getBigDecimal("progress_pct")),
+                r.getBigDecimal("beginning_material"),r.getBigDecimal("hours"),r.getBigDecimal("progress_pct"),
+                r.getString("short_close_disposition")),
                 r.getString("document_no"),r.getLong("sku_id"),r.getString("sku_code")),period.id(),period.id(),period.id(),period.id(),
                 actor.tenantId(),actor.companyId(),period.end(),actor.tenantId(),actor.companyId(),period.number(),
-                period.id(),actor.tenantId(),actor.companyId());
+                period.id(),period.id(),actor.tenantId(),actor.companyId());
     }
 
     Map<Long,Map<Destination,BigDecimal>> exposures(ActorScope actor,Period period) {

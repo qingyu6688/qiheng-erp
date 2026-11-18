@@ -8,6 +8,8 @@ import type { SalesDocument } from '../types/sales'
 import type { ProcurementDocument } from '../types/procurement'
 import OrderEditor from '../components/sales/OrderEditor.vue'
 import ProcurementEditor from '../components/procurement/ProcurementEditor.vue'
+import PageHeader from '../components/PageHeader.vue'
+import StatusTag from '../components/StatusTag.vue'
 import { registerCompanyLeaveGuard } from '../utils/unsaved'
 const props = defineProps<{ kind: 'sales-orders' | 'purchase-orders' }>(),
   route = useRoute(),
@@ -24,6 +26,7 @@ const title = computed(
 let active = true
 const removeCompanyGuard = registerCompanyLeaveGuard(
   () => !dirty.value || window.confirm('修改尚未保存，确定切换公司？'),
+  dirty,
 )
 async function load(): Promise<void> {
   if (!route.params.id) return
@@ -44,9 +47,10 @@ async function load(): Promise<void> {
     if (active) loading.value = false
   }
 }
-async function saved(document: SalesDocument): Promise<void> {
+async function saved(document: SalesDocument | ProcurementDocument, submitAfterSave = false): Promise<void> {
   dirty.value = false
-  await router.replace('/' + props.kind + '/' + document.id)
+  const path = '/' + props.kind + '/' + document.id
+  await router.replace(submitAfterSave ? { path, query: { next: 'submit' } } : path)
 }
 function close(): void {
   void router.push(original.value ? '/' + props.kind + '/' + original.value.id : '/' + props.kind)
@@ -69,15 +73,16 @@ onBeforeUnmount(() => {
 })
 </script>
 <template>
-  <div class="page-heading">
-    <div>
-      <button class="text-link" type="button" @click="close">
-        返回{{ kind === 'sales-orders' ? '销售订单' : '采购订单' }}
-      </button>
-      <h1>{{ title }}</h1>
-    </div>
-    <span class="muted">{{ dirty ? '有未保存的修改' : '草稿' }}</span>
-  </div>
+  <PageHeader
+    :title="title"
+    :back-label="kind === 'sales-orders' ? '返回销售订单' : '返回采购订单'"
+    @back="close"
+  >
+    <template #status>
+      <StatusTag v-if="dirty" label="有未保存的修改" tone="warning" />
+      <StatusTag v-else-if="!loading && !error && permitted" label="草稿" />
+    </template>
+  </PageHeader>
   <el-alert v-if="error" :title="error" type="error" :closable="false" />
   <p v-if="loading" role="status">正在加载订单…</p>
   <template v-if="!loading && !error && permitted"

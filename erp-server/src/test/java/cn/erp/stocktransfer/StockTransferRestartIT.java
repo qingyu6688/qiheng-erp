@@ -27,6 +27,7 @@ import static org.assertj.core.api.Assertions.*;
 @SpringBootTest(classes=ErpApplication.class)
 @ActiveProfiles("test")
 class StockTransferRestartIT extends StockTransferTestData {
+    private static final String TEST_ROOT = System.getenv("ERP_TEST_ROOT");
     @Autowired PasswordEncoder passwords;
     @Autowired ObjectMapper json;
     @Autowired StringRedisTemplate redis;
@@ -41,7 +42,10 @@ class StockTransferRestartIT extends StockTransferTestData {
         seedUser(password);long transfer=shipped("3");
         assertThat(balance(from).onHand()).isEqualByComparingTo("0");assertThat(balance(to).onHand()).isEqualByComparingTo("0");
         assertOriginalCost(transfer);
-        Path directory=Files.createTempDirectory(Path.of("target"),"transfer-restart-");
+        Path evidenceRoot = TEST_ROOT == null || TEST_ROOT.isBlank()
+                ? Path.of("target")
+                : Files.createDirectories(Path.of(TEST_ROOT, "erp-server", "restart-evidence"));
+        Path directory = Files.createTempDirectory(evidenceRoot, "transfer-restart-");
         Process first=null,second=null;
         try {
             int firstPort=freePort();Path firstLog=directory.resolve("first-jvm.log");
@@ -100,7 +104,8 @@ class StockTransferRestartIT extends StockTransferTestData {
             "--spring.session.redis.namespace="+namespace,"--logging.level.root=WARN");
         Files.write(argumentFile,arguments.stream().map(StockTransferRestartIT::argument).toList(),StandardCharsets.UTF_8);
         String executable=System.getProperty("os.name").startsWith("Windows")?"java.exe":"java";
-        var builder=new ProcessBuilder(Path.of(System.getProperty("java.home"),"bin",executable).toString(),"@"+argumentFile.toAbsolutePath())
+        var builder=new ProcessBuilder(Path.of(System.getProperty("java.home"),"bin",executable).toString(),
+            "-Djava.io.tmpdir="+System.getProperty("java.io.tmpdir"),"@"+argumentFile.toAbsolutePath())
             .directory(Path.of("").toAbsolutePath().normalize().toFile());
         var environment=builder.environment();
         for(String name:List.copyOf(environment.keySet()))if(name.startsWith("ERP_DEV_")||name.startsWith("ERP_E2E_")||Set.of("SPRING_APPLICATION_JSON","SPRING_PROFILES_INCLUDE","SPRING_CONFIG_LOCATION","SPRING_CONFIG_ADDITIONAL_LOCATION").contains(name))environment.remove(name);
@@ -110,6 +115,10 @@ class StockTransferRestartIT extends StockTransferTestData {
         environment.put("DB_NAME",isolation.database());environment.put("DB_USER",isolation.username());environment.put("DB_PASSWORD",isolation.password());
         environment.put("TEST_DB_NAME",isolation.database());environment.put("TEST_DB_USER",isolation.username());environment.put("TEST_DB_PASSWORD",isolation.password());
         environment.put("SPRING_DATASOURCE_URL",isolation.jdbcUrl());environment.put("SPRING_DATASOURCE_USERNAME",isolation.username());environment.put("SPRING_DATASOURCE_PASSWORD",isolation.password());
+        if (TEST_ROOT != null && !TEST_ROOT.isBlank()) {
+            String requestLog = log.getFileName().toString().replace(".log", "-http.log");
+            environment.put("ERP_HTTP_LOG_FILE", log.resolveSibling(requestLog).toAbsolutePath().toString());
+        }
         return builder.redirectErrorStream(true).redirectOutput(log.toFile()).start();
     }
 

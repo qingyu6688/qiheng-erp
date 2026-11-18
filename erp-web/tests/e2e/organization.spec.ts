@@ -32,6 +32,23 @@ test('Y-01 部门岗位维护、按公司任职及停用保护', async ({ page }
     .click()
   await page.getByRole('button', { name: '保存部门', exact: true }).click()
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
+  const separator = page.getByRole('separator', { name: '调整部门树宽度' })
+  await expect(separator).toHaveAttribute('aria-valuenow', '280')
+  await separator.press('ArrowRight')
+  await expect(separator).toHaveAttribute('aria-valuenow', '296')
+  await page.getByRole('textbox', { name: '搜索部门', exact: true }).fill(name)
+  await expect(page.getByRole('treeitem', { name, exact: true })).toBeVisible()
+  await page.getByRole('textbox', { name: '搜索部门', exact: true }).clear()
+  const descendantMembers = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return (
+      /\/org\/departments\/\d+\/members$/.test(url.pathname) &&
+      url.searchParams.get('includeChildren') === 'true'
+    )
+  })
+  await page.getByRole('checkbox', { name: '含下级', exact: true }).check()
+  expect((await descendantMembers).ok()).toBe(true)
+  await page.getByRole('checkbox', { name: '含下级', exact: true }).uncheck()
   await page.getByRole('tab', { name: '岗位', exact: true }).click()
   await page.getByRole('button', { name: '新建岗位', exact: true }).click()
   await page.getByLabel('编码', { exact: true }).fill('P' + suffix)

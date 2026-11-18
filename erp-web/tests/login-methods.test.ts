@@ -4,6 +4,7 @@ import LoginPage from '../src/pages/LoginPage.vue'
 import LoginSettingsPage from '../src/pages/LoginSettingsPage.vue'
 import AccountLoginMethodsPage from '../src/pages/AccountLoginMethodsPage.vue'
 import type { LoginSettings } from '../src/types/login-settings'
+import { ApiError } from '../src/api/http'
 
 const api = vi.hoisted(() => ({
   availableLoginMethods: vi.fn(),
@@ -13,14 +14,28 @@ const api = vi.hoisted(() => ({
   bindContact: vi.fn(),
   signInByCode: vi.fn(),
   signIn: vi.fn(),
+  acceptLogin: vi.fn(),
   replace: vi.fn(),
   getLoginSettings: vi.fn(),
   saveLoginSettings: vi.fn(),
 }))
+const securityApi = vi.hoisted(() => ({
+  activateLoginMfa: vi.fn(),
+  ldapLogin: vi.fn(),
+  loginMfaSetup: vi.fn(),
+  loginMfaStatus: vi.fn(),
+  ssoStart: vi.fn(),
+  verifyLoginMfa: vi.fn(),
+}))
 vi.mock('../src/api/auth', () => api)
+vi.mock('../src/api/platform-security', () => securityApi)
 vi.mock('../src/api/login-settings', () => api)
 vi.mock('../src/stores/session', () => ({
-  useSessionStore: () => ({ signIn: api.signIn, signInByCode: api.signInByCode }),
+  useSessionStore: () => ({
+    signIn: api.signIn,
+    signInByCode: api.signInByCode,
+    acceptLogin: api.acceptLogin,
+  }),
 }))
 vi.mock('vue-router', () => ({
   useRoute: () => ({ query: {} }),
@@ -126,6 +141,89 @@ describe('备用登录方式', () => {
     expect(wrapper.find('[aria-label="登录方式"]').exists()).toBe(false)
     expect(wrapper.find('#username').exists()).toBe(true)
     wrapper.unmount()
+  })
+
+  it('登录方式页签支持键盘切换且焦点保持在所选方式', async () => {
+    api.availableLoginMethods.mockResolvedValue({
+      sms: true,
+      email: true,
+      wechat: true,
+      sso: [{ id: 'ldap', type: 'ldap', name: '企业目录' }],
+    })
+    const wrapper = mount(LoginPage, { attachTo: document.body, global: { stubs } })
+    try {
+      await vi.advanceTimersByTimeAsync(200)
+      const password = wrapper.get('#login-method-password')
+      expect(password.attributes('role')).toBe('tab')
+      await password.trigger('keydown', { key: 'ArrowRight' })
+      const sms = wrapper.get('#login-method-sms')
+      expect(sms.attributes('aria-selected')).toBe('true')
+      expect(document.activeElement).toBe(sms.element)
+      expect(wrapper.get('#login-method-panel').attributes('aria-labelledby')).toBe(
+        'login-method-sms',
+      )
+      expect(wrapper.find('#username').exists()).toBe(false)
+      expect(wrapper.get('#login-destination').attributes('type')).toBe('tel')
+      await sms.trigger('keydown', { key: 'End' })
+      expect(wrapper.get('#login-method-ldap').attributes('aria-selected')).toBe('true')
+      expect(wrapper.find('#username').exists()).toBe(true)
+      await wrapper.get('#login-method-ldap').trigger('keydown', { key: 'Home' })
+      expect(wrapper.get('#login-method-password').attributes('aria-selected')).toBe('true')
+      expect(wrapper.findAll('[role="tab"][tabindex="0"]')).toHaveLength(1)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('企业关闭密码登录时默认选中单点登录，保留企业编码', async () => {
+    api.availableLoginMethods.mockResolvedValue({
+      password: false,
+      sms: false,
+      email: false,
+      wechat: false,
+      sso: [{ id: 'oidc', type: 'oidc', name: '企业身份登录' }],
+    })
+    const wrapper = mount(LoginPage, { global: { stubs } })
+    try {
+      await vi.advanceTimersByTimeAsync(200)
+      expect(wrapper.find('#login-method-password').exists()).toBe(false)
+      expect(wrapper.get('#login-method-oidc').attributes('aria-selected')).toBe('true')
+      expect(wrapper.find('#password').exists()).toBe(false)
+      expect(wrapper.find('#tenant').exists()).toBe(true)
+      expect(wrapper.get('.login-version').text()).toMatch(/^柒衡 ERP v\d+\.\d+\.\d+/)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('密码登录进入 MFA 时清空密码并继续提交验证码或恢复码', async () => {
+    api.availableLoginMethods.mockResolvedValue({ sms: false, email: false, wechat: false })
+    api.signIn.mockRejectedValue(new ApiError(401, 'MFA_REQUIRED', '需要安全验证'))
+    const user = {
+      id: '9',
+      username: 'admin',
+      displayName: '管理员',
+      mustChangePassword: false,
+      permissions: [],
+      companies: [],
+    }
+    securityApi.verifyLoginMfa.mockResolvedValue(user)
+    const wrapper = mount(LoginPage, { global: { stubs } })
+    try {
+      await wrapper.get('#password').setValue('本机临时口令')
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+      expect(wrapper.get('h1').text()).toBe('账号安全验证')
+      expect(wrapper.find('#password').exists()).toBe(false)
+      await wrapper.get('#mfa-login-code').setValue(' 123456 ')
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+      expect(securityApi.verifyLoginMfa).toHaveBeenCalledWith('123456')
+      expect(api.acceptLogin).toHaveBeenCalledWith(user)
+      expect(api.replace).toHaveBeenCalledWith('/')
+    } finally {
+      wrapper.unmount()
+    }
   })
 
   it('后台只提交新输入的密钥，保存后清空输入', async () => {

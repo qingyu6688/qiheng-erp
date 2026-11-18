@@ -114,6 +114,7 @@ class OrganizationHttpIT {
         long foreign=Ids.next();
         jdbc.update("INSERT INTO org_department(id,tenant_id,company_id,code,name,path,depth) VALUES(?,?,?,'F','其他企业部门',?,1)",foreign,foreignTenant,foreignCompany,"/"+foreign+"/");
         call("GET","/org/departments/"+foreign,null,company,404,true,null);
+        call("GET","/org/departments/"+foreign+"/members?includeChildren=true",null,company,404,true,null);
         long foreignPost=Ids.next();
         jdbc.update("INSERT INTO org_post(id,tenant_id,code,name) VALUES(?,?,'F','外部岗位')",foreignPost,foreignTenant);
         call("GET","/org/posts/"+foreignPost,null,company,404,true,null);
@@ -124,6 +125,33 @@ class OrganizationHttpIT {
         var body=json.createObjectNode().put("code","L").put("name","负责人越界").put("sortNo",0).put("leaderUserId",member);
         call("POST","/org/departments",body.toString(),company,404,true,"foreign-leader");
         call("PUT","/users/"+member+"/organization","{\"departments\":[],\"postIds\":[],\"version\":0}",company,404,true,"no-scope");
+    }
+    @Test void subtreeMemberEndpointPagesDistinctUsersAndChecksCurrentScope() throws Exception {
+        var parent=create(company,"PARENT","parent");
+        var childBody=json.createObjectNode().put("code","CHILD").put("name","下级部门")
+                .put("parentId",parent.get("id").asString()).put("sortNo",0);
+        var child=call("POST","/org/departments",childBody.toString(),company,201,true,"child").get("data");
+        var assign=json.createObjectNode().put("version",0);
+        var memberships=assign.putArray("departments");
+        memberships.addObject().put("id",parent.get("id").asString()).put("primary",true);
+        memberships.addObject().put("id",child.get("id").asString()).put("primary",false);
+        assign.putArray("postIds");
+        call("PUT","/users/"+member+"/organization",assign.toString(),company,200,true,"member-both");
+        call("PUT","/users/"+viewer+"/organization",assignment(child.get("id").asString(),null,0),company,200,true,"viewer-child");
+        String endpoint="/org/departments/"+parent.get("id").asString()+"/members";
+        assertThat(call("GET",endpoint,null,company,200,true,null).get("data").get("items").size()).isEqualTo(1);
+        var first=call("GET",endpoint+"?includeChildren=true&limit=1",null,company,200,true,null).get("data");
+        assertThat(first.get("items").get(0).get("id").asString()).isEqualTo(Long.toString(member));
+        var next=call("GET",endpoint+"?includeChildren=true&limit=1&cursor="+first.get("nextCursor").asString(),null,company,200,true,null).get("data");
+        assertThat(next.get("items").get(0).get("id").asString()).isEqualTo(Long.toString(viewer));
+        assertThat(next.get("nextCursor").isNull()).isTrue();
+        call("GET",endpoint+"?includeChildren=true",null,second,404,true,null);
+        call("GET",endpoint+"?includeChildren=true",null,foreignCompany,403,true,null);
+        call("GET",endpoint+"?includeChildren=true&cursor=wrong",null,company,400,true,null);
+        login("viewer");
+        call("GET",endpoint+"?includeChildren=true",null,company,200,true,null);
+        jdbc.update("DELETE FROM sys_role_permission WHERE tenant_id=? AND role_id=?",tenant,viewerRole);
+        call("GET",endpoint+"?includeChildren=true",null,company,403,true,null);
     }
     @Test void Y01_03_revocationInvalidatesInitiallyEmptyConfiguration() throws Exception {
         String path="/users/"+member+"/organization";

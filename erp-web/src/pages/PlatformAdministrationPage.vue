@@ -352,6 +352,7 @@ const labels: Record<string, string> = {
   running: '执行中',
   success: '成功',
   failed: '失败',
+  partial_failed: '部分失败',
   skipped: '已跳过',
   sent: '已发送',
   sending: '发送中',

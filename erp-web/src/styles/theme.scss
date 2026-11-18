@@ -1,44 +1,67 @@
 @forward 'element-plus/theme-chalk/src/common/var.scss' with (
   $colors: (
     'primary': (
-      'base': #3d63dd,
+      'base': #165dff,
     ),
     'success': (
-      'base': #12805c,
+      'base': #0b7a26,
     ),
     'warning': (
-      'base': #a15c07,
+      'base': #b24a00,
     ),
     'danger': (
-      'base': #c2341f,
+      'base': #cb2634,
     ),
     'error': (
-      'base': #c2341f,
+      'base': #cb2634,
     ),
     'info': (
       'base': #4e5969,
     ),
   ),
   $text-color: (
-    'primary': #252d3e,
-    'regular': #343e52,
-    'secondary': #57647b,
+    'primary': #1d2129,
+    'regular': #1d2129,
+    'secondary': #4e5969,
     'placeholder': #6b7380,
-    'disabled': #6b7380,
+    'disabled': #86909c,
   ),
   $border-color: (
     '': #c9cdd4,
-    'light': #e9ecf2,
+    'light': #e5e6eb,
+    'lighter': #f2f3f5,
+    'extra-light': #f7f8fa,
   ),
   $bg-color: (
-    'page': #f7f8fc,
+    '': #ffffff,
+    'page': #f2f3f5,
+    'overlay': #ffffff,
   ),
   $fill-color: (
-    'light': #f5f7fb,
+    '': #f2f3f5,
+    'light': #f7f8fa,
+    'lighter': #fafbfc,
+    'blank': #ffffff,
   ),
   $border-radius: (
-    'base': 8px,
-    'small': 6px,
+    'base': 4px,
+    'small': 2px,
+    'round': 20px,
+  ),
+  $common-component-size: (
+    'large': 36px,
+  ),
+  $table-padding: (
+    'large': 8px 0,
+  ),
+  $transition-duration: (
+    '': 200ms,
+    'fast': 150ms,
+  ),
+  $button: (
+    'hover-text-color': var(--erp-primary-7),
+    'hover-bg-color': var(--erp-primary-1),
+    'outline-color': var(--erp-primary-6),
   )
 );
 @use 'element-plus/theme-chalk/src/base.scss';
@@ -74,3 +97,123 @@
 @use 'element-plus/theme-chalk/src/drawer.scss';
 @use 'element-plus/theme-chalk/src/cascader.scss';
 @use 'element-plus/theme-chalk/src/cascader-panel.scss';
+
+:root {
+  --erp-primary-1: #e8f3ff;
+  --erp-primary-2: #bedaff;
+  --erp-primary-3: #94bfff;
+  --erp-primary-5: #4080ff;
+  --erp-primary-6: var(--el-color-primary);
+  --erp-primary-7: #0e42d2;
+
+  --erp-success-bright: #00b42a;
+  --erp-success-bg: #e8ffea;
+  --erp-success-text: var(--el-color-success);
+  --erp-warning-bright: #ff7d00;
+  --erp-warning-bg: #fff7e8;
+  --erp-warning-text: var(--el-color-warning);
+  --erp-danger-bright: #f53f3f;
+  --erp-danger-bg: #ffece8;
+  --erp-danger-text: var(--el-color-danger);
+
+  --erp-text-1: var(--el-text-color-primary);
+  --erp-text-2: var(--el-text-color-secondary);
+  --erp-text-3: var(--el-text-color-placeholder);
+  --erp-text-4: var(--el-text-color-disabled);
+  --erp-border-1: var(--el-border-color-light);
+  --erp-border-2: var(--el-border-color);
+  --erp-divider: var(--el-border-color-lighter);
+  --erp-fill-1: var(--el-fill-color-light);
+  --erp-fill-2: var(--el-fill-color);
+  --erp-bg: var(--el-bg-color);
+
+  --erp-radius-sm: var(--el-border-radius-small);
+  --erp-radius: var(--el-border-radius-base);
+  --erp-radius-card: 6px;
+  --erp-radius-lg: 8px;
+  --erp-shadow-1: 0 1px 2px rgb(29 33 41 / 6%);
+  --erp-shadow-2: 0 4px 10px rgb(29 33 41 / 10%);
+  --erp-shadow-3: 0 8px 24px rgb(29 33 41 / 12%);
+
+  --erp-control: var(--el-component-size);
+  --erp-row: 40px;
+  --erp-editor-row: 36px;
+  --erp-rail: 64px;
+  --erp-menu: 208px;
+  --erp-top: 56px;
+  --erp-tabs: 36px;
+  --erp-ease: cubic-bezier(0.34, 0.69, 0.1, 1);
+  --erp-font: 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', system-ui, sans-serif;
+}
+
+:root[data-density='compact'] {
+  --erp-control: var(--el-component-size-small);
+  --erp-row: 32px;
+}
+
+:root[data-density='comfortable'] {
+  --erp-control: var(--el-component-size-large);
+  --erp-row: 48px;
+}
+
+.el-button + .el-button {
+  margin-left: 8px;
+}
+
+.el-button:focus-visible {
+  --el-button-outline-color: var(--erp-primary-6);
+}
+
+// 白字在基础品牌色上可读，悬停时使用深色阶保持对比度。
+.el-button--primary:where(:not(.is-plain, .is-text, .is-link, .is-dashed)) {
+  --el-button-hover-bg-color: var(--erp-primary-7);
+  --el-button-hover-border-color: var(--erp-primary-7);
+  --el-button-active-bg-color: var(--erp-primary-7);
+  --el-button-active-border-color: var(--erp-primary-7);
+}
+
+@each $tone in success, warning, info {
+  .el-button--#{$tone}:where(:not(.is-plain, .is-text, .is-link, .is-dashed)) {
+    --el-button-hover-bg-color: var(--el-color-#{$tone}-dark-2);
+    --el-button-hover-border-color: var(--el-color-#{$tone}-dark-2);
+  }
+}
+
+.el-button--danger:where(:not(.is-text, .is-link, .is-dashed)) {
+  --el-button-text-color: var(--erp-danger-text);
+  --el-button-border-color: var(--erp-danger-text);
+  --el-button-bg-color: var(--erp-bg);
+  --el-button-hover-text-color: var(--erp-danger-text);
+  --el-button-hover-bg-color: var(--erp-danger-bg);
+  --el-button-hover-border-color: var(--erp-danger-text);
+  --el-button-active-bg-color: var(--erp-danger-bg);
+  --el-button-active-border-color: var(--erp-danger-text);
+}
+
+.el-table {
+  --el-table-header-bg-color: var(--erp-fill-1);
+  --el-table-header-text-color: var(--erp-text-3);
+  --el-table-row-hover-bg-color: var(--erp-fill-1);
+  --el-table-current-row-bg-color: var(--erp-primary-1);
+  --el-table-border-color: var(--erp-divider);
+}
+
+.el-table .el-table__cell {
+  height: var(--erp-row);
+}
+
+.el-table thead th {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --el-transition-duration: 0s;
+    --el-transition-duration-fast: 0s;
+  }
+
+  .el-button {
+    transition-duration: 0s;
+  }
+}

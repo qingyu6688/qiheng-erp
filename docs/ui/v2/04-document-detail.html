@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>销售订单详情 · v2</title>
+<link rel="stylesheet" href="assets/v2.css">
+<style>
+  .side { width: 340px; flex: none; display: flex; flex-direction: column; gap: 16px; }
+  .progress { height: 6px; border-radius: 3px; background: var(--erp-fill-2); overflow: hidden; width: 80px; display: inline-block; vertical-align: middle; margin-right: 6px; }
+  .progress i { display: block; height: 100%; background: var(--erp-primary-6); }
+  .rel a { display: flex; justify-content: space-between; padding: 8px 16px; border-bottom: 1px solid var(--erp-divider); color: var(--erp-text-1); }
+  .rel a:hover { background: var(--erp-fill-1); }
+  .rel a:last-child { border-bottom: 0; }
+  @media (max-width: 1199px) { .side { width: 100%; } }
+</style>
+</head>
+<body data-module="sales" data-menu="sales-orders" data-tabs="工作台|01-workbench.html;销售订单|02-document-list.html;SO-C01-202611-000123|04-document-detail.html|current">
+<main id="page">
+  <header class="page-head">
+    <div class="line">
+      <a class="back" href="02-document-list.html" aria-label="返回销售订单列表"><svg class="i" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></a>
+      <h1 class="tnum">SO-C01-202611-000123</h1><span class="tag tag-success">已审核</span>
+      <div class="actions">
+        <button class="btn" type="button"><svg class="i" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>问 AI</button>
+        <button class="btn" type="button">打印</button>
+        <button class="btn" type="button" aria-haspopup="menu">更多 <svg class="i" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="m6 9 6 6 6-6"/></svg></button>
+        <button class="btn btn-primary" type="button">生成发货单</button>
+      </div>
+    </div>
+    <p class="meta" style="margin-left:40px"><span>华东商贸有限公司</span><span>业务日期 2026-11-17</span><span>交货 2026-11-20</span><span>销售员 李娜</span><span>更新 11-17 19:38</span></p>
+    <div class="stats">
+      <div class="stat"><div class="label">订单金额</div><div class="value">1,800.00<small>元</small></div></div>
+      <div class="stat"><div class="label">已发货</div><div class="value">10<small>/ 17 件</small></div></div>
+      <div class="stat"><div class="label">已签收</div><div class="value">10<small>/ 17 件</small></div></div>
+      <div class="stat"><div class="label">已确认应收</div><div class="value">1,130.38</div></div>
+      <div class="stat"><div class="label">已收款</div><div class="value">500.00</div></div>
+      <div class="stat"><div class="label">应收未结</div><div class="value" style="color:var(--erp-warning-text)">630.38</div></div>
+    </div>
+  </header>
+
+  <section class="card">
+    <div class="steps" aria-label="单据进度">
+      <div class="step done"><span class="n">✓</span>提交 <span class="small muted">11-17 10:02</span></div><div class="step-line done"></div>
+      <div class="step done"><span class="n">✓</span>审核 <span class="small muted">11-17 10:40</span></div><div class="step-line done"></div>
+      <div class="step now"><span class="n">3</span>发货中 <span class="small muted">10 / 17</span></div><div class="step-line"></div>
+      <div class="step"><span class="n">4</span>签收</div><div class="step-line"></div>
+      <div class="step"><span class="n">5</span>结清</div>
+    </div>
+  </section>
+
+  <div class="row wrap-md">
+    <section class="card grow">
+      <div class="card-head" style="padding-top:0;padding-bottom:0">
+        <div class="tabs" role="tablist" aria-label="订单内容">
+          <button class="tab" role="tab" aria-selected="true">明细 <span class="count">3</span></button>
+          <button class="tab" role="tab" aria-selected="false">收发记录 <span class="count">2</span></button>
+          <button class="tab" role="tab" aria-selected="false">结算 <span class="count">1</span></button>
+          <button class="tab" role="tab" aria-selected="false">附件 <span class="count">3</span></button>
+          <button class="tab" role="tab" aria-selected="false">操作日志</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="t two-line" style="min-width:760px">
+          <thead><tr><th>商品</th><th>仓库</th><th class="num">数量</th><th class="num">单价</th><th class="num">金额</th><th>发货进度</th><th>预留</th></tr></thead>
+          <tbody>
+            <tr><td>SKU-A 保温杯 500ml<span class="sub">银色 · 件</span></td><td>主仓 W1</td><td class="num">10</td><td class="num">115.00</td><td class="num">1,150.00</td><td><span class="progress"><i style="width:100%"></i></span><span class="small">10 / 10 已签收</span></td><td><span class="tag tag-neutral">已耗用</span></td></tr>
+            <tr><td>SKU-B 陶瓷餐具四件套<span class="sub">白色 · 套 · 折扣 5%</span></td><td>主仓 W1</td><td class="num">5</td><td class="num">55.00</td><td class="num">261.25</td><td><span class="progress"><i style="width:0"></i></span><span class="small">0 / 5</span></td><td><span class="tag tag-info">已预留 5</span></td></tr>
+            <tr><td>SKU-C 电热水壶 1.7L<span class="sub">不锈钢 · 台</span></td><td>二仓 W2</td><td class="num">2</td><td class="num">210.00</td><td class="num">420.00</td><td><span class="progress"><i style="width:0"></i></span><span class="small">0 / 2</span></td><td><span class="tag tag-warning">部分预留 1</span></td></tr>
+            <tr class="total"><td>合计（整单优惠 −31.25）</td><td></td><td class="num">17</td><td></td><td class="num">1,800.00</td><td></td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="side">
+      <section class="card">
+        <div class="card-head"><h2>审批进度</h2><div class="actions"><span class="tag tag-success">已通过</span></div></div>
+        <div class="card-body">
+          <ol class="timeline">
+            <li class="ok"><div class="who">李娜 提交</div><div class="when">11-17 10:02 · 销售部</div></li>
+            <li class="ok"><div class="who">赵敏 同意 <span class="small muted">部门经理</span></div><div class="when">11-17 10:21</div><div class="comment">客户为年度协议客户，价格符合协议。</div></li>
+            <li class="ok"><div class="who">周涛 同意 <span class="small muted">财务会签</span></div><div class="when">11-17 10:40</div></li>
+          </ol>
+        </div>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>关联单据</h2></div>
+        <nav class="rel" aria-label="关联单据">
+          <a href="#"><span>发货单 SH-C01-202611-000046</span><span class="tag tag-success">已签收</span></a>
+          <a href="#"><span>收款单 RC-C01-202611-000071</span><span class="tag tag-success">已确认</span></a>
+          <a href="#"><span>发票 25320000000123456789</span><span class="tag tag-neutral">已开具</span></a>
+        </nav>
+      </section>
+    </div>
+  </div>
+
+  <aside class="spec-note"><strong>设计说明</strong><ul>
+    <li>对应 <code>pages/SalesDetailPage.vue</code>，采购、库存类详情同构（规范 U-08、第 5.3 节）。</li>
+    <li>页头一行：返回、单号、生命周期状态、操作；按钮完全由 <code>allowedActions</code> 决定，主操作只有一个，危险操作（关闭剩余、作废）在“更多”中。</li>
+    <li>履约、结算用页头指标表达，不再加标签（沿用 1.0 规范）。“已确认应收 1,130.38”为 SKU-A 10 件分摊整单优惠后的签收确认额（R3-08 累计法），“应收未结”= 1,130.38 − 500.00。</li>
+    <li>右侧审批进度来自工作流实例；屏宽 &lt; 1200px 时右侧栏移到明细下方。</li>
+  </ul></aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

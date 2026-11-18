@@ -148,6 +148,65 @@ class SalesOrderIT {
     }
 
     @Test
+    void inventoryPageSharesTotalsAcrossCursorAndKeepsUnsignedIndependent() {
+        receive(warehouse,sku,"10");
+        receive(warehouse,secondSku,"5");
+        receive(otherWarehouse,sku,"20");
+        jdbc.update("INSERT INTO inventory_balance(id,tenant_id,company_id,warehouse_id,sku_id) VALUES(?,?,?,?,?)",
+                Ids.next(),tenant,company,warehouse,thirdSku);
+        var shipped=approved("3");
+        long sourceLine=Long.parseLong(lines(queries.get(maker,oid(shipped))).getFirst().get("id").toString());
+        var shipment=shipments.create(maker,key(),new cn.erp.fulfillment.ShipmentModels.Input(customer,warehouse,date,"delivery",null,
+                List.of(new cn.erp.fulfillment.ShipmentModels.InputLine(sourceLine,unit,"1")),null));
+        long shipmentId=oid(shipment);
+        var submitted=shipments.submit(maker,shipmentId,key(),((Number)shipment.get("version")).longValue());
+        shipments.post(maker,shipmentId,key(),((Number)submitted.get("version")).longValue());
+        command(maker,create("15"),"submit");
+
+        var permissions=Set.of("inventory:view","cost:view","report:unsigned_shipments");
+        var scoped=new CompanyAccess(tenant,maker.userId(),company,false,Set.of(warehouse),permissions);
+        var first=stock.balances(scoped,null,"",null,1,false,true);
+        assertThat(items(first)).singleElement().satisfies(item->assertThat(item)
+                .containsEntry("id",id(warehouse)+":"+id(sku)).containsEntry("pendingDemandQty","15.000000")
+                .doesNotContainKeys("summaryCostAmount","summaryUnreceivedCount"));
+        String cursor=(String)first.get("nextCursor");
+        assertThat(cursor).isEqualTo(id(warehouse)+":"+id(sku));
+        var next=stock.balances(scoped,null,"",cursor,1,false,true);
+        assertThat(items(next)).singleElement().satisfies(item->assertThat(item)
+                .containsEntry("id",id(warehouse)+":"+id(secondSku)));
+        assertThat(next.get("nextCursor")).isNull();
+        var empty=stock.balances(scoped,null,"",id(warehouse)+":"+id(secondSku),1,false,true);
+        assertThat(items(empty)).isEmpty();
+        assertThat(empty.get("nextCursor")).isNull();
+        assertThat(empty.get("summary")).isEqualTo(first.get("summary")).isEqualTo(next.get("summary"));
+        assertThat(first.get("summary").toString()).contains("costAmount=140.00","shortageCount=1",
+                "unreceivedCount=1","unreceivedCostAmount=10.00");
+        assertThat(items(stock.balances(scoped,null,"",null,20,false,false))).hasSize(3);
+
+        var shortage=stock.balances(scoped,null,"",null,20,true,true);
+        assertThat(items(shortage)).hasSize(1);
+        assertThat(shortage.get("summary").toString()).contains("costAmount=90.00","unreceivedCount=1");
+        var all=new CompanyAccess(tenant,maker.userId(),company,true,Set.of(),permissions);
+        var bySku=stock.balances(all,null,"",null,20,false,true,sku);
+        assertThat(items(bySku)).hasSize(2);
+        assertThat(bySku.get("summary").toString()).contains("onHandQty=29.000000","reservedQty=2.000000",
+                "availableQty=27.000000","pendingDemandQty=15.000000");
+        assertThat(items(stock.balances(all,null," ",null,20,false,false))).isEmpty();
+
+        var noCost=new CompanyAccess(tenant,maker.userId(),company,false,Set.of(warehouse),
+                Set.of("inventory:view","report:unsigned_shipments"));
+        var limited=stock.balances(noCost,null,"",null,20,true,true);
+        assertThat(items(limited).getFirst()).doesNotContainKeys("costAmount","unitCost");
+        assertThat(limited.get("summary").toString()).contains("unreceivedCount=1")
+                .doesNotContain("costAmount","unreceivedCostAmount");
+        var department=new CompanyAccess(tenant,maker.userId(),company,false,Set.of(warehouse),permissions,
+                OrgScope.restricted(Set.of(1001L),Set.of(),1001));
+        var withoutHiddenDemand=stock.balances(department,null,"",null,20,true,true);
+        assertThat(items(withoutHiddenDemand)).isEmpty();
+        assertThat(withoutHiddenDemand.get("summary").toString()).contains("shortageCount=0","unreceivedCount=0");
+    }
+
+    @Test
     void approvalRollsBackEveryReservationWhenLaterSkuIsInsufficient() {
         receive(warehouse,sku,"5");
         var input=new Input(id(customer),date,null,true,"0",List.of(line(null,sku,warehouse,"3","10",null),

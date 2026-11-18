@@ -171,7 +171,7 @@ class CrmPoolSettings {
                 WHERE c.tenant_id=? AND c.company_id=? AND c.owner_user_id>0 AND c.`locked`=0 AND c.partner_id>? AND %s)
                 SELECT partner_id,owner_user_id,version,(due_at<=UTC_TIMESTAMP(3)) AS expired FROM candidates
                 WHERE due_at<=TIMESTAMPADD(DAY,notify_before_days,UTC_TIMESTAMP(3))
-                ORDER BY c.partner_id LIMIT ?
+                ORDER BY partner_id LIMIT ?
                 """.formatted(DUE_DATE, RULE_FILTER), tenant, company, after, JOB_BATCH);
         for (var row : rows) {
             long partner = CrmScope.number(row, "partner_id"), owner = CrmScope.number(row, "owner_user_id");

@@ -19,6 +19,29 @@ DATABASE = re.compile(r"[a-z][a-z0-9_]{1,63}\Z")
 LOCK = "qiheng_erp_upgrade_2_0"
 
 
+def checked_test_output(path):
+    location = path.resolve()
+    if os.name == "nt" and (not re.fullmatch(r"[A-Z]:", location.drive.upper()) or location.drive.upper() == "C:"):
+        raise UpgradeError("测试数据目录必须位于本机非 C 盘，且目录联接不能指回 C 盘")
+    return location
+
+
+def configured_test_root(*, required_on_windows=False):
+    value = os.environ.get("ERP_TEST_ROOT", "").strip()
+    if not value:
+        if required_on_windows and os.name == "nt":
+            raise UpgradeError("请设置 ERP_TEST_ROOT 指向非 C 盘，再运行升级自测")
+        return None
+    path = Path(value)
+    if not path.is_absolute():
+        raise UpgradeError("ERP_TEST_ROOT 必须使用绝对路径")
+    return checked_test_output(path)
+
+
+def temporary_environment(directory):
+    return {name: str(directory) for name in ("TMPDIR", "TEMP", "TMP")} if directory else {}
+
+
 def identifier(value):
     if not IDENTIFIER.fullmatch(value):
         raise UpgradeError("数据库对象名无效")
@@ -120,11 +143,12 @@ def copy_objects(source, target, manifest):
 
 
 class MySql:
-    def __init__(self, settings, mysql, dump):
+    def __init__(self, settings, mysql, dump, *, temp_dir=None):
         self.settings = settings
         self.mysql = mysql
         self.mysqldump = dump
-        self.environment = {**os.environ, "MYSQL_PWD": settings["DB_PASSWORD"]}
+        self.temp_dir = temp_dir
+        self.environment = {**os.environ, **temporary_environment(temp_dir), "MYSQL_PWD": settings["DB_PASSWORD"]}
         self.connection = [
             "--no-defaults", "--protocol=tcp",
             "--host=" + settings["DB_HOST"], "--port=" + settings["DB_PORT"],
@@ -244,7 +268,7 @@ class MySql:
         count = 0
         digest = hashlib.sha256()
         # 批量发出按主键排序的查询，并按表逐行计算摘要，连接数和内存不随数据量增长。
-        with tempfile.TemporaryFile() as queries, tempfile.TemporaryFile() as errors:
+        with tempfile.TemporaryFile(dir=self.temp_dir) as queries, tempfile.TemporaryFile(dir=self.temp_dir) as errors:
             for table, meta in tables.items():
                 columns, key = meta["columns"], meta["key"]
                 values = ",".join("HEX(CAST(" + identifier(col) + " AS BINARY))" for col in columns)

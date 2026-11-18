@@ -20,12 +20,17 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class JobEngine implements ManagedJobs {
     private static final Logger LOG=LoggerFactory.getLogger(JobEngine.class);
-    private final Map<String,LongConsumer> actions=new ConcurrentHashMap<>();
+    private final Map<String,BatchAction> actions=new ConcurrentHashMap<>();
     private final Map<Long,Claim> running=new ConcurrentHashMap<>();
     private final ThreadPoolExecutor executor=new ThreadPoolExecutor(4,4,0,TimeUnit.SECONDS,new ArrayBlockingQueue<>(32),Thread.ofPlatform().daemon().name("erp-managed-job-",0).factory());
-    private final JdbcTemplate jdbc;private final AccessService access;private final TransactionTemplate tx;private final boolean enabled;private final String node=UUID.randomUUID().toString();
-    public JobEngine(JdbcTemplate jdbc,AccessService access,PlatformTransactionManager manager,@Value("${erp.worker.enabled:true}") boolean enabled) {this.jdbc=jdbc;this.access=access;this.tx=new TransactionTemplate(manager);this.enabled=enabled;}
-    @Override public void register(String code,LongConsumer action) {if(actions.putIfAbsent(code,action)!=null) throw new IllegalStateException("定时任务动作重复登记："+code);}
+    private final JdbcTemplate jdbc;private final AccessService access;private final TransactionTemplate tx;private final TransactionTemplate itemTx;private final boolean enabled;private final String node=UUID.randomUUID().toString();
+    public JobEngine(JdbcTemplate jdbc,AccessService access,PlatformTransactionManager manager,@Value("${erp.worker.enabled:true}") boolean enabled) {
+        this.jdbc=jdbc;this.access=access;this.tx=new TransactionTemplate(manager);this.enabled=enabled;
+        itemTx=new TransactionTemplate(manager);
+        itemTx.setPropagationBehaviorName("PROPAGATION_REQUIRES_NEW");
+    }
+    @Override public void register(String code,LongConsumer action) {registerBatch(code,(tenant,batch)->action.accept(tenant));}
+    @Override public void registerBatch(String code,BatchAction action) {if(actions.putIfAbsent(code,action)!=null) throw new IllegalStateException("定时任务动作重复登记："+code);}
     public boolean registered(String code) {return actions.containsKey(code);}
     public void ensure(long tenant) {jdbc.update("INSERT IGNORE INTO job_definition(tenant_id,code,name,schedule,enabled,next_run_at) SELECT ?,code,name,schedule,enabled,UTC_TIMESTAMP(3) FROM job_definition WHERE tenant_id=0",tenant);}
     @Scheduled(fixedDelay=500) public void tick() {
@@ -60,7 +65,12 @@ public class JobEngine implements ManagedJobs {
         running.put(claim.id(),claim);String result="success",message="执行完成";
         try {
             if(claim.kind().equals("manual")) {var actor=access.forUser(claim.tenant(),claim.operator(),0);if(actor==null) throw new ApiException(403,"FORBIDDEN","发起账号已失效");PlatformAccess.require(jdbc,actor,"job:run");}
-            actions.get(claim.code()).accept(claim.tenant());
+            var batch=new JobBatch(jdbc,itemTx,claim.id(),claim.tenant(),claim.code());
+            actions.get(claim.code()).run(claim.tenant(),batch);
+            if(batch.failures()>0) {
+                result="partial_failed";
+                message="本轮有 "+batch.failures()+" 项未完成，定时任务将继续检查";
+            }
         } catch(ApiException failure) {result=failure.getStatus()==403?"skipped":"failed";message=result.equals("skipped")?"发起账号或授权已变化，本次执行已跳过":"动作未完成，请按执行编号检查运行日志";}
         catch(RuntimeException failure) {result="failed";message="动作未完成，请按执行编号检查运行日志";LOG.warn("任务执行未完成，编号 {}，异常类型 {}",claim.id(),failure.getClass().getSimpleName());}
         finally {running.remove(claim.id());}

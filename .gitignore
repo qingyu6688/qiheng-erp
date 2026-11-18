@@ -2,6 +2,7 @@
 .env.*
 !.env.example
 .local/
+/docs/服务器部署记录.md
 **/target/
 **/node_modules/
 **/dist/

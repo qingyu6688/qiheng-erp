@@ -22,6 +22,8 @@ public class WorkbenchService {
         var messages=inbox.summary(actor);
         if(messages.get("blocks") instanceof List<?> values) for(Object value:values) if(value instanceof Map<?,?> row) {var block=new LinkedHashMap<String,Object>();row.forEach((key,item)->block.put(key.toString(),item));blocks.add(block);}
         result.put("blocks",blocks);result.put("todos",messages.get("todos"));
+        result.put("todosByType",messages.get("todosByType"));
+        result.put("announcements",messages.get("announcements"));
         if(actor.hasPermission("inventory:view")) {
             var params=browser.params(actor);
             String scope=actor.allWarehouses()?"":" AND l.warehouse_id IN (:warehouses)";

@@ -51,9 +51,12 @@ class WorkbenchIT extends OpeningTestData {
     @Test void workbenchDoesNotReturnUnauthorizedBlocksAndExcludesOwnApproval() {
         long id=order(warehouse,"pending",false,"2026-11-01");
         var own=workbench.summary(maker);assertThat(own.get("todos").toString()).doesNotContain(Long.toString(id));
+        assertThat(own.get("todosByType").toString()).doesNotContain(Long.toString(id));
         var other=workbench.summary(reviewer);assertThat(other.get("todos").toString()).contains(Long.toString(id),"期初双角色往来","amount=0.00");
+        assertThat(other.get("todosByType").toString()).contains("sales-orders",Long.toString(id),"createdAt");
         var viewer=new CompanyAccess(tenant,user,company,false,Set.of(warehouse),Set.of("warehouse:view"));
         var hidden=workbench.summary(viewer);assertThat(hidden.get("blocks")).asList().isEmpty();assertThat(hidden).doesNotContainKeys("inventoryAlerts","periods","recentActions");
+        assertThat(hidden).containsEntry("todosByType",Map.of());
     }
     @Test void cursorPaginationAndFilterValidationRemainStable() {
         order(warehouse,"pending",false,"2026-11-01");order(warehouse,"pending",false,"2026-11-01");

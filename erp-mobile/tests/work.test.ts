@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { keyFor } from '../src/composables/useTaskFlow'
-import { formatQuantity, quantity, remaining, scaledQuantity, serialLines } from '../src/utils/quantity'
+import { keyFor, useTaskFlow } from '../src/composables/useTaskFlow'
+import { formatQuantity, quantity, remaining, scaledQuantity, serialLines, stepQuantity } from '../src/utils/quantity'
 import { lineForScan, pendingLine } from '../src/utils/work'
 
 describe('PDA 作业输入', () => {
@@ -15,6 +15,13 @@ describe('PDA 作业输入', () => {
   it('规范扫码枪的换行，发现重复序列号时提示', () => {
     expect(serialLines('SN01\r\nSN02\n')).toEqual(['SN01', 'SN02'])
     expect(() => serialLines('SN01\n SN01')).toThrow('序列号不能重复')
+  })
+
+  it('数量键保留精度并限制在待确认范围内', () => {
+    expect(stepQuantity('9007199254740993.000002', '9007199254740999', -1)).toBe('9007199254740992.000002')
+    expect(stepQuantity('1', '1.2', 1)).toBe('1.2')
+    expect(stepQuantity('0.2', '1.2', -1)).toBe('0.2')
+    expect(stepQuantity('', '0.000001', 1)).toBe('0.000001')
   })
 
   it('批次扫码选定同商品的唯一行，拒绝歧义', () => {
@@ -44,5 +51,17 @@ describe('PDA 作业输入', () => {
     expect(keyFor(JSON.stringify(['/confirm', 2, '1']), keys, id)).toBe('first')
     expect(keyFor(JSON.stringify(['/confirm', 2, '2']), keys, id)).toBe('second')
     expect(id).toHaveBeenCalledTimes(2)
+  })
+
+  it('确认后刷新中断时保留请求键，原数据可安全重试', async () => {
+    const { run, failure, success } = useTaskFlow()
+    const input = ['/wms/tasks/1/lines/2/confirm', { qty: '2.25', version: 7 }]
+    const request = vi.fn().mockRejectedValueOnce(new Error('连接异常')).mockResolvedValueOnce(true)
+    await expect(run(input, request)).resolves.toBeUndefined()
+    expect(failure.value).toBe('连接异常')
+    await expect(run(input, request, '确认成功')).resolves.toBe(true)
+    expect(request.mock.calls[0]?.[0]).toBe(request.mock.calls[1]?.[0])
+    expect(failure.value).toBe('')
+    expect(success.value).toBe('确认成功')
   })
 })

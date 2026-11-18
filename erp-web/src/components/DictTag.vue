@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useDict } from '../hooks/useDict'
+import StatusTag from './StatusTag.vue'
+import type { StatusTone } from '../types/status'
 const props = defineProps<{ type: string; value?: string | null }>()
 const { items, label } = useDict(props.type)
-const color = computed(() => {
+const tone = computed((): StatusTone => {
   const value = items.value.find((item) => item.value === props.value)?.color
-  return value === 'success' || value === 'warning' || value === 'danger' || value === 'primary'
-    ? value
-    : 'info'
+  if (value === 'primary') return 'info'
+  return value === 'success' || value === 'warning' || value === 'danger' ? value : 'neutral'
 })
 </script>
 <template>
-  <el-tag v-if="value" :type="color">{{ label(value) }}</el-tag
-  ><span v-else>—</span>
+  <StatusTag v-if="value" :label="label(value)" :tone="tone" />
+  <span v-else>—</span>
 </template>

@@ -20,8 +20,8 @@ class MfgCostMathTest {
         flow.record(move(3,item,"1","mfg_receipt_in",2,0));
         flow.record(move(4,item,"-0.5","sales_out",0,0));
         var work=new LinkedHashMap<Long,Work>();
-        work.put(2L,new Work(2,n("2"),n("1"),n("1"),n("30"),n("15"),ZERO,ZERO,ZERO,n("50")));
-        work.put(1L,new Work(1,n("2"),n("2"),n("2"),n("20"),n("20"),ZERO,ZERO,ZERO,null));
+        work.put(2L,new Work(2,n("2"),n("1"),n("1"),n("30"),n("15"),ZERO,ZERO,ZERO,n("50"),null));
+        work.put(1L,new Work(1,n("2"),n("2"),n("2"),n("20"),n("20"),ZERO,ZERO,ZERO,null,null));
 
         var plan=calculate(work,flow.finish(),Map.of(1L,n("6"),2L,n("3")),Map.of(1L,n("4"),2L,n("1")),"materials");
         assertThat(plan.orders()).extracting(OrderCost::workOrderId).containsExactly(1L,2L);
@@ -36,13 +36,22 @@ class MfgCostMathTest {
     }
 
     @Test void equivalentProductionAndSignedCentsRemainDeterministic() {
-        var works=Map.of(1L,new Work(1,n("10"),n("6"),n("6"),n("64"),n("70"),ZERO,ZERO,ZERO,n("50")));
+        var works=Map.of(1L,new Work(1,n("10"),n("6"),n("6"),n("64"),n("70"),ZERO,ZERO,ZERO,n("50"),null));
         var plan=calculate(works,Map.of(1L,Map.of(Destination.inventory(10,100),n("6"))),Map.of(1L,n("16")),Map.of(),"equivalent");
         assertThat(plan.orders().getFirst().wipEnd()).isEqualByComparingTo("20.00");
         assertThat(plan.inventory()).containsExactly(new Valuation(10,100,n("-10.00")));
         var weights=new LinkedHashMap<String,BigDecimal>();
         List.of("一","二","三").forEach(key->weights.put(key,BigDecimal.ONE));
         assertThat(split(n("0.02"),weights).values()).containsExactly(n("0.01"),n("0.00"),n("0.01"));
+    }
+
+    @Test void shortCloseWithoutCurrentReceiptsExpensesCarriedWip() {
+        var works=Map.of(1L,new Work(1,n("100"),ZERO,n("60"),ZERO,ZERO,n("360.01"),n("200"),ZERO,null,"expense"));
+        var plan=calculate(works,Map.of(),Map.of(),Map.of(),"equivalent");
+        var closed=plan.orders().getFirst();
+        assertThat(closed.wipEnd()).isZero();
+        assertThat(closed.finishedCost()).isZero();
+        assertThat(closed.shortCloseExpense()).isEqualByComparingTo("360.01");
     }
 
     @Test void retainsProportionAcrossTransferAndSaleReturn() {

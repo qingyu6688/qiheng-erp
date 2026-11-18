@@ -170,10 +170,10 @@ class ReplenishmentJob {
     ReplenishmentJob(JdbcTemplate jdbc,Replenishment replenishment,ManagedJobs jobs) {
         this.jdbc=jdbc;
         this.replenishment=replenishment;
-        jobs.register("wms.replenishment",this::run);
+        jobs.registerBatch("wms.replenishment",this::run);
     }
 
-    private void run(long tenant) {
+    private void run(long tenant, ManagedJobs.Batch batch) {
         for(var row:jdbc.queryForList("""
                 SELECT DISTINCT r.company_id,r.warehouse_id FROM wms_location_rule r
                 JOIN warehouse w ON w.tenant_id=r.tenant_id AND w.company_id=r.company_id AND w.id=r.warehouse_id
@@ -181,7 +181,8 @@ class ReplenishmentJob {
                 WHERE r.tenant_id=? AND r.min_qty IS NOT NULL AND w.status='active' AND w.wms_task_mode<>'off'
                   AND c.status='active' ORDER BY r.company_id,r.warehouse_id
                 """,tenant)) {
-            replenishment.scheduled(tenant,number(row,"company_id"),number(row,"warehouse_id"));
+            long company=number(row,"company_id"),warehouse=number(row,"warehouse_id");
+            batch.run(company,Long.toString(warehouse),warehouse,()->replenishment.scheduled(tenant,company,warehouse));
         }
     }
 }

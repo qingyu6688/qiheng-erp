@@ -55,7 +55,7 @@ class DepartmentScopeHttpIT {
         for(String storageKey:jdbc.queryForList("SELECT storage_key FROM attachment WHERE tenant_id=?",String.class,tenant)) files.delete(storageKey);
         jdbc.update("DELETE FROM file_ticket WHERE tenant_id=?",tenant);
         jdbc.update("DELETE FROM attachment WHERE tenant_id=?",tenant);
-        for(String table:List.of("org_role_data_scope_dept","org_role_data_scope","org_user_department","org_user_company","purchase_requisition","org_department","audit_log","idempotency_record","sys_user_role","sys_role_permission","sys_role","org_user_data_scope","sys_user","company")) jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
+        for(String table:List.of("org_role_data_scope_dept","org_role_data_scope","org_user_department","org_user_company","receipt","cash_account","income_expense_item","purchase_requisition","org_department","audit_log","idempotency_record","sys_user_role","sys_role_permission","sys_role","org_user_data_scope","sys_user","company")) jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
         jdbc.update("DELETE FROM tenant WHERE id=?",tenant);
     }
     void login(String name) throws Exception {cookies.getCookieStore().removeAll();call("POST","/auth/login",json.createObjectNode().put("tenantCode",code).put("username",name).put("password",password).toString(),company,200,false,null);}
@@ -90,6 +90,16 @@ class DepartmentScopeHttpIT {
         call("GET","/command-results?operation=purchase_requisition.create&key=old-request",null,company,404,true,null);
         var rows=call("GET","/purchase-requisitions",null,company,200,true,null).get("data").get("items");assertThat(rows.size()).isEqualTo(1);assertThat(rows.get(0).get("id").asString()).isEqualTo(Long.toString(docA));
         var browser=call("GET","/document-browser/purchase-requisitions?withTotal=true",null,company,200,true,null).get("data");assertThat(browser.get("total").asLong()).isEqualTo(1);
+        String visibleNo=jdbc.queryForObject("SELECT requisition_no FROM purchase_requisition WHERE id=?",String.class,docA);
+        String hiddenNo=jdbc.queryForObject("SELECT requisition_no FROM purchase_requisition WHERE id=?",String.class,docB);
+        String path="/document-browser/purchase-requisitions?withTotal=false&documentNo=";
+        var visible=call("GET",path+java.net.URLEncoder.encode(visibleNo,StandardCharsets.UTF_8),null,company,200,true,null)
+                .get("data").get("items");
+        assertThat(visible.size()).isEqualTo(1);
+        assertThat(visible.get(0).get("id").asString()).isEqualTo(Long.toString(docA));
+        var hidden=call("GET",path+java.net.URLEncoder.encode(hiddenNo,StandardCharsets.UTF_8),null,company,200,true,null)
+                .get("data").get("items");
+        assertThat(hidden.size()).isZero();
     }
     @Test void Y02_08_lastUnrestrictedAdministratorIsPreserved() throws Exception {
         call("PUT",path(role),input("dept",0),company,200,true,"restrict-user");
@@ -129,11 +139,45 @@ class DepartmentScopeHttpIT {
             jdbc.update("DELETE FROM tenant WHERE id=?",foreignTenant);
         }
     }
+    @Test void selectionExportRejectsInaccessibleRowsBeforeReturningCsv() throws Exception {
+        long account = Ids.next(), item = Ids.next(), visible = Ids.next(), hidden = Ids.next();
+        jdbc.update("INSERT INTO cash_account(id,tenant_id,company_id,code,name,account_type) VALUES(?,?,?,'CSV','结算账户','cash')",
+                account, tenant, company);
+        jdbc.update("INSERT INTO income_expense_item(id,tenant_id,code,name,item_type) VALUES(?,?,'CSV','收入项目','income')",
+                item, tenant);
+        for (long id : List.of(visible, hidden)) {
+            jdbc.update("""
+                    INSERT INTO receipt(id,tenant_id,company_id,receipt_no,receipt_type,income_item_id,cash_account_id,
+                      amount,business_date,owner_department_id,owner_user_id)
+                    VALUES(?,?,?,?,'other_income',?,?,12.30,CURRENT_DATE(),?,?)
+                    """, id, tenant, company, id == visible ? "=测试单号" : "不可见单号", item, account,
+                    id == visible ? a : b, user);
+        }
+        call("PUT", path(role), input("dept", 0), company, 200, true, "restrict-export");
+        login("user");
+        String endpoint = "/document-browser/receipts/selected.csv";
+        String one = "{\"ids\":[\"" + visible + "\"]}";
+        String mixed = "{\"ids\":[\"" + visible + "\",\"" + hidden + "\"]}";
+        String duplicate = "{\"ids\":[\"" + visible + "\",\"" + visible + "\"]}";
+        var csv = exchange("POST", endpoint, one, company, true, null);
+        assertThat(csv.statusCode()).isEqualTo(200);
+        assertThat(csv.headers().firstValue("Content-Type").orElseThrow()).startsWith("text/csv");
+        assertThat(csv.body()).contains("'=测试单号", "12.30").doesNotContain("不可见单号");
+        call("POST", endpoint, mixed, company, 404, true, null);
+        call("POST", endpoint, one, second, 404, true, null);
+        call("POST", endpoint, duplicate, company, 400, true, null);
+    }
+
     JsonNode call(String method,String path,String body,long scope,int status,boolean csrf,String key) throws Exception {
+        var response = exchange(method,path,body,scope,csrf,key);
+        assertThat(response.statusCode()).as(method+" "+path+": "+response.body()).isEqualTo(status);
+        return json.readTree(response.body());
+    }
+
+    HttpResponse<String> exchange(String method,String path,String body,long scope,boolean csrf,String key) throws Exception {
         var request=HttpRequest.newBuilder(URI.create("http://127.0.0.1:"+port+"/api/v1"+path)).timeout(Duration.ofSeconds(20)).header("Content-Type","application/json").header("X-Company-Id",Long.toString(scope));
         if(csrf) request.header("X-XSRF-TOKEN",cookies.getCookieStore().getCookies().stream().filter(c->c.getName().equals("XSRF-TOKEN")).findFirst().orElseThrow().getValue());
         if(key!=null) request.header("Idempotency-Key",key);
-        var response=client.send(request.method(method,body==null?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(body)).build(),HttpResponse.BodyHandlers.ofString());
-        assertThat(response.statusCode()).as(method+" "+path+": "+response.body()).isEqualTo(status);return json.readTree(response.body());
+        return client.send(request.method(method,body==null?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(body)).build(),HttpResponse.BodyHandlers.ofString());
     }
 }

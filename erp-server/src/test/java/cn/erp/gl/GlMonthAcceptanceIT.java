@@ -37,6 +37,9 @@ class GlMonthAcceptanceIT {
     @Autowired ReceiptService receipts;
     @Autowired SalesFinanceQueries finance;
     @Autowired ReportService reports;
+    @Autowired cn.erp.jobs.OutboxService outbox;
+    @Autowired cn.erp.jobs.OutboxDelivery delivery;
+    @Autowired GlAdministration glAdministration;
     GlTestData d;
     final long warehouse = Ids.next(), unit = Ids.next(), sku = Ids.next(), september = Ids.next();
 
@@ -469,4 +472,125 @@ class GlMonthAcceptanceIT {
                 .isEqualTo(income);
         assertThat(periods.closeCheck(d.actor(d.maker), d.october)).containsEntry("passed", true);
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void priorCashOpeningCarriesToOpeningCashAndActualReceiptIsCurrentFlow() throws Exception {
+        postCashOpening(LocalDate.of(2026,9,30));
+        dispatchOpeningEvents(false);
+        prepareOpeningBook();
+        var suggested=(List<Map<String,Object>>)books.suggest(d.actor(d.maker)).get("rows");
+        assertThat(suggested).hasSize(2);
+        var lines=suggested.stream().map(row -> {
+            String debit=row.get("openingDebit").toString(), credit=row.get("openingCredit").toString();
+            return new GlModels.OpeningLine(number(row.get("subjectId")), GlModels.Aux.empty(),
+                    debit,credit,"0","0",debit,credit,"0");
+        }).toList();
+        books.saveOpenings(d.actor(d.maker),key(),new GlModels.Openings(0L,lines));
+        confirmOpeningBook();
+        var opening=cashFlowAmounts();
+        assertThat(opening.get("opening_cash")).isEqualByComparingTo("1000");
+        assertThat(opening.get("closing_cash")).isEqualByComparingTo("1000");
+        assertThat(opening.get("net_change")).isEqualByComparingTo("0");
+        assertThat(opening.get("C01")).isEqualByComparingTo("0");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM gl_voucher WHERE tenant_id=? AND company_id=? AND source_type='opening_entry'",Long.class,d.tenant,d.company)).isZero();
+        var receipt=receipts.create(d.actor(d.maker),key(),new FinanceModels.Receipt("customer",d.customer,null,d.bank,
+                "20",LocalDate.of(2026,10,2),null,null,"本期真实收款",null));
+        var id=number(receipt.get("id"));
+        var pending=receipts.command(d.actor(d.maker),id,"submit",key(),new FinanceModels.Version(number(receipt.get("version")),null,null));
+        receipts.command(d.actor(d.reviewer),id,"confirm",key(),new FinanceModels.Version(number(pending.get("version")),null,null));
+        dispatchOpeningEvents(false);
+        var after=cashFlowAmounts();
+        assertThat(after.get("opening_cash")).isEqualByComparingTo("1000");
+        assertThat(after.get("C01")).isEqualByComparingTo("20");
+        assertThat(after.get("net_change")).isEqualByComparingTo("20");
+        assertThat(after.get("closing_cash")).isEqualByComparingTo("1020");
+        assertThat(glAdministration.errors(d.actor(d.reviewer))).isEmpty();
+    }
+
+    @Test
+    void currentCashOpeningKeepsOperationsAndExposesOneScopedSyncFailure() throws Exception {
+        prepareOpeningBook();
+        confirmOpeningBook();
+        long source=postCashOpening(LocalDate.of(2026,10,1));
+        dispatchOpeningEvents(true);
+        long journal=jdbc.queryForObject("SELECT id FROM journal WHERE tenant_id=? AND company_id=? AND source_type='opening_entry' AND source_id=?",
+                Long.class,d.tenant,d.company,source);
+        var record=jdbc.queryForMap("SELECT status,attempts FROM outbox_event WHERE tenant_id=? AND aggregate_type='gl_journal' AND aggregate_id=? AND event_type='gl.journal.requested'",
+                d.tenant,journal);
+        assertThat(record.get("status")).isEqualTo("dead");
+        assertThat(number(record.get("attempts"))).isEqualTo(5);
+        var errors=glAdministration.errors(d.actor(d.reviewer));
+        assertThat(errors).hasSize(1);
+        assertThat(errors.getFirst()).containsEntry("errorCode","GL_SYNC_FAILED").containsEntry("journalId",String.valueOf(journal));
+        assertThat(errors.getFirst().get("errorMessage").toString()).contains("资金期初","启用期间","缺少现金流量项目");
+        var outside=new cn.erp.identity.CompanyAccess(d.tenant,d.reviewer,d.other,true,Set.of(),d.permissions);
+        assertThat(glAdministration.errors(outside)).isEmpty();
+        String retry=key();
+        var answer=glAdministration.synchronize(d.actor(d.reviewer),retry,d.october);
+        assertThat(answer.get("failed")).isEqualTo(List.of(String.valueOf(journal)));
+        assertThat(glAdministration.synchronize(d.actor(d.reviewer),retry,d.october).get("failed")).isEqualTo(answer.get("failed"));
+        assertThat(glAdministration.errors(d.actor(d.reviewer))).hasSize(1);
+        assertThat(jdbc.queryForObject("SELECT balance FROM cash_account_balance WHERE tenant_id=? AND company_id=? AND cash_account_id=?",
+                BigDecimal.class,d.tenant,d.company,d.bank)).isEqualByComparingTo("1000");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM journal WHERE tenant_id=? AND company_id=? AND source_type='opening_entry' AND source_id=?",
+                Long.class,d.tenant,d.company,source)).isOne();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM gl_voucher WHERE tenant_id=? AND company_id=? AND journal_id=?",
+                Long.class,d.tenant,d.company,journal)).isZero();
+        assertThat(cashFlowAmounts().get("net_change")).isEqualByComparingTo("0");
+    }
+
+    private void prepareOpeningBook() {
+        periods.close(d.actor(d.reviewer),september,key(),new PeriodService.Version(0L,"结清启用前业务期间"));
+        books.create(d.actor(d.maker),key(),new GlModels.Book("enterprise",d.october,null,0L));
+    }
+
+    private void confirmOpeningBook(){
+        var signed=books.confirm(d.actor(d.reviewer),key(),new GlModels.Confirmation(
+                number(books.get(d.actor(d.maker)).get("version")),"本机核对现金科目和期初"));
+        books.activate(d.actor(d.maker),"activate",key(),new GlModels.Version(number(signed.get("version")),null));
+    }
+
+    private long postCashOpening(LocalDate date) {
+        var row=opening.createEntry(d.actor(d.maker),key(),new OpeningService.Entry("cash",null,d.bank,"D","1000",date,"银行切换余额",null));
+        assertThatThrownBy(()->op(row,false,"approve",d.maker)).hasMessageContaining("审核");
+        var approved=op(row,false,"approve",d.reviewer);
+        return number(op(approved,false,"post",d.maker).get("id"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String,BigDecimal> cashFlowAmounts() {
+        var report=queries.statement(d.actor(d.reviewer),"cash_flow",d.october);
+        assertThat(report.get("passed")).isEqualTo(true);
+        var result=new HashMap<String,BigDecimal>();
+        for(var row:(List<Map<String,Object>>)report.get("rows")) {
+            result.put(row.get("code").toString(),new BigDecimal(row.get("amount").toString()));
+            assertThat(row.get("yearAmount")).as("年中启用缺少启用前现金流分类").isNull();
+        }
+        return result;
+    }
+
+    private void dispatchOpeningEvents(boolean expectUnmappedOpening) throws InterruptedException {
+        int failures=0;
+        long deadline=System.nanoTime()+java.time.Duration.ofSeconds(90).toNanos();
+        while(System.nanoTime()<deadline){
+            var batch=outbox.claim(20,d.tenant);
+            if(batch.isEmpty()){
+                if(!expectUnmappedOpening || failures==5) return;
+                Thread.sleep(200);
+            }
+            for(var event:batch){
+                if(expectUnmappedOpening && event.type().equals("gl.journal.requested")){
+                    assertThatThrownBy(()->delivery.deliver(event)).isInstanceOf(cn.erp.shared.ApiException.class)
+                            .hasMessage("现金及银行类分录必须选择现金流量项目");
+                    delivery.failed(event);
+                    failures++;
+                }else{
+                    assertThat(delivery.deliver(event)).isTrue();
+                }
+            }
+        }
+        throw new AssertionError("总账期初重试未在期限内完成，实际失败次数 "+failures);
+    }
+
 }

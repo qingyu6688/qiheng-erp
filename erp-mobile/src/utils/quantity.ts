@@ -25,6 +25,14 @@ export function quantity(value: string, allowZero = false): string {
   return formatQuantity(amount)
 }
 
+export function stepQuantity(value: string, maximum: string, direction: -1 | 1): string {
+  const limit = scaledQuantity(maximum) ?? 0n
+  const current = scaledQuantity(value) ?? 0n
+  const next = current + BigInt(direction) * scale
+  if (next <= 0n || limit === 0n) return value
+  return formatQuantity(next > limit ? limit : next)
+}
+
 export function serialLines(value: string): string[] {
   const result = value.split(/[\r\n]+/).map((line) => line.trim()).filter(Boolean)
   if (new Set(result).size !== result.length) throw new Error('序列号不能重复')

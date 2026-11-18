@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onScopeDispose, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs'
 import { ElTree } from 'element-plus/es/components/tree/index.mjs'
@@ -17,6 +17,7 @@ import { departmentTree } from '../../types/org'
 import type { Department, DepartmentNode, OrgUser } from '../../types/org'
 import DepartmentEditor from '../../components/org/DepartmentEditor.vue'
 import UserOrganizationEditor from '../../components/org/UserOrganizationEditor.vue'
+import SplitPane from '../../components/SplitPane.vue'
 import ResourcePage from '../ResourcePage.vue'
 
 const session = useSessionStore()
@@ -28,6 +29,14 @@ const rows = ref<Department[]>([]),
   error = ref(''),
   notice = ref('')
 const tree = computed(() => departmentTree(rows.value))
+const treeView = ref<InstanceType<typeof ElTree>>()
+const departmentQuery = ref('')
+const includeChildren = ref(false)
+const layoutKey = computed(() =>
+  session.user?.id && session.companyId
+    ? 'erp.split.organization.' + session.user.id + '.' + session.companyId
+    : undefined,
+)
 const selected = computed(() => rows.value.find((row) => row.id === selectedId.value))
 const editor = ref(false),
   edited = ref<Department>(),
@@ -119,6 +128,7 @@ async function loadMembers(more: boolean): Promise<void> {
       departmentId,
       more ? (memberCursor.value ?? undefined) : undefined,
       controller.signal,
+      includeChildren.value,
     )
     if (current !== memberRevision) return
     members.value = more ? [...members.value, ...result.items] : result.items
@@ -128,6 +138,21 @@ async function loadMembers(more: boolean): Promise<void> {
   } finally {
     if (current === memberRevision) membersBusy.value = false
   }
+}
+function filterDepartment(value: string, data: Record<string, unknown>): boolean {
+  const query = value.trim().toLocaleLowerCase()
+  return (
+    !query ||
+    (String(data.name ?? '') + ' ' + String(data.code ?? '')).toLocaleLowerCase().includes(query)
+  )
+}
+watch([departmentQuery, loading], async () => {
+  await nextTick()
+  treeView.value?.filter(departmentQuery.value)
+})
+function changeMemberScope(event: Event): void {
+  includeChildren.value = (event.target as HTMLInputElement).checked
+  void loadMembers(false)
 }
 function openEditor(row?: Department): void {
   if (!canLeave()) return
@@ -258,7 +283,7 @@ async function openAssignment(user?: OrgUser): Promise<void> {
   await searchUsers('')
 }
 watch(
-  () => session.companyId,
+  [() => session.companyId, () => session.can('org_department:view')],
   () => {
     ++memberRevision
     ++searchRevision
@@ -266,6 +291,8 @@ watch(
     userId.value = ''
     userOptions.value = []
     selectedId.value = ''
+    departmentQuery.value = ''
+    includeChildren.value = false
     editorDirty.value = assignmentDirty.value = false
     notice.value = ''
     void load()
@@ -319,150 +346,181 @@ onScopeDispose(() => {
       <el-alert v-if="notice" :title="notice" type="success" :closable="false" />
       <p v-if="!session.companyId" class="panel empty-state">请先选择可访问的公司。</p>
       <p v-else-if="loading" role="status" class="muted">正在加载部门与成员…</p>
-      <div v-else class="organization-layout">
-        <aside class="panel department-tree-panel" aria-label="部门树">
-          <div class="panel-heading">
-            <h2>公司部门</h2>
-            <el-button
-              v-if="session.can('org_department:create')"
-              :disabled="blocked"
-              @click="openEditor()"
-              >新建部门</el-button
-            >
-          </div>
-          <p v-if="!rows.length" class="muted empty-state">当前公司尚未设置部门。</p>
-          <el-tree
-            v-else
-            :data="tree"
-            :props="{ label: 'name' }"
-            node-key="id"
-            default-expand-all
-            highlight-current
-            :current-node-key="selectedId"
-            :expand-on-click-node="false"
-            :draggable="
-              session.can('org_department:update') && !blocked && !editorDirty && !assignmentDirty
-            "
-            @node-click="select"
-            @node-drop="drop"
-          >
-            <template #default="{ data }"
-              ><span
-                >{{ data.name
-                }}<span v-if="data.status === 'disabled'" class="muted">（停用）</span></span
-              ></template
-            >
-          </el-tree>
-          <p v-if="session.can('org_department:update') && rows.length" class="muted tree-help">
-            拖拽调整上级或同级排序，确认后保存。
-          </p>
-        </aside>
-        <div class="organization-detail">
-          <DepartmentEditor
-            v-if="editor"
-            :key="editorRevision"
-            :row="edited"
-            :parent-id="editorParent"
-            :departments="rows"
-            @close="closeEditor"
-            @saved="saved"
-            @dirty="editorDirty = $event"
-            @pending="editorBusy = $event"
-          />
-          <section v-else-if="selected" class="panel department-detail" aria-label="部门详情">
+      <SplitPane v-else class="organization-layout" :storage-key="layoutKey" label="调整部门树宽度">
+        <template #primary>
+          <aside class="panel department-tree-panel" aria-label="部门树">
             <div class="panel-heading">
-              <div>
-                <h2>{{ selected.name }}</h2>
-                <span class="muted"
-                  >{{ selected.code }} · {{ selected.status === 'active' ? '启用' : '停用' }}</span
-                >
-              </div>
-              <div v-if="session.can('org_department:update')" class="detail-actions">
-                <el-button :disabled="blocked" @click="openEditor(selected)">编辑部门</el-button
-                ><el-button :disabled="blocked" @click="changeStatus(selected)">{{
-                  selected.status === 'active' ? '停用部门' : '启用部门'
-                }}</el-button>
-              </div>
-            </div>
-            <dl class="department-facts">
-              <div>
-                <dt>部门负责人</dt>
-                <dd>{{ selected.leaderName ?? '未设置' }}</dd>
-              </div>
-              <div>
-                <dt>成员人数</dt>
-                <dd>{{ selected.memberCount }}</dd>
-              </div>
-              <div>
-                <dt>当前层级</dt>
-                <dd>{{ selected.depth }}</dd>
-              </div>
-            </dl>
-            <div class="panel-heading">
-              <h3>部门成员</h3>
+              <h2>公司部门</h2>
               <el-button
-                v-if="session.can('user:update')"
+                v-if="session.can('org_department:create')"
                 :disabled="blocked"
-                @click="openAssignment()"
-                >配置成员部门与岗位</el-button
+                @click="openEditor()"
+                >新建部门</el-button
               >
             </div>
-            <p v-if="membersBusy" role="status">正在加载部门成员…</p>
-            <el-table :data="members" :aria-busy="membersBusy" empty-text="当前部门暂无成员"
-              ><el-table-column prop="displayName" label="姓名" /><el-table-column
-                prop="username"
-                label="用户名"
-              /><el-table-column label="状态"
-                ><template #default="{ row }">{{
-                  row.status === 'active' ? '启用' : '停用'
-                }}</template></el-table-column
-              ><el-table-column v-if="session.can('user:update')" label="操作"
-                ><template #default="{ row }"
-                  ><el-button text :disabled="blocked" @click="openAssignment(row)"
-                    >配置任职</el-button
-                  ></template
-                ></el-table-column
-              ></el-table
-            >
-            <el-button v-if="memberCursor" :loading="membersBusy" @click="loadMembers(true)"
-              >加载更多成员</el-button
-            >
-          </section>
-          <section v-else-if="!editor" class="panel empty-state">
-            选择部门查看资料，或新建第一个部门。
-          </section>
-          <section
-            v-if="session.can('user:update') && !editor"
-            class="panel member-assignment"
-            aria-label="公司用户任职配置"
-          >
-            <el-form-item label="配置公司用户" for="organization-user"
-              ><el-select
-                id="organization-user"
-                v-model="userId"
-                filterable
-                remote
-                :remote-method="searchUsers"
-                :disabled="blocked || assignmentDirty"
-                placeholder="输入姓名或用户名搜索"
-                @visible-change="usersDropdown"
-                ><el-option
-                  v-for="user in userOptions"
-                  :key="user.id"
-                  :value="user.id"
-                  :label="user.displayName + '（' + user.username + '）'" /></el-select
-            ></el-form-item>
-            <UserOrganizationEditor
-              v-if="userId"
-              :key="session.companyId + ':' + userId"
-              :user-id="userId"
-              @dirty="assignmentDirty = $event"
-              @pending="assignmentBusy = $event"
-              @saved="assigned"
+            <el-input
+              v-model="departmentQuery"
+              aria-label="搜索部门"
+              placeholder="搜索部门名称或编码"
+              :maxlength="100"
+              clearable
+              class="department-search"
             />
-          </section>
-        </div>
-      </div>
+            <p v-if="!rows.length" class="muted empty-state">当前公司尚未设置部门。</p>
+            <el-tree
+              v-else
+              ref="treeView"
+              :data="tree"
+              :props="{ label: 'name', disabled: () => false }"
+              node-key="id"
+              default-expand-all
+              highlight-current
+              :current-node-key="selectedId"
+              :expand-on-click-node="false"
+              :filter-node-method="filterDepartment"
+              :draggable="
+                session.can('org_department:update') &&
+                !blocked &&
+                !editorDirty &&
+                !assignmentDirty &&
+                !departmentQuery.trim()
+              "
+              @node-click="select"
+              @node-drop="drop"
+            >
+              <template #default="{ data }"
+                ><span
+                  >{{ data.name
+                  }}<span v-if="data.status === 'disabled'" class="muted">（停用）</span></span
+                ></template
+              >
+            </el-tree>
+            <p v-if="session.can('org_department:update') && rows.length" class="muted tree-help">
+              {{
+                departmentQuery.trim()
+                  ? '清除搜索后可拖拽调整部门。'
+                  : '拖拽调整上级或同级排序，确认后保存。'
+              }}
+            </p>
+          </aside>
+        </template>
+        <template #secondary>
+          <div class="organization-detail">
+            <DepartmentEditor
+              v-if="editor"
+              :key="editorRevision"
+              :row="edited"
+              :parent-id="editorParent"
+              :departments="rows"
+              @close="closeEditor"
+              @saved="saved"
+              @dirty="editorDirty = $event"
+              @pending="editorBusy = $event"
+            />
+            <section v-else-if="selected" class="panel department-detail" aria-label="部门详情">
+              <div class="panel-heading">
+                <div>
+                  <h2>{{ selected.name }}</h2>
+                  <span class="muted"
+                    >{{ selected.code }} ·
+                    {{ selected.status === 'active' ? '启用' : '停用' }}</span
+                  >
+                </div>
+                <div v-if="session.can('org_department:update')" class="detail-actions">
+                  <el-button :disabled="blocked" @click="openEditor(selected)">编辑部门</el-button
+                  ><el-button :disabled="blocked" @click="changeStatus(selected)">{{
+                    selected.status === 'active' ? '停用部门' : '启用部门'
+                  }}</el-button>
+                </div>
+              </div>
+              <dl class="department-facts">
+                <div>
+                  <dt>部门负责人</dt>
+                  <dd>{{ selected.leaderName ?? '未设置' }}</dd>
+                </div>
+                <div>
+                  <dt>成员人数</dt>
+                  <dd>{{ selected.memberCount }}</dd>
+                </div>
+                <div>
+                  <dt>当前层级</dt>
+                  <dd>{{ selected.depth }}</dd>
+                </div>
+              </dl>
+              <div class="panel-heading">
+                <h3>部门成员</h3>
+                <label class="department-member-scope">
+                  <input
+                    type="checkbox"
+                    :checked="includeChildren"
+                    :disabled="blocked || membersBusy"
+                    @change="changeMemberScope"
+                  />含下级
+                </label>
+                <el-button
+                  v-if="session.can('user:update')"
+                  :disabled="blocked"
+                  @click="openAssignment()"
+                  >配置成员部门与岗位</el-button
+                >
+              </div>
+              <p v-if="membersBusy" role="status">正在加载部门成员…</p>
+              <el-table :data="members" table-layout="auto" :aria-busy="membersBusy" empty-text="当前部门暂无成员"
+                ><el-table-column prop="displayName" label="姓名" /><el-table-column
+                  prop="username"
+                  label="用户名"
+                /><el-table-column label="状态"
+                  ><template #default="{ row }">{{
+                    row.status === 'active' ? '启用' : '停用'
+                  }}</template></el-table-column
+                ><el-table-column v-if="session.can('user:update')" label="操作"
+                  ><template #default="{ row }"
+                    ><el-button text :disabled="blocked" @click="openAssignment(row)"
+                      >配置任职</el-button
+                    ></template
+                  ></el-table-column
+                ></el-table
+              >
+              <el-button v-if="memberCursor" :loading="membersBusy" @click="loadMembers(true)"
+                >加载更多成员</el-button
+              >
+            </section>
+            <section v-else-if="!editor" class="panel empty-state">
+              选择部门查看资料，或新建第一个部门。
+            </section>
+            <section
+              v-if="session.can('user:update') && !editor"
+              class="panel member-assignment"
+              aria-label="公司用户任职配置"
+            >
+              <el-form-item label="配置公司用户" for="organization-user"
+                ><el-select
+                  id="organization-user"
+                  v-model="userId"
+                  filterable
+                  remote
+                  :remote-method="searchUsers"
+                  :disabled="blocked || assignmentDirty"
+                  placeholder="输入姓名或用户名搜索"
+                  @visible-change="usersDropdown"
+                  ><el-option
+                    v-for="user in userOptions"
+                    :key="user.id"
+                    :value="user.id"
+                    :label="user.displayName + '（' + user.username + '）'" /></el-select
+              ></el-form-item>
+              <UserOrganizationEditor
+                v-if="userId"
+                :key="session.companyId + ':' + userId"
+                :user-id="userId"
+                @dirty="assignmentDirty = $event"
+                @pending="assignmentBusy = $event"
+                @saved="assigned"
+              />
+            </section>
+          </div>
+        </template>
+      </SplitPane>
     </template>
   </section>
 </template>
@@ -479,16 +537,20 @@ onScopeDispose(() => {
   margin: 0 0 8px;
 }
 .organization-layout {
-  display: grid;
-  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
-  gap: 20px;
   margin-top: 20px;
-  align-items: start;
 }
 .department-tree-panel,
 .department-detail,
 .member-assignment {
-  padding: 20px;
+  padding: 16px;
+}
+.department-search {
+  margin-bottom: 12px;
+}
+.department-member-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .organization-detail {
   min-width: 0;
@@ -559,9 +621,6 @@ onScopeDispose(() => {
   width: 100%;
 }
 @media (max-width: 860px) {
-  .organization-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .page-heading {
     flex-direction: column;
   }

@@ -9,6 +9,8 @@ import type {
   ModelInput,
   StartOptions,
   TaskDecision,
+  WorkflowBatchInput,
+  WorkflowBatchResult,
   WorkflowBinding,
   WorkflowBusinessType,
   WorkflowInstance,
@@ -18,6 +20,7 @@ import type {
   WorkflowPage,
   WorkflowProgress,
 } from '../types/workflow'
+import { businessRoutes } from '../types/workflow'
 export function workflowModels(): Promise<WorkflowModel[]> {
   return request({ method: 'GET', url: '/workflow/models' }, true)
 }
@@ -132,6 +135,22 @@ export function workflowList(
 export function workflowInstance(id: string): Promise<WorkflowInstance> {
   return request({ method: 'GET', url: '/workflow/instances/' + id }, true)
 }
+const sourcePaths: Partial<Record<WorkflowBusinessType, string>> = {
+  ...businessRoutes,
+  credit_increase: 'ar/credit-increases',
+  mfg_bom: 'mfg/boms',
+  stock_misc_doc: 'stock-misc-docs',
+  qc_inspection: 'qc/inspections',
+}
+export async function workflowSourcePreview(
+  type: WorkflowBusinessType,
+  id: string,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown> | undefined> {
+  const path = sourcePaths[type]
+  if (path)
+    return request({ method: 'GET', url: '/' + path + '/' + encodeURIComponent(id), signal }, true)
+}
 export function workflowTaskCandidates(id: string): Promise<Choice[]> {
   return request({ method: 'GET', url: '/workflow/tasks/' + id + '/candidates' }, true)
 }
@@ -145,6 +164,20 @@ export function workflowTaskAction(
     {
       method: 'POST',
       url: '/workflow/tasks/' + id + '/' + action,
+      data,
+      headers: { 'Idempotency-Key': key },
+    },
+    true,
+  )
+}
+export function workflowBatchApprove(
+  data: WorkflowBatchInput,
+  key: string,
+): Promise<WorkflowBatchResult[]> {
+  return request(
+    {
+      method: 'POST',
+      url: '/workflow/tasks/batch-approve',
       data,
       headers: { 'Idempotency-Key': key },
     },

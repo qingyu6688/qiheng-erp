@@ -44,8 +44,9 @@ class OrgController {
         return ApiResponse.success(departments.status(access.requireCompany(request,"org_department:update"),id,action,key,input));
     }
     @GetMapping("/org/departments/{id}/members")
-    ApiResponse<?> members(HttpServletRequest request,@PathVariable long id,@RequestParam(required=false) String cursor,@RequestParam(defaultValue="50") int limit) {
-        return ApiResponse.success(departments.members(access.requireCompany(request,"org_department:view"),id,cursor,limit));
+    ApiResponse<?> members(HttpServletRequest request,@PathVariable long id,@RequestParam(required=false) String cursor,
+            @RequestParam(defaultValue="50") int limit,@RequestParam(defaultValue="false") boolean includeChildren) {
+        return ApiResponse.success(departments.members(access.requireCompany(request,"org_department:view"),id,cursor,limit,includeChildren));
     }
     @GetMapping("/org/posts")
     ApiResponse<?> posts(HttpServletRequest request,@RequestParam(required=false) String keyword,@RequestParam(required=false) String cursor,@RequestParam(defaultValue="50") int limit) {

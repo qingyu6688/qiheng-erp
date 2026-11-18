@@ -39,7 +39,7 @@ test('已过账单据附件上传下载删除、私有权限与A4打印预览', 
     await expect(page).toHaveURL(/\/stock-adjustments\/[0-9]+$/)
     const documentPath = new URL(page.url()).pathname, id = documentPath.split('/').at(-1)!
     await command(page, '提交'); await reviewer.goto(documentPath); await command(reviewer, '审批通过'); await page.reload(); await command(page, '过账')
-    await expect(page.locator('.sales-detail-header .el-tag').first()).toHaveText('已过账')
+    await expect(page.locator('.sales-detail-header .status-tag').first()).toHaveText('已过账')
 
     const panel = page.locator('.document-files'); await expect(panel.getByText('暂无附件', { exact: true })).toBeVisible()
     const pdf = Buffer.from('%PDF-1.7\n附件浏览器验收\n%%EOF', 'utf8')

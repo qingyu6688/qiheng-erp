@@ -21,6 +21,7 @@ test('线索登记跟进并合并到共享客户，切换公司后旧画像不�
   }
   await page.routeWebSocket('**/ws/**', (socket) => socket.close())
   await page.route('**/api/v1/**', async (route) => {
+    if (new URL(route.request().url()).pathname === '/api/v1/system/version') return route.fallback()
     const request = route.request()
     const path = new URL(request.url()).pathname.slice('/api/v1'.length)
     const ok = (data: unknown): Promise<void> => route.fulfill({ json: { code: 200, message: '操作成功', data } })

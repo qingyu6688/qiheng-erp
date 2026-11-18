@@ -88,8 +88,10 @@ class CatalogController {
     @GetMapping("/products")
     ApiResponse<CatalogModels.Page> listProductInput(HttpServletRequest request,
             @RequestParam(required=false) String keyword,@RequestParam(required=false) String status,
-            @RequestParam(defaultValue="20") int limit,@RequestParam(required=false) String cursor) {
-        return ApiResponse.success(catalog.list(access.requireTenant(request,"product:view"),"product",keyword,status,limit,cursor));
+            @RequestParam(defaultValue="20") int limit,@RequestParam(required=false) String cursor,
+            @RequestParam(required=false) Long categoryId,@RequestParam(defaultValue="false") boolean includeChildren) {
+        return ApiResponse.success(catalog.listProducts(access.requireTenant(request,"product:view"),
+                keyword,status,limit,cursor,categoryId,includeChildren));
     }
 
     @GetMapping("/products/{id}")

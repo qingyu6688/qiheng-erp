@@ -28,9 +28,10 @@ class MfgPlanningController {
     private final AccessService access;
     private final MfgBomService boms;
     private final MfgWorkOrderService orders;
+    private final MfgShortClose shortClose;
 
-    MfgPlanningController(AccessService access,MfgBomService boms,MfgWorkOrderService orders) {
-        this.access=access; this.boms=boms; this.orders=orders;
+    MfgPlanningController(AccessService access,MfgBomService boms,MfgWorkOrderService orders,MfgShortClose shortClose) {
+        this.access=access; this.boms=boms; this.orders=orders; this.shortClose=shortClose;
     }
 
     @GetMapping("/boms")
@@ -98,6 +99,18 @@ class MfgPlanningController {
     ApiResponse<?> commandOrder(HttpServletRequest request,@PathVariable long id,@PathVariable String action,
                                 @RequestHeader(value=KEY,required=false) String key,@RequestBody Revision input) {
         return ApiResponse.success(orders.command(actor(request,ORDERS,action),id,action,key,input));
+    }
+
+    @PostMapping("/work-orders/{id}/short-close")
+    ApiResponse<?> requestShortClose(HttpServletRequest request,@PathVariable long id,
+                                    @RequestHeader(value=KEY,required=false) String key,@RequestBody ShortCloseDraft input) {
+        return ApiResponse.success(shortClose.request(actor(request,ORDERS,"short_close"),id,key,input));
+    }
+
+    @PostMapping("/work-orders/{id}/approve-short-close")
+    ApiResponse<?> approveShortClose(HttpServletRequest request,@PathVariable long id,
+                                    @RequestHeader(value=KEY,required=false) String key,@RequestBody Revision input) {
+        return ApiResponse.success(shortClose.approve(actor(request,ORDERS,"approve_short_close"),id,key,input));
     }
 
     private CompanyAccess actor(HttpServletRequest request,String resource,String action) {

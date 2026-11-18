@@ -182,19 +182,50 @@ public class MessageService implements TodoInbox,AlertNotificationPort {
     }
     @Override public Map<String,Object> summary(ActorScope scope) {
         if(!(scope instanceof CompanyAccess actor)) throw invalid("工作台身份无效");sync(actor);var blocks=new ArrayList<Map<String,Object>>();var items=new ArrayList<Map<String,Object>>();
+        var byType=new LinkedHashMap<String,List<Map<String,Object>>>();
         for(var query:todos.eligible(actor)) {
             var params=new HashMap<>(query.params());String where="m.tenant_id=:tenant AND m.company_id=:company AND m.user_id=:user AND m.category='todo' AND m.state='open' AND m.source_type='"+query.type()+"' AND m.source_action='"+query.task().action()+"' AND EXISTS(SELECT 1 FROM "+query.type()+" h WHERE "+query.where()+" AND h.id=m.source_id AND h.version=m.source_version)";
             long count=named.queryForObject("SELECT COUNT(*) FROM notify_message m WHERE "+where,params,Long.class);String url="/"+query.task().kind()+"?status="+query.task().state()+(query.task().kind().equals("shipments")?"&signOverdue=true":"");blocks.add(Map.of("key",query.task().kind(),"label",query.task().label(),"count",count,"url",url));
-            for(var row:named.queryForList("SELECT m.id,m.source_id FROM notify_message m WHERE "+where+" ORDER BY m.id DESC LIMIT 10",params)) {
-                var detail=todos.detail(actor,query,((Number)row.get("source_id")).longValue());if(detail!=null) {detail.put("messageId",row.get("id").toString());items.add(detail);}
+            var rows=new ArrayList<Map<String,Object>>();
+            for(var row:named.queryForList("SELECT m.id,m.source_id,m.created_at FROM notify_message m WHERE "+where+" ORDER BY m.id DESC LIMIT 10",params)) {
+                var detail=todos.detail(actor,query,((Number)row.get("source_id")).longValue());
+                if(detail!=null) {
+                    detail.put("messageId",row.get("id").toString());
+                    detail.put("createdAt",ApiRows.row(row).get("createdAt"));
+                    detail.put("kind",query.task().kind());
+                    rows.add(detail);
+                }
             }
+            byType.put(query.task().kind(),rows);
+            items.addAll(rows);
         }
-        qualitySummary(actor,blocks,items);
-        var flow=workflows.workbench(actor);if(((Number)flow.get("count")).longValue()>0) {blocks.add(Map.of("key","workflow","label","流程审批待办","count",flow.get("count"),"url","/workflow/todo"));if(flow.get("items") instanceof List<?> rows) for(Object row:rows) if(row instanceof Map<?,?> values) {var todo=new LinkedHashMap<String,Object>();values.forEach((key,value)->todo.put(key.toString(),value));items.addFirst(todo);}}
-        return Map.of("blocks",blocks,"todos",items.stream().limit(10).toList());
+        qualitySummary(actor,blocks,items,byType);
+        var flow=workflows.workbench(actor);
+        if(((Number)flow.get("count")).longValue()>0) {
+            blocks.add(Map.of("key","workflow","label","流程审批待办","count",flow.get("count"),"url","/workflow/todo"));
+            var rows=new ArrayList<Map<String,Object>>();
+            if(flow.get("items") instanceof List<?> values) for(Object value:values) if(value instanceof Map<?,?> row) {
+                var todo=new LinkedHashMap<String,Object>();
+                row.forEach((key,item)->todo.put(key.toString(),item));
+                todo.put("kind","workflow");
+                rows.add(todo);
+                items.addFirst(todo);
+            }
+            byType.put("workflow",rows);
+        }
+        return Map.of("blocks",blocks,"todos",items.stream().limit(10).toList(),"todosByType",byType,
+                "announcements",announcements(actor));
     }
 
-    private void qualitySummary(CompanyAccess actor,List<Map<String,Object>> blocks,List<Map<String,Object>> items){
+    private List<Map<String,Object>> announcements(CompanyAccess actor) {
+        var params=Map.of("tenant",actor.tenantId(),"company",actor.companyId(),"user",actor.userId());
+        return named.queryForList("SELECT n.id,n.title,n.level,n.publish_at FROM sys_notice n WHERE "
+                +NoticeService.visible("n")+" ORDER BY n.publish_at DESC,n.id DESC LIMIT 5",params)
+                .stream().map(ApiRows::row).toList();
+    }
+
+    private void qualitySummary(CompanyAccess actor,List<Map<String,Object>> blocks,List<Map<String,Object>> items,
+                                Map<String,List<Map<String,Object>>> byType){
         var filter=visibility.qualityPending(actor);
         if(filter==null)return;
         var params=new HashMap<>(filter.params());
@@ -208,13 +239,17 @@ public class MessageService implements TodoInbox,AlertNotificationPort {
         if(count==null||count==0)return;
         String label="来料检不合格品待处置";
         blocks.add(Map.of("key","quality","label",label,"count",count,"url","/quality?tab=nonconforming"));
-        for(var row:named.queryForList("SELECT q.id,q.inspection_no,q.business_date,m.id message_id "+matching+" ORDER BY m.id DESC LIMIT 10",params)){
+        var rows=new ArrayList<Map<String,Object>>();
+        for(var row:named.queryForList("SELECT q.id,q.inspection_no,q.business_date,m.id message_id,m.created_at "+matching+" ORDER BY m.id DESC LIMIT 10",params)){
             var item=ApiRows.row(row);
+            item.put("kind","quality");
             item.put("label",label);
             item.put("documentNo",item.remove("inspectionNo"));
             item.put("url","/quality?inspectionId="+item.get("id"));
+            rows.add(item);
             items.addFirst(item);
         }
+        byType.put("quality",rows);
     }
     /** 后台每次只处理一个企业，授权变化在实际派发及读取时再次检查。 */
     @Transactional(propagation=Propagation.NOT_SUPPORTED)

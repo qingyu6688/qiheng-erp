@@ -401,6 +401,56 @@ class WorkflowHttpIT {
     }
 
     @Test
+    void batchApprovalRechecksGroupVersionAndAssigneeAndReplaysCommittedTasks() throws Exception {
+        d.bind(root(approve("review", List.of(d.manager), "and", null)));
+        long first = d.order("1", "100"), second = d.order("1", "100");
+        long firstTask = task(d.submit(first)), secondTask = task(d.submit(second));
+        login(d.manager);
+        var todo = json.readTree(request("GET", "/workflow/tasks/todo", null, false, d.company, null).body())
+                .path("data").path("items");
+        assertThat(todo.size()).isEqualTo(2);
+        assertThat(todo.get(0).path("starterName").asString()).isEqualTo("发起人");
+        assertThat(todo.get(0).path("totalAmount").asString()).startsWith("100");
+        var unmatched = request("GET", "/workflow/tasks/todo?keyword=unknown-order", null, false, d.company, null);
+        assertThat(json.readTree(unmatched.body()).path("data").path("items").size()).isZero();
+        String group = todo.get(0).path("batchGroup").asString();
+        assertThat(group).isNotBlank().isEqualTo(todo.get(1).path("batchGroup").asString());
+
+        var items = List.of(Map.of("id", firstTask, "version", 0), Map.of("id", secondTask, "version", 0));
+        String path = "/workflow/tasks/batch-approve";
+        assertThat(request("POST", path, Map.of("group", group, "items", items), true, d.company + 1, key()).statusCode())
+                .isIn(403, 404);
+        var wrongGroup = request("POST", path, Map.of("group", group + "wrong", "items", items), true, d.company, key());
+        assertThat(wrongGroup.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(wrongGroup.body()).path("data").get(0).path("approved").asBoolean()).isFalse();
+        assertThat(d.status(first)).isEqualTo("pending");
+        login(d.financeA);
+        var wrongAssignee = request("POST", path, Map.of("group", group, "items", items), true, d.company, key());
+        assertThat(wrongAssignee.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(wrongAssignee.body()).path("data").get(0).path("approved").asBoolean()).isFalse();
+        assertThat(d.status(first)).isEqualTo("pending");
+
+        login(d.manager);
+        var staleItems = List.of(items.getFirst(), Map.of("id", secondTask, "version", 99));
+        var body = Map.of("group", group, "items", staleItems);
+        String idempotencyKey = key();
+        for (int attempt = 0; attempt < 2; attempt++) {
+            var response = request("POST", path, body, true, d.company, idempotencyKey);
+            assertThat(response.statusCode()).isEqualTo(200);
+            var results = json.readTree(response.body()).path("data");
+            assertThat(results.get(0).path("approved").asBoolean()).isTrue();
+            assertThat(results.get(1).path("approved").asBoolean()).isFalse();
+        }
+        var altered = request("POST", path, Map.of("group", group, "items", items), true, d.company, idempotencyKey);
+        assertThat(altered.statusCode()).isEqualTo(409);
+        assertThat(json.readTree(altered.body()).path("errorCode").asString()).isEqualTo("IDEMPOTENCY_KEY_REUSED");
+        assertThat(d.status(first)).isEqualTo("approved");
+        assertThat(d.status(second)).isEqualTo("pending");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM wf_task_action WHERE tenant_id=? AND task_id=? AND action='approve'",
+                Long.class, d.tenant, firstTask)).isEqualTo(1);
+    }
+
+    @Test
     void otherAssigneesCompaniesAndRevokedPermissionsAreRejectedOnTheServer() throws Exception {
         long instance = flow(), task = task(instance);
         login(d.financeA);

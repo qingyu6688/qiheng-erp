@@ -12,12 +12,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import cn.erp.accounting.LedgerService;
 import cn.erp.identity.CompanyAccess;
 import cn.erp.shared.*;
 
 import static cn.erp.gl.GlTestData.key;
+import static cn.erp.gl.GlSupport.number;
 import static org.assertj.core.api.Assertions.*;
 
 @SpringBootTest
@@ -32,6 +34,9 @@ class GlIntegrationIT {
     @Autowired LedgerService ledger;
     @Autowired GlClosingService closing;
     @Autowired GlAdministration administration;
+    @Autowired GlBalances balances;
+    @Autowired GlReconciliation reconciliation;
+    @Autowired TransactionTemplate transactions;
     GlTestData d;
 
     @BeforeEach
@@ -61,35 +66,22 @@ class GlIntegrationIT {
     }
 
     Map<String, Object> draft() {
-        return vouchers.save(
-                d.actor(d.maker),
-                null,
-                key(),
-                new GlModels.Voucher(
-                        d.word(),
-                        LocalDate.of(2026, 10, 15),
-                        0,
-                        List.of(
-                                new GlModels.Line(
-                                        "费用计提",
-                                        d.subject("6602"),
-                                        "D",
-                                        "100.00",
-                                        "0",
-                                        null,
-                                        GlModels.Aux.empty(),
-                                        null),
-                                new GlModels.Line(
-                                        "其他应付",
-                                        d.subject("2241"),
-                                        "C",
-                                        "100.00",
-                                        "0",
-                                        null,
-                                        GlModels.Aux.empty(),
-                                        null)),
-                        null,
-                        null));
+        return expense(LocalDate.of(2026, 10, 15));
+    }
+
+    Map<String, Object> expense(LocalDate day) {
+        return draft(day, List.of(
+                line(d.subject("6602"), "D", "100.00", "0", GlModels.Aux.empty()),
+                line(d.subject("2241"), "C", "100.00", "0", GlModels.Aux.empty())));
+    }
+
+    private Map<String, Object> draft(LocalDate day, List<GlModels.Line> lines) {
+        return vouchers.save(d.actor(d.maker), null, key(),
+                new GlModels.Voucher(d.word(), day, 0, lines, null, null));
+    }
+
+    private static GlModels.Line line(long subject, String direction, String amount, String quantity, GlModels.Aux aux) {
+        return new GlModels.Line("增量余额验证", subject, direction, amount, quantity, null, aux, null);
     }
 
     Map<String, Object> change(Map<String, Object> v, long user, String action) {
@@ -245,7 +237,10 @@ class GlIntegrationIT {
         vouchers.save(d.actor(d.maker), null, key, input);
         var permissions = new HashSet<>(d.permissions);
         if (restriction.equals("cost")) permissions.remove("cost:view");
-        if (restriction.equals("permission")) permissions.remove("gl_voucher:edit");
+        if (restriction.equals("permission")) {
+            permissions.remove("gl_voucher:edit");
+            permissions.remove("gl_ledger:view");
+        }
         var limited =
                 new CompanyAccess(
                         d.tenant,
@@ -259,6 +254,8 @@ class GlIntegrationIT {
                                 : OrgScope.all());
         assertThatThrownBy(() -> vouchers.save(limited, null, key, input))
                 .isInstanceOf(ApiException.class);
+        assertThatThrownBy(() -> reconciliation.check(limited, "gl_trial"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.getStatus()).isEqualTo(403));
     }
 
     @Test
@@ -302,6 +299,155 @@ class GlIntegrationIT {
     }
 
     @Test
+    void outOfOrderPostingAndCrossPeriodReversalMatchFullRebuild() {
+        var actor = d.actor(d.maker);
+        long stock = d.subject("1405"), payable = d.subject("2241");
+        var dimensions = stockDimensions(stock);
+        var first = dimensions.getFirst();
+        var second = dimensions.getLast();
+        books.saveOpenings(actor, key(), new GlModels.Openings(number(books.get(actor).get("version")), List.of(
+                new GlModels.OpeningLine(stock, first, "25", "0", "0", "0", "25", "0", "1.250000"),
+                new GlModels.OpeningLine(payable, null, "0", "25", "0", "0", "0", "25", "0"))));
+        activate();
+
+        post(expense(LocalDate.of(2026, 11, 11)));
+        long december = Ids.next();
+        jdbc.update("INSERT INTO accounting_period(id,tenant_id,company_id,period,start_date,end_date)"
+                + " VALUES(?,?,?,'202612','2026-12-01','2026-12-31')", december, d.tenant, d.company);
+        transactions.executeWithoutResult(tx -> balances.refresh(actor, december));
+        long expenseId = number(balanceRow(d.november, d.subject("6602"), 0).get("id"));
+        assertAmounts(d.november, stock, first.customId(), "25", "0", "0", "1.25", "0", "0");
+
+        var original = post(draft(LocalDate.of(2026, 10, 20), List.of(
+                line(stock, "D", "12", "1.5", first),
+                line(stock, "D", "8", "2", first),
+                line(stock, "D", "4", "1", second),
+                line(stock, "C", "4", "1", second),
+                line(payable, "C", "20", "0", GlModels.Aux.empty()))));
+        assertAmounts(d.october, stock, first.customId(), "25", "20", "0", "1.25", "3.5", "0");
+        for (long period : List.of(d.november, december)) {
+            assertAmounts(period, stock, first.customId(), "45", "0", "0", "4.75", "0", "0");
+            assertAmounts(period, stock, second.customId(), "0", "0", "0", "0", "0", "0");
+        }
+
+        post(vouchers.reverse(actor, number(original.get("id")), key(), new GlVoucherService.Reversal(
+                number(original.get("version")), LocalDate.of(2026, 11, 16), "更正上期入账")));
+        assertThat(vouchers.get(actor, number(original.get("id")))).containsEntry("status", "reversed");
+        assertAmounts(d.october, stock, first.customId(), "25", "20", "0", "1.25", "3.5", "0");
+        assertAmounts(d.november, stock, first.customId(), "45", "-20", "0", "4.75", "-3.5", "0");
+        assertAmounts(d.november, stock, second.customId(), "0", "-4", "-4", "0", "-1", "-1");
+        assertAmounts(december, stock, first.customId(), "25", "0", "0", "1.25", "0", "0");
+        assertThat(number(balanceRow(d.november, d.subject("6602"), 0).get("id"))).isEqualTo(expenseId);
+        assertThat(reconciliation.check(actor, "gl_trial")).isEmpty();
+
+        var incremental = balanceValues();
+        var before = statements(d.november);
+        transactions.executeWithoutResult(tx -> {
+            for (long period : List.of(d.october, d.november, december)) balances.refresh(actor, period);
+        });
+        assertThat(balanceValues()).isEqualTo(incremental);
+        assertThat(statements(d.november)).isEqualTo(before);
+
+        jdbc.update("UPDATE gl_balance SET quantity_debit=quantity_debit+1 WHERE id=?",
+                balanceRow(d.october, stock, first.customId()).get("id"));
+        jdbc.update("DELETE FROM gl_balance WHERE id=?", balanceRow(december, stock, second.customId()).get("id"));
+        assertThat(reconciliation.check(actor, "gl_trial"))
+                .extracting(FinancialReconciliationPort.Difference::key)
+                .containsExactly("202610/" + GlDimensions.key(stock, first) + "/quantity_debit",
+                        "202612/" + GlDimensions.key(stock, second) + "/余额行");
+    }
+
+    @Test
+    void concurrentFirstAndBackdatedPostingCarryEveryMovementOnce() throws Exception {
+        activate();
+        var earlier = approve(draft());
+        var later = approve(expense(LocalDate.of(2026, 11, 11)));
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var start = new CountDownLatch(1);
+            var posts = new ArrayList<Future<Map<String, Object>>>();
+            for (var approved : List.of(earlier, later)) {
+                posts.add(pool.submit(() -> {
+                    assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
+                    return change(approved, d.maker, "post");
+                }));
+            }
+            start.countDown();
+            for (var result : posts) assertThat(result.get(20, TimeUnit.SECONDS)).containsEntry("status", "posted");
+        }
+        assertAmounts(d.november, d.subject("6602"), 0, "100", "100", "0", "0", "0", "0");
+        assertThat(reconciliation.check(d.actor(d.maker), "gl_trial")).isEmpty();
+    }
+
+    private Map<String, Object> post(Map<String, Object> draft) {
+        return change(approve(draft), d.maker, "post");
+    }
+
+    private Map<String, Object> approve(Map<String, Object> draft) {
+        return change(change(draft, d.maker, "submit"), d.reviewer, "approve");
+    }
+
+    private Map<String, Object> balanceRow(long period, long subject, long custom) {
+        return jdbc.queryForMap("SELECT * FROM gl_balance WHERE tenant_id=? AND company_id=?"
+                + " AND period_id=? AND subject_id=? AND aux_custom_id=?", d.tenant, d.company, period, subject, custom);
+    }
+
+    private void assertAmounts(long period, long subject, long custom, String... values) {
+        var row = balanceRow(period, subject, custom);
+        var columns = List.of("opening_signed", "debit", "credit", "opening_quantity", "quantity_debit", "quantity_credit");
+        for (int i = 0; i < columns.size(); i++) {
+            String column = columns.get(i);
+            assertThat(GlBalances.decimal(row, column)).as(column).isEqualByComparingTo(values[i]);
+        }
+    }
+
+    private List<Map<String, Object>> balanceValues() {
+        return jdbc.queryForList("SELECT period_id,subject_id," + GlSupport.AUX_COLUMNS
+                + ",opening_signed,debit,credit,opening_quantity,quantity_debit,quantity_credit"
+                + " FROM gl_balance WHERE tenant_id=? AND company_id=? ORDER BY period_id,subject_id," + GlSupport.AUX_COLUMNS,
+                d.tenant, d.company);
+    }
+
+    private List<Map<String, Object>> statements(long period) {
+        return List.of("balance_sheet", "income_statement", "cash_flow").stream()
+                .map(type -> queries.statement(d.actor(d.maker), type, period)).toList();
+    }
+
+    private List<GlModels.Aux> stockDimensions(long subject) {
+        long dept = Ids.next(), unit = Ids.next(), category = Ids.next(), product = Ids.next(), sku = Ids.next();
+        jdbc.update("INSERT INTO partner_role(id,tenant_id,partner_id,role) VALUES(?,?,?,'supplier')",
+                Ids.next(), d.tenant, d.customer);
+        jdbc.update("INSERT INTO org_department(id,tenant_id,company_id,code,name,path,depth)"
+                + " VALUES(?,?,?,'D','测试部门',?,1)", dept, d.tenant, d.company, "/" + dept + "/");
+        jdbc.update("INSERT INTO unit(id,tenant_id,name) VALUES(?,?,'件')", unit, d.tenant);
+        jdbc.update("INSERT INTO product_category(id,tenant_id,code,name,path) VALUES(?,?,'C','测试分类','/')",
+                category, d.tenant);
+        jdbc.update("INSERT INTO product(id,tenant_id,category_id,code,name,base_unit_id) VALUES(?,?,?,'P','测试商品',?)",
+                product, d.tenant, category, unit);
+        jdbc.update("INSERT INTO sku(id,tenant_id,product_id,code,name,sale_price) VALUES(?,?,?,'S','测试规格',100)",
+                sku, d.tenant, product);
+
+        var actor = d.actor(d.maker);
+        long projectType = master.list(actor, "aux-types").stream()
+                .filter(row -> row.get("code").equals("project")).mapToLong(row -> number(row.get("id")))
+                .findFirst().orElseThrow();
+        long customType = number(master.save(actor, "aux-types", null, key(),
+                Map.of("code", "BATCH", "name", "测试批次", "source", "custom")).get("id"));
+        long project = auxItem(projectType, "P");
+        long first = auxItem(customType, "A");
+        long second = auxItem(customType, "B");
+        jdbc.update("UPDATE gl_subject SET aux_types=JSON_ARRAY('customer','supplier','dept','employee','project','sku','custom'),"
+                + " custom_aux_type_id=?,quantity_unit='件' WHERE tenant_id=? AND company_id=? AND id=?",
+                customType, d.tenant, d.company, subject);
+        return List.of(new GlModels.Aux(d.customer, d.customer, dept, d.maker, project, sku, first),
+                new GlModels.Aux(d.customer, d.customer, dept, d.maker, project, sku, second));
+    }
+
+    private long auxItem(long type, String code) {
+        return number(master.save(d.actor(d.maker), "aux-items", null, key(),
+                Map.of("auxTypeId", type, "code", code, "name", "测试辅助" + code)).get("id"));
+    }
+
+    @Test
     void businessProjectionIsIdempotentAndReadOnly() {
         activate();
         long journal =
@@ -342,6 +488,7 @@ class GlIntegrationIT {
         var v = vouchers.get(d.actor(d.maker), voucher);
         assertThat(v).containsEntry("source", "business").containsEntry("status", "posted");
         assertThatThrownBy(() -> change(v, d.reviewer, "delete")).hasMessageContaining("只读");
+        assertThat(reconciliation.check(d.actor(d.maker), "gl_trial")).isEmpty();
         assertThat(queries.statement(d.actor(d.maker), "balance_sheet", d.october))
                 .containsEntry("passed", true);
     }
@@ -363,6 +510,12 @@ class GlIntegrationIT {
         closing.reopen(d.actor(d.reviewer), d.october, "回补费用");
         assertThat(queries.statement(d.actor(d.maker), "income_statement", d.october).get("rows"))
                 .isEqualTo(before.get("rows"));
+        assertThat(reconciliation.check(d.actor(d.maker), "gl_trial")).isEmpty();
+        jdbc.update("DELETE FROM gl_balance WHERE tenant_id=? AND company_id=? AND period_id=?",
+                d.tenant, d.company, d.november);
+        assertThat(reconciliation.check(d.actor(d.maker), "gl_trial"))
+                .isNotEmpty()
+                .allSatisfy(result -> assertThat(result.key()).startsWith("202611/").endsWith("/余额行"));
     }
 
     @SuppressWarnings("unchecked")

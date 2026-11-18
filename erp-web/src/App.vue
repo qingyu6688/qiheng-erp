@@ -1,10 +1,19 @@
 <script setup lang="ts">
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watchEffect } from 'vue'
 import { requireServerVersion } from './api/http'
+import { provideDisplayDensity } from './hooks/useDisplayDensity'
+import { useSessionStore } from './stores/session'
 
 const checking = ref(true)
 const error = ref('')
+const session = useSessionStore()
+const density = provideDisplayDensity(() => session.user?.id)
+const sizes = { compact: 'small', default: undefined, comfortable: 'large' } as const
+const componentSize = computed(() => sizes[density.value])
+watchEffect(() => {
+  document.documentElement.dataset.density = density.value
+})
 
 async function checkVersion(): Promise<void> {
   checking.value = true
@@ -22,7 +31,7 @@ onMounted(checkVersion)
 </script>
 
 <template>
-  <el-config-provider size="large" :locale="zhCn">
+  <el-config-provider :size="componentSize" :locale="zhCn">
     <main v-if="checking || error" class="compatibility">
       <p v-if="checking" role="status">正在检查服务端版本…</p>
       <template v-else>

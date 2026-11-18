@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 class AlertProbes {
+    private static final int JOB_ITEM_FAILURE_THRESHOLD = 3;
     private final NamedParameterJdbcTemplate jdbc;
     private final CreditService credit;
 
@@ -72,6 +73,8 @@ class AlertProbes {
 
     private List<AlertCandidate> failed(LinkedHashMap<String,Object> params) {
         var result=new ArrayList<>(rows("scheduled_job",JOB,params));
+        params.put("failureThreshold",JOB_ITEM_FAILURE_THRESHOLD);
+        result.addAll(rows("scheduled_job",JOB_ITEM,params));
         for (String table : List.of("import_job","export_job")) result.addAll(rows(table,FILE_JOB.formatted(table),params));
         return result;
     }
@@ -195,9 +198,33 @@ class AlertProbes {
             SELECT j.id,d.code event_key,NULL warehouse_id,0 owner_department_id,COALESCE(j.operator_id,0) owner_user_id,
                 CONCAT('定时任务 ',d.name,' 最近一次运行失败。') detail,'/sys/jobs' target_url
             FROM job_definition d JOIN job_run_log j ON j.id=(SELECT MAX(recent.id) FROM job_run_log recent
-                WHERE recent.tenant_id=d.tenant_id AND recent.job_code=d.code AND recent.status IN ('success','failed'))
+                WHERE recent.tenant_id=d.tenant_id AND recent.job_code=d.code AND recent.status IN ('success','failed','partial_failed'))
             WHERE d.tenant_id=:t AND d.last_result='failed' AND d.code<>'alert.scan' AND j.tenant_id=d.tenant_id AND j.status='failed'
             ORDER BY j.id
+            """;
+    private static final String JOB_ITEM="""
+            SELECT f.id,CONCAT('item:',f.id) event_key,NULL warehouse_id,0 owner_department_id,0 owner_user_id,
+                CONCAT('定时任务 ',d.name,' 有一项连续失败 ',f.failure_count,' 次（',f.error_code,'）。') detail,
+                CASE WHEN f.job_code IN ('workflow.timeout','workflow.delay')
+                     THEN CONCAT('/workflow/instances/',f.target_id) ELSE '/sys/jobs' END target_url
+            FROM job_item_failure f JOIN job_definition d ON d.tenant_id=f.tenant_id AND d.code=f.job_code
+            WHERE f.tenant_id=:t AND f.company_id=:c AND f.failure_count>=:failureThreshold AND (
+                f.job_code='crm.pool_reclaim' AND EXISTS(
+                    SELECT 1 FROM crm_pool_rule r WHERE r.tenant_id=f.tenant_id AND r.company_id=f.company_id AND r.enabled=1)
+                OR f.job_code='wms.replenishment' AND EXISTS(
+                    SELECT 1 FROM wms_location_rule r JOIN warehouse w
+                      ON w.tenant_id=r.tenant_id AND w.company_id=r.company_id AND w.id=r.warehouse_id
+                    WHERE r.tenant_id=f.tenant_id AND r.company_id=f.company_id AND r.warehouse_id=f.target_id
+                      AND r.min_qty IS NOT NULL AND w.status='active' AND w.wms_task_mode<>'off')
+                OR f.job_code='workflow.timeout' AND EXISTS(
+                    SELECT 1 FROM wf_task_ext t JOIN wf_instance i ON i.tenant_id=t.tenant_id AND i.company_id=t.company_id AND i.id=t.instance_id
+                    WHERE t.tenant_id=f.tenant_id AND t.company_id=f.company_id AND t.id=CAST(f.item_key AS UNSIGNED)
+                      AND t.instance_id=f.target_id AND t.status='pending' AND i.status='running')
+                OR f.job_code='workflow.delay' AND EXISTS(
+                    SELECT 1 FROM wf_delay t JOIN wf_instance i ON i.tenant_id=t.tenant_id AND i.company_id=t.company_id AND i.id=t.instance_id
+                    WHERE t.tenant_id=f.tenant_id AND t.company_id=f.company_id AND BINARY t.execution_id=BINARY f.item_key
+                      AND t.instance_id=f.target_id AND i.status='running'))
+            ORDER BY f.id
             """;
     private static final String FILE_JOB="""
             SELECT j.id,CAST(j.id AS CHAR) event_key,NULL warehouse_id,0 owner_department_id,j.created_by owner_user_id,

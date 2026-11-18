@@ -112,12 +112,21 @@ class DepartmentService {
         },Department.class);
     }
     Page<User> members(CompanyAccess actor,long id,String cursor,int limit) {
-        get(actor,id);long after=cursor(cursor,limit);
+        return members(actor,id,cursor,limit,false);
+    }
+    Page<User> members(CompanyAccess actor,long id,String cursor,int limit,boolean includeChildren) {
+        var department=get(actor,id);long after=cursor(cursor,limit);
+        String selected=includeChildren?"d.path LIKE ?":"d.id=?";
+        Object scope=includeChildren?department.path()+"%":id;
         var users=jdbc.query("""
-            SELECT u.id,u.username,u.display_name,u.status FROM org_user_department m
-            JOIN sys_user u ON u.tenant_id=m.tenant_id AND u.id=m.user_id
-            WHERE m.tenant_id=? AND m.company_id=? AND m.department_id=? AND u.id>? ORDER BY u.id LIMIT ?
-            """,(r,n)->new User(r.getString(1),r.getString(2),r.getString(3),r.getString(4)),actor.tenantId(),actor.companyId(),id,after,limit+1);
+            SELECT u.id,u.username,u.display_name,u.status FROM sys_user u
+            WHERE u.tenant_id=? AND u.id>? AND EXISTS (
+              SELECT 1 FROM org_user_department m
+              JOIN org_department d ON d.tenant_id=m.tenant_id AND d.company_id=m.company_id AND d.id=m.department_id
+              WHERE m.tenant_id=u.tenant_id AND m.user_id=u.id AND m.company_id=? AND %s
+            ) ORDER BY u.id LIMIT ?
+            """.formatted(selected),(r,n)->new User(r.getString(1),r.getString(2),r.getString(3),r.getString(4)),
+            actor.tenantId(),after,actor.companyId(),scope,limit+1);
         return new Page<>(users.stream().limit(limit).toList(),users.size()>limit?users.get(limit-1).id():null);
     }
     private Department parentNode(CompanyAccess actor,long id) {

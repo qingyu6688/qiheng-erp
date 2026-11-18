@@ -18,4 +18,7 @@ final class MfgPlanningModels {
     record FromSalesOrder(Long salesOrderId,Long salesOrderLineId,Long bomId,Long issueWarehouseId,
                           Long receiveWarehouseId,LocalDate planStartDate,LocalDate planFinishDate,
                           String overReceivePct,String remark) {}
+    record ShortCloseMaterial(String materialId,String consumedQty,String scrappedQty,String scrapReason) {}
+    record ShortCloseDraft(Long version,LocalDate businessDate,String reason,String costDisposition,
+                           List<ShortCloseMaterial> materials) {}
 }

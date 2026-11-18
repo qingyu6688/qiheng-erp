@@ -1,11 +1,12 @@
 @tailwind utilities;
 
 :root {
-  font-family: Inter, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
-  color: var(--el-text-color-primary);
-  background: var(--el-bg-color-page);
+  font-family: var(--erp-font);
+  color: var(--erp-text-1);
+  background: var(--erp-fill-2);
   font-size: 14px;
-  line-height: 1.57;
+  line-height: 22px;
+  font-variant-numeric: tabular-nums;
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
 }
@@ -18,13 +19,15 @@ body {
 }
 button,
 input,
+select,
 textarea {
   font-family: inherit;
 }
 button:focus-visible,
 a:focus-visible,
+select:focus-visible,
 summary:focus-visible {
-  outline: 2px solid var(--el-color-primary);
+  outline: 2px solid var(--erp-primary-6);
   outline-offset: 3px;
 }
 h1 {
@@ -51,7 +54,7 @@ p {
   place-items: center;
   border-radius: 10px;
   background: var(--el-color-primary);
-  color: #fff;
+  color: var(--el-color-white);
 }
 .brand-icon svg {
   width: 25px;
@@ -76,16 +79,16 @@ p {
 }
 .login-panel,
 .panel {
-  border: 1px solid #e3e6eb;
-  border-radius: 6px;
-  background: #fff;
+  border: 1px solid var(--erp-border-1);
+  border-radius: var(--erp-radius-card);
+  background: var(--erp-bg);
 }
 .login-panel {
   width: min(100%, 416px);
   padding: 32px;
 }
 .login-panel .brand {
-  border-bottom: 1px solid #e3e6eb;
+  border-bottom: 1px solid var(--erp-border-1);
   padding-bottom: 24px;
   margin-bottom: 24px;
 }
@@ -145,17 +148,11 @@ p {
   overflow-x: auto;
 }
 .warehouse-table {
-  --el-table-header-bg-color: #f7f8fa;
-  --el-table-header-text-color: var(--el-text-color-secondary);
   font-size: 14px;
   min-width: 720px;
 }
 .warehouse-table .el-table__cell {
-  height: 44px;
   padding: 6px 0;
-}
-.warehouse-table thead .el-table__cell {
-  height: 40px;
 }
 .warehouse-table .cell {
   padding-inline: 16px;
@@ -175,10 +172,10 @@ p {
   cursor: pointer;
 }
 .text-link:hover {
-  text-decoration: underline;
+  color: var(--erp-primary-7);
 }
 .text-link:disabled {
-  color: #6b7380;
+  color: var(--erp-text-3);
   cursor: wait;
 }
 .record-link {
@@ -190,7 +187,7 @@ p {
   justify-items: center;
   gap: 4px;
   line-height: 22px;
-  color: #6b7380;
+  color: var(--erp-text-3);
 }
 .empty-state strong {
   color: var(--el-text-color-secondary);
@@ -213,8 +210,8 @@ p {
 .load-error {
   margin: 8px 24px;
   padding: 4px 12px;
-  color: #912817;
-  background: #fff5f3;
+  color: var(--erp-danger-text);
+  background: var(--erp-danger-bg);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -246,17 +243,11 @@ p {
   margin: 0;
 }
 .el-dialog {
-  --el-dialog-border-radius: 6px;
+  --el-dialog-border-radius: var(--erp-radius-lg);
   max-width: calc(100vw - 32px);
 }
 .el-dialog__footer {
   margin-top: 8px;
-}
-.el-tag.el-tag--success {
-  color: #106b4c;
-}
-.el-tag.el-tag--info {
-  color: var(--el-text-color-secondary);
 }
 @media (max-width: 800px) {
   .content {
@@ -296,7 +287,7 @@ p {
   width: 100%;
 }
 .relation-section {
-  border-bottom: 1px solid #e3e6eb;
+  border-bottom: 1px solid var(--erp-border-1);
   padding: 18px 0 22px;
   margin-bottom: 18px;
 }
@@ -338,7 +329,7 @@ p {
 .permission-grid small {
   display: block;
   font-size: 11px;
-  color: #6b7380;
+  color: var(--erp-text-3);
 }
 @media (max-width: 700px) {
   .admin-form,
@@ -370,14 +361,14 @@ p {
 .sales-input-table th {
   text-align: left;
   font-size: 12px;
-  color: #596675;
-  background: #f5f7fa;
+  color: var(--erp-text-3);
+  background: var(--erp-fill-1);
   padding: 10px 8px;
   font-weight: 500;
 }
 .sales-input-table td {
   padding: 10px 6px;
-  border-bottom: 1px solid #eef0f3;
+  border-bottom: 1px solid var(--erp-divider);
   min-width: 90px;
 }
 .sales-input-table td:first-child {
@@ -405,7 +396,7 @@ p {
   gap: 24px;
   padding: 20px 0;
   margin-top: 12px;
-  border-top: 1px solid #e3e6eb;
+  border-top: 1px solid var(--erp-border-1);
 }
 .sales-totals strong {
   font-size: 18px;
@@ -430,7 +421,7 @@ p {
   margin: 0;
 }
 .sales-detail-header dt {
-  color: #6b7380;
+  color: var(--erp-text-3);
 }
 .sales-detail-header dd {
   margin: 0;
@@ -444,7 +435,7 @@ p {
   gap: 24px;
   margin-top: 24px;
   padding-top: 16px;
-  border-top: 1px solid #eef0f3;
+  border-top: 1px solid var(--erp-divider);
 }
 .settlement-columns {
   display: grid;
@@ -486,7 +477,7 @@ p {
   gap: 12px;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid #e3e6eb;
+  border-bottom: 1px solid var(--erp-border-1);
 }
 .panel-heading h2 {
   font-size: 16px;
@@ -497,18 +488,11 @@ p {
 }
 .cell-secondary {
   display: block;
-  color: #6b7380;
+  color: var(--erp-text-3);
   font-size: 12px;
 }
-.el-table .cell {
-  font-variant-numeric: tabular-nums;
-}
-.el-table th.el-table__cell {
-  background: #f7f8fa;
-  min-height: 40px;
-}
-.el-table td.el-table__cell {
-  height: 44px;
+.el-table .current-row .cell-secondary {
+  color: var(--erp-text-2);
 }
 .page-tabs {
   display: flex;
@@ -530,7 +514,7 @@ p {
   display: flex;
   gap: 4px;
   padding: 0 20px;
-  border-bottom: 1px solid #e3e6eb;
+  border-bottom: 1px solid var(--erp-border-1);
   overflow-x: auto;
 }
 .status-tabs button {

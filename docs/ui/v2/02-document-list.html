@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>销售订单列表 · v2</title>
+<link rel="stylesheet" href="assets/v2.css">
+</head>
+<body data-module="sales" data-menu="sales-orders" data-tabs="工作台|01-workbench.html;销售订单|02-document-list.html|current">
+<main id="page">
+  <header class="page-head">
+    <div class="line">
+      <div><h1>销售订单</h1><p class="meta">管理客户订单的录入、审批、发货进度和结算情况</p></div>
+      <div class="actions"><button class="btn" type="button">导入</button><a class="btn btn-primary" href="03-order-editor.html"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>新建销售订单</a></div>
+    </div>
+  </header>
+
+  <section class="card card-body" aria-label="查询条件">
+    <form class="query" onsubmit="return false">
+      <div class="qitem"><label for="q-no">单号</label><input id="q-no" class="input" placeholder="单号或备注"></div>
+      <div class="qitem"><label for="q-cus">客户</label><select id="q-cus" class="select"><option>华东商贸有限公司</option></select></div>
+      <div class="qitem"><label>业务日期</label><div class="range tnum"><span>2026-11-01</span><span class="sep">~</span><span>2026-11-17</span></div></div>
+      <div class="ops"><button class="btn btn-primary" type="submit">查询</button><button class="btn" type="reset">重置</button><button class="expand" type="button" aria-expanded="false">展开 <svg class="i" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="m6 9 6 6 6-6"/></svg></button></div>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-head" style="padding-top:0;padding-bottom:0">
+      <div class="tabs" role="tablist" aria-label="订单状态">
+        <button class="tab" role="tab" aria-selected="true">全部 <span class="count">128</span></button>
+        <button class="tab" role="tab" aria-selected="false">草稿 <span class="count">3</span></button>
+        <button class="tab" role="tab" aria-selected="false">待审核 <span class="count">12</span></button>
+        <button class="tab" role="tab" aria-selected="false">已审核 <span class="count">80</span></button>
+        <button class="tab" role="tab" aria-selected="false">变更待审 <span class="count">1</span></button>
+        <button class="tab" role="tab" aria-selected="false">已关闭 <span class="count">30</span></button>
+        <button class="tab empty" role="tab" aria-selected="false">已取消 <span class="count">2</span></button>
+      </div>
+      <div class="toolbar actions">
+        <button class="btn btn-icon" type="button" aria-label="刷新" title="刷新"><svg class="i" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
+        <button class="btn btn-icon" type="button" aria-label="表格密度" title="密度：默认"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+        <button class="btn btn-icon" type="button" aria-label="列设置" title="列设置"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg></button>
+        <button class="btn btn-icon" type="button" aria-label="导出" title="导出"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 21h16"/></svg></button>
+      </div>
+    </div>
+    <div class="batch" role="region" aria-label="批量操作">
+      <span>已选 <b>2</b> 项</span>
+      <button class="btn btn-sm" type="button">批量审核</button><button class="btn btn-sm" type="button">批量打印</button><button class="btn btn-sm" type="button">导出所选</button>
+      <button class="btn btn-text cancel" type="button">取消选择</button>
+    </div>
+    <div class="table-wrap">
+      <table class="t two-line" style="min-width:1080px">
+        <thead><tr>
+          <th class="fix-l" style="width:40px"><input class="chk" type="checkbox" aria-label="全选"></th>
+          <th>单号</th><th>客户</th><th>业务日期</th><th>状态</th><th>履约</th><th>结算</th><th>销售员</th><th class="num">金额（元）</th><th class="fix-r">操作</th>
+        </tr></thead>
+        <tbody>
+          <tr class="selected"><td class="fix-l"><input class="chk" type="checkbox" checked aria-label="选择 SO-C01-202611-000124"></td><td><a href="04-document-detail.html">SO-C01-202611-000124</a><span class="sub">交货 11-25</span></td><td>华东商贸有限公司<span class="sub">CUS1</span></td><td class="tnum">2026-11-17</td><td><span class="tag tag-info">待审核</span></td><td class="muted">未发货</td><td class="muted">未结算</td><td>李娜</td><td class="num">62,400.00</td><td class="fix-r"><a class="btn btn-text" href="05-approval-center.html">审批进度</a><button class="btn btn-text" type="button">更多</button></td></tr>
+          <tr class="selected"><td class="fix-l"><input class="chk" type="checkbox" checked aria-label="选择 SO-C01-202611-000123"></td><td><a href="04-document-detail.html">SO-C01-202611-000123</a><span class="sub">交货 11-20</span></td><td>华东商贸有限公司<span class="sub">CUS1</span></td><td class="tnum">2026-11-17</td><td><span class="tag tag-success">已审核</span></td><td>部分发货 <span class="muted small">10 / 17</span></td><td>部分结算</td><td>李娜</td><td class="num">1,800.00</td><td class="fix-r"><a class="btn btn-text" href="#">发货</a><button class="btn btn-text" type="button">更多</button></td></tr>
+          <tr><td class="fix-l"><input class="chk" type="checkbox" aria-label="选择 SO-C01-202611-000122"></td><td><a href="#">SO-C01-202611-000122</a><span class="sub">交货 11-18</span></td><td>杭州云帆电子商务有限公司<span class="sub">CUS2</span></td><td class="tnum">2026-11-16</td><td><span class="tag tag-success">已审核</span></td><td>全部发货</td><td>已结清</td><td>王涛</td><td class="num">9,860.00</td><td class="fix-r"><a class="btn btn-text" href="#">打印</a><button class="btn btn-text" type="button">更多</button></td></tr>
+          <tr><td class="fix-l"><input class="chk" type="checkbox" aria-label="选择 SO-C01-202611-000121"></td><td><a href="#">SO-C01-202611-000121</a><span class="sub">交货 11-19</span></td><td>合肥新瑞家居有限公司<span class="sub">CUS9</span></td><td class="tnum">2026-11-16</td><td><span class="tag tag-warning">变更待审</span></td><td>部分发货 <span class="muted small">4 / 12</span></td><td class="muted">未结算</td><td>李娜</td><td class="num">4,860.00</td><td class="fix-r"><a class="btn btn-text" href="#">查看变更</a><button class="btn btn-text" type="button">更多</button></td></tr>
+          <tr><td class="fix-l"><input class="chk" type="checkbox" aria-label="选择 SO-C01-202611-000120"></td><td><a href="#">SO-C01-202611-000120</a><span class="sub">交货 11-17</span></td><td>宁波甬达五金厂<span class="sub">SUP1</span></td><td class="tnum">2026-11-15</td><td><span class="tag tag-neutral">草稿</span></td><td class="muted">—</td><td class="muted">—</td><td>王涛</td><td class="num">3,450.00</td><td class="fix-r"><a class="btn btn-text" href="03-order-editor.html">编辑</a><button class="btn btn-text" type="button">更多</button></td></tr>
+          <tr><td class="fix-l"><input class="chk" type="checkbox" aria-label="选择 SO-C01-202611-000119"></td><td><a href="#">SO-C01-202611-000119</a><span class="sub">交货 11-16</span></td><td>华东商贸有限公司<span class="sub">CUS1</span></td><td class="tnum">2026-11-14</td><td><span class="tag tag-neutral">已关闭</span></td><td>全部发货</td><td>已结清</td><td>李娜</td><td class="num">12,300.00</td><td class="fix-r"><a class="btn btn-text" href="#">打印</a><button class="btn btn-text" type="button">更多</button></td></tr>
+          <tr><td class="fix-l"><input class="chk" type="checkbox" aria-label="选择 SO-C01-202611-000118"></td><td><a href="#">SO-C01-202611-000118</a><span class="sub">交货 11-15</span></td><td>杭州云帆电子商务有限公司<span class="sub">CUS2</span></td><td class="tnum">2026-11-14</td><td><span class="tag tag-danger">已驳回</span></td><td class="muted">—</td><td class="muted">—</td><td>王涛</td><td class="num">27,000.00</td><td class="fix-r"><a class="btn btn-text" href="#">修改</a><button class="btn btn-text" type="button">更多</button></td></tr>
+          <tr><td class="fix-l"><input class="chk" type="checkbox" aria-label="选择 SO-C01-202611-000117"></td><td><a href="#">SO-C01-202611-000117</a><span class="sub">交货 11-14</span></td><td>合肥新瑞家居有限公司<span class="sub">CUS9</span></td><td class="tnum">2026-11-13</td><td><span class="tag tag-success">已审核</span></td><td>全部发货</td><td>部分结算</td><td>李娜</td><td class="num">8,640.00</td><td class="fix-r"><a class="btn btn-text" href="#">收款</a><button class="btn btn-text" type="button">更多</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="pager">
+      <span class="info">共 128 条</span>
+      <select class="select size" aria-label="每页条数"><option>20 条/页</option><option>50 条/页</option><option>100 条/页</option></select>
+      <button class="pg" type="button" aria-label="上一页" disabled>‹</button>
+      <button class="pg" type="button" aria-current="page">1</button><button class="pg" type="button">2</button><button class="pg" type="button">3</button><span class="muted">…</span><button class="pg" type="button">7</button>
+      <button class="pg" type="button" aria-label="下一页">›</button>
+    </div>
+  </section>
+
+  <aside class="spec-note"><strong>设计说明</strong><ul>
+    <li>对应 <code>components/DocumentBrowserPanel.vue</code> 和各列表页（规范 U-04、U-05、U-06，第 5.1 节）；其他单据列表只换列，结构相同。</li>
+    <li>查询表单标签在左，默认一行三个条件；“展开”后显示仓库、履约、结算、销售员、金额范围。条件继续写入地址栏。</li>
+    <li>批量操作条只在勾选后出现；批量审核只对有审核权限且不在流程中的单据生效，逐张返回结果。</li>
+    <li>列表接口是游标分页：有 <code>withTotal</code> 时显示“共 N 条”和页码；没有总数时显示“已加载 N 条”和“上一页 / 下一页”。</li>
+    <li>单号、勾选列固定在左，操作列固定在右；单号下一行显示交货日期，客户下一行显示编码。</li>
+  </ul></aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

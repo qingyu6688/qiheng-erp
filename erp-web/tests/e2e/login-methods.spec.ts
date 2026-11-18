@@ -15,7 +15,7 @@ test('管理员保存渠道设置，关闭的渠道不出现在登录页和绑�
   await page.getByRole('button', { name: '登录', exact: true }).click()
   await expect(page.getByRole('heading', { name: '工作台', exact: true })).toBeVisible()
 
-  await page.getByText('系统管理', { exact: true }).click()
+  await page.getByRole('button', { name: '设置', exact: true }).click()
   await page.getByRole('link', { name: '登录方式设置', exact: true }).click()
   await expect(page.getByRole('heading', { name: '登录方式设置', exact: true })).toBeVisible()
   await expect(page.getByRole('switch', { name: '启用手机短信登录' })).toHaveAttribute('aria-checked', 'false')
@@ -31,7 +31,7 @@ test('管理员保存渠道设置，关闭的渠道不出现在登录页和绑�
   await expect(page.getByLabel('短信签名')).toHaveValue(signature)
   await expect(page.getByLabel('访问密钥 Secret')).toHaveValue('')
 
-  await page.locator('summary[aria-label$="账户菜单"]').click()
+  await page.locator('.account-menu > summary').click()
   await page.getByRole('link', { name: '我的登录方式' }).click()
   await expect(page.getByRole('heading', { name: '我的登录方式' })).toBeVisible()
   const bindings = page.getByRole('region', { name: '账户绑定' })

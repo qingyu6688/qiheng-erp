@@ -8,11 +8,16 @@ import {
 } from '../../api/manufacturing'
 import { isCancelled, messageOf } from '../../api/http'
 import { useSessionStore } from '../../stores/session'
-import { manufacturingActions, manufacturingStates } from '../../types/manufacturing'
+import {
+  manufacturingActions,
+  manufacturingStates,
+  shortCloseCostLabels,
+} from '../../types/manufacturing'
 import type { CostRow, WorkOrder } from '../../types/manufacturing'
 import { useWmsCommands } from '../wms/useWmsCommands'
 import ManufacturingCostTable from './ManufacturingCostTable.vue'
 import WorkOrderEditor from './WorkOrderEditor.vue'
+import ShortCloseEditor from './ShortCloseEditor.vue'
 import ReferenceSelect from './ReferenceSelect.vue'
 import {
   catalogLabel,
@@ -33,6 +38,8 @@ const detail = ref<WorkOrder>(),
   detailError = ref('')
 const tab = ref('materials'),
   editor = ref(false)
+const shortCloseEditor = ref(false),
+  confirmShortClose = ref(false)
 const { warehouses, loadCatalog } = useManufacturingCatalog()
 const { busy, error: commandError, notice, run } = useWmsCommands()
 const { items, cursor, loading, error, load } = useManufacturingList((cursor) =>
@@ -69,6 +76,35 @@ const actions = computed(() => {
 const ready = computed(() =>
   Boolean(detail.value && ['released', 'in_progress', 'completed'].includes(detail.value.status)),
 )
+const shortClose = computed(() => detail.value?.shortClose)
+const staleShortClose = computed(
+  () =>
+    shortClose.value?.status === 'pending' &&
+    shortClose.value.orderVersion !== detail.value?.version,
+)
+const canRequestShortClose = computed(
+  () =>
+    session.can('mfg_work_order:view') &&
+    session.can('mfg_work_order:short_close') &&
+    detail.value?.allowedActions?.includes('short_close'),
+)
+const canApproveShortClose = computed(
+  () =>
+    session.can('mfg_work_order:view') &&
+    session.can('mfg_work_order:approve_short_close') &&
+    detail.value?.allowedActions?.includes('approve_short_close') &&
+    shortClose.value?.status === 'pending' &&
+    !staleShortClose.value,
+)
+const materialLabels = computed(
+  () =>
+    new Map(
+      (detail.value?.materials ?? []).map((item) => [
+        item.id,
+        item.skuName ?? item.skuCode ?? item.componentSkuId,
+      ]),
+    ),
+)
 
 function warehouseLabel(id: string): string {
   const item = warehouses.value.find((warehouse) => warehouse.id === id)
@@ -81,7 +117,11 @@ async function inspect(): Promise<void> {
   detailError.value = ''
   try {
     const data = await manufacturingDetail<WorkOrder>('work-orders', id)
-    if (!disposed) detail.value = data
+    if (!disposed) {
+      if (!detail.value && data.shortClose?.status === 'pending') tab.value = 'short-close'
+      if (!data.shortClose && tab.value === 'short-close') tab.value = 'materials'
+      detail.value = data
+    }
   } catch (cause: unknown) {
     if (!disposed && !isCancelled(cause)) {
       detail.value = undefined
@@ -103,6 +143,36 @@ async function transition(action: string): Promise<void> {
     '工单已更新。',
   )
   if (saved && !disposed) await inspect()
+}
+
+function shortCloseSaved(item: WorkOrder): void {
+  if (disposed || item.id !== id) return
+  shortCloseEditor.value = false
+  detail.value = item
+  tab.value = 'short-close'
+  commandError.value = ''
+  notice.value =
+    item.shortClose?.status === 'approved'
+      ? '工单已短交关闭。'
+      : '短交申请已提交，请由另一位有权用户复核。'
+}
+
+async function approveShortClose(): Promise<void> {
+  const current = detail.value
+  if (!current || !canApproveShortClose.value || loadingDetail.value) return
+  const company = session.companyId
+  const data = { version: current.version }
+  const result = await run(
+    'approve-short-close:' + current.id,
+    data,
+    (key) =>
+      manufacturingCommand<WorkOrder>('work-orders', current.id, 'approve-short-close', data, key),
+    '工单已短交关闭。',
+  )
+  if (!result || disposed || session.companyId !== company) return
+  confirmShortClose.value = false
+  detail.value = result
+  tab.value = 'short-close'
 }
 
 function saved(item: WorkOrder): void {
@@ -196,13 +266,20 @@ onMounted(() => {
   <section v-else class="panel mfg-panel" aria-label="工单详情">
     <div class="mfg-toolbar">
       <router-link class="text-link" to="/mfg/work-orders">返回生产工单</router-link>
-      <el-button :loading="loadingDetail" @click="inspect">刷新</el-button>
+      <el-button :loading="loadingDetail" :disabled="busy" @click="inspect">刷新</el-button>
     </div>
     <p v-if="loadingDetail" role="status">正在读取工单。</p>
     <template v-if="detail">
       <h2>{{ detail.documentNo }} · {{ detail.skuName ?? detail.skuCode ?? detail.skuId }}</h2>
       <div class="mfg-toolbar">
         <el-tag>{{ manufacturingStates[detail.status] }}</el-tag>
+        <el-tag
+          v-if="shortClose?.status === 'pending'"
+          :type="staleShortClose ? 'info' : 'warning'"
+        >
+          {{ staleShortClose ? '短交申请已失效' : '短交待复核' }}
+        </el-tag>
+        <el-tag v-else-if="shortClose?.status === 'approved'" type="success">已短交关闭</el-tag>
         <el-button
           v-if="detail.status === 'draft' && session.can('mfg_work_order:update')"
           :disabled="busy || loadingDetail"
@@ -217,6 +294,19 @@ onMounted(() => {
           :loading="busy"
           @click="transition(action)"
           >{{ manufacturingActions[action] }}</el-button
+        >
+        <el-button
+          v-if="canRequestShortClose"
+          :disabled="busy || loadingDetail"
+          @click="shortCloseEditor = true"
+          >{{ shortClose?.status === 'pending' ? '重新申请短交' : '申请短交关闭' }}</el-button
+        >
+        <el-button
+          v-if="canApproveShortClose"
+          type="primary"
+          :disabled="busy || loadingDetail"
+          @click="confirmShortClose = true"
+          >复核短交申请</el-button
         >
         <template v-if="ready">
           <router-link
@@ -260,6 +350,39 @@ onMounted(() => {
         >
       </el-descriptions>
       <el-tabs :model-value="tab" @update:model-value="selectTab">
+        <el-tab-pane v-if="shortClose" label="短交记录" name="short-close">
+          <el-alert
+            v-if="staleShortClose"
+            title="工单用料、完工数量或状态已变化，请核对后重新申请短交。"
+            type="warning"
+            :closable="false"
+          />
+          <el-descriptions :column="2" border>
+            <el-descriptions-item label="短交日期">{{
+              shortClose.businessDate
+            }}</el-descriptions-item>
+            <el-descriptions-item label="发起人编号">{{
+              shortClose.requestedBy
+            }}</el-descriptions-item>
+            <el-descriptions-item v-if="shortClose.reviewedBy" label="复核人编号">
+              {{ shortClose.reviewedBy }}
+            </el-descriptions-item>
+            <el-descriptions-item label="剩余在制成本">
+              {{ shortCloseCostLabels[shortClose.costDisposition] }}
+            </el-descriptions-item>
+            <el-descriptions-item label="短交原因">{{ shortClose.reason }}</el-descriptions-item>
+          </el-descriptions>
+          <el-table :data="shortClose.materials" row-key="materialId" empty-text="无净领料需处理">
+            <el-table-column label="物料" min-width="128">
+              <template #default="{ row }">{{
+                materialLabels.get(row.materialId) ?? row.materialId
+              }}</template>
+            </el-table-column>
+            <el-table-column prop="consumedQty" label="已耗用" min-width="105" align="right" />
+            <el-table-column prop="scrappedQty" label="已报废" min-width="105" align="right" />
+            <el-table-column prop="scrapReason" label="报废原因" min-width="150" />
+          </el-table>
+        </el-tab-pane>
         <el-tab-pane label="用料" name="materials">
           <el-table :data="detail.materials ?? []" empty-text="暂无冻结用料">
             <el-table-column label="物料" min-width="145"
@@ -348,4 +471,34 @@ onMounted(() => {
     <el-empty v-else-if="!loadingDetail" description="工单详情未加载" />
   </section>
   <WorkOrderEditor v-if="editor" :source="detail" @close="editor = false" @saved="saved" />
+  <ShortCloseEditor
+    v-if="shortCloseEditor && detail && canRequestShortClose"
+    :order="detail"
+    @close="shortCloseEditor = false"
+    @saved="shortCloseSaved"
+  />
+  <el-dialog
+    v-if="confirmShortClose && shortClose && canApproveShortClose"
+    :model-value="true"
+    title="确认短交关闭"
+    width="min(520px, 95vw)"
+    :close-on-click-modal="false"
+    :close-on-press-escape="!busy"
+    :show-close="!busy"
+    @close="confirmShortClose = false"
+  >
+    <el-alert v-if="commandError" :title="commandError" type="error" :closable="false" />
+    <p>请核对短交日期、原因和材料处理记录。复核通过后，本工单停止领退料及完工入库。</p>
+    <el-descriptions :column="1">
+      <el-descriptions-item label="短交日期">{{ shortClose.businessDate }}</el-descriptions-item>
+      <el-descriptions-item label="短交原因">{{ shortClose.reason }}</el-descriptions-item>
+      <el-descriptions-item label="剩余在制成本">{{
+        shortCloseCostLabels[shortClose.costDisposition]
+      }}</el-descriptions-item>
+    </el-descriptions>
+    <template #footer>
+      <el-button :disabled="busy" @click="confirmShortClose = false">返回复核</el-button>
+      <el-button type="primary" :loading="busy" @click="approveShortClose">确认短交关闭</el-button>
+    </template>
+  </el-dialog>
 </template>

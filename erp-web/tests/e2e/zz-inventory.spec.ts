@@ -60,7 +60,7 @@ async function command(
   await expect(dialog).toBeHidden()
 }
 async function status(page: Page, text: string): Promise<void> {
-  await expect(page.locator('.sales-detail-header .el-tag').first()).toHaveText(text)
+  await expect(page.locator('.sales-detail-header .status-tag').first()).toHaveText(text)
 }
 async function approveAndPost(page: Page, reviewer: Page, path: string): Promise<void> {
   await reviewer.goto(path)
@@ -230,7 +230,7 @@ test('调拨在途差异、盘点保留期间收发、库存调整冲销及关�
     await expect(periodRow.getByRole('button', { name: '关账', exact: true })).toBeVisible()
     await page.goto(reversalPath)
     await status(page, '已过账')
-    await expect(page.locator('.sales-detail-header .el-tag').first()).toHaveCSS(
+    await expect(page.locator('.sales-detail-header .status-tag').first()).toHaveCSS(
       'transform',
       'none',
     )

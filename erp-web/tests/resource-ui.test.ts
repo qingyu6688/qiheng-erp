@@ -17,6 +17,8 @@ import { confirmCompanyLeave } from '../src/utils/unsaved'
 vi.mock('../src/api/admin')
 const navigation = vi.hoisted(() => ({ leave: undefined as (() => boolean) | undefined }))
 vi.mock('vue-router', () => ({
+  useRoute: () => ({ query: {} }),
+  onBeforeRouteUpdate: () => undefined,
   onBeforeRouteLeave: (guard: () => boolean) => {
     navigation.leave = guard
   },

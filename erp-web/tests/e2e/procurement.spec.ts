@@ -57,14 +57,14 @@ async function command(
   await expect(dialog).toBeHidden()
 }
 async function status(page: Page, text: string): Promise<void> {
-  await expect(page.locator('.sales-detail-header .el-tag').first()).toHaveText(text)
+  await expect(page.locator('.sales-detail-header .status-tag, [data-order-status]').first()).toHaveText(text)
 }
 async function save(page: Page, kind: string, singular: string): Promise<string> {
   await (kind === 'purchase-orders' ? page : page.getByRole('dialog'))
     .getByRole('button', { name: '保存' + singular, exact: true })
     .click()
   await expect(page).toHaveURL(new RegExp('/' + kind + '/[0-9]+$'))
-  await expect(page.locator('.sales-detail-header .el-tag').first()).toBeVisible()
+  await expect(page.locator('.sales-detail-header .status-tag, [data-order-status]').first()).toBeVisible()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(/-[0-9]{6}-[0-9]{6}$/)
   return new URL(page.url()).pathname
 }
@@ -159,7 +159,7 @@ test('资金往来与库存期初、请购采购收货、付款退货退款和�
     await page.getByRole('textbox', { name: '采购数量1', exact: true }).fill('10')
     await page.getByRole('textbox', { name: '采购单价1', exact: true }).fill('14')
     await page.getByRole('textbox', { name: '采购税率1', exact: true }).fill('0')
-    await expect(page.locator('.sales-totals')).toContainText('140.00')
+    await expect(page.locator('.order-editor-footer')).toContainText('140.00')
     const orderPath = await save(page, 'purchase-orders', '采购订单')
     const orderNo = await page.getByRole('heading', { level: 1 }).innerText()
     await command(page, '提交')
@@ -194,6 +194,9 @@ test('资金往来与库存期初、请购采购收货、付款退货退款和�
     await status(reviewer, '已确认')
     await allocate(page, '50', '50.00')
     await allocate(page, '140', '140.00')
+    await page.goto(orderPath)
+    await expect(page.locator('[data-order-metric="allocated-cash"]')).toHaveText('140.00')
+    await expect(page.locator('[data-order-metric="open-amount"]')).toHaveText('0.00')
 
     await page.goto('/purchase-returns')
     await page.getByRole('button', { name: '新建采购退货单', exact: true }).click()
@@ -260,7 +263,7 @@ test('资金往来与库存期初、请购采购收货、付款退货退款和�
     expect(receipt.data.costAmount).toBe('140.00')
     expect(returned.data.costAmount).toBe('70.00')
     await page.goto(orderPath)
-    await expect(page.locator('.sales-detail-header .el-tag')).toHaveCSS('transform', 'none')
+    await expect(page.locator('.sales-detail-header .status-tag, [data-order-status]')).toHaveCSS('transform', 'none')
     await page.screenshot({
       path: testInfo.outputPath('procurement-completed.png'),
       fullPage: true,

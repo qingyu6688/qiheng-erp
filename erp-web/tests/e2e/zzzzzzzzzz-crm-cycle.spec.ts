@@ -12,6 +12,7 @@ test('合同分批生成草稿保留行标识、仓库范围和精确数量', as
   const salesId = '970'
   await page.routeWebSocket('**/ws/**', (socket) => socket.close())
   await page.route('**/api/v1/**', (route) => {
+    if (new URL(route.request().url()).pathname === '/api/v1/system/version') return route.fallback()
     const request = route.request()
     const path = new URL(request.url()).pathname
     switch (path) {

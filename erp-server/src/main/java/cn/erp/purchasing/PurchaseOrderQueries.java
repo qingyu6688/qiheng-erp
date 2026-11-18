@@ -78,8 +78,12 @@ public class PurchaseOrderQueries {
         if(limit<1 || limit>200) {throw invalid("每页条数须在1到200之间");}
         if(status!=null && !Set.of("draft","pending","approved","change_pending","closed","cancelled").contains(status)) {throw invalid("订单状态无效");}
         long last=cursor==null||cursor.isBlank()?Long.MAX_VALUE:identifier(cursor);
-        var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),last,keyword,keyword));
-        String filter=" WHERE tenant_id=? AND company_id=? AND is_deleted=0 AND id<? AND (LOCATE(?,order_no)>0 OR LOCATE(?,COALESCE(remark,''))>0)";
+        var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),last));
+        String filter=" WHERE tenant_id=? AND company_id=? AND is_deleted=0 AND id<?";
+        if(keyword!=null&&!keyword.isEmpty()) {
+            filter+=" AND (LOCATE(?,order_no)>0 OR LOCATE(?,COALESCE(remark,''))>0)";
+            args.add(keyword);args.add(keyword);
+        }
         if(status!=null) {filter+=" AND status=?";args.add(status);}
         if(supplierId!=null) {filter+=" AND supplier_id=?";args.add(identifier(supplierId));}
         if(!scope.allWarehouses()) {

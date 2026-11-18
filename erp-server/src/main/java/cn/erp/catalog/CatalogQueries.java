@@ -20,6 +20,16 @@ class CatalogQueries {
     CatalogQueries(JdbcTemplate jdbc,CustomFields customFields) { this.jdbc=jdbc; this.customFields=customFields; }
 
     CatalogModels.Page list(CompanyAccess scope, String kind, String keyword, String status, int limit, String cursor,Map<String,String[]> parameters) {
+        return list(scope,kind,keyword,status,limit,cursor,parameters,null,false);
+    }
+
+    CatalogModels.Page products(CompanyAccess scope,String keyword,String status,int limit,String cursor,
+            Long categoryId,boolean includeChildren) {
+        return list(scope,"product",keyword,status,limit,cursor,Map.of(),categoryId,includeChildren);
+    }
+
+    private CatalogModels.Page list(CompanyAccess scope,String kind,String keyword,String status,int limit,
+            String cursor,Map<String,String[]> parameters,Long categoryId,boolean includeChildren) {
         if (limit < 1 || limit > 200 || (status != null && !List.of("active","disabled").contains(status))) {
             throw new ApiException(400, "VALIDATION_FAILED", "查询条件或每页数量无效");
         }
@@ -33,6 +43,7 @@ class CatalogQueries {
             args.add(keyword);
             if (!kind.equals("unit")) { args.add(keyword); }
         }
+        if (categoryId!=null) { filter+=productCategoryFilter(scope,categoryId,includeChildren,args); }
         if (cursor != null && !cursor.isBlank()) {
             try {
                 long id = Long.parseLong(cursor);
@@ -51,6 +62,21 @@ class CatalogQueries {
         boolean more = all.size() > limit;
         List<CatalogModels.Detail> items = all.subList(0, Math.min(limit, all.size()));
         return new CatalogModels.Page(List.copyOf(items), more ? items.getLast().id() : null);
+    }
+
+    private String productCategoryFilter(CompanyAccess scope,long categoryId,boolean includeChildren,List<Object> args) {
+        if (categoryId<=0) { throw new ApiException(400,"VALIDATION_FAILED","商品分类编号无效"); }
+        var paths=jdbc.query("SELECT path FROM product_category WHERE tenant_id=? AND id=?",
+                (rs,n) -> rs.getString(1),scope.tenantId(),categoryId);
+        if (paths.isEmpty()) { throw missing(); }
+        if (!includeChildren) {
+            args.add(categoryId);
+            return " AND category_id=?";
+        }
+        args.add(scope.tenantId());
+        args.add(categoryId);
+        args.add(paths.getFirst()+categoryId+"/%");
+        return " AND category_id IN (SELECT c.id FROM product_category c WHERE c.tenant_id=? AND (c.id=? OR c.path LIKE ?))";
     }
 
     CatalogModels.Detail find(CompanyAccess scope, String kind, long id, boolean lock) {

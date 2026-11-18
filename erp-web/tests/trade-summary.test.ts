@@ -34,6 +34,30 @@ it('展示金额、月份和备库截止时间，图表使用返回的权限块'
   expect(wrapper.get('[role="img"]').text()).toContain('2026-11')
   wrapper.unmount()
 })
+
+it('按服务端提供的同期金额比较并绘制余额趋势，零基期没有涨跌百分比', async () => {
+  vi.mocked(tradeSummary).mockResolvedValue({
+    ...response,
+    receivable: '75.00',
+    inventory: '200.00',
+    comparison: {
+      sales: { previousMonth: '100.00', previousYear: '0.00' },
+      receivable: { previousMonth: '50.00', previousYear: '75.00' },
+    },
+    trend: [
+      { month: '2026-10', sales: '100.00', purchase: '20.00', receivable: '50.00' },
+      { month: '2026-11', sales: '120.00', purchase: '30.00', receivable: '75.00' },
+    ],
+  })
+  const wrapper = mount(WorkbenchTradeSummary, { global: { stubs } })
+  await flushPromises()
+  expect(wrapper.get('[data-trade="sales"]').text()).toContain('环比 +20%')
+  expect(wrapper.get('[data-trade="sales"]').text()).toContain('同比 —')
+  expect(wrapper.get('[data-trade="receivable"] polyline').attributes('points')).toBe('0,31 120,5')
+  expect(wrapper.get('[data-trade="inventory"]').text()).toContain('200.00')
+  expect(wrapper.find('[data-trade="inventory"] polyline').exists()).toBe(false)
+  wrapper.unmount()
+})
 it('仅销售权限时只显示销售，切换公司中止请求并清除旧金额', async () => {
   scope.purchase = false
   vi.mocked(tradeSummary).mockResolvedValueOnce({ ...response, purchase: undefined })

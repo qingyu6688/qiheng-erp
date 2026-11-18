@@ -4,6 +4,7 @@ import java.util.*;
 
 import jakarta.validation.constraints.*;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import cn.erp.identity.*;
@@ -50,6 +51,17 @@ public class WorkflowTasks {
 
     public Map<String, Object> decide(
             CompanyAccess actor, long id, String action, String key, Decision input) {
+        return decide(actor, id, action, key, input, null);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void approveBatchItem(
+            CompanyAccess actor, long id, long version, String key, String group) {
+        decide(actor, id, "approve", key, new Decision(version, null, null, null, null, null, null), group);
+    }
+
+    private Map<String, Object> decide(
+            CompanyAccess actor, long id, String action, String key, Decision input, String group) {
         if (!Set.of("approve", "reject", "transfer", "delegate", "add-sign", "remove-sign")
                 .contains(action)) throw SimpleModel.invalid("审批操作无效");
         var initial = state.task(actor, id, true);
@@ -57,14 +69,18 @@ public class WorkflowTasks {
         var instance = state.raw(actor.tenantId(), number(initial.get("instance_id")), false);
         return execute(
                 actor,
-                "workflow_task." + action,
+                group == null ? "workflow_task." + action : "workflow_task.approve_batch_item",
                 key,
-                List.of(id, input),
+                group == null ? List.of(id, input) : List.of(id, input, group),
                 () -> {
                     var task = state.task(actor, id, true);
                     state.running(instance);
                     state.version(input.version(), task);
                     assigned(actor, task);
+                    if (group != null && !group.equals(WorkflowBatchApproval.group(
+                            instance, task.get("status"), task.get("node_kind"), task.get("node_key"),
+                            task.get("owner_id"), task.get("parent_task_id"))))
+                        throw new ApiException(409, "WORKFLOW_BATCH_NOT_ALLOWED", "该任务不属于当前批次的可批量审批环节");
                     if (!Set.of("pending", "waiting_sign").contains(task.get("status")))
                         throw new ApiException(409, "WORKFLOW_TASK_FINISHED", "任务已处理，请刷新");
                     if (task.get("status").equals("waiting_sign") && !action.equals("remove-sign"))
@@ -109,8 +125,14 @@ public class WorkflowTasks {
         if (number(task.get("assignee_id")) != actor.userId())
             throw new ApiException(403, "WORKFLOW_TASK_NOT_ASSIGNED", "只有任务当前处理人可以操作");
         var instance = state.raw(actor.tenantId(), number(task.get("instance_id")), false);
+        if (!eligible(state, actor, instance, task))
+            throw new ApiException(403, "WORKFLOW_TASK_NOT_ALLOWED", "当前权限、任职或经办复核规则不允许处理此任务");
+    }
+
+    static boolean eligible(
+            WorkflowState state, CompanyAccess actor, Map<String, Object> instance, Map<String, Object> task) {
         String type = instance.get("business_type").toString();
-        if (state.documents.eligible(
+        return state.documents.eligible(
                         actor.tenantId(),
                         actor.companyId(),
                         actor.userId(),
@@ -118,8 +140,7 @@ public class WorkflowTasks {
                         number(instance.get("business_id")),
                         task.get("node_kind").equals("approver"),
                         number(task.get("price_approval")) == 1,number(task.get("credit_approval"))==1)
-                == null)
-            throw new ApiException(403, "WORKFLOW_TASK_NOT_ALLOWED", "当前权限、任职或经办复核规则不允许处理此任务");
+                != null;
     }
 
     private void approve(

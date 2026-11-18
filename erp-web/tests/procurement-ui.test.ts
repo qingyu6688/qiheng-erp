@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import ProcurementEditor from '../src/components/procurement/ProcurementEditor.vue'
+import DocumentMoreActions from '../src/components/DocumentMoreActions.vue'
 import ProcurementDetailPage from '../src/pages/ProcurementDetailPage.vue'
 import ProcurementListPage from '../src/pages/ProcurementListPage.vue'
 import * as procurement from '../src/api/procurement'
@@ -367,7 +368,10 @@ describe('采购和请购界面契约', () => {
       global: { stubs: { ...stubs, ProcurementEditor: true } },
     })
     await flushPromises()
-    await click(wrapper, '删除草稿')
+    const more = wrapper.getComponent(DocumentMoreActions)
+    expect(more.props('actions')).toEqual(['delete'])
+    more.vm.$emit('choose', 'delete')
+    await flushPromises()
     await click(wrapper, '确认删除草稿')
     await click(wrapper, '查询结果')
     expect(route.replace).toHaveBeenCalledWith('/purchase-orders')

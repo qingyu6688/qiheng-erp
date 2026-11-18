@@ -22,7 +22,7 @@ class PlatformJobs {
         jdbc.update("DELETE FROM sys_api_access_log WHERE tenant_id IN(0,?) AND created_at<DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 30 DAY) LIMIT 10000",tenant);
         jdbc.update("DELETE FROM sys_api_error_log WHERE tenant_id IN(0,?) AND created_at<DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 90 DAY) LIMIT 10000",tenant);
         jdbc.update("DELETE FROM sys_login_log WHERE tenant_id IN(0,?) AND created_at<DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 180 DAY) LIMIT 10000",tenant);
-        jdbc.update("DELETE FROM job_run_log WHERE tenant_id=? AND status IN('success','failed','skipped') AND created_at<DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 30 DAY) LIMIT 10000",tenant);
+        jdbc.update("DELETE FROM job_run_log WHERE tenant_id=? AND status IN('success','failed','skipped','partial_failed') AND created_at<DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 30 DAY) LIMIT 10000",tenant);
         jdbc.update("DELETE FROM notify_send_log WHERE tenant_id=? AND status IN('sent','failed','skipped') AND created_at<DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 180 DAY) LIMIT 10000",tenant);
         jdbc.update("DELETE FROM notify_message WHERE tenant_id=? AND created_at<DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 180 DAY) LIMIT 10000",tenant);
     }

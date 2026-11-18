@@ -13,6 +13,8 @@ import static cn.erp.gl.GlSupport.*;
 @Service
 @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 class GlReconciliation implements FinancialReconciliationPort {
+    private static final List<String> BALANCE_COLUMNS = List.of(
+            "opening_signed", "debit", "credit", "opening_quantity", "quantity_debit", "quantity_credit");
     private final GlSupport s;
     private final GlBalances balances;
 
@@ -58,14 +60,32 @@ class GlReconciliation implements FinancialReconciliationPort {
             return result;
         }
         if (!type.equals("gl_trial")) throw invalid("财务对账类型无效");
+        // 账套启用期、已过账期间与结账滚入的下期都有余额计算义务。
         var periods =
                 s.jdbc.queryForList(
-                        "SELECT DISTINCT p.* FROM accounting_period p JOIN gl_balance b ON"
-                            + " b.tenant_id=p.tenant_id AND b.company_id=p.company_id AND"
-                            + " b.period_id=p.id WHERE p.tenant_id=? AND p.company_id=? ORDER BY"
-                            + " p.start_date",
+                        """
+                        SELECT p.* FROM accounting_period p
+                        WHERE p.tenant_id=? AND p.company_id=? AND (
+                            p.id=? OR EXISTS (
+                                SELECT 1 FROM gl_balance b
+                                WHERE b.tenant_id=p.tenant_id AND b.company_id=p.company_id AND b.period_id=p.id
+                            ) OR EXISTS (
+                                SELECT 1 FROM gl_voucher v
+                                WHERE v.tenant_id=p.tenant_id AND v.company_id=p.company_id AND v.period_id=p.id
+                                    AND v.is_deleted=0 AND v.status IN('posted','reversed')
+                            ) OR EXISTS (
+                                SELECT 1 FROM gl_period_close c JOIN accounting_period prior_period
+                                    ON prior_period.tenant_id=c.tenant_id AND prior_period.company_id=c.company_id
+                                    AND prior_period.id=c.period_id
+                                WHERE c.tenant_id=p.tenant_id AND c.company_id=p.company_id
+                                    AND c.status IN('closed','reopened')
+                                    AND prior_period.end_date=DATE_SUB(p.start_date, INTERVAL 1 DAY)
+                            )
+                        ) ORDER BY p.start_date
+                        """,
                         a.tenantId(),
-                        a.companyId());
+                        a.companyId(),
+                        book.get("start_period_id"));
         for (var period : periods) {
             long id = number(period.get("id"));
             var actual = new HashMap<String, Map<String, Object>>();
@@ -85,37 +105,27 @@ class GlReconciliation implements FinancialReconciliationPort {
                             false)) {
                 String key = GlDimensions.key(expected.subject(), expected.aux());
                 var row = actual.remove(key);
-                for (var entry :
-                        Map.of(
-                                        "opening_signed",
-                                        expected.opening(),
-                                        "debit",
-                                        expected.debit(),
-                                        "credit",
-                                        expected.credit())
-                                .entrySet()) {
-                    var value =
-                            row == null ? BigDecimal.ZERO : GlBalances.decimal(row, entry.getKey());
-                    if (entry.getValue().compareTo(value) != 0)
+                String path = period.get("period") + "/" + key;
+                if (row == null) {
+                    result.add(new Difference(path + "/余额行", BigDecimal.ONE, BigDecimal.ZERO));
+                    continue;
+                }
+                var values = List.of(expected.opening(), expected.debit(), expected.credit(),
+                        expected.quantityOpening(), expected.quantityDebit(), expected.quantityCredit());
+                for (int i = 0; i < BALANCE_COLUMNS.size(); i++) {
+                    String column = BALANCE_COLUMNS.get(i);
+                    var value = GlBalances.decimal(row, column);
+                    var target = values.get(i);
+                    if (target.compareTo(value) != 0)
                         result.add(
                                 new Difference(
-                                        period.get("period") + "/" + key + "/" + entry.getKey(),
-                                        entry.getValue(),
+                                        path + "/" + column,
+                                        target,
                                         value));
                 }
             }
-            for (var row : actual.entrySet()) {
-                var value =
-                        GlBalances.decimal(row.getValue(), "opening_signed")
-                                .add(GlBalances.decimal(row.getValue(), "debit"))
-                                .subtract(GlBalances.decimal(row.getValue(), "credit"));
-                if (value.signum() != 0)
-                    result.add(
-                            new Difference(
-                                    period.get("period") + "/" + row.getKey(),
-                                    BigDecimal.ZERO,
-                                    value));
-            }
+            for (String key : actual.keySet())
+                result.add(new Difference(period.get("period") + "/" + key + "/余额行", BigDecimal.ZERO, BigDecimal.ONE));
         }
         return result;
     }

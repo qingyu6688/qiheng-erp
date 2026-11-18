@@ -11,12 +11,14 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -39,6 +41,17 @@ public class TradeSummaryService {
     private final String namespace;
     private final Clock clock;
 
+    private record Metrics(boolean sales, boolean purchase, boolean receivable, boolean inventory, boolean inventoryFlow) {
+        static Metrics permitted(CompanyAccess actor) {
+            boolean inventory = actor.orgScope().allDepartments() && actor.hasPermission("cost:view")
+                    && actor.hasPermission(ReportType.INVENTORY_SUMMARY.permission());
+            return new Metrics(actor.hasPermission(ReportType.SALES_SUMMARY.permission()),
+                    actor.hasPermission(ReportType.PURCHASE_SUMMARY.permission()),
+                    actor.allWarehouses() && actor.hasPermission(ReportType.RECEIVABLE_AGING.permission()),
+                    inventory, inventory && actor.hasPermission(ReportType.INVENTORY_FLOW.permission()));
+        }
+    }
+
     @Autowired
     TradeSummaryService(ReportReadDatabase database,StringRedisTemplate redis,ObjectMapper json,
             @Value("${spring.session.redis.namespace}") String namespace) {
@@ -46,19 +59,19 @@ public class TradeSummaryService {
     }
 
     TradeSummaryService(ReportReadDatabase database,StringRedisTemplate redis,ObjectMapper json,String namespace,Clock clock) {
-        this.database=database;this.redis=redis;this.json=json;this.namespace=namespace+":trade-summary:v1:";this.clock=clock;
+        this.database=database;this.redis=redis;this.json=json;this.namespace=namespace+":trade-summary:v2:";this.clock=clock;
     }
 
     public Map<String,Object> summary(CompanyAccess actor,int months) {
         if (months<1 || months>12) throw new ApiException(400,"VALIDATION_FAILED","趋势月份数须在1到12之间");
-        boolean sales=actor.hasPermission(ReportType.SALES_SUMMARY.permission());
-        boolean purchase=actor.hasPermission(ReportType.PURCHASE_SUMMARY.permission());
-        if (!sales && !purchase) throw new ApiException(403,"FORBIDDEN","没有查看销售或采购金额的权限");
+        var metrics=Metrics.permitted(actor);
+        if (!metrics.sales() && !metrics.purchase() && !metrics.receivable() && !metrics.inventory())
+            throw new ApiException(403,"FORBIDDEN","没有查看工作台金额的权限");
         LocalDate today=LocalDate.now(clock.withZone(BUSINESS_ZONE));
-        String key=namespace+database.replicaEnabled()+":"+scopeKey(actor,months,today,sales,purchase);
+        String key=namespace+database.replicaEnabled()+":"+scopeKey(actor,months,today,metrics);
         String cached=cached(key);
         if (cached!=null) return json.readValue(cached,RESULT_TYPE);
-        var result=database.read(()->calculate(actor,months,today,sales,purchase));
+        var result=database.read(()->calculate(actor,months,today,metrics));
         try { redis.opsForValue().set(key,json.writeValueAsString(result),CACHE_LIFETIME); }
         catch (DataAccessException failure) { LOG.warn("工作台金额缓存写入失败，本次返回数据库统计结果"); }
         return result;
@@ -72,27 +85,90 @@ public class TradeSummaryService {
         }
     }
 
-    private Map<String,Object> calculate(CompanyAccess actor,int months,LocalDate today,boolean sales,boolean purchase) {
+    private Map<String,Object> calculate(CompanyAccess actor,int months,LocalDate today,Metrics metrics) {
         YearMonth firstMonth=YearMonth.from(today).minusMonths(months-1L);
-        LocalDate from=firstMonth.atDay(1).isBefore(today.withDayOfYear(1))?firstMonth.atDay(1):today.withDayOfYear(1);
-        if (today.minusDays(1).isBefore(from)) from=today.minusDays(1);
-        var salesAmounts=sales?daily(actor,ReportType.SALES_SUMMARY,from,today):Map.<LocalDate,BigDecimal>of();
-        var purchaseAmounts=purchase?daily(actor,ReportType.PURCHASE_SUMMARY,from,today):Map.<LocalDate,BigDecimal>of();
+        LocalDate from=today.minusYears(1).withDayOfMonth(1);
         var result=new LinkedHashMap<String,Object>();
         result.put("asOf",database.asOf());
         result.put("dataSource",database.replicaEnabled()?"replica":"primary");
-        if (sales) result.put("sales",totals(salesAmounts,today));
-        if (purchase) result.put("purchase",totals(purchaseAmounts,today));
         var trend=new ArrayList<Map<String,Object>>();
         for (int index=0;index<months;index++) {
-            YearMonth month=firstMonth.plusMonths(index);
-            var row=new LinkedHashMap<String,Object>();row.put("month",month.toString());
-            if (sales) row.put("sales",sum(salesAmounts,month.atDay(1),month.atEndOfMonth()));
-            if (purchase) row.put("purchase",sum(purchaseAmounts,month.atDay(1),month.atEndOfMonth()));
+            var row=new LinkedHashMap<String,Object>();
+            row.put("month",firstMonth.plusMonths(index).toString());
             trend.add(row);
         }
+        var comparison=new LinkedHashMap<String,Object>();
+        if (metrics.sales()) addFlow(result,comparison,trend,"sales",daily(actor,ReportType.SALES_SUMMARY,from,today),today);
+        if (metrics.purchase()) addFlow(result,comparison,trend,"purchase",daily(actor,ReportType.PURCHASE_SUMMARY,from,today),today);
+        if (metrics.receivable()) {
+            var sampled=new HashMap<LocalDate,String>();
+            addBalance(result,comparison,trend,"receivable",today,
+                    date->sampled.computeIfAbsent(date,cutoff->receivable(actor,cutoff,cutoff.equals(today))));
+        }
+        if (metrics.inventory()) {
+            String current=aggregate(actor,ReportType.INVENTORY_SUMMARY,"cost_amount",Map.of());
+            if (metrics.inventoryFlow()) {
+                var amounts=inventoryDaily(actor,from,today);
+                addBalance(result,comparison,trend,"inventory",today,
+                        date->date.equals(today)?current:sum(amounts,from,date));
+            } else {
+                result.put("inventory",current);
+            }
+        }
+        result.put("comparison",comparison);
         result.put("trend",trend);
         return result;
+    }
+
+    private void addFlow(Map<String,Object> result,Map<String,Object> comparison,List<Map<String,Object>> trend,
+                         String key,Map<LocalDate,BigDecimal> amounts,LocalDate today) {
+        result.put(key,totals(amounts,today));
+        LocalDate lastMonth=today.minusMonths(1),lastYear=today.minusYears(1);
+        comparison.put(key,Map.of("previousMonth",sum(amounts,lastMonth.withDayOfMonth(1),lastMonth),
+                "previousYear",sum(amounts,lastYear.withDayOfMonth(1),lastYear)));
+        for (var point:trend) {
+            var month=YearMonth.parse(point.get("month").toString());
+            point.put(key,sum(amounts,month.atDay(1),month.atEndOfMonth()));
+        }
+    }
+
+    private void addBalance(Map<String,Object> result,Map<String,Object> comparison,List<Map<String,Object>> trend,
+                            String key,LocalDate today,Function<LocalDate,String> at) {
+        String current=at.apply(today);
+        result.put(key,current);
+        comparison.put(key,Map.of("previousMonth",at.apply(today.minusMonths(1)),"previousYear",at.apply(today.minusYears(1))));
+        for (var point:trend) {
+            var month=YearMonth.parse(point.get("month").toString());
+            point.put(key,month.equals(YearMonth.from(today))?current:at.apply(month.atEndOfMonth()));
+        }
+    }
+
+    private String receivable(CompanyAccess actor,LocalDate date,boolean current) {
+        var cutoff=date.plusDays(1).atStartOfDay(BUSINESS_ZONE).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+        return aggregate(actor,ReportType.RECEIVABLE_AGING,"open_amount",Map.of("today",date,"agingNow",current,"agingEnd",cutoff));
+    }
+
+    private String aggregate(CompanyAccess actor,ReportType type,String amount,Map<String,Object> extra) {
+        var params=DashboardReportSources.params(actor,null,null);
+        params.putAll(extra);
+        String sql="SELECT COALESCE(SUM("+amount+"),0) FROM ("+ReportSql.query(type,true,actor)+") facts WHERE 1=1";
+        return database.jdbc().queryForObject(sql+warehouseFilter(actor,type),params,BigDecimal.class).toPlainString();
+    }
+
+    private Map<LocalDate,BigDecimal> inventoryDaily(CompanyAccess actor,LocalDate from,LocalDate to) {
+        var params=DashboardReportSources.params(actor,LocalDate.of(1000,1,1),to);
+        params.put("opening",from);
+        String sql="SELECT GREATEST(business_date,DATE(:opening)) day_key,SUM(cost_amount) amount FROM ("
+                +ReportSql.query(ReportType.INVENTORY_FLOW,true,actor)+") facts WHERE 1=1"
+                +warehouseFilter(actor,ReportType.INVENTORY_FLOW)+" GROUP BY day_key";
+        var result=new HashMap<LocalDate,BigDecimal>();
+        database.jdbc().query(sql,params,(org.springframework.jdbc.core.RowCallbackHandler) row->
+                result.put(row.getDate("day_key").toLocalDate(),row.getBigDecimal("amount")));
+        return result;
+    }
+
+    private String warehouseFilter(CompanyAccess actor,ReportType type) {
+        return !type.companyWide() && !actor.allWarehouses()?" AND warehouse_id IN (:warehouses)":"";
     }
 
     private Map<LocalDate,BigDecimal> daily(CompanyAccess actor,ReportType type,LocalDate from,LocalDate to) {
@@ -121,9 +197,9 @@ public class TradeSummaryService {
                 .map(Map.Entry::getValue).reduce(BigDecimal.ZERO.setScale(2),BigDecimal::add).toPlainString();
     }
 
-    private String scopeKey(CompanyAccess actor,int months,LocalDate today,boolean sales,boolean purchase) {
+    private String scopeKey(CompanyAccess actor,int months,LocalDate today,Metrics metrics) {
         String scope=actor.tenantId()+"|"+actor.companyId()+"|"+actor.userId()+"|"+actor.allWarehouses()+"|"
-                +actor.warehouseIds().stream().sorted().toList()+"|"+actor.orgScope().signature()+"|"+months+"|"+today+"|"+sales+"|"+purchase;
+                +actor.warehouseIds().stream().sorted().toList()+"|"+actor.orgScope().signature()+"|"+months+"|"+today+"|"+metrics;
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(scope.getBytes(StandardCharsets.UTF_8))); }
         catch (NoSuchAlgorithmException failure) { throw new IllegalStateException("无法计算工作台范围摘要",failure); }
     }

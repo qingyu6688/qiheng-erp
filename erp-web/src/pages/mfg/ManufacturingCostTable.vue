@@ -16,6 +16,7 @@ const variance = [
   { key: 'variance', label: '完工成本差异' },
   { key: 'inventoryVariance', label: '在库差异' },
   { key: 'issuedVariance', label: '已出库差异' },
+  { key: 'shortCloseExpense', label: '短交成本差异' },
 ] as const
 </script>
 

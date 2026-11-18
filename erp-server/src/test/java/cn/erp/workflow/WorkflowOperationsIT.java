@@ -17,10 +17,12 @@ import org.springframework.transaction.PlatformTransactionManager;
 
 import cn.erp.identity.*;
 import cn.erp.salesorder.*;
+import cn.erp.scheduler.JobEngine;
 import cn.erp.shared.*;
 
 import static cn.erp.workflow.WorkflowTestData.*;
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.mock;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -34,6 +36,8 @@ class WorkflowOperationsIT {
     @Autowired WorkflowTimeout timeout;
     @Autowired WorkflowRuntime runtime;
     @Autowired WorkflowState state;
+    @Autowired WorkflowQueries queries;
+    @Autowired JobEngine jobs;
     @Autowired ProcessEngine engine;
     @Autowired PlatformTransactionManager transactions;
     @Autowired Fault fault;
@@ -215,7 +219,7 @@ class WorkflowOperationsIT {
                 id);
         var second =
                 new WorkflowTimeout(
-                        (code, action) -> assertThat(code).isEqualTo("workflow.timeout"),
+                        mock(ManagedJobs.class),
                         runtime,
                         state,
                         transactions,
@@ -298,6 +302,75 @@ class WorkflowOperationsIT {
                         jdbc.queryForObject(
                                 "SELECT status FROM wf_task_ext WHERE id=?", String.class, handle))
                 .isEqualTo("auto_approved");
+    }
+
+    @Test
+    void timeoutFailureRollsBackOneItemAndBacksOffWithoutSkippingOtherTasks() {
+        var handler = new SimpleModel.Node("handler", "handler", "归档办理",
+                new SimpleModel.Assignee("users", List.of(d.financeA), null, null, null, null, null, null),
+                "and", new SimpleModel.Timeout(1, "approve", 1), null, null, false);
+        d.bind(root(approve("review", List.of(d.manager), "and", handler)));
+        long instance = d.submit(d.order("1", "100"));
+        long review = task(instance, d.manager);
+        tasks.decide(d.actor(d.manager), review, "approve", key(), input(review));
+        long failed = task(instance, d.financeA);
+        long successA = task(d.submit(d.order("1", "100")), d.manager);
+        long successB = task(d.submit(d.order("1", "100")), d.manager);
+        jdbc.update("UPDATE sys_user SET status='disabled' WHERE tenant_id=? AND id=?", d.tenant, d.manager);
+        due(failed, 2);
+        due(successA, 1);
+        due(successB, 1);
+
+        jobs.ensure(d.tenant);
+        runTimeout();
+        assertThat(jdbc.queryForObject("SELECT last_result FROM job_definition WHERE tenant_id=? AND code='workflow.timeout'",
+                String.class, d.tenant)).isEqualTo("partial_failed");
+        assertThat(jdbc.queryForList("SELECT task_id FROM wf_task_action WHERE tenant_id=? AND action='timeout_remind'",
+                Long.class, d.tenant)).containsExactlyInAnyOrder(successA, successB);
+        assertThat(jdbc.queryForObject("SELECT status FROM wf_task_ext WHERE id=?", String.class, failed)).isEqualTo("pending");
+        assertThat(jdbc.queryForMap("SELECT failure_count,error_code FROM job_item_failure WHERE tenant_id=? AND company_id=?",
+                d.tenant, d.company)).containsEntry("failure_count", 1).containsEntry("error_code", "WORKFLOW_REVIEW_INVALID");
+        assertThat(backoff(failed)).isBetween(290, 300);
+        runTimeout();
+        assertThat(jdbc.queryForObject("SELECT failure_count FROM job_item_failure WHERE tenant_id=?", Integer.class, d.tenant)).isEqualTo(1);
+        for (int minutes : List.of(15, 60)) {
+            due(failed, 1);
+            runTimeout();
+            assertThat(backoff(failed)).isBetween(minutes * 60 - 10, minutes * 60);
+        }
+
+        var admin = d.actor(d.maker);
+        assertThat(queries.detail(admin, instance)).containsEntry("automaticProcessingFailed", true);
+        assertThat(queries.list(admin, "all", null, 20, new WorkflowQueries.Filter(null, null, null, null, null)).get("items"))
+                .asList().anySatisfy(row -> assertThat(row.toString()).contains("automaticProcessingFailed=true"));
+        var permissions = new HashSet<>(admin.permissions());
+        permissions.remove("workflow_instance:view_all");
+        var maker = new CompanyAccess(d.tenant, d.maker, d.company, true, Set.of(), permissions);
+        assertThat(queries.detail(maker, instance)).doesNotContainKey("automaticProcessingFailed");
+        for (var other : List.of(new CompanyAccess(Ids.next(), d.maker, d.company, true, Set.of(), admin.permissions()),
+                new CompanyAccess(d.tenant, d.maker, Ids.next(), true, Set.of(), admin.permissions())))
+            assertThatThrownBy(() -> queries.detail(other, instance)).isInstanceOf(ApiException.class);
+
+        jdbc.update("UPDATE sys_user SET status='active' WHERE tenant_id=? AND id=?", d.tenant, d.manager);
+        due(failed, 1);
+        runTimeout();
+        assertThat(jdbc.queryForObject("SELECT status FROM wf_task_ext WHERE id=?", String.class, failed)).isEqualTo("auto_approved");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM job_item_failure WHERE tenant_id=?", Integer.class, d.tenant)).isZero();
+        assertThat(queries.detail(admin, instance)).containsEntry("automaticProcessingFailed", false);
+    }
+
+    private void due(long task, int minutes) {
+        jdbc.update("UPDATE wf_task_ext SET next_remind_at=TIMESTAMPADD(MINUTE,?,UTC_TIMESTAMP(3)) WHERE id=?", -minutes, task);
+    }
+
+    private int backoff(long task) {
+        return jdbc.queryForObject("SELECT TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(3),next_remind_at) FROM wf_task_ext WHERE id=?",
+                Integer.class, task);
+    }
+
+    private void runTimeout() {
+        jdbc.update("UPDATE job_definition SET next_run_at=UTC_TIMESTAMP(3)-INTERVAL 1 SECOND WHERE tenant_id=? AND code='workflow.timeout'", d.tenant);
+        assertThat(jobs.runOne(d.tenant, "workflow.timeout")).isTrue();
     }
 
     @Test

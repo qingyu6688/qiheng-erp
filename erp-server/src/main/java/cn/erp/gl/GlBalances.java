@@ -13,6 +13,20 @@ import static cn.erp.gl.GlSupport.*;
 /** 余额缓存与只追加的记账事实分开；按辅助明细保留借贷方向，禁止客户间净额相抵。 */
 @Component
 class GlBalances {
+    private static final String WRITE_BALANCE =
+            "INSERT INTO gl_balance(id,tenant_id,company_id,period_id,subject_id,"
+                    + AUX_COLUMNS
+                    + ",opening_signed,debit,credit,opening_quantity,quantity_debit,quantity_credit)"
+                    + " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) AS delta"
+                    + " ON DUPLICATE KEY UPDATE"
+                    + " opening_signed=gl_balance.opening_signed+delta.opening_signed,"
+                    + " debit=gl_balance.debit+delta.debit,credit=gl_balance.credit+delta.credit,"
+                    + " opening_quantity=gl_balance.opening_quantity+delta.opening_quantity,"
+                    + " quantity_debit=gl_balance.quantity_debit+delta.quantity_debit,"
+                    + " quantity_credit=gl_balance.quantity_credit+delta.quantity_credit";
+    private static final String HAS_BALANCE =
+            "(SELECT b.id FROM gl_balance b WHERE b.tenant_id=p.tenant_id"
+                    + " AND b.company_id=p.company_id AND b.period_id=p.id LIMIT 1) IS NOT NULL";
     private final GlSupport s;
 
     GlBalances(GlSupport s) {
@@ -31,7 +45,29 @@ class GlBalances {
         BigDecimal closing() {
             return opening.add(debit).subtract(credit);
         }
+
+        Balance carry() {
+            return openingBalance(
+                    subject,
+                    aux,
+                    closing(),
+                    quantityOpening.add(quantityDebit).subtract(quantityCredit));
+        }
+
+        Balance mergeMovement(Balance other) {
+            return new Balance(
+                    subject,
+                    aux,
+                    opening,
+                    debit.add(other.debit),
+                    credit.add(other.credit),
+                    quantityOpening,
+                    quantityDebit.add(other.quantityDebit),
+                    quantityCredit.add(other.quantityCredit));
+        }
     }
+
+    private record BalanceKey(long subject, GlModels.Aux aux) {}
 
     List<Balance> snapshot(ActorScope a, LocalDate from, LocalDate to, boolean excludeClosing) {
         var result = new TreeMap<String, BigDecimal[]>();
@@ -119,6 +155,70 @@ class GlBalances {
                 a.tenantId(),
                 a.companyId(),
                 period);
+        write(a, period, rows);
+    }
+
+    void posted(ActorScope a, long period, LocalDate voucherDate, List<GlModels.Line> lines) {
+        // 各记账入口先取得公司记账锁，再在 READ COMMITTED 下读取已提交的余额。
+        var currentAndLater = s.jdbc.queryForList(
+                "SELECT p.id FROM accounting_period p WHERE p.tenant_id=? AND p.company_id=?"
+                        + " AND p.end_date>=? AND " + HAS_BALANCE + " ORDER BY p.start_date",
+                Long.class, a.tenantId(), a.companyId(), voucherDate);
+        if (!currentAndLater.contains(period)) seedOpening(a, period, voucherDate);
+
+        var movements = new LinkedHashMap<BalanceKey, Balance>();
+        for (var line : lines) {
+            boolean debit = line.direction().equals("D");
+            var amount = new BigDecimal(line.amount());
+            var quantity = new BigDecimal(line.quantity());
+            var zero = BigDecimal.ZERO;
+            var key = new BalanceKey(line.subjectId(), line.aux());
+            var delta = new Balance(
+                    key.subject(), key.aux(), zero, debit ? amount : zero, debit ? zero : amount,
+                    zero, debit ? quantity : zero, debit ? zero : quantity);
+            movements.merge(key, delta, Balance::mergeMovement);
+        }
+        write(a, period, movements.values());
+
+        // 红字仍是新增凭证。后期只滚入差额，并保留发生额相抵为零的辅助明细。
+        var carry = movements.values().stream().map(Balance::carry).toList();
+        for (long id : currentAndLater) {
+            if (id != period) write(a, id, carry);
+        }
+    }
+
+    private void seedOpening(ActorScope a, long period, LocalDate voucherDate) {
+        // 每次过账都物化其所属期间，因此前一个已物化期间与当前期间之间没有记账事实。
+        var previous = s.jdbc.queryForList(
+                "SELECT p.id FROM accounting_period p WHERE p.tenant_id=? AND p.company_id=?"
+                        + " AND p.end_date<? AND " + HAS_BALANCE + " ORDER BY p.start_date DESC LIMIT 1",
+                Long.class, a.tenantId(), a.companyId(), voucherDate);
+        var args = new ArrayList<Object>(List.of(a.tenantId(), a.companyId()));
+        String sql;
+        if (previous.isEmpty()) {
+            sql = "SELECT subject_id," + AUX_COLUMNS + ",opening_signed,opening_quantity"
+                    + " FROM gl_opening_balance WHERE tenant_id=? AND company_id=?";
+        } else {
+            sql = "SELECT subject_id," + AUX_COLUMNS + ",opening_signed+debit-credit AS opening_signed,"
+                    + " opening_quantity+quantity_debit-quantity_credit AS opening_quantity"
+                    + " FROM gl_balance WHERE tenant_id=? AND company_id=? AND period_id=?";
+            args.add(previous.getFirst());
+        }
+        var rows = s.jdbc.queryForList(sql, args.toArray()).stream()
+                .map(row -> openingBalance(
+                        number(row.get("subject_id")), aux(row),
+                        decimal(row, "opening_signed"), decimal(row, "opening_quantity")))
+                .toList();
+        write(a, period, rows);
+    }
+
+    private static Balance openingBalance(long subject, GlModels.Aux aux, BigDecimal amount, BigDecimal quantity) {
+        var zero = BigDecimal.ZERO;
+        return new Balance(subject, aux, amount, zero, zero, quantity, zero, zero);
+    }
+
+    private void write(ActorScope a, long period, Collection<Balance> rows) {
+        var entries = new ArrayList<Object[]>(rows.size());
         for (var row : rows) {
             var args =
                     new ArrayList<Object>(
@@ -137,33 +237,9 @@ class GlBalances {
                             row.quantityOpening(),
                             row.quantityDebit(),
                             row.quantityCredit()));
-            s.jdbc.update(
-                    "INSERT INTO gl_balance(id,tenant_id,company_id,period_id,subject_id,"
-                            + AUX_COLUMNS
-                            + ",opening_signed,debit,credit,opening_quantity,quantity_debit,quantity_credit)"
-                            + " VALUES("
-                            + String.join(",", Collections.nCopies(args.size(), "?"))
-                            + ")",
-                    args.toArray());
+            entries.add(args.toArray());
         }
-    }
-
-    void posted(ActorScope a, long period) {
-        // 当前期间和已形成缓存的后续期间一起重建，覆盖迟到记账对后期的期初影响。
-        var ids =
-                s.jdbc.queryForList(
-                        "SELECT DISTINCT b.period_id FROM gl_balance b JOIN accounting_period p ON"
-                            + " p.tenant_id=b.tenant_id AND p.company_id=b.company_id AND"
-                            + " p.id=b.period_id JOIN accounting_period c ON"
-                            + " c.tenant_id=p.tenant_id AND c.company_id=p.company_id AND c.id=?"
-                            + " WHERE b.tenant_id=? AND b.company_id=? AND"
-                            + " p.start_date>c.start_date ORDER BY b.period_id",
-                        Long.class,
-                        period,
-                        a.tenantId(),
-                        a.companyId());
-        refresh(a, period);
-        for (long id : ids) refresh(a, id);
+        if (!entries.isEmpty()) s.jdbc.batchUpdate(WRITE_BALANCE, entries);
     }
 
     static BigDecimal decimal(Map<String, Object> row, String field) {

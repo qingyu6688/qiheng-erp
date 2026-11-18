@@ -1,17 +1,22 @@
 import { request } from './http'
 export { alertCenterCount as workbenchAlertCount } from './alerts'
+export interface WorkbenchTodo {
+  id: string
+  kind?: string
+  label: string
+  documentNo: string
+  partnerName?: string
+  amount?: string
+  businessDate?: string
+  createdAt?: string
+  url: string
+}
 export interface WorkbenchSummary {
   asOf: string
   blocks: { key: string; label: string; count: number; url: string }[]
-  todos: {
-    id: string
-    label: string
-    documentNo: string
-    partnerName?: string
-    amount?: string
-    businessDate?: string
-    url: string
-  }[]
+  todos: WorkbenchTodo[]
+  todosByType?: Record<string, WorkbenchTodo[]>
+  announcements?: { id: string; title: string; level: string; publishAt: string }[]
   inventoryAlerts?: {
     warehouseId: string
     skuId: string
@@ -40,8 +45,13 @@ export interface TradeSummary {
   dataSource: 'primary' | 'replica'
   sales?: TradeAmounts
   purchase?: TradeAmounts
-  trend: { month: string; sales?: string; purchase?: string }[]
+  receivable?: string
+  inventory?: string
+  comparison?: Partial<Record<TradeMetric, { previousMonth: string; previousYear: string }>>
+  trend: ({ month: string } & Partial<Record<TradeMetric, string>>)[]
 }
+
+export type TradeMetric = 'sales' | 'purchase' | 'receivable' | 'inventory'
 
 export function tradeSummary(signal?: AbortSignal): Promise<TradeSummary> {
   return request(

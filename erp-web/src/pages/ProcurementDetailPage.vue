@@ -14,6 +14,12 @@ import type { ProcurementDocument, ProcurementKind } from '../types/procurement'
 import ProcurementEditor from '../components/procurement/ProcurementEditor.vue'
 import { useSessionStore } from '../stores/session'
 import DocumentFilesPanel from '../components/DocumentFilesPanel.vue'
+import StatusTag from '../components/StatusTag.vue'
+import PageHeader from '../components/PageHeader.vue'
+import DocumentMoreActions from '../components/DocumentMoreActions.vue'
+import DocumentDetailLayout from '../components/DocumentDetailLayout.vue'
+import DocumentLineTable from '../components/DocumentLineTable.vue'
+import OrderDetailOverview from '../components/OrderDetailOverview.vue'
 import { documentStateTag } from '../types/document-ui'
 import { formatDateTime, formatMoney, formatQuantity } from '../utils/format'
 const props = defineProps<{ kind: ProcurementKind }>(),
@@ -32,6 +38,20 @@ const value = ref<ProcurementDocument>(),
   uncertain = ref(false),
   conflict = ref(false)
 const closeRows = ref<{ lineId: string; name: string; qty: string; remaining: string }[]>([])
+const orderPage = computed(() => props.kind === 'purchase-orders')
+const orderRelations = computed(() => orderPage.value && value.value ? {
+  kind: 'purchase-orders' as const, id: value.value.id, version: value.value.version,
+} : undefined)
+const moreActions = computed(() =>
+  orderPage.value
+    ? (value.value?.allowedActions ?? []).filter((action) =>
+        ['cancel', 'delete', 'revoke_approval'].includes(action.replaceAll('-', '_')),
+      )
+    : [],
+)
+const mainActions = computed(() =>
+  (value.value?.allowedActions ?? []).filter((action) => !moreActions.value.includes(action)),
+)
 const selections = ref<WorkflowSelections>({}),
   workflowReady = ref(false)
 const workflowSubmit = computed(
@@ -178,34 +198,67 @@ async function verify(): Promise<void> {
     if (cause instanceof ApiError && cause.status === 404) uncertain.value = false
   }
 }
-onMounted(load)
+onMounted(async () => {
+  const path = route.path
+  await load()
+  if (route.path !== path || !orderPage.value || route.query.next !== 'submit' || !value.value) return
+  const query = { ...route.query }
+  delete query.next
+  if (value.value.allowedActions.includes('submit')) choose('submit')
+  else error.value = '订单已保存，当前状态或权限不允许提交审核。'
+  await router.replace({ path, query })
+})
 </script>
 <template>
-  <div class="page-heading">
-    <div>
-      <router-link class="text-link" :to="'/' + kind">返回{{ spec.title }}</router-link>
-      <h1>{{ value?.documentNo ?? spec.singular }}</h1>
-    </div>
-    <div v-if="value" class="sales-actions">
+  <PageHeader
+    :title="value?.documentNo ?? spec.singular"
+    :back-to="'/' + kind"
+    :back-label="'返回' + spec.title"
+  >
+    <template v-if="value && orderPage" #status>
+      <StatusTag
+        data-order-status
+        :label="statusLabels[value.status] ?? value.status"
+        :tone="documentStateTag(kind, value.status)"
+      />
+    </template>
+    <template v-if="value" #actions>
+      <router-link
+        v-if="orderPage && session.can(spec.permission + ':print')"
+        class="text-link"
+        :to="'/print/' + spec.permission + '/' + value.id"
+        >打印</router-link
+      >
       <el-button
-        v-for="name in value.allowedActions"
+        v-for="name in mainActions"
         :key="name"
         :type="['approve', 'post', 'confirm'].includes(name) ? 'primary' : undefined"
         @click="choose(name)"
         >{{ label(name) }}</el-button
       >
-    </div>
-  </div>
+      <DocumentMoreActions :actions="moreActions" :label="label" @choose="choose" />
+    </template>
+  </PageHeader>
   <el-alert v-if="error" type="error" :title="error" :closable="false" />
   <p v-if="loading">正在加载…</p>
-  <template v-if="value"
-    ><section class="panel sales-detail-header">
+  <template v-if="value">
+    <OrderDetailOverview
+      v-if="orderPage"
+      kind="purchase-orders"
+      :order="value"
+      :party="value.supplier?.name ?? value.supplierName ?? value.partnerName"
+      :representative="value.buyerUserName"
+    />
+    <section v-else class="panel sales-detail-header">
       <dl>
         <dt>状态</dt>
         <dd>
-          <el-tag :type="documentStateTag(kind, value.status)">{{
-            value.status === 'posted' ? '已过账' : (statusLabels[value.status] ?? value.status)
-          }}</el-tag>
+          <StatusTag
+            :label="
+              value.status === 'posted' ? '已过账' : (statusLabels[value.status] ?? value.status)
+            "
+            :tone="documentStateTag(kind, value.status)"
+          />
         </dd>
         <template v-if="value.buyerUserName"
           ><dt>采购员</dt>
@@ -247,54 +300,64 @@ onMounted(load)
       <p v-if="value.reason">原因 {{ value.reason }}</p>
       <p v-if="value.remark">备注 {{ value.remark }}</p>
     </section>
-    <section v-if="value.lines?.length" class="panel">
-      <div class="document-section-title"><h2>明细与进度</h2></div>
-      <el-table :data="value.lines" row-key="id"
-        ><el-table-column label="商品" min-width="140"
-          ><template #default="{ row }">{{
-            row.sku?.name ?? row.skuName ?? row.skuId
-          }}</template></el-table-column
-        ><el-table-column label="数量 / 单位"
-          ><template #default="{ row }">{{
-            formatQuantity(row.qty, row.unit?.name ?? row.unitName)
-          }}</template></el-table-column
-        ><el-table-column label="含税金额"
-          ><template #default="{ row }">{{
-            formatMoney(row.payableNet ?? row.payableAmount ?? row.debitAmount)
-          }}</template></el-table-column
-        ><el-table-column v-if="kind === 'purchase-orders'" label="可收上限 / 已收"
-          ><template #default="{ row }"
-            >{{ row.receiveLimitBaseQty ?? row.receiveLimitQty ?? '—' }} /
-            {{ row.progress?.receivedQty ?? row.receivedBaseQty ?? '0' }}</template
-          ></el-table-column
-        ><el-table-column v-if="session.can('cost:view')" label="成本"
-          ><template #default="{ row }">{{
-            formatMoney(row.costAmount ?? row.inputTotalCost)
-          }}</template></el-table-column
-        ></el-table
-      >
-    </section></template
-  >
-  <WorkflowProgressPanel
-    v-if="
-      value &&
-      (kind === 'purchase-orders'
-        ? 'purchase_order'
-        : kind === 'stock-adjustments'
-          ? 'stock_adjustment'
-          : undefined)
-    "
-    :business-type="
-      (kind === 'purchase-orders'
-        ? 'purchase_order'
-        : kind === 'stock-adjustments'
-          ? 'stock_adjustment'
-          : undefined)!
-    "
-    :business-id="value.id"
-    :instance-id="value.workflowInstanceId"
-  />
-  <DocumentFilesPanel v-if="value" :owner-type="spec.permission" :owner-id="value.id" />
+    <DocumentDetailLayout :split="orderPage" :order="orderRelations">
+      <section v-if="value.lines?.length" class="panel" aria-labelledby="document-lines-title">
+        <div class="document-section-title"><h2 id="document-lines-title">明细与进度</h2></div>
+        <DocumentLineTable :rows="value.lines"
+          ><el-table-column label="商品" min-width="140"
+            ><template #default="{ row }">{{
+              row.sku?.name ?? row.skuName ?? row.skuId
+            }}</template></el-table-column
+          ><el-table-column label="数量 / 单位"
+            ><template #default="{ row }">{{
+              formatQuantity(row.qty, row.unit?.name ?? row.unitName)
+            }}</template></el-table-column
+          ><el-table-column label="含税金额"
+            ><template #default="{ row }">{{
+              formatMoney(row.payableNet ?? row.payableAmount ?? row.debitAmount)
+            }}</template></el-table-column
+          ><el-table-column v-if="kind === 'purchase-orders'" label="可收上限 / 已收"
+            ><template #default="{ row }"
+              >{{ row.receiveLimitBaseQty ?? row.receiveLimitQty ?? '—' }} /
+              {{ row.progress?.receivedQty ?? row.receivedBaseQty ?? '0' }}</template
+            ></el-table-column
+          ><el-table-column v-if="session.can('cost:view')" label="成本"
+            ><template #default="{ row }">{{
+              formatMoney(row.costAmount ?? row.inputTotalCost)
+            }}</template></el-table-column
+          ></DocumentLineTable
+        >
+      </section>
+      <template #progress>
+        <WorkflowProgressPanel
+          v-if="
+            value &&
+            (kind === 'purchase-orders'
+              ? 'purchase_order'
+              : kind === 'stock-adjustments'
+                ? 'stock_adjustment'
+                : undefined)
+          "
+          :business-type="
+            (kind === 'purchase-orders'
+              ? 'purchase_order'
+              : kind === 'stock-adjustments'
+                ? 'stock_adjustment'
+                : undefined)!
+          "
+          :business-id="value.id"
+          :instance-id="value.workflowInstanceId"
+        />
+      </template>
+      <template #attachments>
+        <DocumentFilesPanel
+          :owner-type="spec.permission"
+          :owner-id="value.id"
+          :hide-print="orderPage"
+        />
+      </template>
+    </DocumentDetailLayout>
+  </template>
   <ProcurementEditor
     v-if="(editing || changing) && value"
     :kind="kind"

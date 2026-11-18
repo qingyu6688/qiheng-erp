@@ -25,6 +25,9 @@ const stubs = {
   ElTable: { props: ['data'], template: '<div>{{JSON.stringify(data)}}</div>' },
   ElTableColumn: true,
   ElTag: { template: '<span><slot /></span>' },
+  ElCheckbox: true,
+  ElCheckboxGroup: true,
+  ElDialog: { template: '<div v-if="$attrs.modelValue"><slot /><slot name="footer" /></div>' },
 }
 const data: WorkbenchSummary = {
   asOf: '2026-11-15T06:00:00Z',
@@ -42,10 +45,43 @@ beforeEach(() => {
 it('显示服务器待办和筛选链接，不渲染未返回的财务块', async () => {
   const wrapper = mount(WorkbenchPage, { global: { stubs } })
   await flushPromises()
-  expect(wrapper.get('a[href="/sales-orders?status=pending"]').text()).toContain('2')
+  const button = wrapper
+    .findAll('.todo-types button')
+    .find((item) => item.text().includes('待审核销售订单'))!
+  expect(button.text()).toContain('2')
+  await button.trigger('click')
+  expect(wrapper.get('a[href="/sales-orders?status=pending"]').text()).toContain('待审核销售订单')
   expect(wrapper.text()).not.toContain('本月期间')
   expect(wrapper.text()).not.toContain('T06:00')
   expect(workbenchAlertCount).not.toHaveBeenCalled()
+  wrapper.unmount()
+})
+
+it('分类待办在全局预览之外仍可查看，零项有灰显状态', async () => {
+  vi.mocked(workbenchSummary).mockResolvedValue({
+    ...data,
+    blocks: [
+      ...data.blocks,
+      { key: 'payments', label: '待确认付款', count: 0, url: '/payments?status=pending_confirm' },
+    ],
+    todosByType: {
+      'sales-orders': [
+        {
+          id: '1',
+          kind: 'sales-orders',
+          documentNo: 'SO-ONLY-TAB',
+          label: '待审',
+          url: '/sales-orders/1',
+        },
+      ],
+    },
+  })
+  const wrapper = mount(WorkbenchPage, { global: { stubs } })
+  await flushPromises()
+  expect(wrapper.text()).not.toContain('SO-ONLY-TAB')
+  expect(wrapper.get('.todo-types .is-empty').text()).toContain('待确认付款')
+  await wrapper.findAll('.todo-types button')[1]!.trigger('click')
+  expect(wrapper.text()).toContain('SO-ONLY-TAB')
   wrapper.unmount()
 })
 

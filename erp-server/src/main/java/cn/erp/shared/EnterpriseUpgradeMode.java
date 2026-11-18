@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 /** 核验通过的升级库启用新的审批和账务入口。 */
 @Component
 public class EnterpriseUpgradeMode {
-    public static final int SCHEMA_VERSION = 99;
+    public static final int SCHEMA_VERSION = 102;
     private final JdbcTemplate jdbc;
     private volatile boolean active;
 

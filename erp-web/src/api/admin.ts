@@ -7,6 +7,7 @@ export async function records(
   company = false,
   params: Record<string, unknown> = {},
   companyId?: string,
+  signal?: AbortSignal,
 ): Promise<PageResult<DataRow>> {
   const result = await request<PageResult<DataRow> | DataRow[]>(
     {
@@ -14,6 +15,7 @@ export async function records(
       url: '/' + path,
       params,
       headers: companyId ? { 'X-Company-Id': companyId } : undefined,
+      signal,
     },
     company,
   )

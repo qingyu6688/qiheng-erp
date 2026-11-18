@@ -17,6 +17,11 @@ import DocumentEditorFrame from '../DocumentEditorFrame.vue'
 import BusinessUserSelect from '../BusinessUserSelect.vue'
 import StockSelectionFields from '../stock-operations/StockSelectionFields.vue'
 import type { StockSelection } from '../../types/inventory-tracking'
+import EditableTable from '../EditableTable.vue'
+import FixedFooter from '../FixedFooter.vue'
+import OrderLineImport from '../OrderLineImport.vue'
+import { ORDER_LINE_LIMIT } from '../../utils/order-line-paste'
+import type { PastedOrderLine } from '../../utils/order-line-paste'
 
 const props = defineProps<{
   kind: ProcurementKind
@@ -24,7 +29,8 @@ const props = defineProps<{
   change?: boolean
   inline?: boolean
 }>()
-const emit = defineEmits<{ close: []; saved: [ProcurementDocument]; dirty: [boolean] }>()
+const emit = defineEmits<{ close: []; saved: [ProcurementDocument, boolean?]; dirty: [boolean] }>()
+let submitRequested = false
 const session = useSessionStore(),
   spec = computed(() => procurementSpecs.find((s) => s.path === props.kind)!)
 const fields = ref<CustomField[]>([]),
@@ -109,7 +115,7 @@ const trackingMode = computed(() => {
   if (props.kind === 'goods-receipts' || inputCost.value) return 'in' as const
   if (props.kind === 'purchase-returns') return 'return' as const
   if (form.adjustType === 'scrap') return 'scrap' as const
-  return ['block', 'unblock'].includes(form.adjustType) ? 'freeze' as const : 'out' as const
+  return ['block', 'unblock'].includes(form.adjustType) ? ('freeze' as const) : ('out' as const)
 })
 const hasLines = computed(() => products.value || sourceLines.value),
   warehouseHead = computed(() => stock.value || sourceLines.value)
@@ -124,8 +130,67 @@ let timer: ReturnType<typeof setTimeout> | undefined,
   sequence = 0,
   sourceSequence = 0,
   baseline = ''
+let active = true
 const calculating = ref(false)
+const editable = ref<InstanceType<typeof EditableTable>>()
+const importer = ref<InstanceType<typeof OrderLineImport>>()
+const populatedLineCount = computed(
+  () => lines.value.filter((line) => line.skuId || line.id).length,
+)
+const lineErrors = computed(() =>
+  order.value
+    ? lines.value.map((line) => ({
+        skuId: !line.skuId ? '请选择商品' : '',
+        unitId: !line.unitId ? '请选择单位' : '',
+        qty:
+          !/^\d{1,18}(?:\.\d{1,6})?$/.test(line.qty) || !/[1-9]/.test(line.qty)
+            ? '数量须大于0且最多6位小数'
+            : '',
+        unitPrice:
+          line.unitPrice && !/^\d{1,16}(?:\.\d{1,8})?$/.test(line.unitPrice)
+            ? '单价须为非负数且最多16位整数、8位小数'
+            : '',
+      }))
+    : [],
+)
+const errorCount = computed(() =>
+  lineErrors.value.reduce((count, row) => count + Object.values(row).filter(Boolean).length, 0),
+)
+function locateError(): void {
+  const index = lineErrors.value.findIndex((row) => Object.values(row).some(Boolean))
+  const row = lineErrors.value[index]
+  const sourceColumn = session.can('purchase_requisition:view') ? 1 : 0
+  if (row)
+    editable.value?.focus(index, sourceColumn + (row.skuId ? 0 : row.unitId ? 2 : row.qty ? 3 : 4))
+}
+function importLines(items: PastedOrderLine[]): void {
+  const current = lines.value.filter((line) => line.skuId || line.id)
+  if (current.length + items.length > ORDER_LINE_LIMIT) {
+    error.value = '商品明细最多500行'
+    return
+  }
+  for (const item of items) units[item.skuId] = item.units
+  lines.value = [
+    ...current,
+    ...items.map((item) => ({
+      skuId: item.skuId,
+      unitId: item.unitId,
+      qty: item.qty,
+      unitPrice: item.unitPrice,
+      taxRate: item.taxRate,
+      warehouseId: '',
+      lineDiscountAmount: '0',
+      sourceId: '',
+      inputTotalCost: '',
+      needDate: '',
+    })),
+  ]
+}
 function addLine(): void {
+  if (lines.value.length >= ORDER_LINE_LIMIT) {
+    error.value = '商品明细最多500行'
+    return
+  }
   lines.value.push({
     skuId: '',
     warehouseId: '',
@@ -140,12 +205,17 @@ function addLine(): void {
   })
 }
 async function chooseSku(line: InputLine, preferredUnit?: string): Promise<void> {
+  const selected = line.skuId
   if (!preferredUnit) {
     line.sourceId = ''
     line.stockSelection = null
   }
+  line.unitId = ''
+  line.unitPrice = ''
+  if (!selected) return
   try {
-    const sku = await record('skus/' + line.skuId)
+    const sku = await record('skus/' + selected)
+    if (!active || line.skuId !== selected || !lines.value.includes(line)) return
     units[line.skuId] = (sku.units as SalesSkuUnit[]) ?? []
     line.unitId =
       preferredUnit && units[line.skuId].some((u) => u.unitId === preferredUnit)
@@ -154,7 +224,7 @@ async function chooseSku(line: InputLine, preferredUnit?: string): Promise<void>
     line.unitPrice = ''
     line.taxRate = String(sku.defaultTaxRate ?? '0.13')
   } catch (cause: unknown) {
-    error.value = messageOf(cause)
+    if (line.skuId === selected && !isCancelled(cause)) error.value = messageOf(cause)
   }
 }
 function sourceLabel(row: Record<string, unknown>): string {
@@ -331,6 +401,8 @@ function body(): Record<string, unknown> {
   }
 }
 async function calculate(): Promise<void> {
+  clearTimeout(timer)
+  if (!active) return
   const current = ++sequence
   if (
     !order.value ||
@@ -359,10 +431,19 @@ async function calculate(): Promise<void> {
   }
 }
 watch(
-  [form, lines, fees],
+  [form, lines, fees, ext],
   () => {
     if (!loading.value) emit('dirty', JSON.stringify(body()) !== baseline)
     clearTimeout(timer)
+    sequence++
+    if (order.value) {
+      preview.value = undefined
+      calculating.value = Boolean(
+        form.supplierId &&
+        lines.value.length &&
+        lines.value.every((line) => line.skuId && line.unitId && line.qty),
+      )
+    }
     if (order.value)
       timer = setTimeout(() => {
         void calculate()
@@ -371,6 +452,7 @@ watch(
   { deep: true },
 )
 onUnmounted(() => {
+  active = false
   clearTimeout(timer)
   sequence++
   sourceSequence++
@@ -420,8 +502,13 @@ onMounted(async () => {
     loading.value = false
   }
 })
-async function save(): Promise<void> {
+async function save(submitAfterSave = false): Promise<void> {
   if (busy.value) return
+  if (errorCount.value) {
+    locateError()
+    return
+  }
+  submitRequested = submitAfterSave
   busy.value = true
   error.value = ''
   try {
@@ -438,7 +525,7 @@ async function save(): Promise<void> {
             props.original?.id,
             props.original ? undefined : key,
           )
-    emit('saved', result)
+    emit('saved', result, submitRequested)
   } catch (cause: unknown) {
     if (!isCancelled(cause)) {
       error.value = messageOf(cause)
@@ -459,7 +546,7 @@ async function verify(): Promise<void> {
       spec.value.permission + '.' + (props.change ? 'change' : 'create'),
       key,
     )
-    if (result.status === 'succeeded') emit('saved', result.response)
+    if (result.status === 'succeeded') emit('saved', result.response, submitRequested)
   } catch (cause: unknown) {
     error.value = messageOf(cause)
     if (cause instanceof ApiError && cause.status === 404) uncertain.value = false
@@ -627,131 +714,189 @@ async function verify(): Promise<void> {
           <DynamicFields v-model="ext" :fields="fields" prefix="purchase-extra-"
         /></template>
       </el-form>
-      <div v-if="hasLines" class="sales-lines-scroll">
-        <table class="sales-input-table">
-          <thead>
-            <tr>
-              <th v-if="sourceLines || (order && session.can('purchase_requisition:view'))">
-                来源{{ order ? '（可选）' : '' }}
-              </th>
-              <th v-if="products">商品</th>
-              <th v-if="order">收货仓库</th>
-              <th v-if="products">单位</th>
-              <th>数量</th>
-              <template v-if="order"
-                ><th>单价</th>
-                <th>行优惠</th>
-                <th v-if="session.can('document:change_tax_rate')">税率</th></template
+      <EditableTable
+        v-if="hasLines"
+        ref="editable"
+        :count="lines.length"
+        :disabled="busy || loading || uncertain || conflict"
+        @add="addLine"
+        @remove="lines.splice($event, 1)"
+        @paste="order && importer?.openPaste($event)"
+      >
+        <template #tools>
+          <OrderLineImport
+            v-if="order"
+            ref="importer"
+            kind="purchase-orders"
+            :count="populatedLineCount"
+            :partner-id="form.supplierId"
+            :price-tax-inclusive="form.priceTaxInclusive"
+            :disabled="busy || loading || uncertain || conflict"
+            :skus="skus"
+            @import="importLines"
+          />
+          <el-button :disabled="lines.length >= ORDER_LINE_LIMIT" @click="addLine"
+            >添加明细</el-button
+          >
+        </template>
+        <template #head>
+          <tr>
+            <th scope="col">#</th>
+            <th v-if="sourceLines || (order && session.can('purchase_requisition:view'))">
+              来源{{ order ? '（可选）' : '' }}
+            </th>
+            <th v-if="products">商品</th>
+            <th v-if="order">收货仓库</th>
+            <th v-if="products">单位</th>
+            <th>数量</th>
+            <template v-if="order"
+              ><th>单价</th>
+              <th>行优惠</th>
+              <th v-if="session.can('document:change_tax_rate')">税率</th></template
+            >
+            <th v-if="inputCost">总成本</th>
+            <th v-if="requisition">需求日期</th>
+            <th v-if="order" scope="col">金额</th>
+            <th scope="col">操作</th>
+          </tr>
+        </template>
+        <template v-for="(line, index) in lines" :key="index">
+          <tr data-edit-row>
+            <td>{{ index + 1 }}</td>
+            <td v-if="sourceLines || (order && session.can('purchase_requisition:view'))">
+              <el-select
+                v-model="line.sourceId"
+                :aria-label="'采购来源' + (index + 1)"
+                clearable
+                filterable
+                @change="chooseSource(line)"
+                ><el-option
+                  v-for="s in sources"
+                  :key="String(s.id)"
+                  :value="String(s.id)"
+                  :label="sourceLabel(s)"
+              /></el-select>
+            </td>
+            <td
+              v-if="products"
+              :data-error="lineErrors[index]?.skuId || undefined"
+              :title="lineErrors[index]?.skuId"
+            >
+              <el-select
+                v-model="line.skuId"
+                :aria-label="'采购商品' + (index + 1)"
+                filterable
+                @change="chooseSku(line)"
+                ><el-option
+                  v-for="s in skus.filter((s) => s.status === 'active')"
+                  :key="s.id"
+                  :value="s.id"
+                  :label="String(s.code) + ' ' + String(s.name)"
+              /></el-select>
+            </td>
+            <td v-if="order">
+              <el-select v-model="line.warehouseId" :aria-label="'采购仓库' + (index + 1)" clearable
+                ><el-option
+                  v-for="w in warehouses.filter((w) => w.status === 'active')"
+                  :key="w.id"
+                  :value="w.id"
+                  :label="String(w.name)"
+              /></el-select>
+            </td>
+            <td
+              v-if="products"
+              :data-error="lineErrors[index]?.unitId || undefined"
+              :title="lineErrors[index]?.unitId"
+            >
+              <el-select
+                v-model="line.unitId"
+                :aria-label="'采购单位' + (index + 1)"
+                @change="line.unitPrice = ''"
+                ><el-option
+                  v-for="u in units[line.skuId] ?? []"
+                  :key="u.unitId"
+                  :value="u.unitId"
+                  :label="u.unitName"
+              /></el-select>
+            </td>
+            <td :data-error="lineErrors[index]?.qty || undefined" :title="lineErrors[index]?.qty">
+              <el-input v-model="line.qty" :aria-label="'采购数量' + (index + 1)" />
+            </td>
+            <template v-if="order"
+              ><td
+                :data-error="lineErrors[index]?.unitPrice || undefined"
+                :title="lineErrors[index]?.unitPrice"
               >
-              <th v-if="inputCost">总成本</th>
-              <th v-if="requisition">需求日期</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="(line, index) in lines" :key="index">
-            <tr>
-              <td v-if="sourceLines || (order && session.can('purchase_requisition:view'))">
-                <el-select
-                  v-model="line.sourceId"
-                  :aria-label="'采购来源' + (index + 1)"
-                  clearable
-                  filterable
-                  @change="chooseSource(line)"
-                  ><el-option
-                    v-for="s in sources"
-                    :key="String(s.id)"
-                    :value="String(s.id)"
-                    :label="sourceLabel(s)"
-                /></el-select>
-              </td>
-              <td v-if="products">
-                <el-select
-                  v-model="line.skuId"
-                  :aria-label="'采购商品' + (index + 1)"
-                  filterable
-                  @change="chooseSku(line)"
-                  ><el-option
-                    v-for="s in skus.filter((s) => s.status === 'active')"
-                    :key="s.id"
-                    :value="s.id"
-                    :label="String(s.code) + ' ' + String(s.name)"
-                /></el-select>
-              </td>
-              <td v-if="order">
-                <el-select
-                  v-model="line.warehouseId"
-                  :aria-label="'采购仓库' + (index + 1)"
-                  clearable
-                  ><el-option
-                    v-for="w in warehouses.filter((w) => w.status === 'active')"
-                    :key="w.id"
-                    :value="w.id"
-                    :label="String(w.name)"
-                /></el-select>
-              </td>
-              <td v-if="products">
-                <el-select
-                  v-model="line.unitId"
-                  :aria-label="'采购单位' + (index + 1)"
-                  @change="line.unitPrice = ''"
-                  ><el-option
-                    v-for="u in units[line.skuId] ?? []"
-                    :key="u.unitId"
-                    :value="u.unitId"
-                    :label="u.unitName"
-                /></el-select>
-              </td>
-              <td><el-input v-model="line.qty" :aria-label="'采购数量' + (index + 1)" /></td>
-              <template v-if="order"
-                ><td>
-                  <el-input
-                    v-model="line.unitPrice"
-                    :aria-label="'采购单价' + (index + 1)"
-                    placeholder="参考价"
-                  />
-                </td>
-                <td>
-                  <el-input
-                    v-model="line.lineDiscountAmount"
-                    :aria-label="'采购行优惠' + (index + 1)"
-                  />
-                </td>
-                <td v-if="session.can('document:change_tax_rate')">
-                  <el-input v-model="line.taxRate" :aria-label="'采购税率' + (index + 1)" /></td
-              ></template>
-              <td v-if="inputCost">
                 <el-input
-                  v-model="line.inputTotalCost"
-                  :aria-label="
-                    (form.adjustType === 'opening' ? '期初总成本' : '调整总成本') + (index + 1)
-                  "
+                  v-model="line.unitPrice"
+                  :aria-label="'采购单价' + (index + 1)"
+                  placeholder="参考价"
                 />
               </td>
-              <td v-if="requisition">
+              <td>
                 <el-input
-                  v-model="line.needDate"
-                  type="date"
-                  :aria-label="'需求日期' + (index + 1)"
+                  v-model="line.lineDiscountAmount"
+                  :aria-label="'采购行优惠' + (index + 1)"
                 />
               </td>
-              <td><el-button text @click="lines.splice(index, 1)">移除</el-button></td>
-            </tr>
-            <tr v-if="(stock || sourceLines) && form.warehouseId && line.skuId">
-              <td :colspan="stock ? (inputCost ? 5 : 4) : 3">
-                <StockSelectionFields
-                  v-model="line.stockSelection"
-                  :warehouse-id="form.warehouseId"
-                  :sku-id="line.skuId"
-                  :mode="trackingMode"
-                />
-              </td>
-            </tr>
-            </template>
-          </tbody>
-        </table>
-        <el-button @click="addLine">添加明细</el-button>
-      </div>
+              <td v-if="session.can('document:change_tax_rate')">
+                <el-input v-model="line.taxRate" :aria-label="'采购税率' + (index + 1)" /></td
+            ></template>
+            <td v-if="inputCost">
+              <el-input
+                v-model="line.inputTotalCost"
+                :aria-label="
+                  (form.adjustType === 'opening' ? '期初总成本' : '调整总成本') + (index + 1)
+                "
+              />
+            </td>
+            <td v-if="requisition">
+              <el-input
+                v-model="line.needDate"
+                type="date"
+                :aria-label="'需求日期' + (index + 1)"
+              />
+            </td>
+            <td v-if="order" class="line-amount">
+              <span v-if="calculating" role="status">…</span
+              ><span v-else>{{ preview?.lines?.[index]?.receivableAmount ?? '—' }}</span>
+            </td>
+            <td>
+              <el-button
+                text
+                :aria-label="'移除第' + (index + 1) + '行'"
+                @click="lines.splice(index, 1)"
+                >移除</el-button
+              >
+            </td>
+          </tr>
+          <tr v-if="(stock || sourceLines) && form.warehouseId && line.skuId">
+            <td :colspan="stock ? (inputCost ? 6 : 5) : 4">
+              <StockSelectionFields
+                v-model="line.stockSelection"
+                :warehouse-id="form.warehouseId"
+                :sku-id="line.skuId"
+                :mode="trackingMode"
+              />
+            </td>
+          </tr>
+        </template>
+        <template v-if="order" #summary>
+          <tr>
+            <td
+              :colspan="
+                7 +
+                (session.can('purchase_requisition:view') ? 1 : 0) +
+                (session.can('document:change_tax_rate') ? 1 : 0)
+              "
+            >
+              合计
+            </td>
+            <td class="line-amount">{{ calculating ? '…' : (preview?.goodsAmount ?? '—') }}</td>
+            <td />
+          </tr>
+        </template>
+      </EditableTable>
       <section v-if="order" class="sale-fees">
         <div v-for="(fee, index) in fees" :key="index" class="relation-row">
           <el-select v-model="fee.feeType" aria-label="采购费用类型"
@@ -775,24 +920,27 @@ async function verify(): Promise<void> {
         >
       </section>
     </fieldset>
-    <p v-if="calculating" role="status" class="muted">计算中…</p>
-    <div v-if="preview" class="sales-totals">
-      <span>税额 {{ preview.taxAmount }}</span
-      ><strong>合计 ¥{{ preview.totalAmount }}</strong>
-    </div>
     <el-alert v-if="error" type="error" :title="error" :closable="false" />
     <p v-if="conflict">保存版本或结果需要核对，请关闭并刷新后重试。</p>
-    <template #footer
-      ><el-button :disabled="busy" @click="emit('close')">取消</el-button
-      ><el-button v-if="uncertain" type="primary" @click="verify">查询结果</el-button
-      ><el-button
-        v-else
-        type="primary"
-        :loading="busy"
-        :disabled="loading || conflict"
-        @click="save"
-        >保存{{ spec.singular }}</el-button
-      ></template
-    >
+    <template #footer>
+      <FixedFooter :calculating="calculating" :errors="errorCount" @locate-error="locateError">
+        <template v-if="preview" #summary>
+          <span>商品 {{ preview.goodsAmount }}</span
+          ><span>税额 {{ preview.taxAmount }}</span
+          ><strong>合计 ¥{{ preview.totalAmount }}</strong>
+        </template>
+        <el-button :disabled="busy" @click="emit('close')">取消</el-button
+        ><el-button v-if="uncertain" type="primary" @click="verify">查询结果</el-button
+        ><template v-else>
+          <el-button :disabled="busy || loading || conflict" @click="save()">保存{{ spec.singular }}</el-button>
+          <el-button
+            v-if="inline && kind === 'purchase-orders' && !change && session.can('purchase_order:submit')"
+            type="primary"
+            :disabled="busy || loading || conflict"
+            @click="save(true)"
+          >保存并提交</el-button>
+        </template></FixedFooter
+      >
+    </template>
   </DocumentEditorFrame>
 </template>

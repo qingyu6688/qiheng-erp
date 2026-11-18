@@ -19,15 +19,25 @@ class WorkflowDelay {
         this.state = state;
         this.engine = engine;
         this.transaction = new TransactionTemplate(manager);
-        jobs.register("workflow.delay",this::poll);
+        jobs.registerBatch("workflow.delay",this::poll);
     }
 
-    void poll(long tenant) {
+    void poll(long tenant, ManagedJobs.Batch batch) {
         var due = state.jdbc.queryForList("""
-                SELECT execution_id,instance_id FROM wf_delay WHERE tenant_id=? AND due_at<=UTC_TIMESTAMP(3)
-                ORDER BY due_at,execution_id LIMIT 50
+                SELECT d.execution_id,d.company_id,d.instance_id,d.due_at,d.node_key FROM wf_delay d
+                JOIN wf_instance i ON i.tenant_id=d.tenant_id AND i.company_id=d.company_id AND i.id=d.instance_id AND i.status='running'
+                WHERE d.tenant_id=? AND d.due_at<=UTC_TIMESTAMP(3) ORDER BY d.due_at,d.execution_id LIMIT 50
                 """,tenant);
-        for (var row : due) resume(tenant,number(row.get("instance_id")),row.get("execution_id").toString());
+        for (var row : due) {
+            String execution = row.get("execution_id").toString();
+            long company = number(row.get("company_id"));
+            long instance = number(row.get("instance_id"));
+            batch.run(company, execution, instance, () -> resume(tenant, instance, execution),
+                    minutes -> state.jdbc.update("""
+                            UPDATE wf_delay SET due_at=TIMESTAMPADD(MINUTE,?,UTC_TIMESTAMP(3))
+                            WHERE tenant_id=? AND company_id=? AND instance_id=? AND execution_id=? AND node_key=? AND due_at=?
+                            """, minutes, tenant, company, instance, execution, row.get("node_key"), row.get("due_at")) == 1);
+        }
     }
 
     boolean resume(long tenant,long instanceId,String executionId) {

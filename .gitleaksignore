@@ -1,0 +1,14 @@
+# 历史提交中已核对的配置占位、幂等键示例、测试值和 SQL 表达式。
+7242c903378f95d571bf0a5203739bc55d140a50:erp-server/src/test/java/cn/erp/notify/DeliveryIT.java:generic-api-key:19
+7242c903378f95d571bf0a5203739bc55d140a50:erp-server/src/test/java/cn/erp/sysadmin/PlatformAdministrationIT.java:generic-api-key:16
+9c8c4b99504a2df40964460f5da90bab00bdef9c:docs/接口设计.md:generic-api-key:1077
+9c8c4b99504a2df40964460f5da90bab00bdef9c:docs/接口设计.md:generic-api-key:159
+9c8c4b99504a2df40964460f5da90bab00bdef9c:docs/接口设计.md:generic-api-key:571
+9c8c4b99504a2df40964460f5da90bab00bdef9c:docs/接口设计.md:generic-api-key:694
+9c8c4b99504a2df40964460f5da90bab00bdef9c:docs/接口设计.md:generic-api-key:726
+9c8c4b99504a2df40964460f5da90bab00bdef9c:docs/接口设计.md:generic-api-key:743
+9c8c4b99504a2df40964460f5da90bab00bdef9c:docs/接口设计.md:generic-api-key:790
+9c8c4b99504a2df40964460f5da90bab00bdef9c:docs/接口设计.md:generic-api-key:821
+9c8c4b99504a2df40964460f5da90bab00bdef9c:docs/接口设计.md:generic-api-key:874
+b9ad729e95c53ad7fe87e00b60558dd85e63e7e1:deploy/ai.env.example:generic-api-key:9
+ee2581c73aab0f9c102fad1ee9a873b93faad4ee:erp-ai/src/main/java/cn/erp/ai/gateway/UsageLedger.java:generic-api-key:41

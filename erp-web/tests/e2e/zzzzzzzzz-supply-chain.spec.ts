@@ -124,10 +124,8 @@ test('M17 上架任务菜单读取当前仓库，库位仓作业模式默认关�
     locationManaged: true,
   })
 
-  const link = page.locator('.nav-group a[href="/wms-tasks"]')
-  await expect(link).toBeAttached()
-  if (!(await link.isVisible()))
-    await page.locator('.nav-group summary').getByText('库存', { exact: true }).click()
+  await page.getByRole('button', { name: '仓储', exact: true }).click()
+  const link = page.getByRole('link', { name: '上架任务', exact: true })
   await link.click()
   await expect(page.getByRole('heading', { name: '上架任务', exact: true })).toBeVisible()
   await page.getByRole('button', { name: '仓库任务模式' }).click()

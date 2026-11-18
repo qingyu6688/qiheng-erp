@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onScopeDispose, ref, watch } from 'vue'
-import { onBeforeRouteLeave } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute } from 'vue-router'
 import { records, record, writeRecord } from '../api/admin'
 import { isCancelled, messageOf, newIdempotencyKey } from '../api/http'
 import { customFields, formatField } from '../api/platform-rules'
@@ -14,9 +14,24 @@ import RecordRelations from '../components/RecordRelations.vue'
 import PeriodActions from '../components/PeriodActions.vue'
 import { registerCompanyLeaveGuard } from '../utils/unsaved'
 
-const props = defineProps<{ resource: string }>()
-const spec = computed(() => resourceSpecs[props.resource]!)
+const props = defineProps<{
+  resource: string
+  categoryId?: string
+  includeChildren?: boolean
+  embedded?: boolean
+}>()
+const spec = computed(() => {
+  const definition = resourceSpecs[props.resource]!
+  if (props.resource !== 'products' || !props.categoryId) return definition
+  return {
+    ...definition,
+    fields: definition.fields.map((field) =>
+      field.key === 'categoryId' ? { ...field, initial: props.categoryId } : field,
+    ),
+  }
+})
 const session = useSessionStore()
+const route = useRoute()
 const rows = ref<DataRow[]>([])
 const keyword = ref('')
 const fieldDefinitions = ref<CustomField[]>([])
@@ -73,6 +88,7 @@ function beforeUnload(event: BeforeUnloadEvent): void {
 }
 const unregisterCompanyGuard = registerCompanyLeaveGuard(confirmDiscard)
 onBeforeRouteLeave(confirmDiscard)
+onBeforeRouteUpdate((to, from) => to.query.keyword === from.query.keyword || confirmDiscard())
 onMounted(() => window.addEventListener('beforeunload', beforeUnload))
 const createPermission = computed(() =>
   spec.value.permission === 'period' ? 'period:open' : spec.value.permission + ':create',
@@ -145,6 +161,9 @@ async function load(): Promise<void> {
     const data = await records(spec.value.path, spec.value.company, {
       keyword: keyword.value || undefined,
       ...appliedFieldFilters.value,
+      ...(props.resource === 'products' && props.categoryId
+        ? { categoryId: props.categoryId, includeChildren: Boolean(props.includeChildren) }
+        : {}),
       limit: 20,
       cursor: cursors.value.at(-1) || undefined,
     })
@@ -177,6 +196,7 @@ async function edit(row?: DataRow): Promise<void> {
   dirty.value = false
   editing.value = false
   panelRevision.value++
+  const currentPanelRevision = panelRevision.value
   relations.value = undefined
   const currentResource = props.resource
   try {
@@ -184,7 +204,7 @@ async function edit(row?: DataRow): Promise<void> {
       row && spec.value.detail
         ? await record(spec.value.path + '/' + row.id, spec.value.company)
         : row
-    if (currentResource !== props.resource) return
+    if (currentResource !== props.resource || currentPanelRevision !== panelRevision.value) return
     selected.value = detail
     editing.value = true
   } catch (cause: unknown) {
@@ -271,13 +291,21 @@ function hasRelations(row: DataRow): boolean {
   )
 }
 watch(
-  () => [props.resource, session.companyId],
+  () => [
+    props.resource,
+    session.companyId,
+    route.query.keyword,
+    props.categoryId,
+    props.includeChildren,
+  ],
   () => {
+    panelRevision.value++
     dirty.value = false
     panelBusy.value = false
     editing.value = false
     selected.value = relations.value = statusRow.value = undefined
-    keyword.value = error.value = notice.value = ''
+    keyword.value = typeof route.query.keyword === 'string' ? route.query.keyword.slice(0, 100) : ''
+    error.value = notice.value = ''
     fieldError.value = ''
     fieldDefinitions.value = []
     fieldFilters.value = {}
@@ -295,19 +323,21 @@ watch(
 onScopeDispose(() => {
   ++revision
   ++fieldRevision
+  panelRevision.value++
   unregisterCompanyGuard()
   window.removeEventListener('beforeunload', beforeUnload)
 })
+defineExpose({ confirmDiscard, edit })
 </script>
 <template>
-  <div class="page-heading">
+  <div v-if="!embedded" class="page-heading">
     <h1>{{ spec.title }}</h1>
     <el-button v-if="session.can(createPermission)" type="primary" @click="edit()"
       >新建{{ spec.singular }}</el-button
     >
   </div>
   <nav
-    v-if="['users', 'roles', 'products', 'skus'].includes(resource)"
+    v-if="!embedded && ['users', 'roles', 'products', 'skus'].includes(resource)"
     class="page-tabs"
     aria-label="资料分类"
   >
@@ -319,7 +349,10 @@ onScopeDispose(() => {
       ><router-link v-if="session.can('sku:view')" to="/skus">SKU 与换算条码</router-link></template
     >
   </nav>
-  <div class="resource-split">
+  <div
+    class="resource-split"
+    :class="{ 'resource-embedded': embedded, 'has-editor': editing || relations }"
+  >
     <section class="panel table-panel" :aria-label="spec.title + '列表'" :aria-busy="busy">
       <form class="filters" @submit.prevent="search">
         <div class="filter-field">
@@ -367,7 +400,7 @@ onScopeDispose(() => {
         show-icon
         @close="notice = ''"
       />
-      <el-table :data="rows" row-key="id">
+      <el-table :data="rows" row-key="id" :table-layout="resource === 'products' ? 'auto' : 'fixed'">
         <el-table-column
           v-for="column in columns"
           :key="column.key"
@@ -502,7 +535,7 @@ onScopeDispose(() => {
       @close="closeRelations"
       @saved="relationsSaved"
     />
-    <section v-if="!editing && !relations" class="panel resource-placeholder">
+    <section v-if="!embedded && !editing && !relations" class="panel resource-placeholder">
       <h2>资料维护</h2>
       <p>从左侧选择“编辑”或相关设置，详情在这里显示。新增、保存和停用仍由当前权限控制。</p>
     </section>
@@ -544,6 +577,9 @@ onScopeDispose(() => {
 }
 .resource-split > .table-panel {
   min-width: 0;
+}
+.resource-embedded:not(.has-editor) {
+  grid-template-columns: minmax(0, 1fr);
 }
 @media (max-width: 1150px) {
   .resource-split {

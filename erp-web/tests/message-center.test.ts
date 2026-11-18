@@ -7,7 +7,9 @@ import type { Page, MessageRow } from '../src/api/platform'
 
 vi.mock('../src/api/platform')
 const session = reactive({ companyId: '1' })
+const route = reactive<{ query: { category?: string } }>({ query: {} })
 vi.mock('../src/stores/session', () => ({ useSessionStore: () => session }))
+vi.mock('vue-router', () => ({ useRoute: () => route }))
 const stubs = {
   ElButton: {
     props: ['nativeType', 'disabled'],
@@ -26,6 +28,7 @@ const mounted: ReturnType<typeof mount>[] = []
 beforeEach(() => {
   vi.resetAllMocks()
   session.companyId = '1'
+  route.query = {}
   vi.mocked(api.inbox).mockResolvedValue({ items: [], nextCursor: null })
 })
 afterEach(() => mounted.splice(0).forEach((wrapper) => wrapper.unmount()))
@@ -73,4 +76,11 @@ it('实时摘要到达后重新读取服务端收件箱，卸载后不再拉取'
   window.dispatchEvent(new Event('erp:messages-changed'))
   await flushPromises()
   expect(api.inbox).toHaveBeenCalledTimes(2)
+})
+
+it('从工作台公告进入消息中心时读取已读和未读公告', async () => {
+  route.query = { category: 'notice' }
+  page()
+  await flushPromises()
+  expect(api.inbox).toHaveBeenCalledWith(expect.objectContaining({ category: 'notice', unread: undefined }))
 })

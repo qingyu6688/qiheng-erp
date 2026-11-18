@@ -102,6 +102,32 @@ export interface WorkMaterial {
   substitutes?: SubstituteDraft[]
 }
 
+export type ShortCloseCostDisposition = 'expense' | 'allocate'
+
+export interface ShortCloseMaterial {
+  materialId: Id
+  consumedQty: Quantity
+  scrappedQty: Quantity
+  scrapReason?: string | null
+}
+
+export interface ShortCloseDraft {
+  version: number
+  businessDate: string
+  reason: string
+  costDisposition: ShortCloseCostDisposition
+  materials: ShortCloseMaterial[]
+}
+
+export interface WorkOrderShortClose extends Omit<ShortCloseDraft, 'version'> {
+  status: 'pending' | 'approved'
+  orderVersion: number
+  periodId: Id
+  requestedBy: Id
+  reviewedBy?: Id | null
+  reviewedAt?: string | null
+}
+
 export type WorkOrder = WorkOrderDraft &
   ManufacturingVersion & {
     bomId: Id
@@ -118,6 +144,7 @@ export type WorkOrder = WorkOrderDraft &
     receiveWarehouseCode?: string
     sourceType?: string
     sourceId?: Id
+    shortClose?: WorkOrderShortClose
   }
 
 export interface SalesWorkDraft {
@@ -206,6 +233,7 @@ export interface CostRow {
   variance: Money
   inventoryVariance: Money
   issuedVariance: Money
+  shortCloseExpense?: Money
 }
 
 export interface ManufacturingPeriod {
@@ -250,4 +278,9 @@ export const manufacturingActions: Record<string, string> = {
   close: '关闭',
   cancel: '取消',
   post: '过账',
+}
+
+export const shortCloseCostLabels: Record<ShortCloseCostDisposition, string> = {
+  expense: '计入生产成本差异',
+  allocate: '分摊给本期完工产品',
 }

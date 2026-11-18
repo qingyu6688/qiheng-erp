@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.util.*;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import cn.erp.identity.CompanyAccess;
@@ -133,7 +134,7 @@ public class GlVoucherService implements WorkflowBusiness {
                 });
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Map<String, Object> change(
             CompanyAccess a, long id, String action, String key, GlModels.Version input) {
         s.require(a, permission(action));
@@ -323,7 +324,7 @@ public class GlVoucherService implements WorkflowBusiness {
                 });
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Map<String, Object> batch(
             CompanyAccess a, String action, String key, GlModels.Batch input) {
         if (!Set.of("approve", "post").contains(action)) throw invalid("仅支持批量复核或记账");

@@ -4,8 +4,8 @@ import type { SalesDocument, SalesKind } from '../types/sales'
 export function documents(kind: SalesKind, params: Record<string, unknown> = {}): Promise<PageResult<SalesDocument>> {
   return request({ method: 'GET', url: '/' + kind, params }, true)
 }
-export function document(kind: SalesKind, id: string): Promise<SalesDocument> {
-  return request({ method: 'GET', url: '/' + kind + '/' + id }, true)
+export function document(kind: SalesKind, id: string, signal?: AbortSignal): Promise<SalesDocument> {
+  return request({ method: 'GET', url: '/' + kind + '/' + id, ...(signal ? { signal } : {}) }, true)
 }
 export function saveShipmentLogistics(id: string, version: number, logisticsNo: string, carrierCode?: string): Promise<SalesDocument> {
   return request({ method: 'PUT', url: '/shipments/' + encodeURIComponent(id) + '/logistics', data: { version, logisticsNo, carrierCode } }, true)
@@ -14,9 +14,9 @@ export function saveDocument(kind: SalesKind, data: Record<string, unknown>, id?
   return request({ method: id ? 'PUT' : 'POST', url: '/' + kind + (id ? '/' + id : ''), data,
     headers: key ? { 'Idempotency-Key': key } : undefined }, true)
 }
-export function salesCommand(kind: SalesKind, id: string, action: string, data: Record<string, unknown>, key: string): Promise<SalesDocument> {
+export function salesCommand(kind: SalesKind, id: string, action: string, data: Record<string, unknown>, key: string, signal?: AbortSignal): Promise<SalesDocument> {
   return request({ method: action === 'delete' ? 'DELETE' : 'POST', url: '/' + kind + '/' + id + (action === 'delete' ? '' : '/' + action.replaceAll('_', '-')), data,
-    params: action === 'delete' ? data : undefined, headers: { 'Idempotency-Key': key } }, true)
+    params: action === 'delete' ? data : undefined, headers: { 'Idempotency-Key': key }, ...(signal ? { signal } : {}) }, true)
 }
 export function pricePreview(data: Record<string, unknown>): Promise<SalesDocument> {
   return request({ method: 'POST', url: '/pricing/preview', data: { documentType: 'sales_order', ...data } }, true)

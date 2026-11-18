@@ -457,8 +457,11 @@ export const router = createRouter({
           .map((spec) => ({
             path: spec.path,
             name: spec.path,
-            component: () => import('../pages/ResourcePage.vue'),
-            props: { resource: spec.path },
+            component:
+              spec.path === 'products'
+                ? () => import('../pages/ProductCatalogPage.vue')
+                : () => import('../pages/ResourcePage.vue'),
+            props: spec.path === 'products' ? undefined : { resource: spec.path },
             meta: {
               permission: spec.permission + ':view',
               company: Boolean(spec.company),

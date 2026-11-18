@@ -174,17 +174,21 @@ class GlPostingEngine {
     }
 
     void post(ActorScope a, Map<String, Object> voucher, boolean system) {
-        if (!system && !"approved".equals(voucher.get("status"))) throw invalid("凭证复核通过后才能记账");
+        String expected = system ? "draft" : "approved";
+        if (!expected.equals(voucher.get("status")))
+            throw invalid(system ? "系统凭证已经记账或状态有误" : "凭证复核通过后才能记账");
         long id = number(voucher.get("id"));
-        validate(a, lines(a, id), true, true);
-        s.jdbc.update(
+        var lines = validate(a, lines(a, id), true, true);
+        int updated = s.jdbc.update(
                 "UPDATE gl_voucher SET"
                     + " status='posted',poster_id=?,posted_at=UTC_TIMESTAMP(3),version=version+1"
-                    + " WHERE tenant_id=? AND company_id=? AND id=?",
+                    + " WHERE tenant_id=? AND company_id=? AND id=? AND status=? AND is_deleted=0",
                 a.userId(),
                 a.tenantId(),
                 a.companyId(),
-                id);
+                id,
+                expected);
+        if (updated != 1) throw invalid("凭证状态已变化，请刷新后重试");
         if (voucher.get("reversal_of_id") != null)
             s.jdbc.update(
                     "UPDATE gl_voucher SET status='reversed',version=version+1 WHERE tenant_id=?"
@@ -192,7 +196,7 @@ class GlPostingEngine {
                     a.tenantId(),
                     a.companyId(),
                     voucher.get("reversal_of_id"));
-        balances.posted(a, number(voucher.get("period_id")));
+        balances.posted(a, number(voucher.get("period_id")), date(voucher.get("voucher_date")), lines);
     }
 
     private long next(ActorScope a, long period, long word) {

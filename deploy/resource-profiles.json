@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "profiles": {
+    "compact-core": {
+      "label": "1.0 核心业务单机起始预算",
+      "cpuCores": 2,
+      "hostMemoryMiB": 4096,
+      "newWorkloadMemoryMiB": 2816,
+      "services": {
+        "combined": 2048,
+        "mysql-primary": 512,
+        "redis": 256
+      },
+      "excludedModules": ["AI", "本机检索", "本机模型", "同机主备"]
+    },
+    "modular": {
+      "label": "1.2 至 1.9 平台与业务单机起始预算",
+      "cpuCores": 4,
+      "hostMemoryMiB": 8192,
+      "newWorkloadMemoryMiB": 6144,
+      "services": {
+        "api": 2048,
+        "worker": 2048,
+        "mysql-primary": 1536,
+        "redis": 512
+      },
+      "excludedModules": ["本机 AI", "本机检索", "本机模型", "同机主备"]
+    },
+    "ha-app": {
+      "label": "2.0 每台应用节点起始预算",
+      "cpuCores": 4,
+      "hostMemoryMiB": 8192,
+      "newWorkloadMemoryMiB": 4096,
+      "services": { "api": 2048, "worker": 2048 },
+      "excludedModules": ["本机数据库", "本机检索", "本机模型"]
+    },
+    "ha-db": {
+      "label": "2.0 每台独立 MySQL 节点起始预算",
+      "cpuCores": 4,
+      "hostMemoryMiB": 8192,
+      "newWorkloadMemoryMiB": 6144,
+      "services": { "mysql": 6144 },
+      "excludedModules": ["本机应用", "本机检索", "本机模型"]
+    },
+    "ai-gateway": {
+      "label": "独立 AI 网关起始预算",
+      "cpuCores": 2,
+      "hostMemoryMiB": 4096,
+      "newWorkloadMemoryMiB": 2048,
+      "services": { "erp-ai": 2048 },
+      "excludedModules": ["本机检索", "本机模型"]
+    },
+    "ai-search": {
+      "label": "独立检索节点起始预算",
+      "cpuCores": 4,
+      "hostMemoryMiB": 16384,
+      "newWorkloadMemoryMiB": 12288,
+      "services": { "opensearch": 12288 },
+      "excludedModules": ["本机模型"]
+    }
+  }
+}

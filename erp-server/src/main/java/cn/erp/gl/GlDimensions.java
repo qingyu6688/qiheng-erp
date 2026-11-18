@@ -6,11 +6,18 @@ import java.util.*;
 import org.springframework.stereotype.Component;
 
 import cn.erp.shared.ActorScope;
+import cn.erp.shared.ApiException;
 
 import static cn.erp.gl.GlSupport.*;
 
 @Component
 class GlDimensions {
+    static final class MissingCashFlow extends ApiException {
+        MissingCashFlow() {
+            super(400, "VALIDATION_FAILED", "现金及银行类分录必须选择现金流量项目");
+        }
+    }
+
     private final GlSupport s;
 
     GlDimensions(GlSupport support) {
@@ -119,7 +126,7 @@ class GlDimensions {
 
     void cashFlow(ActorScope actor, Map<String, Object> subject, Long cashId, boolean historical) {
         boolean cash = flag(subject.get("is_cash")) || flag(subject.get("is_bank"));
-        if (cash && (cashId == null || cashId <= 0)) throw invalid("现金及银行类分录必须选择现金流量项目");
+        if (cash && (cashId == null || cashId <= 0)) throw new MissingCashFlow();
         if (!cash && cashId != null && cashId > 0) throw invalid("非现金类分录不能重复填写现金流量项目");
         if (cashId != null && cashId > 0) {
             var item = s.row(actor, "gl_cash_flow_item", cashId, false);

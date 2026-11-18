@@ -36,8 +36,12 @@ class LoginLimiter {
         if (attempts == null) {
             throw new ApiException(503, "SERVICE_UNAVAILABLE", "登录服务暂时不可用");
         }
-        if (attempts > MAX_ATTEMPTS) {
+        if (attempts > maxAttempts()) {
             throw new ApiException(429, "TOO_MANY_REQUESTS", "登录操作过于频繁，请稍后再试");
         }
+    }
+
+    int maxAttempts() {
+        return MAX_ATTEMPTS;
     }
 }
