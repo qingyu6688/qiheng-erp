@@ -151,6 +151,7 @@ class PutawayTasks {
             var day = LocalDate.now(BUSINESS_ZONE);
             var time = movesStock ? new PostingTime(day,finance.period(actor,day)) : null;
             requireOpenSource(actor,snapshot);
+            if (movesStock) requireNoActiveReversal(actor,snapshot);
             var task = head(actor,id,true);
             FinanceSupport.version(task,version);
             operation.accept(task,time);
@@ -167,6 +168,16 @@ class PutawayTasks {
                 """.formatted(source.table()),
                 Long.class,actor.tenantId(),actor.companyId(),task.get("source_id"),task.get("warehouse_id"));
         if (available.isEmpty()) throw conflict("来源单据已冲销或不可作业");
+    }
+
+    private void requireNoActiveReversal(CompanyAccess actor,Map<String,Object> task) {
+        // 上架与冲销均已锁定来源单据。使用当前读检查由先取得来源锁的事务提交的冲销。
+        var reversals = jdbc.queryForList("""
+                SELECT id FROM document_reversal WHERE tenant_id=? AND company_id=? AND source_type=?
+                AND active_source_key=? AND status IN ('pending','approved') FOR SHARE
+                """,Long.class,actor.tenantId(),actor.companyId(),task.get("source_type"),task.get("source_id"));
+        if (!reversals.isEmpty())
+            throw new ApiException(409,"WMS_PUTAWAY_REVERSAL_PENDING","原单有待审核或待过账的冲销，请先处理冲销单");
     }
 
     private void moveLine(CompanyAccess actor,long task,long lineId,long warehouse,String from,String to,String batch,

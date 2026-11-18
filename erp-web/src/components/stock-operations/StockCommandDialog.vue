@@ -88,9 +88,10 @@ function confirmLabel(): string { if (action === 'record_counts') return '保存
           <el-checkbox v-model="finalReceipt">本次为最后一批，未收部分转为差异待处理</el-checkbox>
         </template>
         <template v-if="action === 'resolve_diff'"><div v-for="(line, index) in rows" :key="line.id" class="relation-row"><span>{{ line.skuName }} · 差异 {{ line.diffBaseQty }}</span><el-select v-model="line.disposition" :aria-label="'调拨差异处理' + (index + 1)"><el-option value="returned" label="退回调出仓" /><el-option value="lost" label="确认运输损失" /></el-select></div></template>
-        <el-form-item v-if="['reject', 'resolve_diff'].includes(action)" label="处理原因" for="stock-command-reason"><el-input id="stock-command-reason" v-model="reason" type="textarea" maxlength="200" /></el-form-item>
+        <p v-if="action === 'cancel'">撤销这笔未过账冲销，保留原入库、上架及审批记录。</p>
+        <el-form-item v-if="['reject', 'resolve_diff', 'cancel'].includes(action)" :label="action === 'cancel' ? '撤销原因' : '处理原因'" for="stock-command-reason" :required="action === 'cancel'"><el-input id="stock-command-reason" v-model="reason" type="textarea" maxlength="200" /></el-form-item>
       </el-form>
     </fieldset>
-    <template #footer><el-button :disabled="busy" @click="emit('close')">关闭</el-button><el-button v-if="uncertain" type="primary" :loading="busy" @click="verify">查询结果</el-button><el-button v-else type="primary" :loading="busy" :disabled="refreshRequired" @click="submit">{{ confirmLabel() }}</el-button></template>
+    <template #footer><el-button :disabled="busy" @click="emit('close')">关闭</el-button><el-button v-if="uncertain" type="primary" :loading="busy" @click="verify">查询结果</el-button><el-button v-else type="primary" :loading="busy" :disabled="refreshRequired || (action === 'cancel' && !reason.trim())" @click="submit">{{ confirmLabel() }}</el-button></template>
   </el-dialog>
 </template>

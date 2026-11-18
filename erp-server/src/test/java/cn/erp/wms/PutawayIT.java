@@ -345,6 +345,14 @@ class PutawayIT {
         tasks.claim(maker,task,key(),new PutawayTasks.Revision(0L));
 
         long reversal = approveReversal(receipt);
+        long line = id(items(tasks.detail(maker,task),"lines").getFirst());
+        reject("WMS_PUTAWAY_REVERSAL_PENDING",() -> tasks.confirm(maker,task,line,key(),putawayFirstSerial()));
+        reject("STATE_CONFLICT",() -> reversals.command(reviewer(maker.permissions()),reversal,"cancel",key(),
+                new ReversalModels.Version(1L,"尚未上架可以正常冲销")));
+        assertThat(tasks.detail(maker,task)).containsEntry("status","assigned");
+        assertThat(locationQuantity(receivingBin)).isEqualByComparingTo("1");
+        assertThat(locationQuantity(storageBin)).isZero();
+
         var posted = reversals.command(maker,reversal,"post",key(),new ReversalModels.Version(1L,null));
         assertThat(posted).containsEntry("status","posted");
         assertThat(tasks.detail(maker,task)).containsEntry("status","cancelled");
@@ -354,28 +362,125 @@ class PutawayIT {
         assertThat(checks.check(maker,"location_balance",null)).isEmpty();
     }
 
-    @Test void receiptMovedAfterApprovalCannotBeReversed() {
+    @Test void rejectingPendingReversalReleasesPutaway() {
         tasks.mode(maker,warehouse,new PutawayTasks.Mode("optional"));
         long receipt = receive(List.of("S-01","S-02"));
         long task = id(items(tasks.page(maker,warehouse,"created",null,20)).getFirst());
         long line = id(items(tasks.detail(maker,task),"lines").getFirst());
-        long reversal = approveReversal(receipt);
         tasks.claim(maker,task,key(),new PutawayTasks.Revision(0L));
-        tasks.confirm(maker,task,line,key(),
-                new PutawayTasks.Confirmation("R01","S01","PA-BATCH","1",List.of("S-01"),1L));
+        long reversal = id(reversals.create(maker,key(),reversalInput(receipt)));
 
-        reject("WMS_PUTAWAY_ALREADY_MOVED",() -> reversals.command(maker,reversal,"post",key(),new ReversalModels.Version(1L,null)));
+        reject("WMS_PUTAWAY_REVERSAL_PENDING",() -> tasks.confirm(maker,task,line,key(),putawayFirstSerial()));
+        assertThat(locationQuantity(storageBin)).isZero();
+        assertThat(reversals.command(reviewer(maker.permissions()),reversal,"reject",key(),
+                new ReversalModels.Version(0L,"核对后继续上架"))).containsEntry("status","rejected");
+        tasks.confirm(maker,task,line,key(),putawayFirstSerial());
+
+        assertThat(locationQuantity(storageBin)).isEqualByComparingTo("1");
         reject("WMS_PUTAWAY_ALREADY_MOVED",() -> reversals.create(maker,key(),reversalInput(receipt)));
-        assertThat(reversals.get(maker,reversal)).containsEntry("status","approved");
+        assertThat(checks.check(maker,"location_balance",null)).isEmpty();
+    }
+
+    @Test void historicalPendingReversalCannotBeApprovedAfterPutaway() {
+        long receipt = partiallyPutAwayReceipt();
+        long reversal = historicalReversal(receipt,null);
+        var reviewer = reviewer(maker.permissions());
+
+        reject("WMS_PUTAWAY_ALREADY_MOVED",() -> reversals.command(reviewer,reversal,"approve",key(),
+                new ReversalModels.Version(0L,null)));
+        assertThat(reversals.command(reviewer,reversal,"reject",key(),
+                new ReversalModels.Version(0L,"历史单据已经上架"))).containsEntry("status","rejected");
+        assertThat(locationQuantity(storageBin)).isEqualByComparingTo("1");
+    }
+
+    @Test void historicalStuckReversalCanBeCancelledWithoutChangingStockOrLedger() {
+        long receipt = partiallyPutAwayReceipt();
+        var reviewer = reviewer(maker.permissions());
+        long originalReviewer = Ids.next();
+        long reversal = historicalReversal(receipt,originalReviewer);
+        long workflow = Ids.next();
+        jdbc.update("""
+                INSERT INTO wf_instance(id,tenant_id,company_id,model_id,model_version,business_type,business_id,
+                  business_no,title,summary,starter_id,selections,status,ended_at)
+                VALUES(?,?,?,?,1,'document_reversal',?,?,'历史冲销审批',JSON_OBJECT(),?,JSON_OBJECT(),'approved',UTC_TIMESTAMP(3))
+                """,workflow,tenant,company,Ids.next(),reversal,"RV-"+reversal,maker.userId());
+        jdbc.update("UPDATE document_reversal SET wf_instance_id=? WHERE tenant_id=? AND company_id=? AND id=?",
+                workflow,tenant,company,reversal);
+        long period = jdbc.queryForObject("SELECT id FROM accounting_period WHERE tenant_id=? AND company_id=?",
+                Long.class,tenant,company);
+        assertThat(checks.check(maker,"period_close",period)).anySatisfy(difference ->
+                assertThat(difference.key()).isEqualTo("document_reversal"));
+        var request = new ReversalModels.Version(1L,"旧版本已上架，释放关账阻挡");
+        var viewer = reviewer(Set.of("goods_receipt:view","reversal:view"));
+        var outsideWarehouse = new CompanyAccess(tenant,reviewer.userId(),company,false,Set.of(otherWarehouse),maker.permissions());
+        assertThat(reversals.get(reviewer,reversal)).containsEntry("allowedActions",List.of("cancel"))
+                .containsEntry("workflowStatus","approved");
+        assertThat(reversals.get(maker,reversal)).containsEntry("allowedActions",List.of());
+        assertThat(reversals.get(viewer,reversal)).containsEntry("allowedActions",List.of());
+        reject("FORBIDDEN",() -> reversals.command(viewer,reversal,"cancel",key(),request));
+        reject("NOT_FOUND",() -> reversals.command(outsideWarehouse,reversal,"cancel",key(),request));
+        reject("SAME_OPERATOR_NOT_ALLOWED",() -> reversals.command(maker,reversal,"cancel",key(),request));
+        reject("VALIDATION_FAILED",() -> reversals.command(reviewer,reversal,"cancel",key(),new ReversalModels.Version(1L," ")));
+        reject("WMS_PUTAWAY_ALREADY_MOVED",() -> reversals.command(maker,reversal,"post",key(),request));
+
+        var before = inventory.balance(maker,new Key(warehouse,sku));
+        String journals = "SELECT * FROM journal WHERE tenant_id=? AND company_id=? ORDER BY id";
+        var accountingBefore = jdbc.queryForList(journals,tenant,company);
+        String cancelKey = key();
+        var cancelled = reversals.command(reviewer,reversal,"cancel",cancelKey,request);
+        assertThat(cancelled).containsEntry("status","rejected").containsEntry("approvedBy",Long.toString(originalReviewer))
+                .containsEntry("workflowStatus","approved");
+        assertThat(reversals.command(reviewer,reversal,"cancel",cancelKey,request)).containsEntry("status","rejected")
+                .containsEntry("id",Long.toString(reversal));
         assertThat(receiptStatus(receipt)).isEqualTo("posted");
-        assertThat(tasks.detail(maker,task)).containsEntry("status","in_progress");
         assertThat(locationQuantity(receivingBin)).isEqualByComparingTo("1");
         assertThat(locationQuantity(storageBin)).isEqualByComparingTo("1");
+        assertThat(inventory.balance(maker,new Key(warehouse,sku))).isEqualTo(before);
+        assertThat(jdbc.queryForList(journals,tenant,company)).isEqualTo(accountingBefore);
+        assertThat(checks.check(maker,"period_close",period)).noneSatisfy(difference ->
+                assertThat(difference.key()).isEqualTo("document_reversal"));
+        assertThat(jdbc.queryForList("""
+                SELECT operator_id,JSON_UNQUOTE(JSON_EXTRACT(after_data,'$.reason')) reason FROM audit_log
+                WHERE tenant_id=? AND company_id=? AND object_type='document_reversal' AND object_id=? AND action='reversal.cancel'
+                """,tenant,company,reversal)).singleElement().satisfies(entry -> {
+                    assertThat(entry.get("operator_id").toString()).isEqualTo(Long.toString(reviewer.userId()));
+                    assertThat(entry).containsEntry("reason",request.reason());
+                });
+    }
+
+    private long partiallyPutAwayReceipt() {
+        tasks.mode(maker,warehouse,new PutawayTasks.Mode("optional"));
+        long receipt = receive(List.of("S-01","S-02"));
+        long task = id(items(tasks.page(maker,warehouse,"created",null,20)).getFirst());
+        long line = id(items(tasks.detail(maker,task),"lines").getFirst());
+        tasks.claim(maker,task,key(),new PutawayTasks.Revision(0L));
+        tasks.confirm(maker,task,line,key(),putawayFirstSerial());
+        return receipt;
+    }
+
+    private long historicalReversal(long receipt,Long approver) {
+        long reversal = Ids.next();
+        // 构造旧版本可留下的业务状态，货位和库存记录仍由正常上架命令产生。
+        jdbc.update("""
+                INSERT INTO document_reversal(id,tenant_id,company_id,reversal_no,source_type,source_id,business_date,reason,
+                  status,version,approved_by,approved_at,created_by,owner_user_id,owner_department_id)
+                VALUES(?,?,?,?,'goods_receipt',?,?,?, ?,?,?,IF(? IS NULL,NULL,UTC_TIMESTAMP(3)),?,?,?)
+                """,reversal,tenant,company,"RV-"+reversal,receipt,day,"验收入库纠错",
+                approver==null?"pending":"approved",approver==null?0:1,approver,approver,maker.userId(),maker.userId(),department);
+        return reversal;
+    }
+
+    private PutawayTasks.Confirmation putawayFirstSerial() {
+        return new PutawayTasks.Confirmation("R01","S01","PA-BATCH","1",List.of("S-01"),1L);
+    }
+
+    private CompanyAccess reviewer(Set<String> permissions) {
+        return new CompanyAccess(tenant,Ids.next(),company,true,Set.of(),permissions);
     }
 
     private long approveReversal(long receipt) {
         long reversal = id(reversals.create(maker,key(),reversalInput(receipt)));
-        var reviewer = new CompanyAccess(tenant,Ids.next(),company,true,Set.of(),maker.permissions());
+        var reviewer = reviewer(maker.permissions());
         assertThat(reversals.command(reviewer,reversal,"approve",key(),new ReversalModels.Version(0L,null)))
                 .containsEntry("status","approved");
         return reversal;

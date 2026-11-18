@@ -120,6 +120,26 @@ describe('库存作业业务表单', () => {
     expect(details.find('img').exists()).toBe(false); expect(details.find('b').exists()).toBe(false)
     expect(details.find('a').attributes('to')).toBe('/sales-returns/91'); wrapper.unmount()
   })
+  it('撤销受阻冲销要求填写原因，超时后按原键查询撤销结果', async () => {
+    vi.mocked(api.stockCommand).mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', '网络超时'))
+    const wrapper = mount(StockCommandDialog, {
+      props: { kind: 'document-reversals', document: { ...document, status: 'approved' }, action: 'cancel' },
+      global: { stubs },
+    })
+    const confirm = wrapper.findAll('button').find((button) => button.text() === '确认撤销冲销')!
+    expect(confirm.attributes('disabled')).toBeDefined()
+    await wrapper.get('#stock-command-reason').setValue('旧版本已上架')
+    expect(confirm.attributes('disabled')).toBeUndefined()
+    await click(wrapper, '确认撤销冲销')
+    const request = vi.mocked(api.stockCommand).mock.calls[0]
+    expect(request).toEqual([
+      'document-reversals', '10', 'cancel', expect.objectContaining({ version: 7, reason: '旧版本已上架' }),
+      expect.any(String),
+    ])
+    await click(wrapper, '查询结果')
+    expect(api.stockResult).toHaveBeenCalledWith('reversal.cancel', request[4])
+    wrapper.unmount()
+  })
   it('冲销过账展示无单号核销记录并链接工作台，其他错误清空旧依赖', async () => {
     vi.mocked(api.stockCommand).mockRejectedValueOnce(new ApiError(422, 'DEPENDENCY_EXISTS', '存在下游单据，请先处理', [{ documentType: 'settlement_allocation', documentId: '999999', documentNo: null, relation: '本单未清项已核销' }])).mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', '网络超时'))
     const wrapper = mount(StockCommandDialog, { props: { kind: 'document-reversals', document: { ...document, status: 'approved' }, action: 'post' }, global: { stubs } })

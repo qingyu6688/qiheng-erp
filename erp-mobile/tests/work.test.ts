@@ -1,9 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
 import { keyFor, useTaskFlow } from '../src/composables/useTaskFlow'
 import { formatQuantity, quantity, remaining, scaledQuantity, serialLines, stepQuantity } from '../src/utils/quantity'
-import { lineForScan, pendingLine } from '../src/utils/work'
+import { formatSnapshotTime, lineForScan, pendingLine } from '../src/utils/work'
 
 describe('PDA 作业输入', () => {
+  it('盘点快照用北京时间展示，并兼容未返回快照的旧接口', () => {
+    expect(formatSnapshotTime('2026-11-17T16:15:30Z')).toBe('2026-11-18 00:15:30')
+    expect(formatSnapshotTime('2026-11-18T00:15:30+08:00')).toBe('2026-11-18 00:15:30')
+    expect(formatSnapshotTime('2026-11-17T16:15:30')).toBe('')
+    expect(formatSnapshotTime()).toBe('')
+  })
+
   it('保留大数量的第六位小数', () => {
     expect(remaining('9007199254740993.000002', '9007199254740993.000001')).toBe('0.000001')
     expect(formatQuantity(scaledQuantity('9007199254740993.123456')!)).toBe('9007199254740993.123456')

@@ -6,6 +6,14 @@ export type StockTaskType = 'putaway' | 'pick'
 export type FixedScanField = 'from' | 'to' | 'batch'
 
 const MAX_PUTAWAY_LOCATION_LENGTH = 48
+const BEIJING_OFFSET_MS = 8 * 3_600_000
+
+export function formatSnapshotTime(value?: string | null): string {
+  if (!value || !/(?:Z|[+-]\d{2}:\d{2})$/.test(value)) return ''
+  const time = Date.parse(value)
+  if (!Number.isFinite(time)) return ''
+  return new Date(time + BEIJING_OFFSET_MS).toISOString().slice(0, 19).replace('T', ' ')
+}
 
 function sameCode(left: string, right: string): boolean {
   return left.length === right.length && (left.toUpperCase() === right.toUpperCase() || left.toLowerCase() === right.toLowerCase())

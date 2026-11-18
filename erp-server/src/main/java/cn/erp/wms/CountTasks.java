@@ -23,7 +23,7 @@ import static cn.erp.wms.WmsScopes.number;
 class CountTasks {
     private static final String HEAD="""
             SELECT t.id,t.no,t.type,t.warehouse_id,t.status,t.assignee_id,t.version,g.location_id,g.count_id,
-                   l.code location_code,c.count_no
+                   l.code location_code,c.count_no,c.snapshot_at
             FROM wms_task t JOIN wms_count_group g ON g.tenant_id=t.tenant_id AND g.company_id=t.company_id AND g.task_id=t.id
             JOIN stock_count c ON c.tenant_id=g.tenant_id AND c.company_id=g.company_id AND c.id=g.count_id
             JOIN wms_location l ON l.tenant_id=g.tenant_id AND l.company_id=g.company_id AND l.warehouse_id=g.warehouse_id AND l.id=g.location_id

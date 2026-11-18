@@ -5,5 +5,6 @@ public interface PutawayPort {
     Long receivingLocation(WarehouseScope actor,long warehouse);
     void createFromReceipt(WarehouseScope actor,long warehouse,String sourceType,long sourceId);
     void requireReversible(WarehouseScope actor,String sourceType,long sourceId);
+    boolean hasConfirmedMovement(WarehouseScope actor,String sourceType,long sourceId,boolean lock);
     void cancelUntouched(WarehouseScope actor,String sourceType,long sourceId);
 }

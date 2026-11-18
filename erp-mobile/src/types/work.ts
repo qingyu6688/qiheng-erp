@@ -48,6 +48,7 @@ export interface StockLine {
 
 export interface StockWork extends WorkRow {
   locationCode?: string
+  snapshotAt?: string | null
   lines: StockLine[]
 }
 

@@ -12,6 +12,7 @@ import {
 import type { CountJob, CountLine, MoveDocument, MoveLine } from '../../api/wms-operations'
 import { useSessionStore } from '../../stores/session'
 import type { Id } from '../../types/api'
+import { formatDateTimeSeconds } from '../../utils/format'
 import { useWmsCommands } from './useWmsCommands'
 
 const props = defineProps<{ warehouse: Id; area: 'moves' | 'replenishments' | 'counts' }>()
@@ -344,6 +345,7 @@ async function saveCount(finish: boolean): Promise<void> {
     </div>
     <template v-if="count">
       <h3>{{ count.countNo }} · {{ count.locationCode }}</h3>
+      <p v-if="count.snapshotAt">盘点快照时间（北京时间）{{ formatDateTimeSeconds(count.snapshotAt) }}</p>
       <el-button
         v-if="canCount && count.status === 'created'"
         type="primary"
@@ -360,6 +362,7 @@ async function saveCount(finish: boolean): Promise<void> {
         label-position="top"
         @submit.prevent="saveCount(true)"
       >
+        <p>请填写盘点开始时的实盘数量。随后清点时，从清点数量中扣除期间入库、加回期间出库，再录入。</p>
         <el-form-item label="实扫库位"
           ><el-input v-model="countingLocation" aria-label="实扫库位"
         /></el-form-item>
@@ -372,12 +375,12 @@ async function saveCount(finish: boolean): Promise<void> {
           <el-table-column label="批次"
             ><template #default="{ row }">{{ row.item.batchNo ?? '—' }}</template></el-table-column
           >
-          <el-table-column label="账面数量"
+          <el-table-column label="快照账面数"
             ><template #default="{ row }">{{ row.item.bookQty }}</template></el-table-column
           >
-          <el-table-column label="实盘数量"
+          <el-table-column label="快照实盘数"
             ><template #default="{ row }"
-              ><el-input v-model="row.qty" aria-label="实盘数量" /></template
+              ><el-input v-model="row.qty" aria-label="快照实盘数" /></template
           ></el-table-column>
           <el-table-column label="新增库存单价"
             ><template #default="{ row }"
@@ -406,9 +409,9 @@ async function saveCount(finish: boolean): Promise<void> {
           prop="batchNo"
           label="批次"
         />
-        <el-table-column prop="bookQty" label="账面数量" /><el-table-column
+        <el-table-column prop="bookQty" label="快照账面数" /><el-table-column
           prop="countedQty"
-          label="实盘数量"
+          label="快照实盘数"
         />
       </el-table>
     </template>

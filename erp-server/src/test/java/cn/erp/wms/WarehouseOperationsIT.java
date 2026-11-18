@@ -171,6 +171,38 @@ class WarehouseOperationsIT {
         assertThat(inventory.balance(actor,new Key(warehouse,sku)).onHand()).isEqualByComparingTo("6");
     }
 
+    @Test void pdaCountUsesStartSnapshotAndPreservesLaterReceipt() {
+        receive(source,"4");
+        receive(target,"2");
+        long count = startTwoLocationCount();
+        String snapshotAt = (String) counts.get(actor,count).get("snapshotAt");
+        assertThat(java.time.Instant.parse(snapshotAt)).isNotNull();
+
+        var tasks = items(countWork.page(actor,warehouse,"created",null,20),"items");
+        assertThat(tasks).hasSize(2).allSatisfy(task -> assertThat(task).containsEntry("snapshotAt",snapshotAt));
+        long stockTask = taskIn(tasks,"STOCK");
+        long pickTask = taskIn(tasks,"PICK");
+        var stockDetail = countWork.detail(actor,stockTask);
+        assertThat(stockDetail).containsEntry("snapshotAt",snapshotAt);
+        assertThat(items(stockDetail,"lines").getFirst()).containsEntry("bookQty","4.000000");
+
+        receive(source,"2");
+        countWork.claim(actor,stockTask,key(),new WmsScopes.Revision(0L));
+        countWork.confirm(actor,stockTask,key(),new CountTasks.Confirmation(1L,"L:STOCK",
+                List.of(new StockCountModels.Count(firstLine(stockTask),"4",null))));
+        countWork.claim(actor,pickTask,key(),new WmsScopes.Revision(0L));
+        countWork.confirm(actor,pickTask,key(),new CountTasks.Confirmation(1L,"PICK",
+                List.of(new StockCountModels.Count(firstLine(pickTask),"2",null))));
+
+        var reviewer = new CompanyAccess(tenant,Ids.next(),company,true,Set.of(),actor.permissions());
+        counts.command(actor,count,"submit",key(),new StockCountModels.Version(3L,null));
+        counts.command(reviewer,count,"approve",key(),new StockCountModels.Version(4L,null));
+        assertThat(counts.command(actor,count,"post",key(),new StockCountModels.Version(5L,null)))
+                .containsEntry("status","posted");
+        assertThat(quantity(source)).isEqualByComparingTo("6");
+        assertThat(quantity(target)).isEqualByComparingTo("2");
+    }
+
     @Test void stalePdaFormCannotOverwriteNewPcCount() {
         receive(source,"4");
         receive(target,"2");

@@ -93,14 +93,19 @@ class PutawayTaskWriter implements PutawayPort {
 
     @Override
     public void requireReversible(WarehouseScope actor,String sourceType,long sourceId) {
-        if (!isReceipt(sourceType)) return;
-        var moved = jdbc.queryForList("""
+        if (hasConfirmedMovement(actor,sourceType,sourceId,true))
+            throw new ApiException(422,"WMS_PUTAWAY_ALREADY_MOVED","原单已有上架移库记录，不能直接冲销");
+    }
+
+    @Override
+    public boolean hasConfirmedMovement(WarehouseScope actor,String sourceType,long sourceId,boolean lock) {
+        if (!isReceipt(sourceType)) return false;
+        return !jdbc.queryForList("""
                 SELECT l.id FROM wms_task t JOIN wms_task_line l
                 ON l.tenant_id=t.tenant_id AND l.company_id=t.company_id AND l.task_id=t.id
                 WHERE t.tenant_id=? AND t.company_id=? AND t.source_type=? AND t.source_id=? AND l.done_qty>0
-                LIMIT 1 FOR SHARE
-                """,Long.class,actor.tenantId(),actor.companyId(),sourceType,sourceId);
-        if (!moved.isEmpty()) throw new ApiException(422,"WMS_PUTAWAY_ALREADY_MOVED","原单已有上架移库记录，不能直接冲销");
+                LIMIT 1
+                """+(lock?" FOR SHARE":""),Long.class,actor.tenantId(),actor.companyId(),sourceType,sourceId).isEmpty();
     }
 
     @Override

@@ -66,7 +66,10 @@ public class ReversalService {
                 state(before,"pending");
                 if(id(before,"created_by")==scope.userId())throw new ApiException(422,"SAME_OPERATOR_NOT_ALLOWED","冲销审核人不能是申请人");
                 if(action.equals("reject")&&(input.reason()==null||input.reason().isBlank()))throw invalid("请填写驳回原因");
+                if(action.equals("approve")) putaway.requireReversible(scope,type,source);
                 jdbc.update("UPDATE document_reversal SET status=?,approved_by=?,approved_at=UTC_TIMESTAMP(3),version=version+1 WHERE id=?",action.equals("approve")?"approved":"rejected",scope.userId(),id);
+            } else if(action.equals("cancel")) {
+                return cancelBlockedReversal(scope,id,before,type,source,input.reason());
             } else if(action.equals("post")) {
                 state(before,"approved");sources.posted(head,type);sources.dependencies(scope,type,source);
                 putaway.requireReversible(scope,type,source);
@@ -78,13 +81,39 @@ public class ReversalService {
             return get(scope,id);
         });
     }
+    private Map<String,Object> cancelBlockedReversal(CompanyAccess scope,long id,Map<String,Object> before,String type,long source,String reason) {
+        if(!scope.hasPermission("reversal:approve")) throw new ApiException(403,"FORBIDDEN","没有撤销冲销的权限");
+        state(before,"approved");
+        if(isApplicant(scope,before)) throw new ApiException(422,"SAME_OPERATOR_NOT_ALLOWED","撤销人不能是冲销申请人");
+        if(reason==null||reason.isBlank()||reason.length()>200) throw invalid("请填写撤销原因，最多200字");
+        if(!putaway.hasConfirmedMovement(scope,type,source,true))
+            throw new ApiException(409,"STATE_CONFLICT","只有因原单已上架而无法过账的冲销才能撤销");
+        // 保留原审批人、审批时间和申请原因，撤销人及原因单独记入审计。
+        jdbc.update("UPDATE document_reversal SET status='rejected',version=version+1 WHERE tenant_id=? AND company_id=? AND id=?",
+                scope.tenantId(),scope.companyId(),id);
+        audit.record(scope,"reversal.cancel","document_reversal",id,Map.of("status","approved"),
+                Map.of("status","rejected","reason",reason.trim(),"sourceType",type,"sourceId",Long.toString(source)));
+        return get(scope,id);
+    }
+
+    private static boolean isApplicant(CompanyAccess scope,Map<String,Object> reversal) {
+        Object creator=reversal.get("created_by");
+        if(creator==null) creator=reversal.get("owner_user_id");
+        return Long.toString(scope.userId()).equals(Objects.toString(creator,""));
+    }
+
     @Transactional(readOnly=true)
     public Map<String,Object> get(CompanyAccess scope,long id) {
         var before=find(scope,id,false);String type=before.get("source_type").toString();var source=sources.head(scope,type,id(before,"source_id"),false);
         var result=row(before);result.put("documentNo",before.get("reversal_no"));result.put("sourceNo",sources.number(type,source));result.put("warehouseIds",sources.warehouses(source));
         var actions=new ArrayList<String>();
         if(before.get("status").equals("pending")&&id(before,"created_by")!=scope.userId()&&scope.hasPermission("reversal:approve")){actions.add("approve");actions.add("reject");}
-        if(before.get("status").equals("approved")&&scope.hasPermission("reversal:post"))actions.add("post");result.put("allowedActions",cn.erp.shared.WorkflowViews.actions(before,actions));cn.erp.shared.WorkflowViews.decorate(jdbc,scope,"document_reversal",id,result);return result;
+        if(before.get("status").equals("approved")) {
+            if(putaway.hasConfirmedMovement(scope,type,id(before,"source_id"),false)) {
+                if(!isApplicant(scope,before)&&scope.hasPermission("reversal:approve")) actions.add("cancel");
+            } else if(scope.hasPermission("reversal:post")) actions.add("post");
+        }
+        result.put("allowedActions",cn.erp.shared.WorkflowViews.actions(before,actions));cn.erp.shared.WorkflowViews.decorate(jdbc,scope,"document_reversal",id,result);return result;
     }
     @Transactional(readOnly=true)
     public Map<String,Object> list(CompanyAccess scope,String status,Long cursor,int limit) {

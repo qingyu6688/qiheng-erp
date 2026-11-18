@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import ScanInput from './ScanInput.vue'
 import WorkList from './WorkList.vue'
 import { errorText } from '../api/http'
@@ -11,11 +11,12 @@ import { useSession } from '../stores/session'
 import type { Id } from '../types/api'
 import type { StockWork, WorkRow } from '../types/work'
 import { quantity, serialLines } from '../utils/quantity'
-import { lineForScan, listRow, statusTitle } from '../utils/work'
+import { formatSnapshotTime, lineForScan, listRow, statusTitle } from '../utils/work'
 
 const path = '/wms/count-tasks'
 const session = useSession()
 const task = ref<StockWork>()
+const snapshotTime = computed(() => formatSnapshotTime(task.value?.snapshotAt))
 const activeLine = ref<Id>()
 const location = ref('')
 const scan = ref('')
@@ -95,15 +96,17 @@ async function submit(action: 'claim' | 'confirm'): Promise<void> {
     <WorkList v-if="!task" :rows="items.map(listRow)" :more="!!cursor" :busy="busy" @select="open" @more="load(true)" />
     <template v-else>
       <text class="subheading">{{ task.locationCode }} · {{ statusTitle(task.status) }}</text>
+      <view v-if="snapshotTime">盘点快照时间（北京时间）{{ snapshotTime }}</view>
       <wd-button v-if="task.status === 'created'" block :loading="sending" @click="submit('claim')">领取盘点任务</wd-button>
       <template v-if="task.status === 'assigned' && task.assigneeId === session.profile?.id">
+        <view>请填写盘点开始时的实盘数量。随后清点时，扣除期间入库、加回期间出库，再录入。</view>
         <ScanInput v-model="location" label="盘点库位" :disabled="sending" pda-focus />
         <ScanInput v-model="scan" label="扫描商品或批次选行" :disabled="sending" @scan="select" />
         <view v-for="line in task.lines" :key="line.id" class="line-edit"
           :class="{ highlighted: line.id === activeLine }">
           <text>{{ line.skuCode }} {{ line.skuName }} {{ line.batchNo }}</text>
-          <input v-model="rows[line.id]!.qty" class="field" type="digit" placeholder="实盘数量"
-            :aria-label="'实盘数量 ' + line.skuCode" :disabled="sending">
+          <input v-model="rows[line.id]!.qty" class="field" type="digit" placeholder="快照实盘数"
+            :aria-label="'快照实盘数 ' + line.skuCode" :disabled="sending">
           <input v-model="rows[line.id]!.cost" class="field" type="digit" placeholder="盘盈单价（按业务规则填写）"
             :aria-label="'盘盈单价 ' + line.skuCode" :disabled="sending">
           <textarea v-if="line.serialManaged" v-model="rows[line.id]!.serial" class="field field-text"

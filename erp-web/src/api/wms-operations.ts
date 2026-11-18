@@ -89,6 +89,7 @@ export interface CountJob extends JobRow {
   locationCode: string
   stockCountId?: Id
   countNo?: string
+  snapshotAt?: string | null
   lines?: CountLine[]
 }
 export interface LabelCode {

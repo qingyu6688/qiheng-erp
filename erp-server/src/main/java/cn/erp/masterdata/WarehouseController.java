@@ -98,7 +98,7 @@ class WarehouseController {
                 case "stock_transfer.create", "stock_transfer.submit", "stock_transfer.ship", "stock_transfer.receive", "stock_transfer.resolve_diff", "stock_transfer.void",
                      "stock_count.create", "stock_count.start", "stock_count.submit", "stock_count.approve", "stock_count.reject", "stock_count.post", "stock_count.void",
                      "reversal.create", "reversal.approve", "reversal.post" -> operation.replace('.', ':');
-                case "reversal.reject" -> "reversal:approve";
+                case "reversal.reject", "reversal.cancel" -> "reversal:approve";
                 case "reconciliation.run" -> "reconciliation:run";
                 case "outbox.replay" -> "admin:outbox";
                 case "unit.create" -> "unit:create";
