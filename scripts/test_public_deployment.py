@@ -1,10 +1,22 @@
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from check_public_deployment import contains_public_address, has_private_versions, historical_addresses
 
 
 class PublicDeploymentTest(unittest.TestCase):
+    def test_single_node_template_leaves_optional_report_replica_disabled(self):
+        template = Path(__file__).resolve().parents[1] / "deploy" / "production.env.example"
+        settings = dict(
+            line.split("=", 1)
+            for line in template.read_text(encoding="utf-8").splitlines()
+            if line.startswith("ERP_REPORT_")
+        )
+        for name in ("ERP_REPORT_JDBC_URL", "ERP_REPORT_DB_USER", "ERP_REPORT_DB_PASSWORD"):
+            with self.subTest(name=name):
+                self.assertEqual(settings[name], "")
+
     def test_private_paths_in_index_or_previous_commits_are_rejected(self):
         for output, expected in [([".local/pda-report.json\0"], True), (["", "fe83e13\n"], True), (["", ""], False)]:
             with self.subTest(output=output), patch("check_public_deployment.git", side_effect=output) as git:

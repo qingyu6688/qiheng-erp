@@ -50,6 +50,7 @@ $zip=Join-Path $output "erp-$releaseLabel-local.zip"
 if(Test-Path -LiteralPath $zip){throw '交付压缩包已存在，禁止覆盖；请指定新的输出目录。'}
 $stage=Join-Path $output ("stage-$releaseLabel-"+[Guid]::NewGuid().ToString('N').Substring(0,8))
 New-Item -ItemType Directory -Path $stage | Out-Null
+Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination $stage
 Copy-Item -LiteralPath $jar -Destination (Join-Path $stage 'erp-server.jar')
 if($IncludeAi){Copy-Item -LiteralPath $aiJar -Destination (Join-Path $stage 'erp-ai.jar')}
 Copy-Item -LiteralPath $dist -Destination (Join-Path $stage 'web') -Recurse
@@ -78,26 +79,20 @@ $documents=@(
  '更新日志.md','上线准备清单.md','本机期初导入与业务试运行报告.md','多方式登录配置.md',
  '企业级演进规划.md','UI设计规范.md','可观测性设计.md','M14平台二期使用与验收.md',
  'M14单点登录与MFA使用说明.md','M14开放平台接入手册.md','M14工作流二期使用说明.md','2.0不兼容变更预告.md',
- '1.x升级到2.0指南.md'
+ '1.x升级到2.0指南.md','1.0.0候选版本本机上线演练报告.md','重构设计方案.md',
+ 'M11部门数据范围本机验收报告.md','M11组织消息与运维使用说明.md','M11工作流使用说明.md',
+ 'M12财务总账本机验收报告.md','M12财务总账使用说明.md','M13人工智能使用与验收.md',
+ 'M14供应链一期使用与验收.md','数电发票服务商对接说明.md','第三方依赖说明.md','第三方依赖许可.md'
 )
 foreach($name in $documents) {
  Copy-Item -LiteralPath (Join-Path $root ('docs/'+$name)) -Destination (Join-Path $stage 'docs')
 }
-if($IncludeAi){
- foreach($name in 'M13人工智能使用与验收.md','第三方依赖说明.md','第三方依赖许可.md'){
-  Copy-Item -LiteralPath (Join-Path $root ('docs/'+$name)) -Destination (Join-Path $stage 'docs')
- }
- $aiDesignTarget=Join-Path $stage 'docs/详细设计'
- New-Item -ItemType Directory -Path $aiDesignTarget | Out-Null
- Copy-Item -LiteralPath (Join-Path $root 'docs/详细设计/04-AI.md') -Destination $aiDesignTarget
-}
-if($IncludeMobile){
- $mobileDocs=Join-Path $stage 'erp-mobile'
- New-Item -ItemType Directory -Path $mobileDocs | Out-Null
- Copy-Item -LiteralPath (Join-Path $root 'erp-mobile/移动端使用说明.md') -Destination $mobileDocs
- $wmsDesignTarget=Join-Path $stage 'docs/详细设计'
- New-Item -ItemType Directory -Path $wmsDesignTarget -Force | Out-Null
- Copy-Item -LiteralPath (Join-Path $root 'docs/详细设计/08-WMS作业与移动端.md') -Destination $wmsDesignTarget
+$mobileDocs=Join-Path $stage 'erp-mobile'
+$detailDocs=Join-Path $stage 'docs/详细设计'
+New-Item -ItemType Directory -Path $mobileDocs,$detailDocs | Out-Null
+Copy-Item -LiteralPath (Join-Path $root 'erp-mobile/移动端使用说明.md') -Destination $mobileDocs
+foreach($name in '04-AI.md','08-WMS作业与移动端.md'){
+ Copy-Item -LiteralPath (Join-Path $root ('docs/详细设计/'+$name)) -Destination $detailDocs
 }
 $files=@(Get-ChildItem -LiteralPath $stage -Recurse -File)
 if(@($files | Where-Object { $_.Name -eq '.env' -or ([IO.Path]::GetRelativePath($stage,$_.FullName) -match '(^|[\\/])(?:\.local|test-results|node_modules|private)([\\/]|$)') }).Count){throw '交付内容混入本机配置、测试数据或私有目录。'}

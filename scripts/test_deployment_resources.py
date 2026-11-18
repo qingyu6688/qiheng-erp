@@ -12,7 +12,7 @@ from load.local_test_storage import temporary_test_directory
 class DeploymentResourcesTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.profiles = json.loads((ROOT / "deploy/resource-profiles.json").read_text())["profiles"]
+        cls.profiles = json.loads((ROOT / "deploy/resource-profiles.json").read_text(encoding="utf-8"))["profiles"]
 
     def test_compact_budget_requires_headroom_for_existing_services(self):
         inventory = {"cpuCores": 4, "totalMemoryMiB": 4096, "availableMemoryMiB": 2000, "freeDiskMiB": 50000}
