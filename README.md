@@ -1,8 +1,8 @@
-# 柒衡 ERP / Qiheng ERP
+# 柒衡 ERP 2.0 / Qiheng ERP 2.0
 
 **面向商贸、批发与轻制造团队的开源进销存和业财管理系统**
 
-把采购入库、仓库拣货、销售签收和财务核销串在一起，在同一套系统里查库存、订单进度和待收待付金额。
+柒衡 ERP 2.0 把采购入库、仓库拣货、销售签收和财务核销串在一起。采购、销售、仓库和财务人员可以在同一套系统里查库存、订单进度和待收待付金额。
 
 [![预发布版 2.0.0-rc.1](https://img.shields.io/badge/Prerelease-2.0.0--rc.1-2563eb)](https://github.com/qingyu6688/qiheng-erp/releases/tag/v2.0.0-rc.1)
 ![Java 21](https://img.shields.io/badge/Java-21-b45309)
@@ -10,9 +10,11 @@
 ![MySQL 8.0.46](https://img.shields.io/badge/MySQL-8.0.46-276b9a)
 [![AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-475569)](LICENSE)
 
-[功能模块](#功能概览) · [业务流程](#业务流程) · [技术架构](#技术架构) · [快速开始](#快速开始) · [使用入门](#使用入门) · [项目文档](#项目文档) · [English](#english)
+[已实现的功能](#功能概览) · [业务流程](#业务流程) · [技术架构](#技术架构) · [快速开始](#快速开始) · [使用入门](#使用入门) · [项目文档](#项目文档) · [English](#english)
 
 ## 功能概览
+
+下表列出 2.0 候选版已经实现的功能。仓储作业可按仓启用，AI 助手需要配置独立服务。
 
 | 模块 | 主要功能 |
 | --- | --- |
@@ -57,16 +59,16 @@ Nginx 提供 HTTPS 入口、静态资源与 API 代理。ERP 采用模块化单�
 
 ## 快速开始
 
-### 使用候选部署包
+### 安装 2.0 候选版
 
-从 [GitHub Releases](https://github.com/qingyu6688/qiheng-erp/releases/tag/v2.0.0-rc.1) 下载 ZIP 和 SHA-256 校验文件。校验并解压后，按 [部署说明](docs/部署说明.md) 配置 JDK 21、MySQL 8.0.46、Redis 及入口代理，再初始化企业和管理员。已有 1.x 实例时，先在备份副本上演练 [升级与回退](docs/1.x升级到2.0指南.md)。
+从 [2.0.0-rc.1 发布页](https://github.com/qingyu6688/qiheng-erp/releases/tag/v2.0.0-rc.1) 下载 2.0 部署包和 SHA-256 校验文件。校验并解压后，按 [部署说明](docs/部署说明.md) 配置 JDK 21、MySQL 8.0.46、Redis 及入口代理，再初始化企业和管理员。
 
 ### 在 Windows 从源码运行
 
 准备 Git、PowerShell 7、JDK 21、Maven、Node.js 24、npm 和 Redis，启动 MySQL 8.0.46。首次安装请按 [本机环境说明](docs/环境检查.md) 准备建库与授权账号，在当前终端设置 `DB_USERNAME` 和 `DB_PASSWORD`。以下命令在 PowerShell 中运行，JDK 和 Redis 路径请按本机安装位置填写。
 
 ```powershell
-git clone https://github.com/qingyu6688/qiheng-erp.git
+git clone --branch v2.0.0-rc.1 --single-branch https://github.com/qingyu6688/qiheng-erp.git
 cd qiheng-erp
 pwsh -NoProfile -File ./scripts/prepare-local.ps1 -JavaHome 'D:/tools/jdk-21' -RedisDirectory 'D:/tools/redis'
 npm --prefix erp-web ci
@@ -82,16 +84,16 @@ npm --prefix erp-web ci
 4. **完成一笔销售**。新建并审批销售订单，从授权仓发货并登记签收。财务确认收到款项后，将收款与对应应收核销。回到订单详情核对履约、已核销和未清金额。
 5. **按岗位核对结果**。仓库人员查看库存及收发记录，财务人员查看应收应付和资金报表。启用仓储作业后，可用 `/mobile/` 领取任务并扫码。
 
-[完整操作手册](docs/用户使用手册.md) · [期初与业务试运行示例](docs/本机期初导入与业务试运行报告.md) · [移动端操作](erp-mobile/移动端使用说明.md)
+[完整操作手册](docs/用户使用手册.md) · [移动端操作](erp-mobile/移动端使用说明.md)
 
 ## 项目文档
 
 | 想了解什么 | 入口 |
 | --- | --- |
 | 日常操作、业务口径和移动作业 | [用户使用手册](docs/用户使用手册.md) · [业务规则](docs/业务规则.md) · [移动端说明](erp-mobile/移动端使用说明.md) |
-| 安装、升级与运维 | [部署说明](docs/部署说明.md) · [1.x 升级与回退](docs/1.x升级到2.0指南.md) · [运维手册](docs/运维手册.md) |
+| 安装与运维 | [部署说明](docs/部署说明.md) · [运维手册](docs/运维手册.md) |
 | 二次开发 | [详细设计](docs/详细设计/README.md) · [接口设计](docs/接口设计.md) · [数据库设计](docs/数据库设计.md) |
-| 版本与验证 | [更新日志](docs/更新日志.md) · [测试报告](docs/测试报告.md) · [开发计划](docs/开发计划.md) |
+| 2.0 发布与验证 | [候选版发布说明](https://github.com/qingyu6688/qiheng-erp/releases/tag/v2.0.0-rc.1) · [构建与回归记录](https://github.com/qingyu6688/qiheng-erp/actions/runs/44252853580) · [更新日志](docs/更新日志.md) |
 
 项目代码采用 [AGPL-3.0-only](LICENSE)，第三方依赖按[各自的许可条款](docs/第三方依赖许可.md)分发。
 
@@ -99,11 +101,13 @@ npm --prefix erp-web ci
 
 **Open-source inventory and business finance software for trading, wholesale, and light manufacturing teams**
 
-Qiheng ERP connects purchasing, warehouse work, sales fulfillment, and settlement so teams can check stock, order progress, receivables, and payables in one place.
+Qiheng ERP 2.0 connects purchasing, warehouse work, sales fulfillment, and settlement so teams can check stock, order progress, receivables, and payables in one place.
 
-[Modules](#features) · [Workflows](#workflows) · [Architecture](#architecture) · [Quick start](#quick-start) · [First transactions](#first-transactions) · [Documentation](#documentation) · [返回中文](#功能概览)
+[Implemented features](#features) · [Workflows](#workflows) · [Architecture](#architecture) · [Quick start](#quick-start) · [First transactions](#first-transactions) · [Documentation](#documentation) · [返回中文](#功能概览)
 
 ### Features
+
+The modules below are implemented in the 2.0 release candidate. Warehouse tasks can be enabled per warehouse. The optional AI assistant requires a separate service.
 
 | Module | What it covers |
 | --- | --- |
@@ -146,16 +150,16 @@ Nginx serves static assets over HTTPS and proxies API requests. The ERP is a mod
 
 ### Quick start
 
-#### Use the release package
+#### Install the 2.0 release candidate
 
-Download the ZIP and its SHA-256 file from [GitHub Releases](https://github.com/qingyu6688/qiheng-erp/releases/tag/v2.0.0-rc.1). Verify the archive before extracting it. Use the [deployment guide](docs/部署说明.md) to configure JDK 21, MySQL 8.0.46, Redis, and the reverse proxy, then initialize a tenant and administrator. For an existing 1.x installation, rehearse [upgrade and rollback](docs/1.x升级到2.0指南.md) on a restored backup first.
+Download the 2.0 deployment ZIP and its SHA-256 file from the [2.0.0-rc.1 release page](https://github.com/qingyu6688/qiheng-erp/releases/tag/v2.0.0-rc.1). Verify the archive before extracting it. Use the [deployment guide](docs/部署说明.md) to configure JDK 21, MySQL 8.0.46, Redis, and the reverse proxy, then initialize a tenant and administrator.
 
 #### Run from source on Windows
 
 Install Git, PowerShell 7, JDK 21, Maven, Node.js 24, npm, and Redis, then start MySQL 8.0.46. For a first installation, follow the [environment guide](docs/环境检查.md) to prepare an account with database creation and grant privileges. Set `DB_USERNAME` and `DB_PASSWORD` in the current shell. Run the commands in PowerShell and substitute your JDK and Redis paths.
 
 ```powershell
-git clone https://github.com/qingyu6688/qiheng-erp.git
+git clone --branch v2.0.0-rc.1 --single-branch https://github.com/qingyu6688/qiheng-erp.git
 cd qiheng-erp
 pwsh -NoProfile -File ./scripts/prepare-local.ps1 -JavaHome 'D:/tools/jdk-21' -RedisDirectory 'D:/tools/redis'
 npm --prefix erp-web ci
@@ -171,7 +175,7 @@ From the repository root, run `pwsh -File ./scripts/project.ps1 server` and `pws
 4. **Complete a sale.** Create and approve a sales order, ship from an authorized warehouse, and record delivery confirmation. After recording the customer receipt, allocate the funds against the receivable. Check fulfillment, allocations, and the outstanding balance on the order.
 5. **Check the results.** Review stock and movement history, receivables and payables, and cash activity. Where warehouse tasks are enabled, operators can claim and scan tasks at `/mobile/`.
 
-[Full user guide](docs/用户使用手册.md) · [Opening balance and transaction trial](docs/本机期初导入与业务试运行报告.md) · [Mobile guide](erp-mobile/移动端使用说明.md)
+[Full user guide](docs/用户使用手册.md) · [Mobile guide](erp-mobile/移动端使用说明.md)
 
 ### Documentation
 
@@ -180,8 +184,8 @@ The detailed guides are in Chinese.
 | Topic | Links |
 | --- | --- |
 | Daily operations | [User guide](docs/用户使用手册.md) · [Business rules](docs/业务规则.md) · [Mobile guide](erp-mobile/移动端使用说明.md) |
-| Deployment and operations | [Deployment guide](docs/部署说明.md) · [Upgrade and rollback](docs/1.x升级到2.0指南.md) · [Operations manual](docs/运维手册.md) |
+| Deployment and operations | [Deployment guide](docs/部署说明.md) · [Operations manual](docs/运维手册.md) |
 | Development | [Technical design](docs/详细设计/README.md) · [API design](docs/接口设计.md) · [Database design](docs/数据库设计.md) |
-| Releases and testing | [Changelog](docs/更新日志.md) · [Test report](docs/测试报告.md) · [Development plan](docs/开发计划.md) |
+| 2.0 release and validation | [Release notes](https://github.com/qingyu6688/qiheng-erp/releases/tag/v2.0.0-rc.1) · [Build and regression results](https://github.com/qingyu6688/qiheng-erp/actions/runs/44252853580) · [Changelog](docs/更新日志.md) |
 
 Qiheng ERP is licensed under [AGPL-3.0-only](LICENSE). Third-party dependencies are distributed under [their respective licenses](docs/第三方依赖许可.md).
