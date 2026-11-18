@@ -117,8 +117,14 @@ const columnsByView: Record<PortalView, string[]> = {
 const columns = computed(() => columnsByView[view.value])
 const detailLines = computed(() => list(detail.value?.lines))
 const replies = computed(() => list(detail.value?.replies))
+const visibleRows = computed(() =>
+  view.value === 'statements' ? (statement.value?.items ?? []) : rows.value,
+)
+const visibleSummary = computed(() =>
+  view.value === 'statements' ? statement.value?.summary : summary.value,
+)
 const headline = computed(() =>
-  Object.entries(summary.value ?? {}).filter(([key, value]) => labels[key] && isScalar(value)),
+  Object.entries(visibleSummary.value ?? {}).filter(([key, value]) => labels[key] && isScalar(value)),
 )
 
 function list(value: unknown): PortalRow[] {
@@ -187,11 +193,11 @@ async function refresh(current: AbortSignal): Promise<void> {
       break
     }
     case 'statements': {
-      const result = await portalRead<PortalStatement>('/statements', span, current)
-      if (!current.aborted) {
+      const period = { ...span }
+      statement.value = undefined
+      const result = await portalRead<PortalStatement>('/statements', period, current)
+      if (!current.aborted && period.dateFrom === span.dateFrom && period.dateTo === span.dateTo) {
         statement.value = result
-        rows.value = result.items
-        summary.value = result.summary
       }
       break
     }
@@ -298,9 +304,11 @@ function download(path: string, name: string, params?: Record<string, unknown>):
 }
 
 function confirmStatement(): void {
-  if (!statement.value?.digest || !window.confirm('确认此期间对账单？')) return
+  const digest = statement.value?.digest
+  if (!digest || !window.confirm('确认此期间对账单？')) return
   void perform(async (current) => {
-    await portalWrite('/statements/confirm', { ...span, digest: statement.value!.digest }, current)
+    await portalWrite('/statements/confirm', { ...span, digest }, current)
+    if (current.aborted) return
     await refresh(current)
     if (!current.aborted) notice.value = '对账单已确认。'
   })
@@ -352,6 +360,11 @@ function rateTicket(): void {
   })
 }
 
+watch(span, () => {
+  statement.value = undefined
+  error.value = ''
+  notice.value = ''
+})
 watch(view, reset, { immediate: true })
 onScopeDispose(() => scope.abort())
 </script>
@@ -369,7 +382,6 @@ onScopeDispose(() => scope.abort())
             required
             type="date"
             :disabled="busy"
-            @change="statement = undefined"
         /></label>
         <label
           >结束日期<input
@@ -377,7 +389,6 @@ onScopeDispose(() => scope.abort())
             required
             type="date"
             :disabled="busy"
-            @change="statement = undefined"
         /></label>
         <button class="portal-primary" :disabled="busy" type="submit">查询</button>
         <button
@@ -476,9 +487,12 @@ onScopeDispose(() => scope.abort())
           <dd>{{ value }}</dd>
         </dl>
       </div>
-      <p v-if="busy && !rows.length" role="status">正在加载…</p>
-      <p v-else-if="view !== 'assistant' && !rows.length && !error" role="status">暂无记录。</p>
-      <div v-if="rows.length" class="portal-scroll">
+      <p v-if="busy && !visibleRows.length" role="status">正在加载…</p>
+      <p v-else-if="view === 'statements' && !statement && !error" role="status">
+        请选择日期并查询对账单。
+      </p>
+      <p v-else-if="view !== 'assistant' && !visibleRows.length && !error" role="status">暂无记录。</p>
+      <div v-if="visibleRows.length" class="portal-scroll">
         <table class="portal-table">
           <thead>
             <tr>
@@ -487,7 +501,7 @@ onScopeDispose(() => scope.abort())
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(row, index) in rows" :key="row.id ?? index">
+            <tr v-for="(row, index) in visibleRows" :key="row.id ?? index">
               <td v-for="key in columns" :key="key">{{ field(row, key) }}</td>
               <td v-if="view !== 'statements'">
                 <button
