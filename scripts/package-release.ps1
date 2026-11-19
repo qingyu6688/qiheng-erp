@@ -4,6 +4,7 @@ param(
     [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+$')][string]$Version='1.0.0',
     [ValidatePattern('^rc\.[1-9][0-9]*$')][string]$Candidate,
     [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local/release'),
+    [string]$SbomDirectory,
     [switch]$IncludeAi,
     [switch]$IncludeMobile
 )
@@ -50,6 +51,19 @@ $zip=Join-Path $output "erp-$releaseLabel-local.zip"
 if(Test-Path -LiteralPath $zip){throw '交付压缩包已存在，禁止覆盖；请指定新的输出目录。'}
 $stage=Join-Path $output ("stage-$releaseLabel-"+[Guid]::NewGuid().ToString('N').Substring(0,8))
 New-Item -ItemType Directory -Path $stage | Out-Null
+if($SbomDirectory){
+ $required=@('erp-server','erp-web')
+ if($IncludeAi){$required+='erp-ai'}
+ if($IncludeMobile){$required+='erp-mobile'}
+ $sbomTarget=Join-Path $stage 'sbom'
+ New-Item -ItemType Directory -Path $sbomTarget | Out-Null
+ foreach($module in $required){
+  $file=Join-Path $SbomDirectory "$module.cdx.json"
+  $bom=Get-Content -LiteralPath $file -Raw -Encoding utf8 | ConvertFrom-Json
+  if($bom.bomFormat -ne 'CycloneDX' -or $bom.metadata.component.name -ne $module -or $bom.metadata.component.version -ne $Version){throw "SBOM 与交付构件不一致：$module"}
+  Copy-Item -LiteralPath $file -Destination $sbomTarget
+ }
+}
 Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination $stage
 Copy-Item -LiteralPath $jar -Destination (Join-Path $stage 'erp-server.jar')
 if($IncludeAi){Copy-Item -LiteralPath $aiJar -Destination (Join-Path $stage 'erp-ai.jar')}
@@ -63,7 +77,7 @@ foreach($file in Get-ChildItem -LiteralPath (Join-Path $root 'scripts') -Filter 
 Copy-Item -LiteralPath (Join-Path $root 'scripts/upgrade-2.0.sh') -Destination (Join-Path $stage 'scripts')
 $upgradeDirectory=Join-Path $stage 'scripts/upgrade-2.0'
 New-Item -ItemType Directory -Path $upgradeDirectory | Out-Null
-foreach($file in 'engine.py','data.py','upgrade.py','03-permission-codes.tsv','retired-api.tsv'){
+foreach($file in 'engine.py','data.py','upgrade.py','audit_seal.py','03-permission-codes.tsv','retired-api.tsv'){
  Copy-Item -LiteralPath (Join-Path $root "scripts/upgrade-2.0/$file") -Destination $upgradeDirectory
 }
 Copy-Item -LiteralPath (Join-Path $root 'scripts/verify-observability.py') -Destination (Join-Path $stage 'scripts')

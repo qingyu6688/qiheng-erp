@@ -7,8 +7,8 @@
     <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
       <fileNamePattern>${ERP_HTTP_LOG_FILE:-./logs/http.log}.%d{yyyy-MM-dd,Asia/Shanghai}.%i.gz</fileNamePattern>
       <maxFileSize>50MB</maxFileSize>
-      <maxHistory>14</maxHistory>
-      <totalSizeCap>2GB</totalSizeCap>
+      <maxHistory>${ERP_LOG_MAX_HISTORY:-180}</maxHistory>
+      <totalSizeCap>${ERP_LOG_TOTAL_SIZE_CAP:-2GB}</totalSizeCap>
     </rollingPolicy>
     <encoder>
       <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX,Asia/Shanghai} [%thread] %-5level request_id=%X{requestId:-} trace_id=%X{trace_id:-} span_id=%X{span_id:-} %msg%n</pattern>
