@@ -87,26 +87,27 @@ if(Test-Path -LiteralPath $javaDirectory -PathType Container){
  New-Item -ItemType Directory -Path (Join-Path $stage 'scripts/java') | Out-Null
  foreach($file in Get-ChildItem -LiteralPath $javaDirectory -Filter '*.java' -File){Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $stage 'scripts/java')}
 }
+# 按源码中的相对目录复制发布清单里的文档。
 $documents=@(
- '运维手册.md','部署说明.md','用户使用手册.md','测试报告.md','容量测试报告.md',
- '接口设计.md','数据库设计.md','开发计划.md','优化文档.md','项目总结.md','环境检查.md',
- '更新日志.md','上线准备清单.md','本机期初导入与业务试运行报告.md','多方式登录配置.md',
- '企业级演进规划.md','UI设计规范.md','可观测性设计.md','M14平台二期使用与验收.md',
- 'M14单点登录与MFA使用说明.md','M14开放平台接入手册.md','M14工作流二期使用说明.md','2.0不兼容变更预告.md',
- '1.x升级到2.0指南.md','1.0.0候选版本本机上线演练报告.md','重构设计方案.md',
- 'M11部门数据范围本机验收报告.md','M11组织消息与运维使用说明.md','M11工作流使用说明.md',
- 'M12财务总账本机验收报告.md','M12财务总账使用说明.md','M13人工智能使用与验收.md',
- 'M14供应链一期使用与验收.md','数电发票服务商对接说明.md','第三方依赖说明.md','第三方依赖许可.md'
+ '运维/运维手册.md','运维/部署说明.md','产品/用户使用手册.md','测试/测试报告.md','测试/容量测试报告.md','设计/接口设计.md','设计/数据库设计.md','规划/开发计划.md',
+ '规划/优化文档.md','规划/项目总结.md','运维/环境检查.md','更新日志.md','运维/上线准备清单.md','测试/验收记录/本机期初导入与业务试运行报告.md',
+ '使用说明/多方式登录配置.md','规划/企业级演进规划.md','设计/UI设计规范.md','设计/可观测性设计.md','使用说明/M14平台二期使用与验收.md',
+ '使用说明/M14单点登录与MFA使用说明.md','使用说明/M14开放平台接入手册.md','使用说明/M14工作流二期使用说明.md','运维/2.0不兼容变更预告.md',
+ '运维/1.x升级到2.0指南.md','测试/验收记录/1.0.0候选版本本机上线演练报告.md','设计/重构设计方案.md','测试/验收记录/M11部门数据范围本机验收报告.md',
+ '使用说明/M11组织消息与运维使用说明.md','使用说明/M11工作流使用说明.md','测试/验收记录/M12财务总账本机验收报告.md','使用说明/M12财务总账使用说明.md',
+ '使用说明/M13人工智能使用与验收.md','使用说明/M14供应链一期使用与验收.md','使用说明/数电发票服务商对接说明.md','产品/第三方依赖说明.md','产品/第三方依赖许可.md'
 )
 foreach($name in $documents) {
- Copy-Item -LiteralPath (Join-Path $root ('docs/'+$name)) -Destination (Join-Path $stage 'docs')
+ $target=Join-Path $stage ('docs/'+$name)
+ New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
+ Copy-Item -LiteralPath (Join-Path $root ('docs/'+$name)) -Destination $target
 }
 $mobileDocs=Join-Path $stage 'erp-mobile'
-$detailDocs=Join-Path $stage 'docs/详细设计'
-New-Item -ItemType Directory -Path $mobileDocs,$detailDocs | Out-Null
+$detailDocs=Join-Path $stage 'docs/设计/详细设计'
+New-Item -ItemType Directory -Force -Path $mobileDocs,$detailDocs | Out-Null
 Copy-Item -LiteralPath (Join-Path $root 'erp-mobile/移动端使用说明.md') -Destination $mobileDocs
 foreach($name in '04-AI.md','08-WMS作业与移动端.md'){
- Copy-Item -LiteralPath (Join-Path $root ('docs/详细设计/'+$name)) -Destination $detailDocs
+ Copy-Item -LiteralPath (Join-Path $root ('docs/设计/详细设计/'+$name)) -Destination $detailDocs
 }
 $files=@(Get-ChildItem -LiteralPath $stage -Recurse -File)
 if(@($files | Where-Object { $_.Name -eq '.env' -or ([IO.Path]::GetRelativePath($stage,$_.FullName) -match '(^|[\\/])(?:\.local|test-results|node_modules|private)([\\/]|$)') }).Count){throw '交付内容混入本机配置、测试数据或私有目录。'}

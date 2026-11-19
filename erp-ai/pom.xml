@@ -36,9 +36,14 @@
   <build>
     <resources>
       <resource><directory>src/main/resources</directory></resource>
+      <!-- 知识库种子文档，按文件名放进 classpath 的 kb-seed/ 下 -->
       <resource>
-        <directory>${project.basedir}/../docs</directory><targetPath>kb-seed</targetPath>
-        <includes><include>业务规则.md</include><include>用户使用手册.md</include><include>运维手册.md</include></includes>
+        <directory>${project.basedir}/../docs/产品</directory><targetPath>kb-seed</targetPath>
+        <includes><include>业务规则.md</include><include>用户使用手册.md</include></includes>
+      </resource>
+      <resource>
+        <directory>${project.basedir}/../docs/运维</directory><targetPath>kb-seed</targetPath>
+        <includes><include>运维手册.md</include></includes>
       </resource>
     </resources>
     <plugins>
