@@ -62,8 +62,10 @@ class OpenSecurity {
     @Order(5)
     SecurityFilterChain openApiSecurityFilterChain(HttpSecurity http,OpenApplications apps,OpenSecrets secrets,StringRedisTemplate redis,
             @Qualifier("handlerExceptionResolver") HandlerExceptionResolver errors) throws Exception {
-        http.securityMatcher("/open/v1","/open/v1/**")
-                .csrf(csrf -> csrf.disable())
+        String[] signedApi = {"/open/v1", "/open/v1/**"};
+        // 签名请求使用独立的应用凭据，过滤链不读取 Cookie 会话。
+        http.securityMatcher(signedApi)
+                .csrf(csrf -> csrf.ignoringRequestMatchers(signedApi))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .securityContext(context -> context.disable())
                 .requestCache(cache -> cache.disable())
@@ -84,7 +86,6 @@ class OpenSecurity {
         // 管理页面通过权限校验后读取分组，阻止通用文档路径跳过开放平台授权。
         String path=configuredPath.replaceFirst("/+$","");
         return http.securityMatcher(path+"/open",path+".yaml/open")
-                .csrf(csrf -> csrf.disable())
                 .securityContext(context -> context.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .requestCache(cache -> cache.disable())
