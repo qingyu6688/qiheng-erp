@@ -186,12 +186,14 @@ public class CustomFields {
     }
 
     private void reindex(long tenant, String entity, Input input, int slot) {
+        String table = CustomFieldTypes.VIEW.keySet().stream().filter(entity::equals)
+                .findFirst().orElseThrow(() -> CustomFieldTypes.invalid("自定义字段业务类型无效"));
         String path = "$." + input.fieldKey();
         String predicate = "tenant_id=? AND JSON_EXTRACT(ext_json,?) IS NOT NULL";
-        if (Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM " + entity + " WHERE " + predicate
+        if (Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM " + table + " WHERE " + predicate
                 + " AND CHAR_LENGTH(JSON_UNQUOTE(JSON_EXTRACT(ext_json,?)))>?)", Boolean.class, tenant, path, path, 127-input.fieldKey().length())))
             throw CustomFieldTypes.invalid(input.label() + "的部分历史值过长，无法建立索引");
-        jdbc.update("UPDATE " + entity + " SET " + INDEXES[slot-1] + "=CONCAT(?,JSON_UNQUOTE(JSON_EXTRACT(ext_json,?))) WHERE " + predicate,
+        jdbc.update("UPDATE " + table + " SET " + INDEXES[slot-1] + "=CONCAT(?,JSON_UNQUOTE(JSON_EXTRACT(ext_json,?))) WHERE " + predicate,
                 input.fieldKey()+"=", path, tenant, path);
     }
 

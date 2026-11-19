@@ -74,8 +74,9 @@ public class CommandResultAccess {
             if(values.isEmpty()) {throw missing();}
             warehouse(scope,values.getFirst().get("from_warehouse_id"));warehouse(scope,values.getFirst().get("to_warehouse_id"));
             warehouse(scope,row.get("fromWarehouseId"));warehouse(scope,row.get("toWarehouseId"));
-        } else if(java.util.Set.of("shipment","sales_return","goods_receipt","purchase_return","stock_adjustment","stock_count","stock_misc_doc","qc_inspection").contains(document)) {
-            String table=operation.substring(0,operation.indexOf('.'));
+        } else {
+            String table=warehouseDocumentTable(document);
+            if(table==null) return;
             var warehouses=jdbc.queryForList("SELECT warehouse_id FROM "+table+" WHERE tenant_id=? AND company_id=? AND id=?",Long.class,scope.tenantId(),scope.companyId(),id);
             if(warehouses.isEmpty()) {throw missing();}
             warehouse(scope,warehouses.getFirst());
@@ -86,9 +87,28 @@ public class CommandResultAccess {
     private void verifyProduction(ActorScope actor,String type,Object id) {
         if(!(actor instanceof PermissionScope permission)||!permission.hasPermission(ManufacturingReversalPort.viewPermission(type)))
             throw new ApiException(403,"FORBIDDEN","没有查看生产单据的权限");
-        var rows=jdbc.queryForList("SELECT d.id FROM "+type+" d WHERE d.tenant_id=? AND d.company_id=? AND d.id=? AND "+ManufacturingScope.stockCondition(actor,"d"),
+        String table=switch(type) {
+            case "mfg_issue_doc" -> "mfg_issue_doc";
+            case "mfg_receipt_doc" -> "mfg_receipt_doc";
+            default -> throw missing();
+        };
+        var rows=jdbc.queryForList("SELECT d.id FROM "+table+" d WHERE d.tenant_id=? AND d.company_id=? AND d.id=? AND "+ManufacturingScope.stockCondition(actor,"d"),
                 Long.class,actor.tenantId(),actor.companyId(),id);
         if(rows.isEmpty())throw missing();
+    }
+
+    private static String warehouseDocumentTable(String document) {
+        return switch(document) {
+            case "shipment" -> "shipment";
+            case "sales_return" -> "sales_return";
+            case "goods_receipt" -> "goods_receipt";
+            case "purchase_return" -> "purchase_return";
+            case "stock_adjustment" -> "stock_adjustment";
+            case "stock_count" -> "stock_count";
+            case "stock_misc_doc" -> "stock_misc_doc";
+            case "qc_inspection" -> "qc_inspection";
+            default -> null;
+        };
     }
 
     private void warehouse(WarehouseScope scope,Object id) {
