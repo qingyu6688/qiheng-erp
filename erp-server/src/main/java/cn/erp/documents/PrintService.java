@@ -46,7 +46,7 @@ public class PrintService {
         Map<String, Object> document = new LinkedHashMap<>(documents.view(scope, type, id));
         decorateFields(scope,type,document,stableFields);
         // 单据查询已完成权限和范围检查；原始表头仅定位制单人和受权来源，不能合并到响应。
-        Map<String, Object> header = jdbc.queryForMap("SELECT * FROM " + type + " WHERE tenant_id=? AND company_id=? AND id=?",
+        Map<String, Object> header = jdbc.queryForMap("SELECT * FROM " + documents.table(type) + " WHERE tenant_id=? AND company_id=? AND id=?",
                 scope.tenantId(), scope.companyId(), id);
         if(stableFields && scope.hasPermission("cash_account:view") && scope.hasPermission("cash_account_no:view")) {
             copyAccountNumber(scope,header,document,"cash_account_id","accountNo");

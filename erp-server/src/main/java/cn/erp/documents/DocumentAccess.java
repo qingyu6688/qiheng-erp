@@ -95,8 +95,8 @@ public class DocumentAccess {
 
     /** 所有附件数量检查都串行锁定所属单据，避免不同幂等键同时突破上限。 */
     public void lock(CompanyAccess scope, String type, long id) {
-        validate(type);
-        var rows = jdbc.queryForList("SELECT id FROM " + type + " WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",
+        String table = table(type);
+        var rows = jdbc.queryForList("SELECT id FROM " + table + " WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",
                 scope.tenantId(), scope.companyId(), id);
         if (rows.isEmpty()) {
             throw new ApiException(404, "NOT_FOUND", "单据不存在或无权查看");
@@ -108,6 +108,12 @@ public class DocumentAccess {
         if (!scope.hasPermission(permission)) {
             throw new ApiException(403, "FORBIDDEN", "没有执行此操作的权限");
         }
+    }
+
+    String table(String type) {
+        validate(type);
+        // SQL 使用注册表返回的固定键，值参数继续绑定。
+        return readers.keySet().stream().filter(type::equals).findFirst().orElseThrow();
     }
 
     private void validate(String type) {

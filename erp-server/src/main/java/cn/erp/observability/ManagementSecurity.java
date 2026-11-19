@@ -22,7 +22,6 @@ class ManagementSecurity {
             @Value("${ERP_METRICS_TOKEN:}") String token) throws Exception {
         byte[] expected = ("Bearer " + token).getBytes(StandardCharsets.UTF_8);
         http.securityMatcher("/actuator/prometheus")
-                .csrf(csrf -> csrf.disable())
                 .requestCache(cache -> cache.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .securityContext(context -> context.disable())

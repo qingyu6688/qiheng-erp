@@ -31,7 +31,7 @@ public class DatabaseMigrationConfiguration {
             }
             var current = flyway.info().current();
             if (current != null && current.getVersion().compareTo(
-                    MigrationVersion.fromVersion(Integer.toString(EnterpriseUpgradeMode.SCHEMA_VERSION))) < 0)
+                    MigrationVersion.fromVersion(Integer.toString(EnterpriseUpgradeMode.MINIMUM_STARTUP_SCHEMA))) < 0)
                 throw new IllegalStateException("旧 ERP 库必须使用停写升级工具核验后再启动 2.0");
             flyway.migrate();
             var jdbc = new JdbcTemplate(flyway.getConfiguration().getDataSource());

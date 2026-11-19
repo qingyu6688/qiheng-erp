@@ -25,13 +25,15 @@ class ReversalSourceQueries {
         if(!scope.hasPermission(ManufacturingReversalPort.viewPermission(sourceType))) {throw new cn.erp.shared.ApiException(403,"FORBIDDEN","没有查看来源单据的权限");}
         boolean warehouse=Set.of("shipment","sales_return","goods_receipt","purchase_return","stock_adjustment","stock_misc_doc").contains(sourceType);
         if(warehouse&&!scope.allWarehouses()&&scope.warehouseIds().isEmpty()) {return page(List.of(),limit);}
-        String number=NUMBERS.get(sourceType),states=sourceType.equals("shipment")?"'posted','signed','signed_with_diff'":Set.of("receipt","payment","account_transfer").contains(sourceType)?"'confirmed'":"'posted'";
+        String table=NUMBERS.keySet().stream().filter(sourceType::equals).findFirst().orElseThrow();
+        String number=NUMBERS.get(table),states=sourceType.equals("shipment")?"'posted','signed','signed_with_diff'":Set.of("receipt","payment","account_transfer").contains(sourceType)?"'confirmed'":"'posted'";
         var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),before,keyword));
         String filter=cn.erp.shared.OrgOwnership.filter(scope,"d");
         if(ManufacturingReversalPort.supports(sourceType)) {filter+=" AND "+ManufacturingScope.stockCondition(scope,"d");}
         if(warehouse&&!scope.allWarehouses()) {filter+=" AND d.warehouse_id IN ("+String.join(",",Collections.nCopies(scope.warehouseIds().size(),"?"))+")";args.addAll(scope.warehouseIds());}
+        args.add(sourceType);
         args.add(limit+1);
-        return page(jdbc.queryForList("SELECT d.id,d."+number+" document_no,d.business_date,d.status FROM "+sourceType+" d WHERE d.tenant_id=? AND d.company_id=? AND d.id<? AND LOCATE(?,d."+number+")>0 AND d.status IN ("+states+")"+filter+
-            " AND NOT EXISTS(SELECT 1 FROM document_reversal r WHERE r.tenant_id=d.tenant_id AND r.company_id=d.company_id AND r.source_type='"+sourceType+"' AND r.source_id=d.id AND r.status<>'rejected') ORDER BY d.id DESC LIMIT ?",args.toArray()),limit);
+        return page(jdbc.queryForList("SELECT d.id,d."+number+" document_no,d.business_date,d.status FROM "+table+" d WHERE d.tenant_id=? AND d.company_id=? AND d.id<? AND LOCATE(?,d."+number+")>0 AND d.status IN ("+states+")"+filter+
+            " AND NOT EXISTS(SELECT 1 FROM document_reversal r WHERE r.tenant_id=d.tenant_id AND r.company_id=d.company_id AND r.source_type=? AND r.source_id=d.id AND r.status<>'rejected') ORDER BY d.id DESC LIMIT ?",args.toArray()),limit);
     }
 }

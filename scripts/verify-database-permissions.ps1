@@ -28,10 +28,10 @@ try {
     $sql | & $mysql @connection ('--user='+$settings.DB_USER) 2> (Join-Path $output 'setup.err.log') | Out-Null
     if($LASTEXITCODE -ne 0){throw '隔离权限角色创建失败。'}
     $env:MYSQL_PWD=$runtimeSecret
-    'START TRANSACTION; INSERT INTO audit_log(id,tenant_id,action,object_type) VALUES(850000000000000001,850000000000000001,''permission.check'',''test''); SELECT COUNT(*) FROM audit_log WHERE id=850000000000000001; ROLLBACK;' | & $mysql @connection ('--user='+$runtime) ('--database='+$Database) 2> (Join-Path $output 'runtime.err.log') | Out-Null
+    'START TRANSACTION; INSERT INTO audit_log(id,tenant_id,action,object_type) VALUES(850000000000000001,850000000000000001,''permission.check'',''test''); SELECT COUNT(*) FROM audit_log WHERE id=850000000000000001; SELECT row_hash FROM audit_seal_source WHERE audit_id=850000000000000001; INSERT INTO audit_seal(tenant_id,batch_no,row_count,previous_hash,batch_hash) VALUES(850000000000000001,1,1,REPEAT(0,64),REPEAT(0,64)); INSERT INTO audit_seal_member(tenant_id,audit_id,batch_no) VALUES(850000000000000001,850000000000000001,1); ROLLBACK;' | & $mysql @connection ('--user='+$runtime) ('--database='+$Database) 2> (Join-Path $output 'runtime.err.log') | Out-Null
     if($LASTEXITCODE -ne 0){throw '运行账号的合法只追加写入失败。'}
     $blocked=@()
-    foreach($probe in @(@('ddl','CREATE TABLE runtime_forbidden_probe(id INT);'),@('audit_update','UPDATE audit_log SET action=action WHERE id=0;'),@('journal_update','UPDATE journal SET id=id WHERE id=0;'),@('journal_delete','DELETE FROM journal WHERE id=0;'),@('permission_write','UPDATE sys_permission SET name=name WHERE id=0;'))){
+    foreach($probe in @(@('ddl','CREATE TABLE runtime_forbidden_probe(id INT);'),@('audit_update','UPDATE audit_log SET action=action WHERE id=0;'),@('seal_update','UPDATE audit_seal SET row_count=0 WHERE tenant_id=0;'),@('seal_delete','DELETE FROM audit_seal WHERE tenant_id=0;'),@('seal_member_update','UPDATE audit_seal_member SET batch_no=2 WHERE tenant_id=0;'),@('seal_member_delete','DELETE FROM audit_seal_member WHERE tenant_id=0;'),@('journal_update','UPDATE journal SET id=id WHERE id=0;'),@('journal_delete','DELETE FROM journal WHERE id=0;'),@('permission_write','UPDATE sys_permission SET name=name WHERE id=0;'))){
         $probe[1] | & $mysql @connection ('--user='+$runtime) ('--database='+$Database) 2> (Join-Path $output ($probe[0]+'.err.log')) | Out-Null
         if($LASTEXITCODE -eq 0){throw ('运行账号越权检查未阻止：'+$probe[0])};$blocked+=$probe[0]
     }
