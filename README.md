@@ -31,7 +31,7 @@
 | **报表、打印与预警** | 查看购销、库存、资金、财务与生产指标，支持后台导入导出、自定义打印模板和批量 PDF。按配置扫描逾期应收、库存异常等业务预警。 |
 | **AI 助手（可选）** | 在授权范围内查业务数据、检索内部知识并显示来源，可以解释发货或关账被阻挡的原因。业务查询工具采用只读授权。 |
 
-[用户使用手册](docs/用户使用手册.md) · [业务规则](docs/业务规则.md) · [分模块详细设计](docs/详细设计/README.md)
+[用户使用手册](docs/产品/用户使用手册.md) · [业务规则](docs/产品/业务规则.md) · [分模块详细设计](docs/设计/详细设计/README.md)
 
 ## 业务流程
 
@@ -50,22 +50,22 @@ Nginx 提供 HTTPS 入口、静态资源与 API 代理。ERP 采用模块化单�
 | **管理端与门户** | Vue 3、TypeScript、Vite 和 Element Plus 构建管理端。Vue Router、Pinia 和 Axios 负责路由、状态与 API 调用，ECharts 展示工作台和经营图表。 | [`erp-web/`](erp-web/) |
 | **移动端** | uni-app、Vue 3、TypeScript 和 Wot Design Uni 提供 PDA 作业、扫码与移动审批界面，支持 H5 与 Android PDA 构建。 | [`erp-mobile/`](erp-mobile/) |
 | **业务 API 与后台任务** | Java 21、Spring Boot 4.1.2 和 Maven。对外提供 REST API，Worker 处理导入导出、通知、定时任务及通过 Outbox 投递的异步业务事件。 | [`erp-server/`](erp-server/) |
-| **流程引擎** | Flowable 8.0.0 执行审批流程，前端通过 bpmn-js 设计 BPMN 流程，FormCreate 渲染动态审批表单。业务单据保留自己的状态规则和服务端权限校验。 | [工作流设计](docs/详细设计/02-工作流.md) |
-| **数据库与会话** | MySQL 8.0.46 保存单据、库存流水和财务账本。Flyway 管理数据库迁移。Redis 支持会话、缓存及跨实例 WebSocket 事件广播。 | [数据库设计](docs/数据库设计.md) |
-| **文件与集成** | 私有附件、导出与 PDF 支持 S3 兼容对象仓。开放接口和 Webhook 使用签名，后台任务记录执行状态。 | [接口设计](docs/接口设计.md) |
-| **AI 服务（可选）** | 独立服务使用 Spring AI 2.0.1 做模型接入、用 Apache Tika 解析文档，提供知识检索与 Wiki。可按需使用 OpenSearch，业务查询调用 ERP 的只读工具。 | [`erp-ai/`](erp-ai/) · [AI 设计](docs/详细设计/04-AI.md) |
-| **部署与可观测性** | 提供 Nginx、Docker Compose、systemd 和生产配置模板。可选监控组件包含 Prometheus、OpenTelemetry、Grafana、Tempo 和 Loki。 | [`deploy/`](deploy/) · [运维手册](docs/运维手册.md) |
-| **测试与交付** | 后端使用 JUnit，前端与移动端使用 Vitest，Playwright 验证真实浏览器业务流程。GitHub Actions 执行检查、构建及回归。 | [测试报告](docs/测试报告.md) · [构建与运维脚本](scripts/) |
+| **流程引擎** | Flowable 8.0.0 执行审批流程，前端通过 bpmn-js 设计 BPMN 流程，FormCreate 渲染动态审批表单。业务单据保留自己的状态规则和服务端权限校验。 | [工作流设计](docs/设计/详细设计/02-工作流.md) |
+| **数据库与会话** | MySQL 8.0.46 保存单据、库存流水和财务账本。Flyway 管理数据库迁移。Redis 支持会话、缓存及跨实例 WebSocket 事件广播。 | [数据库设计](docs/设计/数据库设计.md) |
+| **文件与集成** | 私有附件、导出与 PDF 支持 S3 兼容对象仓。开放接口和 Webhook 使用签名，后台任务记录执行状态。 | [接口设计](docs/设计/接口设计.md) |
+| **AI 服务（可选）** | 独立服务使用 Spring AI 2.0.1 做模型接入、用 Apache Tika 解析文档，提供知识检索与 Wiki。可按需使用 OpenSearch，业务查询调用 ERP 的只读工具。 | [`erp-ai/`](erp-ai/) · [AI 设计](docs/设计/详细设计/04-AI.md) |
+| **部署与可观测性** | 提供 Nginx、Docker Compose、systemd 和生产配置模板。可选监控组件包含 Prometheus、OpenTelemetry、Grafana、Tempo 和 Loki。 | [`deploy/`](deploy/) · [运维手册](docs/运维/运维手册.md) |
+| **测试与交付** | 后端使用 JUnit，前端与移动端使用 Vitest，Playwright 验证真实浏览器业务流程。GitHub Actions 执行检查、构建及回归。 | [测试报告](docs/测试/测试报告.md) · [构建与运维脚本](scripts/) |
 
 ## 快速开始
 
 ### 安装 2.0 候选版
 
-从 [2.0.0-rc.1 发布页](https://github.com/qingyu6688/qiheng-erp/releases/tag/v2.0.0-rc.1) 下载 2.0 部署包和 SHA-256 校验文件。校验并解压后，按 [部署说明](docs/部署说明.md) 配置 JDK 21、MySQL 8.0.46、Redis 及入口代理，再初始化企业和管理员。
+从 [2.0.0-rc.1 发布页](https://github.com/qingyu6688/qiheng-erp/releases/tag/v2.0.0-rc.1) 下载 2.0 部署包和 SHA-256 校验文件。校验并解压后，按 [部署说明](docs/运维/部署说明.md) 配置 JDK 21、MySQL 8.0.46、Redis 及入口代理，再初始化企业和管理员。
 
 ### 在 Windows 从源码运行
 
-准备 Git、PowerShell 7、JDK 21、Maven、Node.js 24、npm 和 Redis，启动 MySQL 8.0.46。首次安装请按 [本机环境说明](docs/环境检查.md) 准备建库与授权账号，在当前终端设置 `DB_USERNAME` 和 `DB_PASSWORD`。以下命令在 PowerShell 中运行，JDK 和 Redis 路径请按本机安装位置填写。
+准备 Git、PowerShell 7、JDK 21、Maven、Node.js 24、npm 和 Redis，启动 MySQL 8.0.46。首次安装请按 [本机环境说明](docs/运维/环境检查.md) 准备建库与授权账号，在当前终端设置 `DB_USERNAME` 和 `DB_PASSWORD`。以下命令在 PowerShell 中运行，JDK 和 Redis 路径请按本机安装位置填写。
 
 ```powershell
 git clone --branch v2.0.0-rc.1 --single-branch https://github.com/qingyu6688/qiheng-erp.git
@@ -84,18 +84,20 @@ npm --prefix erp-web ci
 4. **完成一笔销售**。新建并审批销售订单，从授权仓发货并登记签收。财务确认收到款项后，将收款与对应应收核销。回到订单详情核对履约、已核销和未清金额。
 5. **按岗位核对结果**。仓库人员查看库存及收发记录，财务人员查看应收应付和资金报表。启用仓储作业后，可用 `/mobile/` 领取任务并扫码。
 
-[完整操作手册](docs/用户使用手册.md) · [移动端操作](erp-mobile/移动端使用说明.md)
+[完整操作手册](docs/产品/用户使用手册.md) · [移动端操作](erp-mobile/移动端使用说明.md)
 
 ## 项目文档
 
+[文档目录](docs/README.md)
+
 | 想了解什么 | 入口 |
 | --- | --- |
-| 日常操作、业务口径和移动作业 | [用户使用手册](docs/用户使用手册.md) · [业务规则](docs/业务规则.md) · [移动端说明](erp-mobile/移动端使用说明.md) |
-| 安装与运维 | [部署说明](docs/部署说明.md) · [运维手册](docs/运维手册.md) |
-| 二次开发 | [详细设计](docs/详细设计/README.md) · [接口设计](docs/接口设计.md) · [数据库设计](docs/数据库设计.md) |
+| 日常操作、业务口径和移动作业 | [用户使用手册](docs/产品/用户使用手册.md) · [业务规则](docs/产品/业务规则.md) · [移动端说明](erp-mobile/移动端使用说明.md) |
+| 安装与运维 | [部署说明](docs/运维/部署说明.md) · [运维手册](docs/运维/运维手册.md) |
+| 二次开发 | [详细设计](docs/设计/详细设计/README.md) · [接口设计](docs/设计/接口设计.md) · [数据库设计](docs/设计/数据库设计.md) |
 | 2.0 发布与验证 | [候选版发布说明](https://github.com/qingyu6688/qiheng-erp/releases/tag/v2.0.0-rc.1) · [构建与回归记录](https://github.com/qingyu6688/qiheng-erp/actions/runs/44252853580) · [更新日志](docs/更新日志.md) |
 
-项目代码采用 [AGPL-3.0-only](LICENSE)，第三方依赖按[各自的许可条款](docs/第三方依赖许可.md)分发。
+项目代码采用 [AGPL-3.0-only](LICENSE)，第三方依赖按[各自的许可条款](docs/产品/第三方依赖许可.md)分发。
 
 ## English
 
@@ -141,22 +143,22 @@ Nginx serves static assets over HTTPS and proxies API requests. The ERP is a mod
 | **Admin web and portal** | Vue 3, TypeScript, Vite, and Element Plus. Vue Router, Pinia, and Axios handle navigation, state, and API requests. ECharts powers dashboards. | [`erp-web/`](erp-web/) |
 | **Mobile** | uni-app, Vue 3, TypeScript, and Wot Design Uni power warehouse tasks, scanning, and mobile approvals. Builds target H5 and Android PDA assets. | [`erp-mobile/`](erp-mobile/) |
 | **Business API and Worker** | Java 21, Spring Boot 4.1.2, and Maven. The REST API handles business requests. Workers process imports, exports, notifications, scheduled jobs, and asynchronous events delivered through the Outbox. | [`erp-server/`](erp-server/) |
-| **Workflow engine** | Flowable 8.0.0 executes approvals. The UI uses bpmn-js for BPMN editing and FormCreate for dynamic forms. Business documents retain their own state rules and server-side access checks. | [Workflow design](docs/详细设计/02-工作流.md) |
-| **Database and sessions** | MySQL 8.0.46 stores documents, inventory movements, and ledgers. Flyway manages schema changes. Redis supports sessions, caching, and cross-instance WebSocket broadcast. | [Database design](docs/数据库设计.md) |
-| **Files and integrations** | Private attachments, exports, and PDFs support S3-compatible object storage. Open APIs and webhooks use signatures, and background jobs record execution status. | [API design](docs/接口设计.md) |
-| **AI service (optional)** | A separate service uses Spring AI 2.0.1 for model integration and Apache Tika to parse documents. It supports retrieval, Wiki, and optional OpenSearch. ERP queries use read-only tools. | [`erp-ai/`](erp-ai/) · [AI design](docs/详细设计/04-AI.md) |
-| **Deployment and observability** | Nginx, Docker Compose, systemd, and production configuration templates. Optional monitoring components include Prometheus, OpenTelemetry, Grafana, Tempo, and Loki. | [`deploy/`](deploy/) · [Operations manual](docs/运维手册.md) |
-| **Testing and delivery** | JUnit covers the backend, Vitest covers web and mobile code, and Playwright exercises browser workflows. GitHub Actions runs checks, builds, and regression tests. | [Test report](docs/测试报告.md) · [Build and operations scripts](scripts/) |
+| **Workflow engine** | Flowable 8.0.0 executes approvals. The UI uses bpmn-js for BPMN editing and FormCreate for dynamic forms. Business documents retain their own state rules and server-side access checks. | [Workflow design](docs/设计/详细设计/02-工作流.md) |
+| **Database and sessions** | MySQL 8.0.46 stores documents, inventory movements, and ledgers. Flyway manages schema changes. Redis supports sessions, caching, and cross-instance WebSocket broadcast. | [Database design](docs/设计/数据库设计.md) |
+| **Files and integrations** | Private attachments, exports, and PDFs support S3-compatible object storage. Open APIs and webhooks use signatures, and background jobs record execution status. | [API design](docs/设计/接口设计.md) |
+| **AI service (optional)** | A separate service uses Spring AI 2.0.1 for model integration and Apache Tika to parse documents. It supports retrieval, Wiki, and optional OpenSearch. ERP queries use read-only tools. | [`erp-ai/`](erp-ai/) · [AI design](docs/设计/详细设计/04-AI.md) |
+| **Deployment and observability** | Nginx, Docker Compose, systemd, and production configuration templates. Optional monitoring components include Prometheus, OpenTelemetry, Grafana, Tempo, and Loki. | [`deploy/`](deploy/) · [Operations manual](docs/运维/运维手册.md) |
+| **Testing and delivery** | JUnit covers the backend, Vitest covers web and mobile code, and Playwright exercises browser workflows. GitHub Actions runs checks, builds, and regression tests. | [Test report](docs/测试/测试报告.md) · [Build and operations scripts](scripts/) |
 
 ### Quick start
 
 #### Install the 2.0 release candidate
 
-Download the 2.0 deployment ZIP and its SHA-256 file from the [2.0.0-rc.1 release page](https://github.com/qingyu6688/qiheng-erp/releases/tag/v2.0.0-rc.1). Verify the archive before extracting it. Use the [deployment guide](docs/部署说明.md) to configure JDK 21, MySQL 8.0.46, Redis, and the reverse proxy, then initialize a tenant and administrator.
+Download the 2.0 deployment ZIP and its SHA-256 file from the [2.0.0-rc.1 release page](https://github.com/qingyu6688/qiheng-erp/releases/tag/v2.0.0-rc.1). Verify the archive before extracting it. Use the [deployment guide](docs/运维/部署说明.md) to configure JDK 21, MySQL 8.0.46, Redis, and the reverse proxy, then initialize a tenant and administrator.
 
 #### Run from source on Windows
 
-Install Git, PowerShell 7, JDK 21, Maven, Node.js 24, npm, and Redis, then start MySQL 8.0.46. For a first installation, follow the [environment guide](docs/环境检查.md) to prepare an account with database creation and grant privileges. Set `DB_USERNAME` and `DB_PASSWORD` in the current shell. Run the commands in PowerShell and substitute your JDK and Redis paths.
+Install Git, PowerShell 7, JDK 21, Maven, Node.js 24, npm, and Redis, then start MySQL 8.0.46. For a first installation, follow the [environment guide](docs/运维/环境检查.md) to prepare an account with database creation and grant privileges. Set `DB_USERNAME` and `DB_PASSWORD` in the current shell. Run the commands in PowerShell and substitute your JDK and Redis paths.
 
 ```powershell
 git clone --branch v2.0.0-rc.1 --single-branch https://github.com/qingyu6688/qiheng-erp.git
@@ -175,17 +177,19 @@ From the repository root, run `pwsh -File ./scripts/project.ps1 server` and `pws
 4. **Complete a sale.** Create and approve a sales order, ship from an authorized warehouse, and record delivery confirmation. After recording the customer receipt, allocate the funds against the receivable. Check fulfillment, allocations, and the outstanding balance on the order.
 5. **Check the results.** Review stock and movement history, receivables and payables, and cash activity. Where warehouse tasks are enabled, operators can claim and scan tasks at `/mobile/`.
 
-[Full user guide](docs/用户使用手册.md) · [Mobile guide](erp-mobile/移动端使用说明.md)
+[Full user guide](docs/产品/用户使用手册.md) · [Mobile guide](erp-mobile/移动端使用说明.md)
 
 ### Documentation
+
+[Documentation index](docs/README.md)
 
 The detailed guides are in Chinese.
 
 | Topic | Links |
 | --- | --- |
-| Daily operations | [User guide](docs/用户使用手册.md) · [Business rules](docs/业务规则.md) · [Mobile guide](erp-mobile/移动端使用说明.md) |
-| Deployment and operations | [Deployment guide](docs/部署说明.md) · [Operations manual](docs/运维手册.md) |
-| Development | [Technical design](docs/详细设计/README.md) · [API design](docs/接口设计.md) · [Database design](docs/数据库设计.md) |
+| Daily operations | [User guide](docs/产品/用户使用手册.md) · [Business rules](docs/产品/业务规则.md) · [Mobile guide](erp-mobile/移动端使用说明.md) |
+| Deployment and operations | [Deployment guide](docs/运维/部署说明.md) · [Operations manual](docs/运维/运维手册.md) |
+| Development | [Technical design](docs/设计/详细设计/README.md) · [API design](docs/设计/接口设计.md) · [Database design](docs/设计/数据库设计.md) |
 | 2.0 release and validation | [Release notes](https://github.com/qingyu6688/qiheng-erp/releases/tag/v2.0.0-rc.1) · [Build and regression results](https://github.com/qingyu6688/qiheng-erp/actions/runs/44252853580) · [Changelog](docs/更新日志.md) |
 
-Qiheng ERP is licensed under [AGPL-3.0-only](LICENSE). Third-party dependencies are distributed under [their respective licenses](docs/第三方依赖许可.md).
+Qiheng ERP is licensed under [AGPL-3.0-only](LICENSE). Third-party dependencies are distributed under [their respective licenses](docs/产品/第三方依赖许可.md).
