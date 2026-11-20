@@ -114,10 +114,18 @@
   var tabs = el('nav', { 'class': 'tabsbar', 'aria-label': '已打开的页面' });
   tabsSpec.split(';').forEach(function (spec, index) {
     var parts = spec.split('|');
-    var a = el('a', { href: parts[1] || '#' });
+    var href = /^[a-z0-9-]+\.html$/.test(parts[1]) ? parts[1] : '#';
+    var a = el('a', { href: href });
     var flags = (parts[2] || '').split(',');
     if (flags.indexOf('current') >= 0) { a.setAttribute('aria-current', 'page'); }
-    a.innerHTML = '<span' + (flags.indexOf('unsaved') >= 0 ? ' class="unsaved" style="display:inline-flex;align-items:center;gap:6px"' : '') + '>' + parts[0] + '</span>' + (index > 0 ? '<span class="close" aria-label="关闭">✕</span>' : '');
+    var label = el('span');
+    label.textContent = parts[0];
+    if (flags.indexOf('unsaved') >= 0) {
+      label.className = 'unsaved';
+      label.style.cssText = 'display:inline-flex;align-items:center;gap:6px';
+    }
+    a.appendChild(label);
+    if (index > 0) { a.appendChild(el('span', { 'class': 'close', 'aria-label': '关闭' }, '✕')); }
     tabs.appendChild(a);
   });
   main.appendChild(tabs);
