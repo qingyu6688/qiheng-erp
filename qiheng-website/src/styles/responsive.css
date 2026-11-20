@@ -1,0 +1,88 @@
+/* 断点适配与减少动态效果 */
+/* 响应式 */
+@media (max-width: 1199px) {
+  .hero h1 { font-size: 56px; }
+  .float-card.f1 { left: -12px; }
+  .float-card.f2 { right: -12px; }
+  .g4 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .g3, .license { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .b-lg, .b-sm { grid-column: span 12; grid-row: auto; }
+  .arch, .feature-row, .ai-split, .faq-wrap { grid-template-columns: minmax(0, 1fr); }
+  .feature-row { gap: 40px; }
+  .feature-row.rev > :first-child { order: 0; }
+  .faq-wrap { gap: 32px; }
+  .faq-side { position: static; }
+  .sec-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sec-intro { grid-column: span 2; }
+  .pipeline { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .pipe-track { display: none; }
+  .doc { grid-template-columns: 220px minmax(0, 1fr); gap: 40px; }
+  .doc-toc { display: none; }
+  footer.site .cols { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 767px) {
+  :root { --panel-w: calc(100% - 24px); --r-panel: 24px; }
+  body { font-size: 15px; }
+  .wrap { padding: 0 16px; }
+  section.block { padding: 72px 0; }
+  .hero { padding: 128px 0 72px; }
+  .hero h1 { font-size: 38px; line-height: 1.22; letter-spacing: -.02em; }
+  .hero .sub { font-size: 16px; }
+  .hero .ctas .btn { flex: 1 1 140px; }
+  .announce { height: auto; min-height: 36px; padding: 6px 10px 6px 6px; font-size: 13px; line-height: 1.45; text-align: left; }
+  .shot-wrap { display: flex; flex-direction: column; }
+  .shot-wrap { margin-top: 48px; }
+  .bezel { padding: 6px; border-radius: 18px; }
+  .shot { border-radius: 13px; }
+  .shot .bar { height: 28px; }
+  .shot .bar span { display: none; }
+  .float-card { display: none; }
+  .float-card.f3 { display: flex; order: 2; align-self: center; position: relative; right: auto; bottom: auto; margin: -22px 16px 0; animation: none; }
+  .h2, .cta h2 { font-size: 28px; }
+  .lead { font-size: 16px; }
+  .head { margin-bottom: 40px; }
+  .tile, .trust-item, .sec-tile, .card { padding: 24px; }
+  .mini-row { grid-template-columns: 72px minmax(0, 1fr) 96px; font-size: 13px; }
+  .g2, .g3, .g4, .trust, .license, .sec-grid { grid-template-columns: minmax(0, 1fr); }
+  .sec-intro { grid-column: auto; padding: 0; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 28px; padding: 32px 8px; }
+  .stat { padding: 0 20px; }
+  .stat:nth-child(3) { border-left: 0; }
+  .stat .v { font-size: 36px; }
+  .flow { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 20px; }
+  .step { height: 34px; font-size: 14px; padding: 0 12px; border-radius: 10px; }
+  .layer { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .pipeline, .ai-cards { grid-template-columns: minmax(0, 1fr); }
+  .ai-card, .ai-card.wide { grid-column: auto; }
+  .ai-band { padding: 72px 0; }
+  .ai-band.page-top { padding: 64px 0 56px; margin-top: 16px; }
+  .page-top h1 { font-size: 36px; }
+  .ai-split { margin-top: 56px; gap: 36px; }
+  .ai-cards { margin-top: 56px; }
+  .feature-row h3 { font-size: 26px; }
+  .wiki-mock .top .meta { margin-left: 0; width: 100%; }
+  .spec td:first-child { white-space: normal; overflow-wrap: anywhere; }
+  .cta { padding: 56px 20px; }
+    footer.site .cols { grid-template-columns: repeat(2, 1fr); }
+  .doc { grid-template-columns: minmax(0, 1fr); padding-top: 24px; }
+  .doc-side { display: none; }
+  .doc-main h1 { font-size: 32px; }
+
+  .demo-card { padding: 36px 24px; border-radius: 24px; }
+}
+
+/* 大菜单深链到模块卡片时短暂高亮 */
+.module:target, .module.is-target { animation: targetFlash 2.4s var(--ease); }
+@keyframes targetFlash { 0%, 40% { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(22, 93, 255, .16), var(--shadow); } }
+/* 文档侧栏里指向 GitHub 的链接加外链标记 */
+.doc-side a[href^="http"]::after { content: "↗"; margin-left: 4px; font-size: 12px; color: var(--text-3); }
+
+/* 用户开启“减少动态效果”时关闭所有动画和入场效果 */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .js [data-reveal], .js .hero [data-in], .js .chat[data-reveal] .msg { opacity: 1 !important; transform: none !important; }
+  .js [data-reveal] .bar-track i { transform: scaleX(var(--w)) !important; }
+  .js [data-reveal] .diff-add { background-size: 100% 100% !important; }
+  .seg .seg-thumb::after { display: none; }
+}

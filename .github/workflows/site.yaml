@@ -1,0 +1,78 @@
+name: 官网检查与构建
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'qiheng-website/**'
+      - '.github/workflows/site.yaml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'qiheng-website/**'
+      - '.github/workflows/site.yaml'
+  workflow_dispatch:
+permissions:
+  contents: read
+# 同一时间只发布一次；正在进行的发布不打断，避免 Pages 停在半成品
+concurrency:
+  group: site-pages-${{ github.ref }}
+  cancel-in-progress: false
+defaults:
+  run:
+    working-directory: qiheng-website
+jobs:
+  build:
+    name: 检查并构建官网
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+      - name: 准备 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: npm
+          cache-dependency-path: qiheng-website/package-lock.json
+      - name: 安装依赖
+        run: npm ci
+      - name: 代码检查
+        run: npm run lint
+      - name: 单元测试
+        run: npm test
+      - name: 类型检查并预渲染
+        run: npm run build
+        env:
+          # 默认连接已上线的只读演示，可用仓库变量覆盖。
+          VITE_DEMO_URL: ${{ vars.VITE_DEMO_URL || 'https://qiheng.site/experience/' }}
+          VITE_DEMO_TENANT: ${{ vars.VITE_DEMO_TENANT }}
+          VITE_DEMO_NOTE: ${{ vars.VITE_DEMO_NOTE || '只读演示，无需登录。提供采购、销售、库存及资金报表；不含 AI、生产与系统管理。' }}
+          # 绑定自有域名后把变量 SITE_BASE 设为 /
+          SITE_BASE: ${{ vars.SITE_BASE || '/qiheng-erp/' }}
+      - name: 保存官网构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: qiheng-website
+          path: qiheng-website/dist
+      - name: 上传 Pages 页面产物
+        if: github.event_name != 'pull_request' && vars.ENABLE_GITHUB_PAGES == 'true'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: qiheng-website/dist
+  deploy:
+    name: 发布到 GitHub Pages
+    # 自建服务器已提供官网；只有明确启用 Pages 的仓库才额外发布。
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.ENABLE_GITHUB_PAGES == 'true'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 发布
+        id: deployment
+        uses: actions/deploy-pages@v5
