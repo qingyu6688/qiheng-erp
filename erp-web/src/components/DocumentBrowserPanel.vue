@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref, shallowRef, watch } from 'vue'
+import { computed, inject, onBeforeUnmount, reactive, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Download, Search } from '@element-plus/icons-vue'
 import { allRecords } from '../api/admin'
@@ -25,6 +25,7 @@ import StatusTag from './StatusTag.vue'
 import TableToolbar from './TableToolbar.vue'
 
 const props = defineProps<{ kind: string }>()
+const readOnlyPreview = inject('erp.readOnlyPreview', false)
 const route = useRoute(),
   router = useRouter(),
   session = useSessionStore()
@@ -100,6 +101,7 @@ const rows = ref<SalesDocument[]>([]),
   counts = ref<Record<string, number>>({}),
   next = ref<string | null>(null)
 const batchKind = computed(() => {
+  if (readOnlyPreview) return undefined
   const kind = props.kind
   return kind === 'sales-orders' || kind === 'purchase-orders' || kind === 'receipts' ? kind : undefined
 })

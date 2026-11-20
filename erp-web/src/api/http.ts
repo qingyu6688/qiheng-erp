@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AxiosRequestConfig } from 'axios'
+import type { AxiosAdapter, AxiosRequestConfig } from 'axios'
 import type { ApiErrorBody, ApiResponse } from '../types/api'
 
 export class ApiError extends Error {
@@ -11,6 +11,11 @@ export class ApiError extends Error {
   ) {
     super(message)
   }
+}
+
+/** 独立演示入口使用内存数据源，正式入口仍使用默认 HTTP 传输。 */
+export function installRequestAdapter(adapter: AxiosAdapter): void {
+  client.defaults.adapter = adapter
 }
 
 const client = axios.create({

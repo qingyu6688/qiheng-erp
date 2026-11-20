@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>部门与岗位 · v2</title>
+<link rel="stylesheet" href="assets/v2.css">
+<style>
+  .split { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; }
+  .tree-head { display: flex; gap: 8px; padding: 12px; border-bottom: 1px solid var(--erp-border-1); }
+  .tree-wrap { padding: 8px; }
+  .switch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--erp-text-2); }
+  @media (max-width: 991px) { .split { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body data-module="settings" data-menu="departments" data-tabs="工作台|01-workbench.html;部门与岗位|06-master-data.html|current">
+<main id="page">
+  <header class="page-head">
+    <div class="line">
+      <div><h1>部门与岗位</h1><p class="meta">维护各公司的部门树、岗位和人员任职，部门决定数据范围</p></div>
+      <div class="actions"><button class="btn" type="button">岗位管理</button><button class="btn btn-primary" type="button">新建部门</button></div>
+    </div>
+  </header>
+
+  <div class="split">
+    <section class="card" aria-label="部门树">
+      <div class="tree-head"><input class="input" placeholder="搜索部门" aria-label="搜索部门"></div>
+      <div class="tree-wrap">
+        <ul class="tree">
+          <li><a href="#">华东商贸有限公司 <span class="count">48</span></a>
+            <ul>
+              <li><a href="#">总经办 <span class="count">3</span></a></li>
+              <li><a href="#" aria-current="true">销售部 <span class="count">18</span></a>
+                <ul>
+                  <li><a href="#">华东区 <span class="count">10</span></a></li>
+                  <li><a href="#">华南区 <span class="count">6</span></a></li>
+                </ul>
+              </li>
+              <li><a href="#">采购部 <span class="count">5</span></a></li>
+              <li><a href="#">仓储部 <span class="count">12</span></a></li>
+              <li><a href="#">财务部 <span class="count">6</span></a></li>
+              <li><a href="#" style="color:var(--erp-text-4)">市场部（已停用） <span class="count">0</span></a></li>
+            </ul>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>销售部</h2><span class="tag tag-success">启用</span><span class="small muted">负责人 赵敏 · 编码 D-SALES · 上级 华东商贸有限公司</span>
+        <div class="actions"><button class="btn btn-sm" type="button">编辑部门</button><button class="btn btn-sm" type="button">移动</button></div>
+      </div>
+      <div class="card-head" style="border-bottom:0;min-height:48px">
+        <input class="input" placeholder="搜索姓名、账号" aria-label="搜索成员" style="width:220px">
+        <label class="switch"><input class="chk" type="checkbox" checked> 包含下级部门</label>
+        <div class="actions"><button class="btn btn-sm" type="button">添加成员</button></div>
+      </div>
+      <div class="table-wrap">
+        <table class="t" style="min-width:760px">
+          <thead><tr><th>姓名</th><th>账号</th><th>所在部门</th><th>岗位</th><th>角色</th><th>状态</th><th><span class="sr-only">操作</span></th></tr></thead>
+          <tbody>
+            <tr><td>赵敏 <span class="tag tag-info">负责人</span></td><td class="tnum">zhaomin</td><td>销售部（主）</td><td>销售经理</td><td>销售经理</td><td><span class="tag tag-success dot">正常</span></td><td><button class="btn btn-text" type="button">编辑</button></td></tr>
+            <tr><td>李娜</td><td class="tnum">lina</td><td>华东区（主）</td><td>销售代表</td><td>销售</td><td><span class="tag tag-success dot">正常</span></td><td><button class="btn btn-text" type="button">编辑</button></td></tr>
+            <tr><td>王涛</td><td class="tnum">wangtao</td><td>华南区（主）· 华东区</td><td>销售代表</td><td>销售</td><td><span class="tag tag-warning dot">需修改密码</span></td><td><button class="btn btn-text" type="button">编辑</button></td></tr>
+            <tr><td>孙悦</td><td class="tnum">sunyue</td><td>华东区（主）</td><td>销售助理</td><td>销售助理</td><td><span class="tag tag-danger dot">已锁定</span></td><td><button class="btn btn-text" type="button">解锁</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="pager"><span class="info">共 18 人</span><button class="pg" type="button" aria-label="上一页" disabled>‹</button><button class="pg" type="button" aria-current="page">1</button><button class="pg" type="button">2</button><button class="pg" type="button" aria-label="下一页">›</button></div>
+    </section>
+  </div>
+
+  <aside class="spec-note"><strong>设计说明</strong><ul>
+    <li>主从资料模板（规范第 5.5 节），部门、商品分类、库区库位、科目都用这个结构。左栏 280px 可拖动调整；移动部门用“移动”操作弹窗选择新上级，不用拖拽，避免误操作。</li>
+    <li>“包含下级部门”开关与数据范围中的“本部门及下级”语义一致。</li>
+    <li>状态标签带圆点，颜色与文字同时表达；锁定用户直接显示“解锁”。</li>
+  </ul></aside>
+</main>
+<script src="assets/shell.js"></script>
+</body>
+</html>

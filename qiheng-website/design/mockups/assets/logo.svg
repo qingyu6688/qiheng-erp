@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="20 22 1212 1212" role="img" aria-label="柒衡 ERP">
+  <defs>
+    <linearGradient id="qh-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a68ff"/>
+      <stop offset="1" stop-color="#0a4ff0"/>
+    </linearGradient>
+  </defs>
+  <rect x="20" y="22" width="1212" height="1212" rx="250" fill="url(#qh-bg)"/>
+  <g fill="#fff" stroke="#fff" stroke-width="14" stroke-linejoin="round">
+    <!-- 数字 7，竖笔落进纸箱 -->
+    <path d="M330 282H950L727 664L628 709L530 668L676 430H260Z"/>
+    <!-- 左侧翻开的箱盖 -->
+    <path d="M322 610L502 580L488 606L392 630L604 724L534 806L250 714Z"/>
+    <!-- 右侧翻开的箱盖 -->
+    <path d="M932 610L802 594L812 614L862 630L652 724L722 806L1004 714Z"/>
+    <!-- 箱体左右两面 -->
+    <path d="M340 776L540 846L606 792V1022L352 934L340 914Z"/>
+    <path d="M914 776L716 846L650 792V1022L902 934L914 914Z"/>
+  </g>
+</svg>

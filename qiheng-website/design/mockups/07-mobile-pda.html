@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDA 上架作业 · v2</title>
+<link rel="stylesheet" href="assets/v2.css">
+<style>
+  body { padding: 24px 16px; }
+  h1.page { font-size: 20px; line-height: 28px; font-weight: 600; margin-bottom: 4px; }
+  .phones { display: flex; gap: 32px; flex-wrap: wrap; margin-top: 16px; }
+  .phone { width: 360px; max-width: 100%; height: 720px; border: 8px solid #1d2129; border-radius: 28px; background: var(--erp-fill-2); overflow: hidden; display: flex; flex-direction: column; font-size: 16px; line-height: 24px; }
+  .bar { height: 48px; background: var(--erp-primary-6); color: #fff; display: flex; align-items: center; gap: 12px; padding: 0 16px; font-size: 17px; font-weight: 500; }
+  .bar .right { margin-left: auto; font-size: 14px; font-weight: 400; opacity: .9; }
+  .m-body { flex: 1; padding: 12px; display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+  .scan { display: flex; align-items: center; gap: 8px; height: 56px; padding: 0 14px; border: 2px solid var(--erp-primary-6); border-radius: var(--erp-radius-lg); background: #fff; color: var(--erp-text-3); }
+  .scan svg { width: 24px; height: 24px; color: var(--erp-primary-6); }
+  .m-card { background: #fff; border-radius: var(--erp-radius-lg); padding: 14px 16px; }
+  .m-card .k { font-size: 13px; color: var(--erp-text-3); }
+  .m-card .v { font-size: 18px; font-weight: 600; }
+  .loc { font-size: 28px; line-height: 36px; font-weight: 700; letter-spacing: 1px; color: var(--erp-primary-7); font-variant-numeric: tabular-nums; }
+  .step-hint { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--erp-text-2); }
+  .step-hint b { width: 24px; height: 24px; border-radius: 50%; background: var(--erp-primary-6); color: #fff; display: grid; place-items: center; font-size: 13px; }
+  .step-hint.done b { background: var(--erp-success-bright); }
+  .qty { display: grid; grid-template-columns: 56px 1fr 56px; gap: 8px; }
+  .qty input { min-width: 0; width: 100%; }
+  .qty button, .qty input { height: 56px; border: 1px solid var(--erp-border-2); border-radius: var(--erp-radius-lg); background: #fff; font-size: 22px; text-align: center; }
+  .m-foot { padding: 12px; background: #fff; border-top: 1px solid var(--erp-border-1); display: flex; gap: 12px; }
+  .m-foot .btn { height: 48px; flex: 1; font-size: 17px; border-radius: var(--erp-radius-lg); }
+  .result { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; }
+  .result .big { width: 96px; height: 96px; border-radius: 50%; background: var(--erp-success-bg); display: grid; place-items: center; }
+  .result .big svg { width: 56px; height: 56px; stroke: var(--erp-success-text); stroke-width: 2.4; fill: none; }
+  .result h2 { font-size: 22px; line-height: 30px; }
+</style>
+</head>
+<body>
+  <h1 class="page">移动端 PDA：上架作业</h1>
+  <p class="muted">对应 <code>erp-mobile/src/pages/putaway/</code>（规范第 9 节）。左：扫描阶段；右：确认成功反馈。</p>
+  <div class="phones">
+    <section class="phone" aria-label="上架作业：扫描阶段">
+      <div class="bar"><span>‹</span><span>上架 PA-20261117-0031</span><span class="right">2 / 5 行</span></div>
+      <div class="m-body">
+        <div class="scan" role="textbox" aria-label="扫码输入"><svg class="i" viewBox="0 0 24 24"><path d="M3 7V4h3M21 7V4h-3M3 17v3h3M21 17v3h-3M7 8v8M10 8v8M13 8v8M17 8v8"/></svg>请扫描库位码</div>
+        <div class="m-card">
+          <div class="k">推荐库位</div>
+          <div class="loc">A-01-02-03</div>
+          <div class="small muted">存储区 A · 同批次已有 16 件 · 剩余容量 64</div>
+        </div>
+        <div class="m-card">
+          <div class="v">SKU-A 保温杯 500ml 银色</div>
+          <div class="small muted">批次 B20261117 · 到期 2028-11-16</div>
+          <div style="display:flex;justify-content:space-between;margin-top:8px"><span class="k">待上架</span><span class="v tnum">24 <span class="small muted">/ 40 件</span></span></div>
+        </div>
+        <div class="step-hint done"><b>✓</b>已扫商品条码</div>
+        <div class="step-hint"><b>2</b>扫描库位码确认放置位置</div>
+        <div class="qty" aria-label="上架数量"><button type="button" aria-label="减少">−</button><input value="24" aria-label="数量" inputmode="numeric"><button type="button" aria-label="增加">+</button></div>
+      </div>
+      <div class="m-foot"><button class="btn" type="button">换库位</button><button class="btn btn-primary" type="button">确认上架</button></div>
+    </section>
+
+    <section class="phone" aria-label="上架作业：确认成功">
+      <div class="bar"><span>‹</span><span>上架 PA-20261117-0031</span><span class="right">3 / 5 行</span></div>
+      <div class="m-body">
+        <div class="result" role="status">
+          <div class="big"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg></div>
+          <h2>上架成功</h2>
+          <p class="muted">SKU-A × 24 件 → A-01-02-03</p>
+          <p class="small muted">已播放成功提示音并震动一次</p>
+        </div>
+        <div class="m-card"><div class="k">下一行</div><div class="v">SKU-C 电热水壶 1.7L</div><div class="small muted">推荐库位 B-02-01-01 · 待上架 8 台</div></div>
+      </div>
+      <div class="m-foot"><button class="btn" type="button">返回列表</button><button class="btn btn-primary" type="button">继续下一行</button></div>
+    </section>
+  </div>
+
+  <aside class="spec-note" style="margin-top:24px;max-width:752px"><strong>设计说明</strong><ul>
+    <li>组件库 wot-design-uni，主色与管理端一致；触控目标 ≥ 48px，正文 16px，扫码框 56px 并始终获得焦点（PDA 键盘模拟扫码）。</li>
+    <li>每屏只显示当前步骤需要的信息；推荐库位用 28px 大字，戴手套、远距离也能看清。</li>
+    <li>成功、失败分别用不同提示音和震动，失败时整屏红色提示并显示原因（如“库位不在本仓库”）。</li>
+    <li>网络中断时保留输入，恢复后用同一个幂等键重新提交。</li>
+  </ul></aside>
+</body>
+</html>

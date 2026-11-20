@@ -1,0 +1,9 @@
+# 搜索引擎只读取域名根目录的 robots.txt。
+# 部署在 qingyu6688.github.io/qiheng-erp/ 时这份文件不会生效（演示页靠页面内的 noindex 排除），
+# 绑定自有域名后放在站点根目录才起作用，届时把 Sitemap 改成新域名。
+User-agent: *
+Allow: /
+Disallow: /demo/
+Disallow: /404/
+
+Sitemap: https://qingyu6688.github.io/qiheng-erp/sitemap.xml

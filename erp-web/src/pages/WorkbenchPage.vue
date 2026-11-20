@@ -42,6 +42,10 @@ const shortcutIcons = new Map([
   ['/accounting-periods', Calendar],
 ])
 const session = useSessionStore()
+const navigationAllowed = inject<(path: string) => boolean>('erp.navigationAllowed', () => true)
+function showTodos(): void {
+  document.getElementById('workbench-todos')?.scrollIntoView({ block: 'start' })
+}
 const recent = inject(recentWorkPages, ref([]))
 const value = ref<WorkbenchSummary>()
 const error = ref('')
@@ -52,7 +56,7 @@ const alertCount = ref<number>()
 const alertError = ref('')
 const scope = computed(() => workbenchScope(session.user?.id, session.companyId))
 const allowedShortcuts = computed(() =>
-  shortcuts.filter((item) => !item.permission || session.can(item.permission)),
+  shortcuts.filter((item) => navigationAllowed(item.path) && (!item.permission || session.can(item.permission))),
 )
 const customPaths = ref<string[]>()
 const editingShortcuts = ref(false)
@@ -223,7 +227,7 @@ onScopeDispose(() => {
       <p>
         {{ session.user?.displayName || session.user?.username || '您好' }}<span>·</span>{{ today }}
         <template v-if="value"
-          ><span>·</span><a href="#workbench-todos">待办 {{ total }} 项</a></template
+          ><span>·</span><a href="#workbench-todos" @click.prevent="showTodos">待办 {{ total }} 项</a></template
         >
       </p>
     </div>
@@ -264,7 +268,7 @@ onScopeDispose(() => {
         >
           <div class="panel-heading">
             <h2 id="workbench-todo-title">待办</h2>
-            <router-link class="text-link" to="/workflow/todo">进入审批中心</router-link>
+            <router-link v-if="navigationAllowed('/workflow/todo')" class="text-link" to="/workflow/todo">进入审批中心</router-link>
           </div>
           <div class="todo-types" role="group" aria-label="待办类型">
             <button type="button" :aria-pressed="!activeTab" @click="currentTab = ''">
@@ -335,7 +339,7 @@ onScopeDispose(() => {
           <section class="panel">
             <div class="panel-heading">
               <h2>公告</h2>
-              <router-link class="text-link" to="/messages?category=notice">全部</router-link>
+              <router-link v-if="navigationAllowed('/messages')" class="text-link" to="/messages?category=notice">全部</router-link>
             </div>
             <el-alert
               v-if="noticeError && !notice"
@@ -381,7 +385,7 @@ onScopeDispose(() => {
               {{ period.period }}<small>{{ period.startDate }} 至 {{ period.endDate }}</small>
             </div>
             <p v-if="!value.periods.length">当天尚未开启会计期间</p>
-            <router-link class="text-link" to="/accounting-periods">查看会计期间与关账</router-link>
+            <router-link v-if="navigationAllowed('/accounting-periods')" class="text-link" to="/accounting-periods">查看会计期间与关账</router-link>
           </details>
           <details v-if="value?.recentActions?.length" class="panel side-details">
             <summary>我最近的操作</summary>

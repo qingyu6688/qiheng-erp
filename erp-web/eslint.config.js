@@ -4,7 +4,7 @@ import globals from 'globals'
 import { defineConfigWithVueTs, vueTsConfigs } from '@vue/eslint-config-typescript'
 
 export default defineConfigWithVueTs(
-  { ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'test-results/**', 'playwright-report/**'] },
+  { ignores: ['dist/**', 'dist-demo/**', 'node_modules/**', 'coverage/**', 'test-results/**', 'playwright-report/**'] },
   eslint.configs.recommended,
   vue.configs['flat/essential'],
   vueTsConfigs.recommended,

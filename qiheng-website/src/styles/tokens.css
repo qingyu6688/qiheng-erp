@@ -1,0 +1,41 @@
+/*
+ * 柒衡 ERP 官网样式
+ * 主色与《UI 设计规范》2.0.0 一致；官网比后台更舒展：大圆角、浮层导航、滚动入场动效。
+ * 圆角分四档：控件 10–12px、小卡片 16–18px、卡片 20–24px、整块面板 32px。
+ */
+:root {
+  --primary: #165dff;
+  --primary-hover: #3a77ff;
+  --primary-dark: #0e42d2;
+  --primary-bg: #eef4ff;
+  --primary-grad: linear-gradient(180deg, #2a68ff 0%, #0f55f5 100%);
+  --success: #0b7a26;
+  --success-bg: #e8f8ec;
+  --warning: #b24a00;
+  --warning-bg: #fff4e5;
+  --ink: #0f1729;
+  --text-1: #1d2129;
+  --text-2: #4e5969;
+  --text-3: #636b78;
+  --border: #e6e9ef;
+  --fill-1: #f5f7fb;
+  --fill-2: #eceff5;
+  --bg: #ffffff;
+  --dark: #0a1020;
+  --dark-2: #111a2e;
+  --code-bg: #0f1729;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-xl: 24px;
+  --r-panel: 32px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 41, .04), 0 2px 8px rgba(15, 23, 41, .04);
+  --shadow: 0 16px 40px -16px rgba(20, 50, 120, .22);
+  --shadow-lg: 0 40px 80px -28px rgba(20, 50, 120, .32);
+  --ease: cubic-bezier(.22, 1, .36, 1);
+  --max: 1200px;
+  --panel-w: min(1280px, calc(100% - 48px));
+  --font: "PingFang SC", "HarmonyOS Sans SC", "MiSans", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-num: "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", "HarmonyOS Sans SC", system-ui, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Consolas, monospace;
+}
