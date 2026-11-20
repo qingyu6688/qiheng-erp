@@ -30,6 +30,8 @@ export const demoSession: UserSession = {
     ...[...demoSalesKinds, ...demoPurchaseKinds].map((item) => item.permission + ':view'),
     ...demoReports.map((item) => 'report:' + item.type.replaceAll('-', '_')),
     'inventory:view', 'cost:view', 'warehouse:view', 'partner:view', 'sku:view', 'cash_account:view', 'settlement:view',
+    'crm_customer:view', 'crm_business:view', 'crm_contract:view', 'wms_location:view',
+    'mfg_bom:view', 'mfg_work_order:view', 'gl_voucher:view', 'gl_ledger:view',
   ],
 }
 

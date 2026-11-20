@@ -46,7 +46,7 @@ jobs:
           # 默认连接已上线的只读演示，可用仓库变量覆盖。
           VITE_DEMO_URL: ${{ vars.VITE_DEMO_URL || 'https://qiheng.site/experience/' }}
           VITE_DEMO_TENANT: ${{ vars.VITE_DEMO_TENANT }}
-          VITE_DEMO_NOTE: ${{ vars.VITE_DEMO_NOTE || '只读演示，无需登录。提供采购、销售、库存及资金报表；不含 AI、生产与系统管理。' }}
+          VITE_DEMO_NOTE: ${{ vars.VITE_DEMO_NOTE || '只读演示，无需登录。提供客户、采购、销售、库存、生产计划、总账及报表；不含 AI 与系统管理。' }}
           # 绑定自有域名后把变量 SITE_BASE 设为 /
           SITE_BASE: ${{ vars.SITE_BASE || '/qiheng-erp/' }}
       - name: 保存官网构建产物

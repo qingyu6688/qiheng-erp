@@ -11,9 +11,13 @@ const salesKind = computed(() => demoSalesKinds.find((item) => item.path === pro
 const purchaseKind = computed(() => demoPurchaseKinds.find((item) => item.path === props.route.path.split('/')[1])?.path)
 const SalesDetail = defineAsyncComponent(() => import('../pages/SalesDetailPage.vue'))
 const PurchaseDetail = defineAsyncComponent(() => import('../pages/ProcurementDetailPage.vue'))
+const WorkOrderDetail = defineAsyncComponent(() => import('../pages/mfg/ManufacturingPage.vue'))
+const VoucherDetail = defineAsyncComponent(() => import('../pages/gl/GlVoucherEditPage.vue'))
 </script>
 
 <template>
   <SalesDetail v-if="salesKind" :kind="salesKind" />
   <PurchaseDetail v-else-if="purchaseKind" :kind="purchaseKind" />
+  <WorkOrderDetail area="work-orders" v-else-if="route.path.startsWith('/mfg/work-orders/')" />
+  <VoucherDetail v-else-if="route.path.startsWith('/gl/vouchers/')" />
 </template>

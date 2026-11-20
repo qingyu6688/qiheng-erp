@@ -17,3 +17,17 @@ export const demoReports = [
   { type: 'payable-aging', title: '应付账龄' },
   { type: 'cash-journal', title: '资金流水' },
 ] as const
+
+export const demoCrmPages = [
+  { path: 'crm/customers', title: '客户档案' },
+  { path: 'crm/businesses', title: '销售商机' },
+  { path: 'crm/contracts', title: '客户合同' },
+] as const
+export const demoManufacturingPages = [
+  { path: 'mfg/boms', title: '物料清单 BOM' },
+  { path: 'mfg/work-orders', title: '生产工单' },
+] as const
+export const demoFinancePages = [
+  { path: 'gl/vouchers', title: '总账凭证' },
+  { path: 'gl/ledgers', title: '财务账簿' },
+] as const

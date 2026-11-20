@@ -13,6 +13,20 @@ beforeEach(() => {
 })
 
 describe('演示单据右侧抽屉', () => {
+  it.each(['/mfg/work-orders/74001', '/gl/vouchers/80001'])('新增详情 %s 保留列表筛选并支持直接访问', async (path) => {
+    const router = createDemoRouter(createMemoryHistory())
+    const list = path.slice(0, path.lastIndexOf('/'))
+    await router.push(list + '?status=posted')
+    const original = router.currentRoute.value.fullPath
+    await router.push(path)
+    expect(previewRoute.value?.path).toBe(path)
+    expect(router.currentRoute.value.fullPath).toBe(original)
+    closeDocumentPreview()
+    const directRouter = createDemoRouter(createMemoryHistory())
+    await directRouter.push(path)
+    expect(directRouter.currentRoute.value.path).toBe(list)
+    expect(previewRoute.value?.path).toBe(path)
+  })
   it('查看和关联单据不改变列表路由及筛选，关闭后仍停留在原列表', async () => {
     const router = createDemoRouter(createMemoryHistory())
     await router.push('/sales-orders?keyword=星桥&status=approved')

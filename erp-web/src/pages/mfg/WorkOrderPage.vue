@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onScopeDispose, ref } from 'vue'
+import { computed, inject, onMounted, onScopeDispose, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   manufacturingCommand,
@@ -26,6 +26,7 @@ import {
   useManufacturingList,
 } from './useManufacturing'
 
+const readOnlyPreview = inject('erp.readOnlyPreview', false)
 const route = useRoute(),
   router = useRouter(),
   session = useSessionStore()
@@ -265,7 +266,7 @@ onMounted(() => {
   </section>
   <section v-else class="panel mfg-panel" aria-label="工单详情">
     <div class="mfg-toolbar">
-      <router-link class="text-link" to="/mfg/work-orders">返回生产工单</router-link>
+      <router-link v-if="!readOnlyPreview" class="text-link" to="/mfg/work-orders">返回生产工单</router-link>
       <el-button :loading="loadingDetail" :disabled="busy" @click="inspect">刷新</el-button>
     </div>
     <p v-if="loadingDetail" role="status">正在读取工单。</p>

@@ -46,7 +46,7 @@ onBeforeUnmount(() => window.clearInterval(timer))
     <div v-if="target" class="demo-card">
       <img class="demo-cat" :src="mascot" alt="" width="132" height="132" />
       <h1>即将进入演示系统</h1>
-      <p>浏览采购、销售、库存与资金报表。演示使用虚构数据，仅供查看，无需登录。</p>
+      <p>浏览客户、采购、销售、仓库、生产计划和财务账簿。演示使用虚构数据，仅供查看，无需登录。</p>
       <dl>
         <dt>演示地址</dt><dd>{{ target }}</dd>
         <template v-if="demoConfig.tenant"><dt>企业编码</dt><dd>{{ demoConfig.tenant }}</dd></template>

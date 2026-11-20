@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, inject, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { records } from '../../api/admin'
@@ -72,6 +72,7 @@ const dictionary = ref<Record<string, DictionaryItem[]>>({})
 const areas = ref<AreaNode[]>([])
 const partners = ref<DataRow[]>([])
 const detail = ref<Row>()
+const readOnlyPreview = inject('erp.readOnlyPreview', false)
 const detailOpen = ref(false)
 const detailLoading = ref(false)
 const detailTab = ref('profile')
@@ -228,7 +229,7 @@ async function loadDetail(id: string, keepTab = false): Promise<void> {
 }
 
 function show(row: Row): void {
-  if (props.kind === 'customers') {
+  if (props.kind === 'customers' && !readOnlyPreview) {
     if (route.query.partnerId === row.id) void loadDetail(row.id)
     else void router.replace({ query: { ...route.query, partnerId: row.id } })
   } else void loadDetail(row.id)

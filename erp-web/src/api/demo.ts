@@ -5,6 +5,8 @@ import type { ReportResult } from '../types/reporting'
 import { accounts, demoSession, documents, inventoryRows, money, partners, people, products, snapshotDate, snapshotTime, warehouses } from '../demo/data'
 import type { DemoDocument } from '../demo/data'
 import { demoReports } from '../demo/scope'
+import { manufacturingProducts } from '../demo/extended-data'
+import { readExtendedDemo } from './demo-extended'
 
 type Params = Record<string, unknown>
 type Row = Record<string, unknown>
@@ -145,6 +147,8 @@ function workbench(): Row {
 }
 
 function readEndpoint(path: string, params: Params): unknown {
+  const extended = readExtendedDemo(path, params)
+  if (extended !== undefined) return extended
   if (path === '/system/version') return { apiMajor: 2 }
   if (path === '/auth/me') return demoSession
   if (path === '/workbench/summary') return workbench()
@@ -152,7 +156,7 @@ function readEndpoint(path: string, params: Params): unknown {
   if (path === '/inventory-balances') return inventory(params)
   if (path.startsWith('/custom-fields/')) return []
   if (path === '/attachments') return []
-  const lists: Record<string, Row[]> = { '/warehouses': warehouses, '/partners': partners, '/cash-accounts': accounts, '/org/business-users': people, '/skus': products.map((row) => ({ ...row, skuCode: row.code, skuName: row.name })) }
+  const lists: Record<string, Row[]> = { '/warehouses': warehouses.map((row) => ({ ...row, status: 'active' })), '/partners': partners, '/cash-accounts': accounts, '/org/business-users': people, '/skus': [...products, ...manufacturingProducts].map((row) => ({ ...row, status: 'active', skuCode: row.code, skuName: row.name })) }
   if (lists[path]) return paginate(filterRows(lists[path], params), params)
   if (path.startsWith('/document-browser/')) return listDocuments(path.slice('/document-browser/'.length), params)
   if (path.startsWith('/reports/')) return report(path.slice('/reports/'.length), params)
