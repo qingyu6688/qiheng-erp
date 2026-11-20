@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onScopeDispose } from 'vue'
+import { ref, watch, onScopeDispose, inject } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { glVouchers, glCommand, glConfig } from '../../api/gl'
 import { records } from '../../api/admin'
@@ -13,6 +13,7 @@ const session = useSessionStore(),
   rows = ref<GlVoucher[]>([]),
   periods = ref<DataRow[]>([]),
   words = ref<GlConfigRow[]>([])
+const readOnlyPreview = inject('erp.readOnlyPreview', false)
 const periodId = ref(''),
   wordId = ref(''),
   status = ref(''),
@@ -61,6 +62,7 @@ async function init(): Promise<void> {
     const [p, w] = await Promise.all([records('accounting-periods', true), glConfig('words')])
     if (current !== revision) return
     periods.value = p.items
+    if (readOnlyPreview) periodId.value = String(p.items.find((item) => item.status === 'open')?.id ?? '')
     words.value = w
     await load()
   } catch (e: unknown) {
@@ -193,7 +195,7 @@ onScopeDispose(() => {
       >
     </div>
     <el-table :data="rows" row-key="id" @selection-change="selected = $event"
-      ><el-table-column type="selection" width="45" /><el-table-column
+      ><el-table-column v-if="!readOnlyPreview" type="selection" width="45" /><el-table-column
         prop="voucherDate"
         label="日期"
         width="120"
@@ -205,7 +207,7 @@ onScopeDispose(() => {
         ></el-table-column
       ><el-table-column label="来源" width="90"
         ><template #default="{ row }">{{
-          row.source === 'manual' ? '手工' : row.source === 'business' ? '业务' : '结转'
+          row.source === 'manual' ? '手工' : row.source === 'business' ? '业务' : row.source === 'opening' ? '期初' : '结转'
         }}</template></el-table-column
       ><el-table-column prop="debitTotal" label="借方合计" align="right" /><el-table-column
         prop="creditTotal"
@@ -215,7 +217,7 @@ onScopeDispose(() => {
         ><template #default="{ row }"
           ><el-tag>{{ glStatus[row.status as keyof typeof glStatus] }}</el-tag></template
         ></el-table-column
-      ><el-table-column label="操作" min-width="230"
+      ><el-table-column v-if="!readOnlyPreview" label="操作" min-width="230"
         ><template #default="{ row }">
           <template v-if="row.source === 'manual'">
             <el-button

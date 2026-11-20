@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, onScopeDispose, ref } from 'vue'
+import { computed, inject, onMounted, onScopeDispose, ref } from 'vue'
+import { ElDrawer } from 'element-plus'
 import {
   explodeBill,
   manufacturingCommand,
@@ -15,6 +16,7 @@ import BomEditor from './BomEditor.vue'
 import ReferenceSelect from './ReferenceSelect.vue'
 import { catalogLabel, useManufacturingCatalog, useManufacturingList } from './useManufacturing'
 
+const readOnlyPreview = inject('erp.readOnlyPreview', false)
 const session = useSessionStore()
 const keyword = ref('')
 const status = ref('')
@@ -178,7 +180,7 @@ onMounted(() => {
     :closable="false"
   />
   <p v-if="notice" role="status">{{ notice }}</p>
-  <div class="bom-columns">
+  <div :class="{ 'bom-columns': !readOnlyPreview }">
     <section class="panel mfg-panel" aria-label="BOM 父项列表">
       <div class="mfg-toolbar">
         <el-input
@@ -226,7 +228,7 @@ onMounted(() => {
         >加载更多</el-button
       >
     </section>
-    <section v-loading="detailLoading" class="panel mfg-panel" aria-label="BOM 详情">
+    <component :is="readOnlyPreview ? ElDrawer : 'section'" :model-value="Boolean(detail) || detailLoading" title="BOM · 只读详情" size="min(1000px, 94vw)" @update:model-value="(open: boolean) => { if (!open) detail = undefined }" v-loading="detailLoading" class="panel mfg-panel" aria-label="BOM 详情">
       <el-empty v-if="!detail" description="选择父项查看物料及版本" />
       <template v-else>
         <h2>
@@ -339,7 +341,7 @@ onMounted(() => {
           </el-table>
         </template>
       </template>
-    </section>
+    </component>
   </div>
   <BomEditor
     v-if="editor"

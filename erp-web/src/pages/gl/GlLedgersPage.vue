@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onScopeDispose } from 'vue'
+import { ref, watch, onScopeDispose, inject } from 'vue'
 import { useRoute } from 'vue-router'
 import { glLedger, glSubjects, glRead } from '../../api/gl'
 import { records } from '../../api/admin'
@@ -10,6 +10,8 @@ import GlOutputActions from '../../components/GlOutputActions.vue'
 import { ledgerLabels } from '../../types/gl'
 import type { GlLedger, GlSubject, GlQuery, GlAux } from '../../types/gl'
 import type { DataRow } from '../../types/admin'
+const readOnlyPreview = inject('erp.readOnlyPreview', false)
+const availableLedgerLabels = readOnlyPreview ? { balance: '科目余额表', general: '总分类账', detail: '明细分类账' } : ledgerLabels
 const session = useSessionStore(),
   route = useRoute(),
   periods = ref<DataRow[]>([]),
@@ -173,7 +175,7 @@ onScopeDispose(() => {
   <div class="page-heading">
     <div>
       <h1>财务账簿</h1>
-      <p>按记账事实查询科目与辅助明细，包含红字和反结账流水。</p>
+      <p>{{ readOnlyPreview ? '样例凭证自动汇总，提供科目余额表、总分类账与明细分类账；未演示期末结转。' : '按记账事实查询科目与辅助明细，包含红字和反结账流水。' }}</p>
     </div>
     <GlOutputActions :type="type" :query="query" />
   </div>
@@ -183,7 +185,7 @@ onScopeDispose(() => {
       ><el-form-item label="账簿"
         ><el-select v-model="type" style="width: 150px"
           ><el-option
-            v-for="(label, key) in ledgerLabels"
+            v-for="(label, key) in availableLedgerLabels"
             :key="key"
             :value="key"
             :label="label" /></el-select></el-form-item
@@ -208,7 +210,7 @@ onScopeDispose(() => {
             :key="s.id"
             :value="s.id"
             :label="s.code + ' ' + s.name" /></el-select></el-form-item
-      ><el-form-item label="辅助维度"
+      ><el-form-item v-if="!readOnlyPreview" label="辅助维度"
         ><el-select
           v-model="query.auxType"
           clearable

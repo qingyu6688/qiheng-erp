@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ElDatePicker } from 'element-plus/es/components/date-picker/index.mjs'
 import { vLoading } from 'element-plus/es/components/loading/index.mjs'
-import { ref, computed, watch, onScopeDispose } from 'vue'
+import { ref, computed, inject, watch, onScopeDispose } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { glSubjects, glVoucher, glConfig, glRead, saveGlVoucher } from '../../api/gl'
 import { messageOf, isCancelled, newIdempotencyKey } from '../../api/http'
@@ -11,6 +11,7 @@ import type { GlLine, GlSubject, GlConfigRow, GlVoucher, GlVoucherInput } from '
 import GlOutputActions from '../../components/GlOutputActions.vue'
 import GlAuxFields from '../../components/GlAuxFields.vue'
 import { registerCompanyLeaveGuard } from '../../utils/unsaved'
+const readOnlyPreview = inject('erp.readOnlyPreview', false)
 const route = useRoute(),
   router = useRouter(),
   session = useSessionStore()
@@ -168,7 +169,7 @@ onScopeDispose(() => {
       </p>
     </div>
     <div>
-      <router-link class="text-link" to="/gl/vouchers">返回凭证列表</router-link
+      <router-link v-if="!readOnlyPreview" class="text-link" to="/gl/vouchers">返回凭证列表</router-link
       ><el-button v-if="editable" type="primary" :loading="busy" @click="save">保存草稿</el-button>
     </div>
   </div>

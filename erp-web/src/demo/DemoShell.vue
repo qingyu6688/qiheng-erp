@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, provide, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { Box, House, ShoppingCart, Tickets, DataAnalysis, Menu } from '@element-plus/icons-vue'
+import { Box, House, ShoppingCart, Tickets, DataAnalysis, Menu, User, Tools, Wallet } from '@element-plus/icons-vue'
 import BrandMark from '../components/BrandMark.vue'
 import DisplayDensitySelect from '../components/DisplayDensitySelect.vue'
 import DemoDocumentDrawer from './DemoDocumentDrawer.vue'
-import { demoReports, demoSalesKinds, demoPurchaseKinds } from './scope'
+import { demoReports, demoSalesKinds, demoPurchaseKinds, demoCrmPages, demoManufacturingPages, demoFinancePages } from './scope'
 import { recentWorkPages } from '../utils/workbench-preferences'
 import type { RecentWorkPage } from '../utils/workbench-preferences'
 
@@ -22,9 +22,12 @@ function focusContent(): void {
   document.getElementById('demo-content')?.focus()
 }
 const groups = [
+  { title: '客户关系', icon: User, items: demoCrmPages },
   { title: '采购', icon: ShoppingCart, items: demoPurchaseKinds },
   { title: '销售', icon: Tickets, items: demoSalesKinds },
-  { title: '库存', icon: Box, items: [{ path: 'inventory-balances', title: '实时库存' }] },
+  { title: '库存', icon: Box, items: [{ path: 'inventory-balances', title: '实时库存' }, { path: 'warehouse-locations', title: '仓库库位' }] },
+  { title: '生产', icon: Tools, items: demoManufacturingPages },
+  { title: '财务', icon: Wallet, items: demoFinancePages },
   { title: '业务报表', icon: DataAnalysis, items: demoReports.map((item) => ({ path: 'reports/' + item.type, title: item.title })) },
 ]
 </script>
@@ -34,12 +37,12 @@ const groups = [
     <a class="demo-skip" href="#demo-content" @click.prevent="focusContent">跳到主要内容</a>
     <aside class="demo-sidebar" :class="{ open: menuOpen }">
       <router-link to="/" class="demo-brand" @click="menuOpen = false"><BrandMark compact /><strong>柒衡 ERP <small>只读演示</small></strong></router-link>
-      <nav aria-label="演示导航" @click="menuOpen = false">
+      <nav aria-label="演示导航" @click="(event) => { if ((event.target as HTMLElement).closest('a')) menuOpen = false }">
         <router-link to="/" class="demo-home" exact-active-class="active"><House />工作台</router-link>
-        <section v-for="group in groups" :key="group.title">
-          <h2><component :is="group.icon" />{{ group.title }}</h2>
+        <details v-for="group in groups" :key="group.title" :open="group.items.some((item) => route.path.startsWith('/' + item.path)) || route.path === '/'">
+          <summary><component :is="group.icon" />{{ group.title }}</summary>
           <router-link v-for="item in group.items" :key="item.path" :to="'/' + item.path" active-class="active">{{ item.title }}</router-link>
-        </section>
+        </details>
       </nav>
       <a class="demo-back" href="https://qiheng.site/">← 返回产品官网</a>
     </aside>
@@ -62,7 +65,7 @@ const groups = [
 .demo-brand { display: flex; align-items: center; gap: 12px; height: 84px; padding: 20px; color: #1b2b45; text-decoration: none; flex-shrink: 0; }
 .demo-brand :deep(svg) { width: 34px; height: 34px; }
 .demo-brand strong { font-size: 18px; }.demo-brand small { display: block; color: #7e8ca0; font-size: 11px; font-weight: 400; margin-top: 2px; letter-spacing: 2px; }
-nav { padding: 4px 12px 20px; } nav section { margin-top: 15px; } nav h2 { display: flex; gap: 8px; align-items: center; font-size: 11px; font-weight: 500; color: #77859a; padding: 0 14px; margin: 0 0 5px; } nav svg { width: 15px; height: 15px; } nav a { display: flex; align-items: center; gap: 9px; padding: 7px 16px 7px 36px; color: #44536a; text-decoration: none; border-radius: 6px; font-size: 13px; } nav a:hover { background: #f3f6fa; } nav a.active { background: #eaf1ff; color: #225fcd; font-weight: 600; } nav .demo-home { padding-left: 14px; }
+nav { padding: 4px 12px 20px; } nav details { margin-top: 15px; } nav summary { cursor: pointer; display: flex; gap: 8px; align-items: center; font-size: 11px; font-weight: 500; color: #77859a; padding: 0 14px; margin: 0 0 5px; } nav svg { width: 15px; height: 15px; } nav a { display: flex; align-items: center; gap: 9px; padding: 7px 16px 7px 36px; color: #44536a; text-decoration: none; border-radius: 6px; font-size: 13px; } nav a:hover { background: #f3f6fa; } nav a.active { background: #eaf1ff; color: #225fcd; font-weight: 600; } nav .demo-home { padding-left: 14px; }
 .demo-back { margin: auto 20px 20px; padding-top: 15px; border-top: 1px solid #e8edf3; color: #63758e; font-size: 12px; text-decoration: none; }
 .demo-body { margin-left: 220px; width: calc(100% - 220px); min-width: 0; display: flex; flex-direction: column; }
 .demo-topbar { height: 60px; background: white; display: flex; align-items: center; justify-content: space-between; padding: 0 28px; border-bottom: 1px solid #e8edf3; }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onScopeDispose, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, inject, onScopeDispose, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { crmCyclePage, crmCycleRead, crmCycleSave } from '../../api/crm-cycle'
 import { isCancelled, messageOf } from '../../api/http'
@@ -17,6 +17,7 @@ import CrmCycleEditor from './CrmCycleEditor.vue'
 
 type StageAction = 'advance' | 'win' | 'lose' | 'invalidate'
 const props = defineProps<{ kind: CrmCycleKind }>()
+const readOnlyPreview = inject('erp.readOnlyPreview', false)
 const router = useRouter()
 const route = useRoute()
 const session = useSessionStore()
@@ -487,8 +488,9 @@ onScopeDispose(() => {
       </el-table-column>
       <el-table-column v-if="detailEnabled || kind === 'receivables'" label="操作" width="120">
         <template #default="{ row }">
+          <el-button v-if="detailEnabled && readOnlyPreview" link type="primary" @click="loadDetail(row.id)">查看详情</el-button>
           <router-link
-            v-if="detailEnabled"
+            v-else-if="detailEnabled"
             class="text-link"
             :to="{ path: `/crm/${kind}/${row.id}`, query: route.query }"
             >查看详情</router-link

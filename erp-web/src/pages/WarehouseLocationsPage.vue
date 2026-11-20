@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, inject, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { isCancelled, messageOf } from '../api/http'
 import { warehouses } from '../api/masterdata'
@@ -26,6 +26,7 @@ import { useSessionStore } from '../stores/session'
 import type { Warehouse } from '../types/warehouse'
 
 const session = useSessionStore()
+const readOnlyPreview = inject('erp.readOnlyPreview', false)
 const route = useRoute()
 const write = computed(() => session.can('wms_location:manage') && session.can('warehouse:update'))
 const available = ref<Warehouse[]>([])
@@ -255,7 +256,7 @@ async function perform(configure = false): Promise<void> {
 <template>
   <header class="page-heading">
     <h1>库区库位</h1>
-    <router-link to="/warehouses" class="text-link">仓库管理</router-link>
+    <router-link v-if="!readOnlyPreview" to="/warehouses" class="text-link">仓库管理</router-link>
   </header>
   <el-alert v-if="error && !dialog" :title="error" type="error" :closable="false" />
   <el-alert v-if="notice" :title="notice" type="success" :closable="false" />
@@ -368,7 +369,7 @@ async function perform(configure = false): Promise<void> {
                     />
                   </template>
                 </el-table-column>
-                <el-table-column label="操作" min-width="140">
+                <el-table-column v-if="!readOnlyPreview" label="操作" min-width="140">
                   <template #default="{ row }">
                     <el-button v-if="write" type="primary" link @click="editSlot(row)"
                       >编辑</el-button
