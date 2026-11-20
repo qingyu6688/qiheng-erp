@@ -17,7 +17,7 @@ $demoTarget = Join-Path $stage 'experience'
 New-Item -ItemType Directory -Path $demoTarget | Out-Null
 Get-ChildItem -LiteralPath $demo -Force | Copy-Item -Destination $demoTarget -Recurse
 Copy-Item -LiteralPath (Join-Path $workspace 'LICENSE') -Destination (Join-Path $demoTarget 'LICENSE.txt')
-$manifest = [ordered]@{ version = '2.0.0-demo.2'; snapshotDate = '2026-11-20'; mode = 'readonly'; entry = '/experience/'; files = @() }
+$manifest = [ordered]@{ version = '2.0.0-demo.3'; snapshotDate = '2026-11-20'; mode = 'readonly'; entry = '/experience/'; files = @() }
 $manifest.files = @(Get-ChildItem -LiteralPath $stage -File -Recurse | ForEach-Object {
   [ordered]@{ path = [IO.Path]::GetRelativePath($stage, $_.FullName).Replace('\', '/'); sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
 })
