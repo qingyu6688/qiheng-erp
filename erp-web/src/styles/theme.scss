@@ -34,7 +34,7 @@
   ),
   $bg-color: (
     '': #ffffff,
-    'page': #f2f3f5,
+    'page': #f3f5f8,
     'overlay': #ffffff,
   ),
   $fill-color: (
@@ -44,8 +44,8 @@
     'blank': #ffffff,
   ),
   $border-radius: (
-    'base': 4px,
-    'small': 2px,
+    'base': 8px,
+    'small': 6px,
     'round': 20px,
   ),
   $common-component-size: (
@@ -129,17 +129,20 @@
 
   --erp-radius-sm: var(--el-border-radius-small);
   --erp-radius: var(--el-border-radius-base);
-  --erp-radius-card: 6px;
-  --erp-radius-lg: 8px;
-  --erp-shadow-1: 0 1px 2px rgb(29 33 41 / 6%);
-  --erp-shadow-2: 0 4px 10px rgb(29 33 41 / 10%);
-  --erp-shadow-3: 0 8px 24px rgb(29 33 41 / 12%);
+  // 圆角矩形：控件 8px、卡片 12px、抽屉和弹窗 16px，同一层级只用一种圆角
+  --erp-radius-card: 12px;
+  --erp-radius-lg: 16px;
+  --erp-radius-pill: 999px;
+  --erp-shadow-1: 0 1px 2px rgb(29 33 41 / 4%), 0 1px 3px rgb(29 33 41 / 4%);
+  --erp-shadow-2: 0 6px 16px rgb(29 33 41 / 8%);
+  --erp-shadow-3: 0 12px 32px rgb(29 33 41 / 12%);
+  --erp-page: var(--el-bg-color-page);
 
   --erp-control: var(--el-component-size);
   --erp-row: 40px;
   --erp-editor-row: 36px;
   --erp-rail: 64px;
-  --erp-menu: 208px;
+  --erp-menu: 224px;
   --erp-top: 56px;
   --erp-tabs: 36px;
   --erp-ease: cubic-bezier(0.34, 0.69, 0.1, 1);
@@ -200,6 +203,27 @@
 
 .el-table .el-table__cell {
   height: var(--erp-row);
+}
+
+.el-tag {
+  --el-tag-border-radius: var(--erp-radius-sm);
+}
+
+.el-dialog,
+.el-message-box {
+  --el-dialog-border-radius: var(--erp-radius-lg);
+  border-radius: var(--erp-radius-lg);
+}
+
+.el-drawer {
+  border-radius: var(--erp-radius-lg) 0 0 var(--erp-radius-lg);
+}
+
+.el-select-dropdown,
+.el-popper.is-light,
+.el-dropdown__popper {
+  --el-border-radius-base: var(--erp-radius);
+  border-radius: var(--erp-radius) !important;
 }
 
 .el-table thead th {

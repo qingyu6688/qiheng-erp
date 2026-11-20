@@ -363,7 +363,7 @@ onScopeDispose(() => {
 <style scoped>
 .wiki-revision {
   border: 1px solid var(--el-border-color-light);
-  border-radius: 6px;
+  border-radius: var(--erp-radius);
   padding: 14px;
   max-height: 60vh;
   overflow: auto;

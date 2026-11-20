@@ -153,6 +153,8 @@ function readEndpoint(path: string, params: Params): unknown {
   if (path === '/auth/me') return demoSession
   if (path === '/workbench/summary') return workbench()
   if (path === '/workbench/trade-summary') return tradeSummary()
+  // 演示公司资料齐全，不显示上线清单
+  if (path === '/workbench/setup') return { completed: true, steps: [] }
   if (path === '/inventory-balances') return inventory(params)
   if (path.startsWith('/custom-fields/')) return []
   if (path === '/attachments') return []

@@ -26,7 +26,7 @@ const rendered = computed(() => renderAiMarkdown(props.content, props.wikiLinks)
 .ai-markdown :deep(pre),
 .ai-markdown :deep(code) {
   background-color: var(--el-fill-color-light);
-  border-radius: 4px;
+  border-radius: var(--erp-radius-sm);
   padding: 2px 4px;
 }
 .ai-markdown :deep(pre) {

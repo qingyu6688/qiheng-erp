@@ -13,6 +13,7 @@ import { useSessionStore } from '../../stores/session'
 import DocumentEditorFrame from '../DocumentEditorFrame.vue'
 import BusinessUserSelect from '../BusinessUserSelect.vue'
 import AreaCascader from '../AreaCascader.vue'
+import EmptyOptionHint from '../EmptyOptionHint.vue'
 import EditableTable from '../EditableTable.vue'
 import FixedFooter from '../FixedFooter.vue'
 import OrderLineImport from '../OrderLineImport.vue'
@@ -84,8 +85,16 @@ const calculating = ref(false)
 const editable = ref<InstanceType<typeof EditableTable>>()
 const importer = ref<InstanceType<typeof OrderLineImport>>()
 const populatedLineCount = computed(() => lines.value.filter((line) => line.skuId).length)
+// 新单默认带一行空明细：选好往来单位或点过保存之前不标红，避免一打开就报错；
+// 保存按钮在资料不全时是禁用的，所以选了往来单位就开始提示还缺什么
+const saveAttempted = ref(false)
+const linesTouched = computed(() => saveAttempted.value || Boolean(form.customerId))
+const NO_LINE_ERRORS = { skuId: '', unitId: '', qty: '', unitPrice: '' }
+function untouchedLine(line: { skuId?: string; unitId?: string; qty: string; unitPrice: string }): boolean {
+  return !line.skuId && !line.unitId && (line.qty === '1' || line.qty === '') && !line.unitPrice
+}
 const lineErrors = computed(() =>
-  lines.value.map((line) => ({
+  lines.value.map((line) => untouchedLine(line) && !linesTouched.value ? NO_LINE_ERRORS : {
     skuId: !line.skuId ? '请选择商品' : '',
     unitId: !line.unitId ? '请选择单位' : '',
     qty:
@@ -96,7 +105,7 @@ const lineErrors = computed(() =>
       line.unitPrice && !/^\d{1,16}(?:\.\d{1,8})?$/.test(line.unitPrice)
         ? '单价须为非负数且最多16位整数、8位小数'
         : '',
-  })),
+  }),
 )
 const errorCount = computed(() =>
   lineErrors.value.reduce((count, row) => count + Object.values(row).filter(Boolean).length, 0),
@@ -237,9 +246,7 @@ onMounted(async () => {
       allRecords('skus'),
       allRecords('warehouses', true),
     ])
-    customers.value = customers.value.filter(
-      (c) => (c.roles as string[] | undefined)?.includes('customer') && c.status === 'active',
-    )
+    customers.value = customers.value.filter(activeCustomer)
     for (const l of lines.value) {
       const sku = await record('skus/' + l.skuId)
       units[l.skuId] = sku.units as SalesSkuUnit[]
@@ -253,6 +260,19 @@ onMounted(async () => {
     loading.value = false
   }
 })
+function activeCustomer(row: DataRow): boolean {
+  return Boolean((row.roles as string[] | undefined)?.includes('customer')) && row.status === 'active'
+}
+// 在新标签页补完客户或商品后，回到这里刷新下拉，不影响已填内容
+async function reloadChoices(): Promise<void> {
+  try {
+    const [partnerRows, skuRows] = await Promise.all([allRecords('partners', false), allRecords('skus')])
+    customers.value = partnerRows.filter(activeCustomer)
+    skus.value = skuRows
+  } catch (cause: unknown) {
+    if (!isCancelled(cause)) error.value = messageOf(cause)
+  }
+}
 function addLine(): void {
   if (lines.value.length >= ORDER_LINE_LIMIT) {
     error.value = '商品明细最多500行'
@@ -270,6 +290,7 @@ function addLine(): void {
 }
 async function save(submitAfterSave = false): Promise<void> {
   if (busy.value || !ready.value) return
+  saveAttempted.value = true
   if (errorCount.value) {
     locateError()
     return
@@ -330,7 +351,12 @@ async function verify(): Promise<void> {
               v-for="c in customers"
               :key="c.id"
               :value="c.id"
-              :label="String(c.name)" /></el-select
+              :label="String(c.name)" /><template #empty
+              ><EmptyOptionHint
+                text="找不到客户？往来单位需要勾选“客户”角色。"
+                to="/partners"
+                label="去添加客户（新标签页）"
+                @reload="reloadChoices" /></template></el-select
         ></el-form-item>
         <el-form-item label="销售员"
           ><BusinessUserSelect
@@ -420,7 +446,13 @@ async function verify(): Promise<void> {
                 :key="s.id"
                 :value="s.id"
                 :label="String(s.code) + ' ' + String(s.name)"
-            /></el-select>
+              /><template #empty
+                ><EmptyOptionHint
+                  text="找不到商品？"
+                  to="/skus"
+                  label="去添加商品（新标签页）"
+                  @reload="reloadChoices" /></template
+            ></el-select>
           </td>
           <td>
             <el-select v-model="line.warehouseId" :aria-label="'仓库' + (index + 1)" clearable

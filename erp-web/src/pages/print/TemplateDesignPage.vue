@@ -1013,7 +1013,7 @@ onScopeDispose(() => {
 .field-palette button {
   background: #f5f7fa;
   border: 1px solid #b8c5d2;
-  border-radius: 4px;
+  border-radius: var(--erp-radius-sm);
   color: #263952;
   padding: 4px 6px;
   cursor: grab;

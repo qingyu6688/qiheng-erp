@@ -20,6 +20,7 @@ import type { StockSelection } from '../../types/inventory-tracking'
 import EditableTable from '../EditableTable.vue'
 import FixedFooter from '../FixedFooter.vue'
 import OrderLineImport from '../OrderLineImport.vue'
+import EmptyOptionHint from '../EmptyOptionHint.vue'
 import { ORDER_LINE_LIMIT } from '../../utils/order-line-paste'
 import type { PastedOrderLine } from '../../utils/order-line-paste'
 
@@ -137,9 +138,17 @@ const importer = ref<InstanceType<typeof OrderLineImport>>()
 const populatedLineCount = computed(
   () => lines.value.filter((line) => line.skuId || line.id).length,
 )
+// 新单默认带一行空明细：选好往来单位或点过保存之前不标红，避免一打开就报错；
+// 保存按钮在资料不全时是禁用的，所以选了往来单位就开始提示还缺什么
+const saveAttempted = ref(false)
+const linesTouched = computed(() => saveAttempted.value || Boolean(form.supplierId))
+const NO_LINE_ERRORS = { skuId: '', unitId: '', qty: '', unitPrice: '' }
+function untouchedLine(line: { skuId?: string; unitId?: string; qty: string; unitPrice: string }): boolean {
+  return !line.skuId && !line.unitId && (line.qty === '1' || line.qty === '') && !line.unitPrice
+}
 const lineErrors = computed(() =>
   order.value
-    ? lines.value.map((line) => ({
+    ? lines.value.map((line) => untouchedLine(line) && !linesTouched.value ? NO_LINE_ERRORS : {
         skuId: !line.skuId ? '请选择商品' : '',
         unitId: !line.unitId ? '请选择单位' : '',
         qty:
@@ -150,7 +159,7 @@ const lineErrors = computed(() =>
           line.unitPrice && !/^\d{1,16}(?:\.\d{1,8})?$/.test(line.unitPrice)
             ? '单价须为非负数且最多16位整数、8位小数'
             : '',
-      }))
+      })
     : [],
 )
 const errorCount = computed(() =>
@@ -502,8 +511,19 @@ onMounted(async () => {
     loading.value = false
   }
 })
+// 在新标签页补完往来单位或商品后，回到这里刷新下拉，不影响已填内容
+async function reloadChoices(): Promise<void> {
+  try {
+    if (hasPartner.value || order.value || props.kind === 'opening-entries')
+      partners.value = await allRecords('partners')
+    if (products.value) skus.value = await allRecords('skus')
+  } catch (cause: unknown) {
+    if (!isCancelled(cause)) error.value = messageOf(cause)
+  }
+}
 async function save(submitAfterSave = false): Promise<void> {
   if (busy.value) return
+  saveAttempted.value = true
   if (errorCount.value) {
     locateError()
     return
@@ -591,7 +611,12 @@ async function verify(): Promise<void> {
               v-for="p in partners.filter((p) => p.status === 'active')"
               :key="p.id"
               :value="p.id"
-              :label="String(p.name)" /></el-select
+              :label="String(p.name)" /><template #empty
+              ><EmptyOptionHint
+                :text="kind === 'opening-entries' ? '找不到往来单位？' : '找不到供应商？往来单位需要勾选“供应商”角色。'"
+                to="/partners"
+                label="去添加往来单位（新标签页）"
+                @reload="reloadChoices" /></template></el-select
         ></el-form-item>
         <el-form-item v-if="warehouseHead" label="仓库" for="purchase-warehouse"
           ><el-select id="purchase-warehouse" v-model="form.warehouseId"
@@ -792,7 +817,13 @@ async function verify(): Promise<void> {
                   :key="s.id"
                   :value="s.id"
                   :label="String(s.code) + ' ' + String(s.name)"
-              /></el-select>
+                /><template #empty
+                  ><EmptyOptionHint
+                    text="找不到商品？"
+                    to="/skus"
+                    label="去添加商品（新标签页）"
+                    @reload="reloadChoices" /></template
+              ></el-select>
             </td>
             <td v-if="order">
               <el-select v-model="line.warehouseId" :aria-label="'采购仓库' + (index + 1)" clearable

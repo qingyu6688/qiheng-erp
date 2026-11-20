@@ -159,7 +159,7 @@ function generateSerials(): void {
 
 <style scoped>
 .stock-selection-fields { grid-column: 1 / -1; min-width: 0; }
-.stock-selection-inputs { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px 12px; padding: 10px 12px 0; background: var(--el-fill-color-light); border-radius: 6px; }
+.stock-selection-inputs { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px 12px; padding: 10px 12px 0; background: var(--el-fill-color-light); border-radius: var(--erp-radius); }
 .stock-selection-range { display: flex; gap: 8px; margin-top: 8px; }
 .stock-selection-status { grid-column: 1 / -1; color: var(--el-text-color-secondary); }
 </style>
