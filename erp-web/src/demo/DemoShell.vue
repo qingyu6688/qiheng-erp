@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { computed, provide, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
-import { Box, House, ShoppingCart, Tickets, DataAnalysis, Menu, User, Tools, Wallet, Fold, Expand, ArrowDown } from '@element-plus/icons-vue'
+import { useRoute, useRouter } from 'vue-router'
+import { Box, House, ShoppingCart, Tickets, DataAnalysis, Menu, User, Tools, Wallet, Fold, Expand, ArrowDown, ChatDotRound } from '@element-plus/icons-vue'
 import BrandMark from '../components/BrandMark.vue'
 import DisplayDensitySelect from '../components/DisplayDensitySelect.vue'
 import DemoDocumentDrawer from './DemoDocumentDrawer.vue'
-import { demoReports, demoSalesKinds, demoPurchaseKinds, demoCrmPages, demoManufacturingPages, demoFinancePages } from './scope'
+import { demoReports, demoSalesKinds, demoPurchaseKinds, demoCrmPages, demoManufacturingPages, demoFinancePages, demoAiPages } from './scope'
 import { recentWorkPages } from '../utils/workbench-preferences'
 import type { RecentWorkPage } from '../utils/workbench-preferences'
 
 const route = useRoute()
+const router = useRouter()
+provide('erp.aiSourcePreview', (id: string): void => { void router.push('/ai/sources/' + encodeURIComponent(id)) })
+provide('erp.previewWiki', (path: string): void => { void router.push(path) })
 const menuOpen = ref(false)
 const sidebarCollapsed = ref(false)
 const title = computed(() => String(route.meta.title ?? '工作台'))
@@ -30,6 +33,7 @@ const groups = [
   { title: '生产', icon: Tools, items: demoManufacturingPages },
   { title: '财务', icon: Wallet, items: demoFinancePages },
   { title: '业务报表', icon: DataAnalysis, items: demoReports.map((item) => ({ path: 'reports/' + item.type, title: item.title })) },
+  { title: 'AI 与知识', icon: ChatDotRound, items: demoAiPages },
 ]
 </script>
 

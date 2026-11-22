@@ -7,6 +7,7 @@ import type { DemoDocument } from '../demo/data'
 import { demoReports } from '../demo/scope'
 import { manufacturingProducts } from '../demo/extended-data'
 import { readExtendedDemo } from './demo-extended'
+import { readAiDemo } from './demo-ai'
 
 type Params = Record<string, unknown>
 type Row = Record<string, unknown>
@@ -189,7 +190,10 @@ export const demoAdapter: AxiosAdapter = async (config) => {
   if ((config.method ?? 'get').toLowerCase() !== 'get') reject(config, 403, '这是只读演示，不能修改或导出演示数据。')
   const url = config.url ?? ''
   if (!url.startsWith('/') || url.startsWith('//') || url.includes('://')) reject(config, 403, '演示环境不访问外部业务接口。')
-  const result = readEndpoint(url, (config.params ?? {}) as Params)
+  if (config.baseURL && !['/api/v1', '/ai/v1'].includes(config.baseURL)) reject(config, 403, '演示环境不访问外部业务接口。')
+  const result = config.baseURL === '/ai/v1'
+    ? readAiDemo(url, (config.params ?? {}) as Params)
+    : readEndpoint(url, (config.params ?? {}) as Params)
   if (result === undefined) reject(config, 404, '此记录或功能未纳入本次演示。')
   return { config, status: 200, statusText: '成功', headers: new AxiosHeaders(), data: { code: 200, message: '成功', data: structuredClone(result) } }
 }

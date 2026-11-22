@@ -31,3 +31,9 @@ export const demoFinancePages = [
   { path: 'gl/vouchers', title: '总账凭证' },
   { path: 'gl/ledgers', title: '财务账簿' },
 ] as const
+
+export const demoAiPages = [
+  { path: 'ai/wiki', title: '知识百科' },
+  { path: 'ai/knowledge', title: '知识库' },
+  { path: 'ai/answers', title: 'AI 回答样例' },
+] as const

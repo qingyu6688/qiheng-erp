@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, onScopeDispose, ref } from 'vue'
+import { computed, inject, onMounted, onScopeDispose, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { aiRead, aiWrite } from '../../api/ai'
 import { aiDepartmentChoices, aiRoleChoices, type AiChoice } from '../../api/ai-choices'
 import { isCancelled, messageOf } from '../../api/http'
@@ -9,6 +10,8 @@ import type { AiDocument, AiLibrary, AiLibraryInput, AiRecallHit, AiSegment } fr
 import '../../styles/ai-workspace.css'
 
 const session = useSessionStore()
+const readOnlyPreview = inject('erp.readOnlyPreview', false)
+const router = useRouter()
 const editable = computed(() => session.can('ai_admin:manage'))
 const libraryId = ref('')
 const libraries = ref<AiLibrary[]>([])
@@ -200,6 +203,10 @@ async function readSegments(document: AiDocument): Promise<void> {
 }
 
 async function openSegments(document: AiDocument): Promise<void> {
+  if (readOnlyPreview) {
+    await router.push('/ai/knowledge/' + encodeURIComponent(document.id))
+    return
+  }
   await perform(async () => {
     segmentsDoc.value = undefined
     segments.value = []
@@ -278,8 +285,8 @@ onScopeDispose(() => {
   <div class="ai-page">
     <div class="page-heading">
       <div>
-        <h1>知识库管理</h1>
-        <p>指定部门时，按成员在当前公司的任职判断阅读权限。</p>
+        <h1>{{ readOnlyPreview ? '知识库' : '知识库管理' }}</h1>
+        <p>{{ readOnlyPreview ? '浏览示例资料和分段原文；所有资料均为虚构示例。' : '指定部门时，按成员在当前公司的任职判断阅读权限。' }}</p>
       </div>
       <div class="ai-actions">
         <el-button :disabled="busy" @click="perform(load)">刷新</el-button>
@@ -444,7 +451,7 @@ onScopeDispose(() => {
       </template>
     </section>
 
-    <section v-if="selectedLibrary" class="panel ai-section">
+    <section v-if="selectedLibrary && !readOnlyPreview" class="panel ai-section">
       <h2>召回测试</h2>
       <form class="ai-search" @submit.prevent="recall">
         <el-input

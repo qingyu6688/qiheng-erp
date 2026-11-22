@@ -1,4 +1,4 @@
-param([string]$OutputDirectory = '.local/demo-1panel-20261120')
+param([string]$OutputDirectory = '.local/demo-1panel-20261122-ai')
 $ErrorActionPreference = 'Stop'
 $workspace = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $output = [IO.Path]::GetFullPath((Join-Path $workspace $OutputDirectory))
@@ -17,12 +17,12 @@ $demoTarget = Join-Path $stage 'experience'
 New-Item -ItemType Directory -Path $demoTarget | Out-Null
 Get-ChildItem -LiteralPath $demo -Force | Copy-Item -Destination $demoTarget -Recurse
 Copy-Item -LiteralPath (Join-Path $workspace 'LICENSE') -Destination (Join-Path $demoTarget 'LICENSE.txt')
-$manifest = [ordered]@{ version = '2.0.0-demo.3'; snapshotDate = '2026-11-20'; mode = 'readonly'; entry = '/experience/'; files = @() }
+$manifest = [ordered]@{ version = '2.0.0-demo.4'; snapshotDate = '2026-11-20'; mode = 'readonly'; entry = '/experience/'; files = @() }
 $manifest.files = @(Get-ChildItem -LiteralPath $stage -File -Recurse | ForEach-Object {
   [ordered]@{ path = [IO.Path]::GetRelativePath($stage, $_.FullName).Replace('\', '/'); sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
 })
 $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $stage 'demo-manifest.json') -Encoding utf8NoBOM
-$zip = Join-Path $output 'qiheng-readonly-demo-20261120.zip'
+$zip = Join-Path $output 'qiheng-readonly-demo-20261122.zip'
 if (Test-Path -LiteralPath $zip) { throw '发布包已存在，请使用新的输出目录保留历史包。' }
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [IO.Compression.ZipFile]::CreateFromDirectory($stage, $zip, [IO.Compression.CompressionLevel]::Optimal, $false)

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { onScopeDispose, ref, watch } from 'vue'
+import { inject, onScopeDispose, ref, watch } from 'vue'
 import { aiRead } from '../api/ai'
 import { isCancelled, messageOf } from '../api/http'
 import type { AiEvidence } from '../types/ai'
 
 const props = defineProps<{ sources: { segmentId: string; label: string }[] }>()
+const demoPreview = inject<((id: string) => void) | undefined>('erp.aiSourcePreview', undefined)
 const open = ref(false)
 const loading = ref(false)
 const error = ref('')
@@ -20,6 +21,10 @@ function clear(): void {
 }
 
 async function preview(segmentId: string): Promise<void> {
+  if (demoPreview) {
+    demoPreview(segmentId)
+    return
+  }
   clear()
   const current = requestId
   open.value = true

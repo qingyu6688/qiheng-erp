@@ -15,7 +15,7 @@ import DemoDocumentContent from './DemoDocumentContent.vue'
   >
     <div class="preview-toolbar">
       <span>关闭后保留列表筛选与浏览位置</span>
-      <el-button v-if="canReturnPreview" @click="returnDocumentPreview">返回上一张单据</el-button>
+      <el-button v-if="canReturnPreview" @click="returnDocumentPreview">返回上一项</el-button>
       <el-button @click="closeDocumentPreview">关闭详情</el-button>
     </div>
     <DemoDocumentContent v-if="previewRoute" :key="previewRoute.path" :route="previewRoute" />

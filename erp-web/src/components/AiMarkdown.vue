@@ -1,15 +1,24 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
 import { renderAiMarkdown } from '../utils/ai-markdown'
 
 const props = defineProps<{ content: string; wikiLinks?: boolean }>()
 const rendered = computed(() => renderAiMarkdown(props.content, props.wikiLinks))
+const previewWiki = inject<((path: string) => void) | undefined>('erp.previewWiki', undefined)
+function followWiki(event: MouseEvent): void {
+  if (!previewWiki || !(event.target instanceof Element)) return
+  const path = event.target.closest('a')?.getAttribute('href')
+  if (path && /^\/ai\/wiki\/[a-z0-9-]{1,96}$/.test(path)) {
+    event.preventDefault()
+    previewWiki(path)
+  }
+}
 </script>
 
 <template>
   <!-- 仅知识百科允许生成站内条目链接，生成的 HTML 仍需清洗。 -->
   <!-- eslint-disable-next-line vue/no-v-html -->
-  <div class="ai-markdown" v-html="rendered" />
+  <div class="ai-markdown" @click="followWiki" v-html="rendered" />
 </template>
 
 <style scoped>

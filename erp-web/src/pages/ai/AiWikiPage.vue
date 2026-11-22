@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onScopeDispose, ref } from 'vue'
+import { computed, inject, onMounted, onScopeDispose, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { aiRead } from '../../api/ai'
 import { isCancelled, messageOf } from '../../api/http'
@@ -9,6 +9,7 @@ import type { AiWikiPage } from '../../types/ai'
 import '../../styles/ai-workspace.css'
 
 const route = useRoute()
+const readOnlyPreview = inject('erp.readOnlyPreview', false)
 const slug = computed(() => (typeof route.params.slug === 'string' ? route.params.slug : ''))
 const query = ref('')
 const loading = ref(false)
@@ -51,10 +52,11 @@ onScopeDispose(() => {
         <h1>{{ page?.title || '知识百科' }}</h1>
         <p v-if="page?.summary">{{ page.summary }}</p>
       </div>
-      <router-link v-if="slug" class="text-link" :to="{ name: 'ai-wiki' }"
+      <router-link v-if="slug && !readOnlyPreview" class="text-link" :to="{ name: 'ai-wiki' }"
         >返回知识百科</router-link
       >
     </div>
+    <el-alert v-if="readOnlyPreview && !slug" title="示例知识条目，仅供阅读；查看正文和引用原文会在右侧打开。" type="info" :closable="false" class="ai-error" />
     <section class="panel ai-section" :aria-busy="loading">
       <form v-if="!slug" class="ai-search" @submit.prevent="load">
         <el-input
