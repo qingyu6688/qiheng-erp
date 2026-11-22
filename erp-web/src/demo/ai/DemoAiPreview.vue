@@ -3,9 +3,8 @@ import { onMounted, onScopeDispose, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { aiRead } from '../../api/ai'
 import { isCancelled, messageOf } from '../../api/http'
-import AiMarkdown from '../../components/AiMarkdown.vue'
 import AiSources from '../../components/AiSources.vue'
-import AiToolResults from '../../components/AiToolResults.vue'
+import DemoAiConversation from './DemoAiConversation.vue'
 import type { AiDocument, AiEvidence, AiSegment } from '../../types/ai'
 import { formatDateTime } from '../../utils/format'
 import type { DemoAiAnswer } from '../ai-data'
@@ -69,23 +68,11 @@ onScopeDispose(() => { active = false })
       </section>
     </template>
     <template v-else-if="answer">
-      <el-alert title="预设回答样例 · 内容来自虚构数据与示例资料，不是本次实时生成。" type="info" :closable="false" class="ai-error" />
-      <section class="panel ai-section question"><h2>示例问题</h2><p>{{ answer.question }}</p></section>
-      <section class="panel ai-section">
-        <h2>AI 回答样例</h2>
-        <p class="sample-time">数据截至 {{ formatDateTime(answer.asOf) }}</p>
-        <AiMarkdown :content="answer.content" />
-        <AiToolResults v-if="answer.tools.length" :runs="answer.tools" />
-        <div class="sample-sources"><AiSources :sources="answer.sourceIds.map((segmentId, index) => ({ segmentId, label: `查看依据 [${index + 1}]` }))" /></div>
-      </section>
+      <DemoAiConversation :answer="answer" />
     </template>
   </div>
 </template>
 
 <style scoped>
-.question { background: var(--erp-primary-1); }
-.question p { color: var(--erp-text-1); }
 .source-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; color: var(--erp-text-1); font-family: inherit; }
-.sample-time { font-size: 12px; }
-.sample-sources { border-top: 1px solid var(--erp-border-1); margin-top: 20px; padding-top: 12px; }
 </style>
