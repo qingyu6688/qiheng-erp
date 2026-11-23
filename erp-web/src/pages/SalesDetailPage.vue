@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import WorkflowProgressPanel from '../components/workflow/WorkflowProgressPanel.vue'
-import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, inject, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   document,
@@ -27,6 +27,19 @@ import DocumentLineTable from '../components/DocumentLineTable.vue'
 import OrderDetailOverview from '../components/OrderDetailOverview.vue'
 import { documentStateTag } from '../types/document-ui'
 import { formatDateTime, formatMoney, formatQuantity } from '../utils/format'
+const SalesPriceAdjustmentDrawer = defineAsyncComponent(
+  () => import('../components/sales/SalesPriceAdjustmentDrawer.vue'),
+)
+const SalesInvoiceDrawer = defineAsyncComponent(
+  () => import('../components/sales/SalesInvoiceDrawer.vue'),
+)
+const salesPriceSource = ref<SalesDocument>(),
+  invoiceDetailId = ref<string>()
+const readOnlyPreview = inject('erp.readOnlyPreview', false)
+function closeSalesPrice(): void {
+  salesPriceSource.value = undefined
+  void load()
+}
 const props = defineProps<{ kind: SalesKind }>()
 const route = useRoute(),
   router = useRouter(),
@@ -40,9 +53,15 @@ const value = ref<SalesDocument>(),
   action = ref('')
 const history = ref<Record<string, unknown>[]>([])
 const orderPage = computed(() => props.kind === 'sales-orders')
-const orderRelations = computed(() => orderPage.value && value.value ? {
-  kind: 'sales-orders' as const, id: value.value.id, version: value.value.version,
-} : undefined)
+const orderRelations = computed(() =>
+  orderPage.value && value.value
+    ? {
+        kind: 'sales-orders' as const,
+        id: value.value.id,
+        version: value.value.version,
+      }
+    : undefined,
+)
 const moreActions = computed(() =>
   orderPage.value
     ? (value.value?.allowedActions ?? []).filter((action) =>
@@ -222,7 +241,8 @@ async function verifyDecision(): Promise<void> {
 onMounted(async () => {
   const path = route.path
   await load()
-  if (route.path !== path || !orderPage.value || route.query.next !== 'submit' || !value.value) return
+  if (route.path !== path || !orderPage.value || route.query.next !== 'submit' || !value.value)
+    return
   const query = { ...route.query }
   delete query.next
   if (value.value.allowedActions.includes('submit')) choose('submit')
@@ -248,6 +268,24 @@ function closeEditor(): void {
       />
     </template>
     <template v-if="value" #actions>
+      <el-button
+        v-if="
+          !readOnlyPreview &&
+          kind === 'shipments' &&
+          ['signed', 'signed_with_diff'].includes(value.status) &&
+          session.can('sales_price_adjustment:view') &&
+          session.can('sales_price_adjustment:create') &&
+          session.can('shipment:view')
+        "
+        @click="salesPriceSource = value"
+        >销售调价</el-button
+      >
+      <el-button
+        v-if="kind === 'invoice-registrations' && session.can('invoice_registration:view')"
+        @click="invoiceDetailId = value.id"
+        >原票及红字</el-button
+      >
+
       <el-button
         v-if="
           kind === 'sales-orders' &&
@@ -317,7 +355,10 @@ function closeEditor(): void {
       v-if="orderPage"
       kind="sales-orders"
       :order="value"
-      :party="value.customer?.name ?? (typeof value.customerName === 'string' ? value.customerName : value.partnerName)"
+      :party="
+        value.customer?.name ??
+        (typeof value.customerName === 'string' ? value.customerName : value.partnerName)
+      "
       :representative="value.salesUserName"
     />
     <section v-else class="panel sales-detail-header">
@@ -588,6 +629,19 @@ function closeEditor(): void {
       ></template
     >
   </el-dialog>
+  <SalesPriceAdjustmentDrawer
+    v-if="salesPriceSource"
+    :key="salesPriceSource.id"
+    :initial-shipment="salesPriceSource"
+    @close="closeSalesPrice"
+  />
+  <SalesInvoiceDrawer
+    v-if="invoiceDetailId"
+    :key="invoiceDetailId"
+    :id="invoiceDetailId"
+    @close="invoiceDetailId = undefined"
+    @changed="load"
+  />
 </template>
 
 <style scoped>

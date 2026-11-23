@@ -49,7 +49,12 @@ export const router = createRouter({
           path: 'purchase-fee-documents/:id?',
           name: 'purchase-fee-documents',
           component: () => import('../pages/PurchaseFeePage.vue'),
-          meta: { company: true, title: '采购费用', permission: 'purchase_fee_doc:view', allPermissions: ['cost:view', 'goods_receipt:view'] },
+          meta: {
+            company: true,
+            title: '采购费用',
+            permission: 'purchase_fee_doc:view',
+            allPermissions: ['cost:view', 'goods_receipt:view'],
+          },
         },
         {
           path: 'purchase-price-adjustments/:id?',
@@ -61,6 +66,17 @@ export const router = createRouter({
             permission: 'price_adjustment:view',
             allPermissions: ['cost:view', 'goods_receipt:view'],
           },
+        },
+        {
+          path: 'sales-price-adjustments/:id?',
+          name: 'sales-price-adjustments',
+          component: () => import('../pages/SalesPriceAdjustmentPage.vue'),
+          meta: { company: true, title: '销售调价', permission: 'sales_price_adjustment:view' },
+        },
+        {
+          path: 'manual-invoice-reds', name: 'manual-invoice-reds',
+          component: () => import('../pages/ManualInvoiceRedPage.vue'),
+          meta: { company: true, title: '手工销项红字', permission: 'invoice_red:view', allPermissions: ['invoice_registration:view'] },
         },
         ...manufacturingNavigation.flatMap(({ area, title, permission }) =>
           [

@@ -111,8 +111,8 @@ function write<T>(
 export function invoiceRequests(cursor?: string): Promise<InvoiceRequest[]> {
   return read('/requests', { cursor })
 }
-export function invoiceDetail(id: string): Promise<InvoiceDetail> {
-  return read('/requests/' + id)
+export function invoiceDetail(id: string, signal?: AbortSignal): Promise<InvoiceDetail> {
+  return read('/requests/' + id, undefined, signal)
 }
 export function invoiceCandidates(partnerId: string): Promise<InvoiceCandidate[]> {
   return read('/candidates', { partnerId })
@@ -129,8 +129,9 @@ export function invoiceAction(
   version: number,
   key: string,
   reason?: string,
+  signal?: AbortSignal,
 ): Promise<{ id: string }> {
-  return write(`/requests/${id}/${action}`, 'POST', { version, reason }, key)
+  return write(`/requests/${id}/${action}`, 'POST', { version, reason }, key, signal)
 }
 export function downloadInvoice(invoice: InvoiceDetail, file: InvoiceFile): Promise<void> {
   const label = file.variant === 'red' ? invoice.redInvoiceNo : invoice.invoiceNo

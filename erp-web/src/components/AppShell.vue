@@ -114,6 +114,7 @@ const navigation = [
           { path: 'sales-orders', title: '销售订单', permission: 'sales_order:view' },
           { path: 'shipments', title: '发货与签收', permission: 'shipment:view' },
           { path: 'sales-returns', title: '销售退货', permission: 'sales_return:view' },
+          { path: 'sales-price-adjustments', title: '销售调价', permission: 'sales_price_adjustment:view' },
         ],
       },
       {
@@ -122,6 +123,7 @@ const navigation = [
           { path: 'receipts', title: '收款登记', permission: 'receipt:view' },
           { path: 'refund-requests', title: '退款申请', permission: 'refund_request:view' },
           { path: 'invoice-registrations', title: '开票登记', permission: 'invoice_registration:view' },
+          { path: 'manual-invoice-reds', title: '手工销项红字', permission: 'invoice_red:view', all: ['invoice_registration:view'] },
           { path: 'e-invoices', title: '数电发票', permission: 'einv:view' },
         ],
       },

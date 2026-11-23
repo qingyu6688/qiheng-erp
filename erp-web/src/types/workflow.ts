@@ -16,6 +16,7 @@ export type WorkflowBusinessType =
   | 'qc_inspection'
   | 'ar_bad_debt'
   | 'price_adjustment'
+  | 'sales_price_adjustment'
   | 'purchase_fee_doc'
   | 'wf_generic_request'
 export type NodeType =
@@ -308,6 +309,7 @@ export const businessLabels: Record<WorkflowBusinessType, string> = {
   qc_inspection: '来料检验',
   ar_bad_debt: '坏账处理',
   price_adjustment: '价格调整',
+  sales_price_adjustment: '销售调价',
   purchase_fee_doc: '采购费用单',
   wf_generic_request: '通用申请',
 }

@@ -36,6 +36,10 @@ function fixedInvoiceColumn(field: string): 'left' | 'right' | undefined {
 const PurchasePriceAdjustmentDrawer = defineAsyncComponent(
   () => import('../components/procurement/PurchasePriceAdjustmentDrawer.vue'),
 )
+const SalesPriceAdjustmentDrawer = defineAsyncComponent(
+  () => import('../components/sales/SalesPriceAdjustmentDrawer.vue'),
+)
+const salesPriceDetailId = ref<string>()
 const PurchaseFeeDrawer = defineAsyncComponent(
   () => import('../components/procurement/PurchaseFeeDrawer.vue'),
 )
@@ -259,6 +263,7 @@ function page(forward: boolean): void {
   void load()
 }
 function link(row: Record<string, unknown>): string | undefined {
+  if (row.sourceType === 'sales_price_adjustment' && !salesPriceSourceId(row)) return undefined
   if (
     ['goods_receipt', 'goods_receipt_line', 'purchase_order_fee', 'goods_receipt_fee'].includes(
       String(row.sourceType),
@@ -287,6 +292,14 @@ function link(row: Record<string, unknown>): string | undefined {
   )
     return row.sourceUrl
   return documentLink(row.sourceType, row.sourceId)
+}
+function salesPriceSourceId(row: Record<string, unknown>): string | undefined {
+  return session.can('sales_price_adjustment:view') &&
+    row.sourceType === 'sales_price_adjustment' &&
+    typeof row.sourceId === 'string' &&
+    /^[1-9][0-9]*$/.test(row.sourceId)
+    ? row.sourceId
+    : undefined
 }
 function receiptSourceId(row: Record<string, unknown>): string | undefined {
   return session.can('goods_receipt:view') &&
@@ -452,6 +465,12 @@ onBeforeUnmount(() => {
   pageRequests.abort()
   reportRequest?.abort()
 })
+watch(
+  () => session.companyId,
+  () => {
+    salesPriceDetailId.value = undefined
+  },
+)
 </script>
 <template>
   <div class="page-heading">
@@ -668,6 +687,13 @@ onBeforeUnmount(() => {
             @click="priceDetailId = priceSourceId(row)"
           >
             {{ reportCell(field, row[field]) }}</button
+          ><button
+            v-else-if="field === 'sourceNo' && salesPriceSourceId(row)"
+            type="button"
+            class="text-link"
+            @click="salesPriceDetailId = salesPriceSourceId(row)"
+          >
+            {{ reportCell(field, row[field]) }}</button
           ><router-link
             v-else-if="field === 'sourceNo' && link(row)"
             class="text-link"
@@ -718,6 +744,11 @@ onBeforeUnmount(() => {
             text
             @click="priceDetailId = priceSourceId(row)"
             >查看原单</el-button
+          ><el-button
+            v-else-if="salesPriceSourceId(row)"
+            text
+            @click="salesPriceDetailId = salesPriceSourceId(row)"
+            >查看原单</el-button
           ><router-link v-else-if="link(row)" class="text-link" :to="link(row)!"
             >查看原单</router-link
           ></template
@@ -748,6 +779,12 @@ onBeforeUnmount(() => {
     :key="String(session.companyId) + '-' + feeDetailId"
     :id="feeDetailId"
     @close="feeDetailId = undefined"
+  />
+  <SalesPriceAdjustmentDrawer
+    v-if="salesPriceDetailId"
+    :key="String(session.companyId) + '-' + salesPriceDetailId"
+    :id="salesPriceDetailId"
+    @close="salesPriceDetailId = undefined"
   />
   <PurchasePriceAdjustmentDrawer
     v-if="priceDetailId"

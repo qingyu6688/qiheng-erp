@@ -329,6 +329,7 @@ export function documentLink(type: unknown, id: unknown): string | undefined {
     goods_receipt: 'goods-receipts',
     purchase_return: 'purchase-returns',
     price_adjustment: 'purchase-price-adjustments',
+    sales_price_adjustment: 'sales-price-adjustments',
     purchase_fee_doc: 'purchase-fee-documents',
     payment: 'payments',
     account_transfer: 'account-transfers',
