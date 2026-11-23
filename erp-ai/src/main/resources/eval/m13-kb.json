@@ -4371,5 +4371,328 @@
     "expectedRefusal": true,
     "expectedDocuments": [],
     "answerAnchors": []
+  },
+  {
+    "id": "m13-257",
+    "category": "knowledge",
+    "question": "批次、序列号、保质期和库位现在支持吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "支持"
+      ],
+      [
+        "批次"
+      ],
+      [
+        "序列号"
+      ],
+      [
+        "保质期"
+      ],
+      [
+        "库位"
+      ]
+    ]
+  },
+  {
+    "id": "m13-258",
+    "category": "knowledge",
+    "question": "数电开票是否已经完成真实服务商验收？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "真实服务商"
+      ],
+      [
+        "待"
+      ],
+      [
+        "对接验收"
+      ]
+    ]
+  },
+  {
+    "id": "m13-259",
+    "category": "knowledge",
+    "question": "总账现在可以出哪三大报表？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "资产负债表"
+      ],
+      [
+        "利润表"
+      ],
+      [
+        "现金流量表"
+      ]
+    ]
+  },
+  {
+    "id": "m13-260",
+    "category": "knowledge",
+    "question": "客户信用超额有哪些控制策略？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "提示"
+      ],
+      [
+        "审批"
+      ],
+      [
+        "禁止"
+      ]
+    ]
+  },
+  {
+    "id": "m13-261",
+    "category": "knowledge",
+    "question": "未配置信用策略的客户是否控制额度？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "未配置"
+      ],
+      [
+        "不控制"
+      ]
+    ]
+  },
+  {
+    "id": "m13-262",
+    "category": "knowledge",
+    "question": "客户角色和供应商角色可以分别设置账期吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "客户"
+      ],
+      [
+        "供应商"
+      ],
+      [
+        "分别"
+      ],
+      [
+        "账期"
+      ]
+    ]
+  },
+  {
+    "id": "m13-263",
+    "category": "knowledge",
+    "question": "按天账期和月结账期的可填范围是什么？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "365"
+      ],
+      [
+        "28"
+      ],
+      [
+        "现结"
+      ]
+    ]
+  },
+  {
+    "id": "m13-264",
+    "category": "knowledge",
+    "question": "订单审批后改客户账期会改变已审批订单吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "审批"
+      ],
+      [
+        "快照"
+      ],
+      [
+        "不改变"
+      ]
+    ]
+  },
+  {
+    "id": "m13-265",
+    "category": "knowledge",
+    "question": "2026年11月23日月结次月28日的到期日是什么？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "2026-12-28"
+      ]
+    ]
+  },
+  {
+    "id": "m13-266",
+    "category": "knowledge",
+    "question": "销售退货及冲销的到期日从哪里取？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "退货"
+      ],
+      [
+        "冲销"
+      ],
+      [
+        "沿用原"
+      ],
+      [
+        "到期日"
+      ]
+    ]
+  },
+  {
+    "id": "m13-267",
+    "category": "knowledge",
+    "question": "按到期日统计账龄时，无到期日和未到期怎样处理？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "排除无到期日"
+      ],
+      [
+        "未来"
+      ],
+      [
+        "0"
+      ]
+    ]
+  },
+  {
+    "id": "m13-268",
+    "category": "knowledge",
+    "question": "升级时会自动回填历史空到期日吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "不自动回填"
+      ],
+      [
+        "预览"
+      ],
+      [
+        "人工"
+      ]
+    ]
+  },
+  {
+    "id": "m13-269",
+    "category": "knowledge",
+    "question": "总账余额现在每张凭证还会全历史重算吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "优化文档"
+    ],
+    "answerAnchors": [
+      [
+        "O-30"
+      ],
+      [
+        "增量"
+      ],
+      [
+        "移除"
+      ]
+    ]
+  },
+  {
+    "id": "m13-270",
+    "category": "knowledge",
+    "question": "生产工单短交关闭是否还是未完成待办？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "优化文档"
+    ],
+    "answerAnchors": [
+      [
+        "O-33"
+      ],
+      [
+        "已实现"
+      ],
+      [
+        "移除"
+      ]
+    ]
+  },
+  {
+    "id": "m13-271",
+    "category": "knowledge",
+    "question": "M10到M19的基线是否仍未合并且没有版本标签？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "优化文档"
+    ],
+    "answerAnchors": [
+      [
+        "O-34"
+      ],
+      [
+        "main"
+      ],
+      [
+        "候选标签"
+      ]
+    ]
+  },
+  {
+    "id": "m13-272",
+    "category": "knowledge",
+    "question": "应付即将到期预警默认提前多少天？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "应付"
+      ],
+      [
+        "7"
+      ],
+      [
+        "天"
+      ]
+    ]
   }
 ]

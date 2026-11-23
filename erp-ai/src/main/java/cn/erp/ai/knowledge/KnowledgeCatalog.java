@@ -29,7 +29,8 @@ import cn.erp.ai.knowledge.KnowledgeTypes.Segment;
 class KnowledgeCatalog {
     private static final Pattern TARGET = Pattern.compile("[A-Za-z0-9_-]{1,64}");
     private static final String SEED_LIBRARY = "official-manuals";
-    private static final List<String> SEED_FILES = List.of("业务规则", "用户使用手册", "运维手册");
+    // 仅在尾部追加，保持已导入文档的种子标识不变。
+    private static final List<String> SEED_FILES = List.of("业务规则", "用户使用手册", "运维手册", "优化文档");
     private final KnowledgeRepository repository;
     private final JdbcTemplate jdbc;
     private final KnowledgeParser parser;

@@ -45,6 +45,10 @@
         <directory>${project.basedir}/../docs/运维</directory><targetPath>kb-seed</targetPath>
         <includes><include>运维手册.md</include></includes>
       </resource>
+      <resource>
+        <directory>${project.basedir}/../docs/规划</directory><targetPath>kb-seed</targetPath>
+        <includes><include>优化文档.md</include></includes>
+      </resource>
     </resources>
     <plugins>
       <plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin>

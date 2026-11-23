@@ -2,18 +2,36 @@ package cn.erp.ai.eval;
 
 import java.util.List;
 import java.util.Set;
+import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.io.ClassPathResource;
 import tools.jackson.databind.json.JsonMapper;
 import cn.erp.ai.assistant.AssistantRuntime;
 
 class EvaluationSetTest {
+    @Test void seedResourcesDescribeCurrentCapabilitiesAndExcludeCompletedBacklog() throws Exception {
+        String rules = seedText("业务规则");
+        assertThat(rules).contains("文档版本：1.6.0", "批次、序列号、保质期和库位已支持", "真实服务商仍待配置和对接验收",
+                "资产负债表、利润表、现金流量表", "历史空到期日不自动回填")
+                .doesNotContain("批次、序列号、保质期、库位不做", "只做运营资金账本，不出法定财务报表", "首期不做信用额度控制");
+        String backlog = seedText("优化文档");
+        assertThat(backlog).contains("版本：2.2.0", "O-30 总账余额已增量更新", "O-33 工单短交关闭已实现", "候选标签")
+                .doesNotContain("| O-30 |", "| O-33 |", "| O-34 |", "### O-30 ", "### O-33 ", "### O-34 ");
+    }
+
+    private String seedText(String title) throws Exception {
+        try (var input = new ClassPathResource("kb-seed/" + title + ".md").getInputStream()) {
+            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
     @Test void corpusHasDistinctQuestionsAcrossAllHandbooksAndSecurityCases() throws Exception {
         var cases=new EvaluationSet(JsonMapper.builder().build()).cases();
-        assertThat(cases).hasSize(256).extracting(EvaluationSet.Case::question).doesNotHaveDuplicates();
+        assertThat(cases).hasSize(272).extracting(EvaluationSet.Case::question).doesNotHaveDuplicates();
         assertThat(cases.stream().flatMap(c -> c.expectedDocuments().stream()).distinct().toList())
-                .containsExactlyInAnyOrder("用户使用手册","运维手册","业务规则");
+                .containsExactlyInAnyOrder("用户使用手册","运维手册","业务规则","优化文档");
         assertThat(cases.stream().filter(c -> c.category().equals("security")).count()).isGreaterThanOrEqualTo(20L);
     }
 
