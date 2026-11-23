@@ -15,6 +15,7 @@ export type WorkflowBusinessType =
   | 'gl_voucher'
   | 'qc_inspection'
   | 'ar_bad_debt'
+  | 'price_adjustment'
   | 'wf_generic_request'
 export type NodeType =
   | 'start'
@@ -305,6 +306,7 @@ export const businessLabels: Record<WorkflowBusinessType, string> = {
   gl_voucher: '总账凭证',
   qc_inspection: '来料检验',
   ar_bad_debt: '坏账处理',
+  price_adjustment: '价格调整',
   wf_generic_request: '通用申请',
 }
 export const workflowStatus: Record<string, string> = {

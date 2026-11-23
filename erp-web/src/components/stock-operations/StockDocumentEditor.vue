@@ -15,16 +15,16 @@ import DependencyList from './DependencyList.vue'
 import StockSelectionFields from './StockSelectionFields.vue'
 import type { StockSelection } from '../../types/inventory-tracking'
 
-const props = defineProps<{ kind: StockKind; original?: StockDocument }>()
+const props = defineProps<{ kind: StockKind; original?: StockDocument; presetSource?: ReversalSource & { sourceType: string } }>()
 const emit = defineEmits<{ close: []; saved: [StockDocument] }>()
 const session = useSessionStore(), spec = computed(() => stockSpecs.find(item => item.path === props.kind)!)
 const transfer = computed(() => props.kind === 'stock-transfers'), reversal = computed(() => props.kind === 'document-reversals')
-const sourceTypes = computed(() => reversalTypes.filter(item => session.can(item.permission)))
-const form = reactive({ fromWarehouseId: props.original?.fromWarehouseId ?? '', toWarehouseId: props.original?.toWarehouseId ?? '', warehouseId: props.original?.warehouseId ?? '', businessDate: props.original?.businessDate ?? today(), remark: props.original?.remark ?? '', reason: '', sourceType: sourceTypes.value[0]?.value ?? '', sourceId: '' })
+const sourceTypes = computed(() => reversalTypes.filter(item => session.can(item.permission) && (item.value !== 'price_adjustment' || session.can('cost:view') && session.can('goods_receipt:view'))))
+const form = reactive({ fromWarehouseId: props.original?.fromWarehouseId ?? '', toWarehouseId: props.original?.toWarehouseId ?? '', warehouseId: props.original?.warehouseId ?? '', businessDate: props.original?.businessDate ?? today(), remark: props.original?.remark ?? '', reason: '', sourceType: props.presetSource?.sourceType ?? sourceTypes.value[0]?.value ?? '', sourceId: props.presetSource?.id ?? '' })
 interface InputLine { skuId: string; unitId: string; qty: string; stockSelection?: StockSelection | null }
 const lines = ref<InputLine[]>((props.original?.lines ?? []).map(line => ({ skuId: line.skuId, unitId: line.unitId ?? '', qty: line.qty ?? '1', stockSelection: line.stockSelection })))
 const warehouses = ref<DataRow[]>([]), skus = ref<DataRow[]>([]), units = reactive<Record<string, SalesSkuUnit[]>>({})
-const sources = ref<ReversalSource[]>([]), chosenSource = ref<ReversalSource>(), keyword = ref(''), sourceCursors = ref<(string | null)[]>([null]), sourceNext = ref<string | null>(null), sourceBusy = ref(false)
+const sources = ref<ReversalSource[]>([]), chosenSource = ref<ReversalSource | undefined>(props.presetSource), keyword = ref(''), sourceCursors = ref<(string | null)[]>([null]), sourceNext = ref<string | null>(null), sourceBusy = ref(false)
 const sourceOptions = computed(() => chosenSource.value && !sources.value.some(item => item.id === chosenSource.value?.id) ? [chosenSource.value, ...sources.value] : sources.value)
 const loading = ref(true), busy = ref(false), uncertain = ref(false), refreshRequired = ref(false), retryOriginal = ref(false), error = ref('')
 const dependencies = ref<unknown>()

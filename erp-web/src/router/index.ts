@@ -45,13 +45,32 @@ export const router = createRouter({
       path: '/',
       component: () => import('../components/AppShell.vue'),
       children: [
+        {
+          path: 'purchase-price-adjustments/:id?',
+          name: 'purchase-price-adjustments',
+          component: () => import('../pages/PurchasePriceAdjustmentPage.vue'),
+          meta: {
+            company: true,
+            title: '采购调价',
+            permission: 'price_adjustment:view',
+            allPermissions: ['cost:view', 'goods_receipt:view'],
+          },
+        },
         ...manufacturingNavigation.flatMap(({ area, title, permission }) =>
-          [area, ...(['work-orders', 'issues', 'receipts'].includes(area) ? [area + '/:id'] : [])].map((path) => ({
+          [
+            area,
+            ...(['work-orders', 'issues', 'receipts'].includes(area) ? [area + '/:id'] : []),
+          ].map((path) => ({
             path: 'mfg/' + path,
             name: 'mfg-' + area + (path.endsWith('/:id') ? '-detail' : ''),
             component: () => import('../pages/mfg/ManufacturingPage.vue'),
             props: { area },
-            meta: { company: true, title, permission, allPermissions: area === 'cost-periods' ? ['cost:view'] : [] },
+            meta: {
+              company: true,
+              title,
+              permission,
+              allPermissions: area === 'cost-periods' ? ['cost:view'] : [],
+            },
           })),
         ),
         ...crmCoreNavigation.map(({ kind, title, permission }) => ({
@@ -321,7 +340,13 @@ export const router = createRouter({
           name: 'warehouse-work',
           component: () => import('../pages/WmsWorkPage.vue'),
           meta: {
-            anyPermissions: ['wms_task:view', 'wms_task:configure', 'wms_move:view', 'wms_pack:view', 'label:print'],
+            anyPermissions: [
+              'wms_task:view',
+              'wms_task:configure',
+              'wms_move:view',
+              'wms_pack:view',
+              'label:print',
+            ],
             company: true,
             title: '仓储作业',
           },

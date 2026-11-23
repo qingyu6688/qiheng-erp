@@ -336,6 +336,7 @@ final class WorkflowTestData {
             if (task.getExecutionId() == null)
                 engine.getTaskService().deleteTask(task.getId(), true);
         jdbc.update("UPDATE org_department SET parent_id=NULL WHERE tenant_id=?", tenant);
+        jdbc.update("UPDATE purchase_order_fee SET recognized_receipt_id=NULL WHERE tenant_id=?", tenant);
         for (String table :
                 List.of(
                         "sys_login_log",
@@ -343,6 +344,7 @@ final class WorkflowTestData {
                         "sys_api_error_log",
                         "notify_send_log",
                         "notify_message",
+                        "alert_event","alert_sku_safety_stock","alert_rule",
                         "job_item_failure",
                         "job_run_log",
                         "job_definition",
@@ -376,7 +378,10 @@ final class WorkflowTestData {
                         "cash_account",
                         "stock_adjustment_line",
                         "stock_adjustment",
+                        "stock_transfer_event_line","stock_transfer_line","stock_transfer",
                         "document_reversal",
+                        "price_adjustment_cost","price_adjustment_line","price_adjustment",
+                        "purchase_return_line","purchase_return","payable","goods_receipt_line","goods_receipt",
                         "purchase_order_fee",
                         "purchase_order_line",
                         "purchase_order",
@@ -413,7 +418,12 @@ final class WorkflowTestData {
                         "job_run_log",
                         "job_definition",
                         "company"))
+        {
+            if(table.equals("payable")) jdbc.update("DELETE FROM payable WHERE tenant_id=? AND posting_action='reverse'",tenant);
+            if(table.equals("journal")) jdbc.update("DELETE FROM journal WHERE tenant_id=? AND posting_action='reverse'",tenant);
+            if(table.equals("inventory_movement")) jdbc.update("DELETE FROM inventory_movement WHERE tenant_id=? AND posting_action='reverse'",tenant);
             jdbc.update("DELETE FROM " + table + " WHERE tenant_id=?", tenant);
+        }
         jdbc.update("DELETE FROM tenant WHERE id=?", tenant);
     }
 }

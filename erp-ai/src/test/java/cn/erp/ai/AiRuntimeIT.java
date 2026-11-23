@@ -348,8 +348,8 @@ class AiRuntimeIT {
             Thread.sleep(250);
         } while (System.nanoTime()<deadline);
         assertThat(report.path("status").asString()).isEqualTo("completed");
-        assertThat(report.path("total").asInt()).isEqualTo(272);
-        assertThat(report.path("results").size()).isEqualTo(272);
+        assertThat(report.path("total").asInt()).isEqualTo(280);
+        assertThat(report.path("results").size()).isEqualTo(280);
         assertThat(report.path("correctRate").decimalValue()).isEqualByComparingTo("0");
         assertThat(report.path("citationRate").decimalValue()).isEqualByComparingTo("0");
         assertThat(report.path("refusalRate").decimalValue()).isEqualByComparingTo("1");

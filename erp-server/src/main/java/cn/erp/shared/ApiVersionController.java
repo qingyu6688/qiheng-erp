@@ -12,6 +12,6 @@ class ApiVersionController {
     @GetMapping("/api/v1/system/version")
     ResponseEntity<ApiResponse<Version>> version() {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-                .body(ApiResponse.success(new Version(2, "2.0.1")));
+                .body(ApiResponse.success(new Version(2, "2.1.0")));
     }
 }

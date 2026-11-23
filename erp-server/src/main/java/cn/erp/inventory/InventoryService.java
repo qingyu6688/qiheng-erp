@@ -433,6 +433,24 @@ public class InventoryService {
                 keys.stream().map(Key::skuId).distinct().sorted().toList()));
     }
 
+    /** 只追加采购成本调整；已出库差异单独记账，不改变当前库存成本。 */
+    public void purchasePriceCost(CompanyAccess scope,Posting posting,BigDecimal stock,BigDecimal issued) {
+        cn.erp.shared.FinancialScope.require(scope,"cost:view");
+        if(!"price_adjustment_cost".equals(posting.source().type())) throw invalid("采购成本调整来源无效");
+        store.lockPeriod(scope,posting);
+        if(stock.signum()!=0) {
+            var current=store.lockCost(scope,posting.key());
+            var next=decimal(current,"total_cost").add(stock);
+            if(decimal(current,"qty").signum()<=0||next.signum()<0)
+                throw new ApiException(422,"PURCHASE_COST_STOCK_CHANGED","库存已变化，无法承接本次成本调整，请刷新后重试");
+            InventoryNumbers.money(next);
+            jdbc.update("UPDATE inventory_cost SET total_cost=?,version=version+1 WHERE id=?",next,current.get("id"));
+            adjustment(scope,posting,"purchase_price_stock",stock);
+            changed(scope,List.of(posting.key()));
+        }
+        if(issued.signum()!=0) adjustment(scope,posting,"purchase_price_issued",issued);
+    }
+
     private void adjustment(CompanyAccess scope,Posting p,String type,BigDecimal amount) {
         jdbc.update("""
                 INSERT INTO cost_adjustment(id,tenant_id,company_id,warehouse_id,sku_id,adjust_type,amount,source_type,

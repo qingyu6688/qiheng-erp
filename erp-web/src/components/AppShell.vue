@@ -139,6 +139,7 @@ const navigation = [
           { path: 'purchase-orders', title: '采购订单', permission: 'purchase_order:view' },
           { path: 'goods-receipts', title: '采购收货', permission: 'goods_receipt:view' },
           { path: 'purchase-returns', title: '采购退货', permission: 'purchase_return:view' },
+          { path: 'purchase-price-adjustments', title: '采购调价', permission: 'price_adjustment:view', all: ['cost:view', 'goods_receipt:view'] },
         ],
       },
       { title: '付款', items: [{ path: 'payments', title: '付款登记', permission: 'payment:view' }] },

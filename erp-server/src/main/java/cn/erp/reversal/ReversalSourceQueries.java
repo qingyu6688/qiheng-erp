@@ -16,7 +16,7 @@ class ReversalSourceQueries {
     private static final Map<String,String> NUMBERS=Map.ofEntries(Map.entry("shipment","shipment_no"),Map.entry("sales_return","return_no"),
         Map.entry("goods_receipt","receipt_no"),Map.entry("purchase_return","return_no"),Map.entry("receipt","receipt_no"),
         Map.entry("payment","payment_no"),Map.entry("account_transfer","transfer_no"),Map.entry("stock_adjustment","adjust_no"),
-        Map.entry("stock_misc_doc","document_no"),Map.entry("mfg_issue_doc","document_no"),Map.entry("mfg_receipt_doc","document_no"));
+        Map.entry("stock_misc_doc","document_no"),Map.entry("mfg_issue_doc","document_no"),Map.entry("mfg_receipt_doc","document_no"),Map.entry("price_adjustment","adjust_no"));
     private final JdbcTemplate jdbc;
     ReversalSourceQueries(JdbcTemplate jdbc) {this.jdbc=jdbc;}
     Map<String,Object> list(CompanyAccess scope,String sourceType,Long cursor,int limit,String keyword) {
@@ -29,6 +29,7 @@ class ReversalSourceQueries {
         String number=NUMBERS.get(table),states=sourceType.equals("shipment")?"'posted','signed','signed_with_diff'":Set.of("receipt","payment","account_transfer").contains(sourceType)?"'confirmed'":"'posted'";
         var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),before,keyword));
         String filter=cn.erp.shared.OrgOwnership.filter(scope,"d");
+        if(sourceType.equals("price_adjustment"))filter+=" AND "+cn.erp.shared.PriceAdjustmentScope.condition(scope,"d");
         if(ManufacturingReversalPort.supports(sourceType)) {filter+=" AND "+ManufacturingScope.stockCondition(scope,"d");}
         if(warehouse&&!scope.allWarehouses()) {filter+=" AND d.warehouse_id IN ("+String.join(",",Collections.nCopies(scope.warehouseIds().size(),"?"))+")";args.addAll(scope.warehouseIds());}
         args.add(sourceType);

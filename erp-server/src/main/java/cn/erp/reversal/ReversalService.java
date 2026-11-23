@@ -122,7 +122,9 @@ public class ReversalService {
         var parts=new ArrayList<String>();var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),before));
         if(status!=null){args.add(status);}
         for(String type:allowed) {
-            if(ManufacturingReversalPort.supports(type)) {
+            if(type.equals("price_adjustment")) {
+                parts.add("(r.source_type='price_adjustment' AND EXISTS(SELECT 1 FROM price_adjustment h WHERE h.tenant_id=r.tenant_id AND h.company_id=r.company_id AND h.id=r.source_id AND "+PriceAdjustmentScope.condition(scope,"h")+"))");
+            } else if(ManufacturingReversalPort.supports(type)) {
                 parts.add("(r.source_type='"+type+"' AND EXISTS(SELECT 1 FROM "+type+" h WHERE h.tenant_id=r.tenant_id AND h.company_id=r.company_id AND h.id=r.source_id AND "+ManufacturingScope.stockCondition(scope,"h")+"))");
             } else if(scope.allWarehouses()||Set.of("receipt","payment","account_transfer").contains(type))parts.add("r.source_type='"+type+"'");
             else if(!scope.warehouseIds().isEmpty()) {

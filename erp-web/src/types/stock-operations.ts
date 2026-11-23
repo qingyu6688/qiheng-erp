@@ -23,6 +23,7 @@ export const reversalTypes = [
   { value: 'shipment', label: '发货单', permission: 'shipment:view' },
   { value: 'sales_return', label: '销售退货单', permission: 'sales_return:view' },
   { value: 'goods_receipt', label: '采购收货单', permission: 'goods_receipt:view' },
+  { value: 'price_adjustment', label: '价格调整单', permission: 'price_adjustment:view' },
   { value: 'purchase_return', label: '采购退货单', permission: 'purchase_return:view' },
   { value: 'receipt', label: '收款单', permission: 'receipt:view' },
   { value: 'payment', label: '付款单', permission: 'payment:view' },

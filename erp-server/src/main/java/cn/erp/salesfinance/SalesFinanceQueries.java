@@ -50,7 +50,7 @@ public class SalesFinanceQueries {
                 SELECT a.id,a.supplier_id,p.name supplier_name,a.kind,a.source_type,a.source_id,a.source_line_id,
                     a.amount,a.untaxed_amount,a.tax_amount,a.invoiced_amount,a.business_date,COALESCE(i.open_amount,0) open_amount,
                     CASE a.source_type WHEN 'purchase_return_line' THEN pr.return_no
-                        WHEN 'opening_entry' THEN oe.entry_no ELSE gr.receipt_no END source_no
+                        WHEN 'opening_entry' THEN oe.entry_no WHEN 'price_adjustment_line' THEN pa.adjust_no ELSE gr.receipt_no END source_no
                 FROM payable a JOIN business_partner p ON p.tenant_id=a.tenant_id AND p.id=a.supplier_id
                 LEFT JOIN partner_open_item i ON i.tenant_id=a.tenant_id AND i.company_id=a.company_id
                     AND i.item_type='payable' AND i.source_id=a.id
@@ -58,6 +58,7 @@ public class SalesFinanceQueries {
                     AND a.source_type IN('goods_receipt_line','purchase_order_fee') AND gr.id=a.source_id
                 LEFT JOIN purchase_return pr ON pr.tenant_id=a.tenant_id AND pr.company_id=a.company_id
                     AND a.source_type='purchase_return_line' AND pr.id=a.source_id
+                LEFT JOIN price_adjustment pa ON pa.tenant_id=a.tenant_id AND pa.company_id=a.company_id AND pa.id=a.source_id AND a.source_type='price_adjustment_line'
                 LEFT JOIN opening_entry oe ON oe.tenant_id=a.tenant_id AND oe.company_id=a.company_id
                     AND a.source_type='opening_entry' AND oe.id=a.source_id
                 WHERE a.tenant_id=? AND a.company_id=? AND a.id<? AND (? IS NULL OR a.supplier_id=?)
@@ -73,7 +74,7 @@ public class SalesFinanceQueries {
                   COALESCE(ar.due_date,ap.due_date) due_date,GREATEST(0,DATEDIFF(DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')),COALESCE(ar.due_date,ap.due_date))) overdue_days,
                   CASE i.item_type WHEN 'receipt' THEN r.receipt_no WHEN 'refund_request' THEN f.refund_no
                     WHEN 'payment' THEN pm.payment_no
-                    WHEN 'payable' THEN CASE ap.source_type WHEN 'purchase_return_line' THEN pr.return_no ELSE gr.receipt_no END
+                    WHEN 'payable' THEN CASE ap.source_type WHEN 'purchase_return_line' THEN pr.return_no WHEN 'price_adjustment_line' THEN pa.adjust_no ELSE gr.receipt_no END
                     WHEN 'receivable' THEN CASE ar.source_type WHEN 'sales_return_line' THEN sr.return_no ELSE sh.shipment_no END ELSE NULL END source_no,
                   CASE WHEN i.item_type IN('payable','payment') OR r.receipt_type='supplier_refund' THEN 'ap' ELSE 'ar' END side
                 FROM partner_open_item i JOIN business_partner p ON p.tenant_id=i.tenant_id AND p.id=i.partner_id
@@ -84,6 +85,7 @@ public class SalesFinanceQueries {
                 LEFT JOIN shipment sh ON sh.tenant_id=ar.tenant_id AND sh.company_id=ar.company_id AND ar.source_type IN('shipment_line','sales_order_fee') AND sh.id=ar.source_id
                 LEFT JOIN payment pm ON pm.tenant_id=i.tenant_id AND pm.company_id=i.company_id AND i.item_type='payment' AND pm.id=i.source_id
                 LEFT JOIN payable ap ON ap.tenant_id=i.tenant_id AND ap.company_id=i.company_id AND i.item_type='payable' AND ap.id=i.source_id
+                LEFT JOIN price_adjustment pa ON pa.tenant_id=ap.tenant_id AND pa.company_id=ap.company_id AND pa.id=ap.source_id AND ap.source_type='price_adjustment_line'
                 LEFT JOIN goods_receipt gr ON gr.tenant_id=ap.tenant_id AND gr.company_id=ap.company_id AND ap.source_type IN('goods_receipt_line','purchase_order_fee') AND gr.id=ap.source_id
                 LEFT JOIN purchase_return pr ON pr.tenant_id=ap.tenant_id AND pr.company_id=ap.company_id AND ap.source_type='purchase_return_line' AND pr.id=ap.source_id
                 WHERE i.tenant_id=? AND i.company_id=? AND i.id<? AND (? IS NULL OR i.partner_id=?)

@@ -160,6 +160,15 @@ class KnowledgeIsolationIT {
 
     @Test
     void answersUpdatedScopeAndPaymentTermsUsingActuallyImportedOfficialEvidence() throws Exception {
+        answersOfficialEvidence(257,272,"B09-知识问答回归.json");
+    }
+
+    @Test
+    void answersPurchasePriceRulesUsingActuallyImportedOfficialEvidence() throws Exception {
+        answersOfficialEvidence(273,280,"B02-采购调价知识问答.json");
+    }
+
+    private void answersOfficialEvidence(int first,int last,String reportName) throws Exception {
         catalog.seed(operator);
         worker.processUploads();
         assertThat(catalog.documents(operator, "official-manuals")).hasSize(4)
@@ -181,7 +190,8 @@ class KnowledgeIsolationIT {
         var results = new ArrayList<Map<String, Object>>();
         try (var input = new ClassPathResource("eval/m13-kb.json").getInputStream()) {
             for (var test : json.readTree(input)) {
-                if (Integer.parseInt(test.path("id").asString().substring(4)) < 257) continue;
+                int number=Integer.parseInt(test.path("id").asString().substring(4));
+                if (number<first || number>last) continue;
                 var answer = runtime.answer(operator, current, test.path("question").asString(), List.of(), () -> operator);
                 boolean facts = !answer.refused();
                 for (var group : test.path("answerAnchors")) {
@@ -196,11 +206,11 @@ class KnowledgeIsolationIT {
                         "citations", answer.citations(), "receiptsValid", runtime.receiptsValid(operator, current, answer.receipts())));
             }
         }
-        Path report = Path.of(System.getenv().getOrDefault("ERP_TEST_ROOT", System.getProperty("java.io.tmpdir")), "erp-ai", "B09-知识问答回归.json");
+        Path report = Path.of(System.getenv().getOrDefault("ERP_TEST_ROOT", System.getProperty("java.io.tmpdir")), "erp-ai", reportName);
         Files.createDirectories(report.getParent());
         Files.writeString(report, json.writerWithDefaultPrettyPrinter().writeValueAsString(Map.of(
                 "mode", "受控摘录模型与本机检索", "total", results.size(), "results", results)), StandardCharsets.UTF_8);
-        assertThat(results).hasSize(16).allSatisfy(result -> {
+        assertThat(results).hasSize(last-first+1).allSatisfy(result -> {
             assertThat(result.get("factsCorrect")).as("%s 答案要点", result.get("id")).isEqualTo(true);
             assertThat(result.get("citationCorrect")).as("%s 资料引用", result.get("id")).isEqualTo(true);
             assertThat(result.get("receiptsValid")).as("%s 当前权限", result.get("id")).isEqualTo(true);

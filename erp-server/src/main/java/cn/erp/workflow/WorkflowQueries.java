@@ -161,7 +161,7 @@ public class WorkflowQueries {
                         var summary = state.summary(row);
                         if (amountVisible(actor, row, summary)
                                 && Set.of("sales_order", "purchase_order", "refund_request", "document_reversal",
-                                        "stock_adjustment", "credit_increase", "crm_contract", "gl_voucher", "ar_bad_debt")
+                                        "stock_adjustment", "credit_increase", "crm_contract", "gl_voucher", "ar_bad_debt", "price_adjustment")
                                         .contains(row.get("business_type")))
                             result.put("total_amount", Objects.toString(summary.get("totalAmount"), null));
                         result.put("batch_group", WorkflowBatchApproval.group(

@@ -1,7 +1,7 @@
 ﻿#requires -Version 7.0
 [CmdletBinding()]
 param(
-    [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+$')][string]$Version='2.0.1',
+    [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+$')][string]$Version='2.1.0',
     [ValidatePattern('^rc\.[1-9][0-9]*$')][string]$Candidate,
     [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local/release'),
     [string]$SbomDirectory,

@@ -13,7 +13,7 @@ import cn.erp.ai.assistant.AssistantRuntime;
 class EvaluationSetTest {
     @Test void seedResourcesDescribeCurrentCapabilitiesAndExcludeCompletedBacklog() throws Exception {
         String rules = seedText("业务规则");
-        assertThat(rules).contains("文档版本：1.6.0", "批次、序列号、保质期和库位已支持", "真实服务商仍待配置和对接验收",
+        assertThat(rules).contains("文档版本：1.7.0", "批次、序列号、保质期和库位已支持", "真实服务商仍待配置和对接验收",
                 "资产负债表、利润表、现金流量表", "历史空到期日不自动回填")
                 .doesNotContain("批次、序列号、保质期、库位不做", "只做运营资金账本，不出法定财务报表", "首期不做信用额度控制");
         String backlog = seedText("优化文档");
@@ -29,7 +29,7 @@ class EvaluationSetTest {
 
     @Test void corpusHasDistinctQuestionsAcrossAllHandbooksAndSecurityCases() throws Exception {
         var cases=new EvaluationSet(JsonMapper.builder().build()).cases();
-        assertThat(cases).hasSize(272).extracting(EvaluationSet.Case::question).doesNotHaveDuplicates();
+        assertThat(cases).hasSize(280).extracting(EvaluationSet.Case::question).doesNotHaveDuplicates();
         assertThat(cases.stream().flatMap(c -> c.expectedDocuments().stream()).distinct().toList())
                 .containsExactlyInAnyOrder("用户使用手册","运维手册","业务规则","优化文档");
         assertThat(cases.stream().filter(c -> c.category().equals("security")).count()).isGreaterThanOrEqualTo(20L);

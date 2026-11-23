@@ -38,13 +38,14 @@ public class ReceivingService {
     private final PurchaseOrderQueries orders;
     private final ReceiptQualityPort quality;
     private final PutawayPort putawayTasks;
+    private final tools.jackson.databind.ObjectMapper json;
     public ReceivingService(JdbcTemplate jdbc,ReceivingQueries queries,BusinessCommands commands,DocumentNumbers numbers,AuditService audit,
             CatalogAvailability catalog,ReferenceAvailability references,PricingEngine pricing,InventoryService inventory,
             LedgerService ledger,SettlementService settlement,PurchaseOrderQueries orders,ReceiptQualityPort quality,
-            PutawayPort putawayTasks) {
+            PutawayPort putawayTasks,tools.jackson.databind.ObjectMapper json) {
         this.jdbc=jdbc;this.queries=queries;this.commands=commands;this.numbers=numbers;this.audit=audit;this.catalog=catalog;
         this.references=references;this.pricing=pricing;this.inventory=inventory;this.ledger=ledger;this.settlement=settlement;this.orders=orders;this.quality=quality;
-        this.putawayTasks=putawayTasks;
+        this.putawayTasks=putawayTasks;this.json=json;
     }
     private record Line(long sourceId,long unitId,String qty,StockSelection selection) {}
     public Map<String,Object> createReceipt(CompanyAccess scope,String key,ReceivingModels.ReceiptInput input) {
@@ -249,16 +250,17 @@ public class ReceivingService {
             Map<String,Object> line,Map<String,Object> original,ReceiptQualityPort.Hold hold,List<LedgerService.Line> journal) {
         long lineId=id(line,"id");BigDecimal qty=decimal(line,"base_qty"),previous=decimal(original,"returned_base_qty"),total=decimal(original,"base_qty");
         if(decimal(original,"pending_return_base_qty").compareTo(qty)<0||previous.add(qty).compareTo(total)>0) {throw new ApiException(422,"RETURN_QTY_EXCEEDED","原收货可退数量不足");}
-        BigDecimal amount=part(decimal(original,"payable_amount"),total,previous,previous.add(qty)),tax=part(decimal(original,"tax_amount"),total,previous,previous.add(qty));
+        var price=ReceiptReturnPricing.calculate(original,qty,day,json);
+        BigDecimal amount=price.amount(),tax=price.tax();
         long originalLine=id(original,"id");
         var origin=new Source("goods_receipt_line",id(original,"receipt_id"),originalLine);
         var posting=new Posting(new Key(warehouse,id(line,"sku_id")),new Source("purchase_return_line",header,lineId),day,period,"purchase_return_out");
         var selected=inventory.returnSelection(scope,posting.key(),origin,"purchase_in",inventory.decodeSelection(line.get("stock_selection")),qty,
                 hold==null?null:"quality_hold");
-        var result=inventory.purchaseReturn(scope,posting,qty,decimal(original,"unit_cost"),selected,
+        var result=inventory.purchaseReturn(scope,posting,qty,price.unitCost(),selected,
                 hold==null?null:new Source("goods_receipt_line",hold.sourceId(),hold.lineId()));
         BigDecimal cost=result.movementCost().subtract(result.adjustment());
-        jdbc.update("UPDATE purchase_return_line SET debit_amount=?,tax_amount=?,untaxed_amount=?,unit_cost=?,cost_amount=?,cost_adjust_amount=?,version=version+1,updated_by=? WHERE id=?",amount,tax,amount.subtract(tax),original.get("unit_cost"),cost,result.adjustment(),scope.userId(),lineId);
+        jdbc.update("UPDATE purchase_return_line SET debit_amount=?,tax_amount=?,untaxed_amount=?,unit_cost=?,cost_amount=?,cost_adjust_amount=?,version=version+1,updated_by=? WHERE id=?",amount,tax,amount.subtract(tax),price.unitCost(),cost,result.adjustment(),scope.userId(),lineId);
         jdbc.update("UPDATE goods_receipt_line SET pending_return_base_qty=pending_return_base_qty-?,returned_base_qty=returned_base_qty+?,debited_amount=debited_amount+?,debited_tax=debited_tax+?,version=version+1,updated_by=? WHERE id=?",qty,qty,amount,tax,scope.userId(),original.get("id"));
         jdbc.update("UPDATE purchase_order_line SET returned_base_qty=returned_base_qty+?,version=version+1,updated_by=? WHERE id=?",qty,scope.userId(),original.get("order_line_id"));
         payable(scope,supplier,"credit","purchase_return_line",header,lineId,amount,tax,day,period,PaymentTerms.original(jdbc,scope,"payable","goods_receipt_line",originalLine));

@@ -15,7 +15,7 @@ public final class SystemWorkflowPlan {
             Map.entry("purchase_requisition", "请购单"), Map.entry("stock_count", "库存盘点"),
             Map.entry("stock_misc_doc", "其他出入库"), Map.entry("gl_voucher", "总账凭证"),
             Map.entry("mfg_bom", "物料清单"), Map.entry("mfg_receipt_doc", "生产完工入库"),
-            Map.entry("qc_inspection", "来料检验"), Map.entry("ar_bad_debt", "坏账处理"));
+            Map.entry("qc_inspection", "来料检验"), Map.entry("ar_bad_debt", "坏账处理"), Map.entry("price_adjustment", "价格调整"));
 
     private SystemWorkflowPlan() {}
 

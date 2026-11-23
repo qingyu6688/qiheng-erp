@@ -4694,5 +4694,172 @@
         "天"
       ]
     ]
+  },
+  {
+    "id": "m13-273",
+    "category": "knowledge",
+    "question": "采购收货过账以后，结算价格还能调整吗？会改原单货款吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "已过账",
+        "采购调价"
+      ],
+      [
+        "尚未退货"
+      ],
+      [
+        "保留"
+      ]
+    ]
+  },
+  {
+    "id": "m13-274",
+    "category": "knowledge",
+    "question": "采购调价时原收货已部分出库，在库、已出库与在途成本怎么处理？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "在库"
+      ],
+      [
+        "库存成本"
+      ],
+      [
+        "成本差异"
+      ],
+      [
+        "不回写"
+      ]
+    ]
+  },
+  {
+    "id": "m13-275",
+    "category": "knowledge",
+    "question": "供应商采购折让过账后，会自动核销或自动退款吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "信用额"
+      ],
+      [
+        "不自动核销"
+      ]
+    ]
+  },
+  {
+    "id": "m13-276",
+    "category": "knowledge",
+    "question": "采购调价后再次退货怎样计算金额和税额？最后一次会有尾差吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "剩余"
+      ],
+      [
+        "累计分摊"
+      ],
+      [
+        "尾差"
+      ]
+    ]
+  },
+  {
+    "id": "m13-277",
+    "category": "knowledge",
+    "question": "采购调价可以由制单人自己批准并过账吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "另一人"
+      ],
+      [
+        "复核"
+      ],
+      [
+        "工作流"
+      ]
+    ]
+  },
+  {
+    "id": "m13-278",
+    "category": "knowledge",
+    "question": "只有部分仓库权限的人员能批准采购调价并过账吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "完整"
+      ],
+      [
+        "仓库"
+      ],
+      [
+        "部门"
+      ],
+      [
+        "成本权限"
+      ]
+    ]
+  },
+  {
+    "id": "m13-279",
+    "category": "knowledge",
+    "question": "原收货已经退货或又调价，之前保存的采购调价草稿还能直接过账吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "来源版本"
+      ],
+      [
+        "更新草稿"
+      ],
+      [
+        "作废"
+      ]
+    ]
+  },
+  {
+    "id": "m13-280",
+    "category": "knowledge",
+    "question": "采购调价过账出错可以直接删除吗？冲销前需要处理哪些下游？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "统一冲销"
+      ],
+      [
+        "反向事实"
+      ],
+      [
+        "后续退货"
+      ],
+      [
+        "库存"
+      ]
+    ]
   }
 ]

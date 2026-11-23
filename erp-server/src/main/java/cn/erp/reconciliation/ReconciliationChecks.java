@@ -48,13 +48,23 @@ public class ReconciliationChecks {
                 c AS (SELECT warehouse_id,sku_id,qty q,total_cost a FROM inventory_cost WHERE tenant_id=:t AND company_id=:c),
                 m AS (SELECT warehouse_id,sku_id,SUM(a) a FROM (
                     SELECT warehouse_id,sku_id,cost_delta a FROM inventory_movement WHERE tenant_id=:t AND company_id=:c
-                    UNION ALL SELECT warehouse_id,sku_id,amount FROM cost_adjustment WHERE tenant_id=:t AND company_id=:c
+                    UNION ALL SELECT warehouse_id,sku_id,amount FROM cost_adjustment WHERE tenant_id=:t AND company_id=:c AND adjust_type<>'purchase_price_issued'
                 ) x GROUP BY warehouse_id,sku_id),
                 k AS (SELECT warehouse_id,sku_id FROM b UNION SELECT warehouse_id,sku_id FROM c UNION SELECT warehouse_id,sku_id FROM m)
                 SELECT CONCAT(k.warehouse_id,'/',k.sku_id,'/数量') object_key,COALESCE(b.q,0) expected,COALESCE(c.q,0) actual FROM k LEFT JOIN b USING(warehouse_id,sku_id) LEFT JOIN c USING(warehouse_id,sku_id)
                 WHERE c.q IS NULL OR COALESCE(b.q,0)<>COALESCE(c.q,0)
                 UNION ALL SELECT CONCAT(k.warehouse_id,'/',k.sku_id,'/成本'),COALESCE(m.a,0),COALESCE(c.a,0) FROM k LEFT JOIN m USING(warehouse_id,sku_id) LEFT JOIN c USING(warehouse_id,sku_id)
                 WHERE COALESCE(m.a,0)<>COALESCE(c.a,0)
+                UNION ALL SELECT CONCAT(x.id,'/采购调价在库成本'),x.stock_amount,COALESCE(a.amount,0)
+                  FROM price_adjustment_cost x LEFT JOIN cost_adjustment a
+                    ON a.tenant_id=x.tenant_id AND a.company_id=x.company_id AND a.source_type='price_adjustment_cost'
+                    AND a.source_line_id=x.id AND a.adjust_type='purchase_price_stock'
+                  WHERE x.tenant_id=:t AND x.company_id=:c AND x.stock_amount<>COALESCE(a.amount,0)
+                UNION ALL SELECT CONCAT(x.id,'/采购调价已出库差异'),x.issued_amount,COALESCE(a.amount,0)
+                  FROM price_adjustment_cost x LEFT JOIN cost_adjustment a
+                    ON a.tenant_id=x.tenant_id AND a.company_id=x.company_id AND a.source_type='price_adjustment_cost'
+                    AND a.source_line_id=x.id AND a.adjust_type='purchase_price_issued'
+                  WHERE x.tenant_id=:t AND x.company_id=:c AND x.issued_amount<>COALESCE(a.amount,0)
                 """;
             case "reservation" -> """
                 WITH b AS (SELECT warehouse_id,sku_id,location_key,lot_key,reserved_qty q FROM inventory_balance WHERE tenant_id=:t AND company_id=:c AND location_key='' AND lot_key=''),
@@ -183,6 +193,15 @@ public class ReconciliationChecks {
                     UNION ALL SELECT credit_item_id,amount FROM settlement_allocation WHERE tenant_id=:t AND company_id=:c AND status IN ('active','reserved')
                 ) x GROUP BY item_id) a ON a.item_id=i.id
                 WHERE i.tenant_id=:t AND i.company_id=:c AND i.open_amount<>i.amount-COALESCE(a.used,0)
+                UNION ALL SELECT CONCAT(l.id,'/采购调价应付'),ABS(l.amount),COALESCE(p.amount,0)
+                  FROM price_adjustment_line l JOIN price_adjustment h
+                    ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.adjustment_id
+                  LEFT JOIN payable p ON p.tenant_id=l.tenant_id AND p.company_id=l.company_id
+                    AND p.source_type='price_adjustment_line' AND p.source_line_id=l.id AND p.posting_action='post'
+                  WHERE l.tenant_id=:t AND l.company_id=:c AND h.kind='purchase' AND h.status IN('posted','reversed')
+                    AND (p.id IS NULL OR p.amount<>ABS(l.amount) OR p.tax_amount<>ABS(l.tax_amount)
+                      OR p.untaxed_amount<>ABS(l.untaxed_amount) OR p.supplier_id<>h.partner_id
+                      OR p.source_id<>h.id OR p.kind<>IF(l.amount>0,'charge','credit'))
                 """;
             case "journal_balance" -> """
                 WITH l AS (SELECT journal_id,SUM(IF(direction='D',amount,0)) d,SUM(IF(direction='C',amount,0)) c FROM journal_line WHERE tenant_id=:t AND company_id=:c GROUP BY journal_id)
@@ -208,12 +227,12 @@ public class ReconciliationChecks {
 
     private List<Difference> periodChecks(ActorScope scope,long period,Map<String,Object> params) {
         var diffs=new ArrayList<Difference>();
-        var documents=List.of("shipment","goods_receipt","sales_return","purchase_return","stock_transfer","stock_adjustment","stock_count","stock_misc_doc","document_reversal");
+        var documents=List.of("shipment","goods_receipt","sales_return","purchase_return","stock_transfer","stock_adjustment","stock_count","stock_misc_doc","document_reversal","price_adjustment");
         for(String table:documents) {
             String status=switch(table) {
                 case "stock_transfer" -> "IN ('submitted','shipped','received_with_diff')";
                 case "stock_count" -> "IN ('counting','submitted','approved')";
-                case "stock_adjustment","stock_misc_doc","document_reversal" -> "IN ('pending','approved')";
+                case "stock_adjustment","stock_misc_doc","document_reversal","price_adjustment" -> "IN ('pending','approved')";
                 default -> "IN ('submitted')";
             };
             String query="SELECT COUNT(*) FROM "+table+" d JOIN accounting_period p ON p.tenant_id=d.tenant_id AND p.company_id=d.company_id AND p.id=:p WHERE d.tenant_id=:t AND d.company_id=:c AND d.business_date BETWEEN p.start_date AND p.end_date AND d.status "+status;

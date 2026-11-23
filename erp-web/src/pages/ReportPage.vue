@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { report, createExport } from '../api/reporting'
 import { allRecords } from '../api/admin'
@@ -17,6 +17,10 @@ import type { DataRow } from '../types/admin'
 import { useSessionStore } from '../stores/session'
 import { formatDateTime } from '../utils/format'
 import BusinessUserSelect from '../components/BusinessUserSelect.vue'
+const PurchasePriceAdjustmentDrawer = defineAsyncComponent(
+  () => import('../components/procurement/PurchasePriceAdjustmentDrawer.vue'),
+)
+const priceDetailId = ref<string>()
 const props = defineProps<{ type: string }>(),
   session = useSessionStore(),
   router = useRouter(),
@@ -129,7 +133,14 @@ const columns = computed(() =>
                 ? 'departmentName'
                 : 'partnerName',
             ...(groupBy.value === 'standard'
-              ? ['businessUserName', 'departmentName', 'sourceNo', 'agingDate', 'dueDate', 'overdueDays']
+              ? [
+                  'businessUserName',
+                  'departmentName',
+                  'sourceNo',
+                  'agingDate',
+                  'dueDate',
+                  'overdueDays',
+                ]
               : []),
             'openAmount',
             ...Array.from({ length: agingBounds.value.length + 1 }, (_, i) => 'aging' + i),
@@ -229,12 +240,34 @@ function page(forward: boolean): void {
 }
 function link(row: Record<string, unknown>): string | undefined {
   if (
+    ['price_adjustment', 'price_adjustment_line', 'price_adjustment_cost'].includes(
+      String(row.sourceType),
+    ) &&
+    !priceSourceId(row)
+  )
+    return undefined
+  if (
     session.can('stock_misc_doc:view') &&
     typeof row.sourceUrl === 'string' &&
     /^\/stock-misc-(in|out)\/[1-9][0-9]*$/.test(row.sourceUrl)
   )
     return row.sourceUrl
   return documentLink(row.sourceType, row.sourceId)
+}
+function priceSourceId(row: Record<string, unknown>): string | undefined {
+  if (
+    !session.can('price_adjustment:view') ||
+    !session.can('cost:view') ||
+    !session.can('goods_receipt:view')
+  )
+    return undefined
+  return ['price_adjustment', 'price_adjustment_line', 'price_adjustment_cost'].includes(
+    String(row.sourceType),
+  ) &&
+    typeof row.sourceId === 'string' &&
+    /^[1-9][0-9]*$/.test(row.sourceId)
+    ? row.sourceId
+    : undefined
 }
 function flow(row: Record<string, unknown>): void {
   void router.push({
@@ -418,7 +451,8 @@ onBeforeUnmount(() => {
       <div v-if="agingReport" class="filter-field">
         <label for="report-aging-basis">账龄口径</label>
         <select id="report-aging-basis" v-model="agingBasis" class="el-input__inner">
-          <option value="business">按业务日期</option><option value="due">按到期日</option>
+          <option value="business">按业务日期</option>
+          <option value="due">按到期日</option>
         </select>
       </div>
       <div v-if="agingReport" class="filter-field">
@@ -519,8 +553,15 @@ onBeforeUnmount(() => {
         :label="columnLabel(field)"
         min-width="140"
         ><template #default="{ row }"
+          ><button
+            v-if="field === 'sourceNo' && priceSourceId(row)"
+            type="button"
+            class="text-link"
+            @click="priceDetailId = priceSourceId(row)"
+          >
+            {{ reportCell(field, row[field]) }}</button
           ><router-link
-            v-if="field === 'sourceNo' && link(row)"
+            v-else-if="field === 'sourceNo' && link(row)"
             class="text-link"
             :to="link(row)!"
             >{{ reportCell(field, row[field]) }}</router-link
@@ -545,6 +586,11 @@ onBeforeUnmount(() => {
             text
             @click="flow(row)"
             >库存流水</el-button
+          ><el-button
+            v-else-if="priceSourceId(row)"
+            text
+            @click="priceDetailId = priceSourceId(row)"
+            >查看原单</el-button
           ><router-link v-else-if="link(row)" class="text-link" :to="link(row)!"
             >查看原单</router-link
           ></template
@@ -564,6 +610,12 @@ onBeforeUnmount(() => {
       </div>
     </footer>
   </section>
+  <PurchasePriceAdjustmentDrawer
+    v-if="priceDetailId"
+    :key="String(session.companyId) + '-' + priceDetailId"
+    :id="priceDetailId"
+    @close="priceDetailId = undefined"
+  />
 </template>
 <style scoped>
 .muted {

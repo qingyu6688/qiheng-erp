@@ -80,5 +80,5 @@ public class ReceivingQueries {
         var result=new LinkedHashMap<String,Object>();result.put("items",items);result.put("nextCursor",rows.size()>limit?items.getLast().get("id"):null);return result;
     }
     private static void validatePage(Long cursor,int limit) {if(limit<1||limit>200||cursor!=null&&cursor<=0) {throw invalid("分页参数无效");}}
-    static void hideCost(Map<String,Object> row) {for(String name:List.of("costAmount","unitCost","costAdjustAmount")) {row.remove(name);}}
+    static void hideCost(Map<String,Object> row) {for(String name:List.of("costAmount","unitCost","costAdjustAmount","pricingReturnBasis")) {row.remove(name);}}
 }

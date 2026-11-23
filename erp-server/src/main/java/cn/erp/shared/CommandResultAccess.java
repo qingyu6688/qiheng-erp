@@ -36,6 +36,11 @@ public class CommandResultAccess {
         if(operation.equals("role.assign_data_scope")&&!OrgOwnership.scope(actor).allDepartments()) throw new ApiException(403,"FORBIDDEN","没有查看部门范围管理结果的权限");
         String document=operation.startsWith("reversal.")?"document_reversal":operation.substring(0,operation.indexOf('.'));
         if(OrgOwnership.TABLES.contains(document)&&row.get("id")!=null) OrgOwnership.require(jdbc,actor,document,row.get("id"));
+        if(document.equals("price_adjustment") && row.get("id")!=null) {
+            var headers=jdbc.queryForList("SELECT * FROM price_adjustment WHERE tenant_id=? AND company_id=? AND id=?",actor.tenantId(),actor.companyId(),row.get("id"));
+            if(headers.isEmpty()) throw missing();
+            PriceAdjustmentScope.require(jdbc,actor,headers.getFirst());
+        }
         if(operation.startsWith("settlement.")) {
             if(row.get("id")!=null) OrgOwnership.requireAllocation(jdbc,actor,row.get("id"));
             if(row.get("items") instanceof List<?> values) for(Object value:values) if(value instanceof Map<?,?> item && item.get("id")!=null) OrgOwnership.requireAllocation(jdbc,actor,item.get("id"));
@@ -48,6 +53,11 @@ public class CommandResultAccess {
         if(java.util.Set.of("period.close","period.reopen","outbox.replay","reconciliation.run").contains(operation)&&(!scope.allWarehouses()||!OrgOwnership.scope(actor).allDepartments())) {throw new ApiException(403,"FORBIDDEN","操作结果需要整家公司数据范围");}
         if(operation.startsWith("reversal.")) {
             String type=String.valueOf(row.get("sourceType"));
+            if(type.equals("price_adjustment")) {
+                var prices=jdbc.queryForList("SELECT * FROM price_adjustment WHERE tenant_id=? AND company_id=? AND id=?",actor.tenantId(),actor.companyId(),row.get("sourceId"));
+                if(prices.isEmpty())throw missing();
+                PriceAdjustmentScope.require(jdbc,actor,prices.getFirst());
+            }
             if(ManufacturingReversalPort.supports(type)) {verifyProduction(actor,type,row.get("sourceId"));return;}
             if(!(actor instanceof PermissionScope permissions)||!permissions.hasPermission(type+":view")) {throw new ApiException(403,"FORBIDDEN","没有查看冲销来源单据的权限");}
             if(!scope.allWarehouses()) {
@@ -107,6 +117,7 @@ public class CommandResultAccess {
             case "stock_count" -> "stock_count";
             case "stock_misc_doc" -> "stock_misc_doc";
             case "qc_inspection" -> "qc_inspection";
+            case "price_adjustment" -> "price_adjustment";
             default -> null;
         };
     }

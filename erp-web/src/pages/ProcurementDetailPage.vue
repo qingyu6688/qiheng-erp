@@ -3,7 +3,7 @@ import WorkflowStarterSelector from '../components/workflow/WorkflowStarterSelec
 import type { WorkflowSelections } from '../types/workflow'
 
 import WorkflowProgressPanel from '../components/workflow/WorkflowProgressPanel.vue'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { procurementDocument, procurementCommand } from '../api/procurement'
 import { commandResult, financeWrite } from '../api/sales'
@@ -12,6 +12,7 @@ import { actionLabels, statusLabels } from '../types/sales'
 import { procurementSpecs, procurementAction, adjustmentLabels } from '../types/procurement'
 import type { ProcurementDocument, ProcurementKind } from '../types/procurement'
 import ProcurementEditor from '../components/procurement/ProcurementEditor.vue'
+import PurchasePriceAdjustmentDrawer from '../components/procurement/PurchasePriceAdjustmentDrawer.vue'
 import { useSessionStore } from '../stores/session'
 import DocumentFilesPanel from '../components/DocumentFilesPanel.vue'
 import StatusTag from '../components/StatusTag.vue'
@@ -32,6 +33,7 @@ const value = ref<ProcurementDocument>(),
   error = ref(''),
   editing = ref(false),
   changing = ref(false),
+  pricing = ref(false),
   action = ref(''),
   reason = ref(''),
   busy = ref(false),
@@ -39,9 +41,15 @@ const value = ref<ProcurementDocument>(),
   conflict = ref(false)
 const closeRows = ref<{ lineId: string; name: string; qty: string; remaining: string }[]>([])
 const orderPage = computed(() => props.kind === 'purchase-orders')
-const orderRelations = computed(() => orderPage.value && value.value ? {
-  kind: 'purchase-orders' as const, id: value.value.id, version: value.value.version,
-} : undefined)
+const orderRelations = computed(() =>
+  orderPage.value && value.value
+    ? {
+        kind: 'purchase-orders' as const,
+        id: value.value.id,
+        version: value.value.version,
+      }
+    : undefined,
+)
 const moreActions = computed(() =>
   orderPage.value
     ? (value.value?.allowedActions ?? []).filter((action) =>
@@ -61,6 +69,12 @@ const workflowSubmit = computed(
 )
 let submittedPayload: Record<string, unknown> | undefined
 let key = newIdempotencyKey()
+watch(
+  () => [session.companyId, route.params.id],
+  () => {
+    pricing.value = false
+  },
+)
 function label(name: string): string {
   return procurementAction(props.kind, name) || actionLabels[name] || name
 }
@@ -201,7 +215,8 @@ async function verify(): Promise<void> {
 onMounted(async () => {
   const path = route.path
   await load()
-  if (route.path !== path || !orderPage.value || route.query.next !== 'submit' || !value.value) return
+  if (route.path !== path || !orderPage.value || route.query.next !== 'submit' || !value.value)
+    return
   const query = { ...route.query }
   delete query.next
   if (value.value.allowedActions.includes('submit')) choose('submit')
@@ -223,6 +238,17 @@ onMounted(async () => {
       />
     </template>
     <template v-if="value" #actions>
+      <el-button
+        v-if="
+          kind === 'goods-receipts' &&
+          value.status === 'posted' &&
+          session.can('price_adjustment:create') &&
+          session.can('price_adjustment:view') &&
+          session.can('cost:view')
+        "
+        @click="pricing = true"
+        >采购调价</el-button
+      >
       <router-link
         v-if="orderPage && session.can(spec.permission + ':print')"
         class="text-link"
@@ -420,6 +446,11 @@ onMounted(async () => {
       ></template
     ></el-dialog
   >
+  <PurchasePriceAdjustmentDrawer
+    v-if="pricing && value"
+    :initial-receipt="value"
+    @close="pricing = false"
+  />
 </template>
 
 <style scoped>

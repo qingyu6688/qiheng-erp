@@ -21,6 +21,8 @@ public class WorkflowAccess {
                 continue;
             if(Set.of("credit_increase", "gl_voucher", "ar_bad_debt").contains(type)
                     && (!actor.allWarehouses() || !actor.orgScope().allDepartments() || !actor.hasPermission("cost:view"))) continue;
+            if(type.equals("price_adjustment") && (!actor.hasPermission("cost:view")
+                    || review && (!actor.allWarehouses() || !actor.orgScope().allDepartments()))) continue;
             String where =
                     "h.tenant_id="
                             + instance
@@ -30,6 +32,7 @@ public class WorkflowAccess {
                             + instance
                             + ".business_id"
                             + OrgOwnership.filter(actor, "h");
+            if(type.equals("price_adjustment")) where += " AND " + cn.erp.shared.PriceAdjustmentScope.condition(actor,"h");
             if (Set.of("sales_order", "purchase_order", "purchase_requisition").contains(type)) {
                 where += " AND h.is_deleted=0";
                 if (!actor.allWarehouses() && !type.equals("purchase_requisition"))
@@ -81,7 +84,8 @@ public class WorkflowAccess {
                                 "stock_adjustment",
                                 "stock_misc_doc",
                                 "mfg_issue_doc",
-                                "mfg_receipt_doc"))
+                                "mfg_receipt_doc",
+                                "price_adjustment"))
                     if (actor.hasPermission(ManufacturingReversalPort.viewPermission(source))) {
                         String predicate =
                                 "s.tenant_id=h.tenant_id AND s.company_id=h.company_id AND"
@@ -89,6 +93,7 @@ public class WorkflowAccess {
                                         + OrgOwnership.filter(actor, "s");
                         if (ManufacturingReversalPort.supports(source))
                             predicate += " AND " + ManufacturingScope.stockCondition(actor, "s");
+                        if(source.equals("price_adjustment")) predicate += " AND " + cn.erp.shared.PriceAdjustmentScope.condition(actor,"s");
                         if (!actor.allWarehouses()
                                 && Set.of(
                                                 "shipment",

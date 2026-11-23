@@ -11,10 +11,11 @@ import static cn.erp.salesfinance.FinanceSupport.*;
 
 @Component
 class ReversalSources {
-    static final Set<String> TYPES=Set.of("shipment","sales_return","goods_receipt","purchase_return","receipt","payment","account_transfer","stock_adjustment","stock_misc_doc","mfg_issue_doc","mfg_receipt_doc");
+    static final Set<String> TYPES=Set.of("shipment","sales_return","goods_receipt","purchase_return","receipt","payment","account_transfer","stock_adjustment","stock_misc_doc","mfg_issue_doc","mfg_receipt_doc","price_adjustment");
     private final JdbcTemplate jdbc;
     private final ManufacturingReversalPort production;
-    ReversalSources(JdbcTemplate jdbc,ManufacturingReversalPort production){this.jdbc=jdbc;this.production=production;}
+    private final cn.erp.shared.PriceAdjustmentReversalPort prices;
+    ReversalSources(JdbcTemplate jdbc,ManufacturingReversalPort production,cn.erp.shared.PriceAdjustmentReversalPort prices){this.jdbc=jdbc;this.production=production;this.prices=prices;}
     Map<String,Object> head(CompanyAccess scope,String type,long source,boolean lock) {
         if(!TYPES.contains(type))throw invalid("该类型不支持冲销");
         if(ManufacturingReversalPort.supports(type))return production.source(scope,type,source,lock);
@@ -23,6 +24,7 @@ class ReversalSources {
         var rows=jdbc.queryForList("SELECT * FROM "+type+" WHERE tenant_id=? AND company_id=? AND id=?"+(lock?" FOR UPDATE":""),scope.tenantId(),scope.companyId(),source);
         if(rows.isEmpty())throw missing();
         var result=rows.getFirst();
+        if(type.equals("price_adjustment"))cn.erp.shared.PriceAdjustmentScope.require(jdbc,scope,result);
         if(result.get("warehouse_id")!=null&&!scope.allowsWarehouse(id(result,"warehouse_id")))throw missing();
         return result;
     }
@@ -42,6 +44,7 @@ class ReversalSources {
             case "sales_return" -> fact.equals("receivable")?"'sales_return_line'":null;
             case "goods_receipt" -> fact.equals("payable")?"'goods_receipt_line','purchase_order_fee'":null;
             case "purchase_return" -> fact.equals("payable")?"'purchase_return_line'":null;
+            case "price_adjustment" -> "'price_adjustment_line'";
             default -> null;
         };
         if(allowed==null)return List.of();
@@ -60,6 +63,10 @@ class ReversalSources {
     void dependencies(CompanyAccess scope,String type,long source) {
         if(ManufacturingReversalPort.supports(type)) {production.dependencies(scope,type,source);return;}
         var found=new ArrayList<Map<String,Object>>();
+        if(type.equals("price_adjustment")) prices.dependencies(scope,source);
+        if(type.equals("goods_receipt")) {
+            for(var row:jdbc.queryForList("SELECT DISTINCT h.id,h.adjust_no document_no,h.warehouse_id FROM price_adjustment h JOIN price_adjustment_line l ON l.tenant_id=h.tenant_id AND l.company_id=h.company_id AND l.adjustment_id=h.id JOIN goods_receipt_line r ON r.tenant_id=l.tenant_id AND r.company_id=l.company_id AND r.id=l.receipt_line_id WHERE h.tenant_id=? AND h.company_id=? AND r.receipt_id=? AND h.status NOT IN('voided','reversed','rejected')",scope.tenantId(),scope.companyId(),source)) found.add(dependency(scope,"price_adjustment",row,"调价引用了本收货单，请先处理调价单"));
+        }
         if(type.equals("shipment"))children(scope,found,"sales_return","return_no","sales_return_line","return_id","shipment_line","shipment_id","shipment_line_id",source);
         if(type.equals("goods_receipt"))children(scope,found,"purchase_return","return_no","purchase_return_line","return_id","goods_receipt_line","receipt_id","receipt_line_id",source);
         if(type.equals("stock_misc_doc"))for(var row:jdbc.queryForList("SELECT id,document_no,warehouse_id FROM stock_misc_doc WHERE tenant_id=? AND company_id=? AND original_loan_id=? AND status NOT IN('voided','reversed') ORDER BY id FOR SHARE",scope.tenantId(),scope.companyId(),source))
@@ -85,9 +92,11 @@ class ReversalSources {
     }
     void prepare(CompanyAccess scope,String type,long source,long period,LocalDate day) {
         if(ManufacturingReversalPort.supports(type))production.prepare(scope,type,source,period,day);
+        if(type.equals("price_adjustment"))prices.prepare(scope,source);
     }
     void restoreProgress(CompanyAccess scope,String type,Map<String,Object> source) {
         if(ManufacturingReversalPort.supports(type))production.restoreProgress(scope,type,source);
+        if(type.equals("price_adjustment"))prices.restore(scope,id(source,"id"));
     }
     private void children(CompanyAccess scope,List<Map<String,Object>> result,String child,String number,String lines,String headId,String original,String originalHead,String sourceKey,long source) {
         String sql="SELECT DISTINCT h.id,h."+number+" document_no FROM "+child+" h JOIN "+lines+" l ON l.tenant_id=h.tenant_id AND l.company_id=h.company_id AND l."+headId+"=h.id JOIN "+original+" o ON o.tenant_id=l.tenant_id AND o.company_id=l.company_id AND o.id=l."+sourceKey+" WHERE h.tenant_id=? AND h.company_id=? AND o."+originalHead+"=? AND h.status NOT IN ('voided','reversed') ORDER BY h.id FOR SHARE";
