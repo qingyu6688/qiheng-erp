@@ -96,8 +96,8 @@ class AlertProbes {
             """;
     private static final String PAYABLE_DUE="""
             SELECT o.id,CAST(o.id AS CHAR) event_key,NULL warehouse_id,
-                COALESCE(h.owner_department_id,e.owner_department_id,0) owner_department_id,
-                COALESCE(h.owner_user_id,e.owner_user_id,0) owner_user_id,
+                COALESCE(h.owner_department_id,e.owner_department_id,fee.owner_department_id,0) owner_department_id,
+                COALESCE(h.owner_user_id,e.owner_user_id,fee.owner_user_id,0) owner_user_id,
                 CONCAT(LEFT(b.name,80),' 应付将于 ',a.due_date,' 到期，未清 ',o.open_amount,' 元。') detail,
                 CONCAT('/reports/payable-aging?partnerId=',o.partner_id) target_url
             FROM partner_open_item o JOIN payable a ON a.tenant_id=o.tenant_id AND a.company_id=o.company_id AND a.id=o.source_id
@@ -105,6 +105,7 @@ class AlertProbes {
             LEFT JOIN goods_receipt h ON h.tenant_id=a.tenant_id AND h.company_id=a.company_id AND h.id=a.source_id
                 AND a.source_type IN ('goods_receipt_line','purchase_order_fee')
             LEFT JOIN opening_entry e ON e.tenant_id=a.tenant_id AND e.company_id=a.company_id AND e.id=a.source_id AND a.source_type='opening_entry'
+            LEFT JOIN purchase_fee_doc fee ON fee.tenant_id=a.tenant_id AND fee.company_id=a.company_id AND fee.id=a.source_id AND a.source_type='purchase_fee_doc_line'
             WHERE o.tenant_id=:t AND o.company_id=:c AND o.item_type='payable' AND o.direction='C' AND o.open_amount>0
                 AND a.due_date BETWEEN :today AND DATE_ADD(:today,INTERVAL :n DAY) ORDER BY o.id
             """;

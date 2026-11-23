@@ -41,7 +41,8 @@ class ReceivingIT {
             "purchase_return:view","purchase_return:create","purchase_return:update","purchase_return:submit","purchase_return:void","purchase_return:post","cost:view"));
         jdbc.update("INSERT INTO tenant(id,code,name) VALUES(?,?,'采购收退货测试')",tenant,"RCV"+tenant);
         jdbc.update("INSERT INTO company(id,tenant_id,code,name) VALUES(?,?,'A','公司甲')",company,tenant);
-        jdbc.update("INSERT INTO company_policy(id,tenant_id,company_id) VALUES(?,?,?)",Ids.next(),tenant,company);
+        // 本组保留原费用路径回归，新默认资本化流程在 PurchaseFeeIT 验收。
+        jdbc.update("INSERT INTO company_policy(id,tenant_id,company_id,purchase_fee_cost_enabled) VALUES(?,?,?,0)",Ids.next(),tenant,company);
         jdbc.update("INSERT INTO business_partner(id,tenant_id,code,name) VALUES(?,?,'S','测试供应商')",supplier,tenant);
         jdbc.update("INSERT INTO partner_role(id,tenant_id,partner_id,role) VALUES(?,?,?,'supplier')",Ids.next(),tenant,supplier);
         for(long id:List.of(warehouse,otherWarehouse)) {jdbc.update("INSERT INTO warehouse(id,tenant_id,company_id,code,name) VALUES(?,?,?,?,?)",id,tenant,company,"W"+id,"仓库"+id);}
@@ -57,7 +58,7 @@ class ReceivingIT {
         jdbc.update("DELETE FROM inbox_event WHERE event_id IN(SELECT id FROM outbox_event WHERE tenant_id=?)",tenant);
         jdbc.update("UPDATE purchase_order_fee SET recognized_receipt_id=NULL WHERE tenant_id=?",tenant);
         for(String table:List.of("outbox_event","ledger_balance","journal_line","journal","settlement_allocation","partner_open_item","payable","document_change","approval_record",
-            "purchase_return_line","purchase_return","goods_receipt_line","goods_receipt","inventory_reservation_change","inventory_reservation","cost_adjustment","inv_movement_hold","inventory_movement","inventory_cost","inventory_balance",
+            "purchase_fee_cost","purchase_fee_allocation","purchase_fee_doc_line","purchase_fee_doc","purchase_return_line","purchase_return","goods_receipt_line","goods_receipt","inventory_reservation_change","inventory_reservation","cost_adjustment","inv_movement_hold","inventory_movement","inventory_cost","inventory_balance",
             "purchase_order_fee","purchase_order_line","purchase_order","audit_log","idempotency_record","document_sequence","accounting_period",
             "unit_conversion","sku","product","product_category","unit","partner_role","business_partner","warehouse","company_policy","company")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);

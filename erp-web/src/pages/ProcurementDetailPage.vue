@@ -13,6 +13,7 @@ import { procurementSpecs, procurementAction, adjustmentLabels } from '../types/
 import type { ProcurementDocument, ProcurementKind } from '../types/procurement'
 import ProcurementEditor from '../components/procurement/ProcurementEditor.vue'
 import PurchasePriceAdjustmentDrawer from '../components/procurement/PurchasePriceAdjustmentDrawer.vue'
+import PurchaseFeeDrawer from '../components/procurement/PurchaseFeeDrawer.vue'
 import { useSessionStore } from '../stores/session'
 import DocumentFilesPanel from '../components/DocumentFilesPanel.vue'
 import StatusTag from '../components/StatusTag.vue'
@@ -34,6 +35,8 @@ const value = ref<ProcurementDocument>(),
   editing = ref(false),
   changing = ref(false),
   pricing = ref(false),
+  addingFee = ref(false),
+  feeId = ref<string>(),
   action = ref(''),
   reason = ref(''),
   busy = ref(false),
@@ -249,6 +252,7 @@ onMounted(async () => {
         @click="pricing = true"
         >采购调价</el-button
       >
+      <el-button v-if="kind === 'goods-receipts' && value.status === 'posted' && session.can('purchase_fee_doc:create') && session.can('purchase_fee_doc:view') && session.can('cost:view')" @click="addingFee = true">分摊采购费用</el-button>
       <router-link
         v-if="orderPage && session.can(spec.permission + ':print')"
         class="text-link"
@@ -347,12 +351,20 @@ onMounted(async () => {
               >{{ row.receiveLimitBaseQty ?? row.receiveLimitQty ?? '—' }} /
               {{ row.progress?.receivedQty ?? row.receivedBaseQty ?? '0' }}</template
             ></el-table-column
-          ><el-table-column v-if="session.can('cost:view')" label="成本"
+          ><el-table-column v-if="session.can('cost:view')" :label="kind === 'goods-receipts' ? '货款成本' : '成本'"
             ><template #default="{ row }">{{
               formatMoney(row.costAmount ?? row.inputTotalCost)
             }}</template></el-table-column
+          ><el-table-column v-if="kind === 'goods-receipts' && session.can('cost:view')" label="分摊费用" min-width="110"><template #default="{ row }">{{ formatMoney(row.purchaseFeeCost) }}</template></el-table-column
+          ><el-table-column v-if="kind === 'goods-receipts' && session.can('cost:view')" label="含费成本" min-width="110"><template #default="{ row }">{{ formatMoney(row.landedCostAmount) }}</template></el-table-column
           ></DocumentLineTable
         >
+      </section>
+      <section v-if="kind === 'goods-receipts' && session.can('cost:view')" class="panel receipt-fees">
+        <h2>收货成本构成</h2>
+        <p>货款成本 {{ formatMoney(value.goodsCostAmount) }} 元 · 资本化费用 {{ formatMoney(value.purchaseFeeCost) }} 元 · 含费成本 {{ formatMoney(value.landedCostAmount) }} 元</p>
+        <p class="receipt-fees-help">按本收货来源归集，包含后续已出库的费用成本；实际在库余额以库存台账为准。</p>
+        <el-button v-for="fee in value.feeDocuments" :key="fee.id" link type="primary" @click="feeId = fee.id">{{ fee.documentNo }} · {{ fee.sourceKind === 'receipt' ? '随收货确认' : '事后费用' }}</el-button>
       </section>
       <template #progress>
         <WorkflowProgressPanel
@@ -446,6 +458,7 @@ onMounted(async () => {
       ></template
     ></el-dialog
   >
+  <PurchaseFeeDrawer v-if="(addingFee || feeId) && value" :key="feeId ?? 'new-fee'" :id="feeId" :initial-receipt="addingFee ? value : undefined" @close="addingFee = false; feeId = undefined; load()" @saved="load" />
   <PurchasePriceAdjustmentDrawer
     v-if="pricing && value"
     :initial-receipt="value"
@@ -454,6 +467,9 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.receipt-fees { padding: 20px 24px; }
+.receipt-fees h2 { font-size: 16px; margin: 0 0 14px; }
+.receipt-fees-help { color: var(--text-secondary); font-size: 12px; }
 .document-section-title {
   display: flex;
   justify-content: space-between;

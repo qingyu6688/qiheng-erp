@@ -36,6 +36,7 @@ public class CommandResultAccess {
         if(operation.equals("role.assign_data_scope")&&!OrgOwnership.scope(actor).allDepartments()) throw new ApiException(403,"FORBIDDEN","没有查看部门范围管理结果的权限");
         String document=operation.startsWith("reversal.")?"document_reversal":operation.substring(0,operation.indexOf('.'));
         if(OrgOwnership.TABLES.contains(document)&&row.get("id")!=null) OrgOwnership.require(jdbc,actor,document,row.get("id"));
+        if(document.equals("purchase_fee_doc") && row.get("id")!=null) OrgOwnership.requireSource(jdbc,actor,"purchase_fee_doc",row.get("id"));
         if(document.equals("price_adjustment") && row.get("id")!=null) {
             var headers=jdbc.queryForList("SELECT * FROM price_adjustment WHERE tenant_id=? AND company_id=? AND id=?",actor.tenantId(),actor.companyId(),row.get("id"));
             if(headers.isEmpty()) throw missing();
@@ -53,6 +54,7 @@ public class CommandResultAccess {
         if(java.util.Set.of("period.close","period.reopen","outbox.replay","reconciliation.run").contains(operation)&&(!scope.allWarehouses()||!OrgOwnership.scope(actor).allDepartments())) {throw new ApiException(403,"FORBIDDEN","操作结果需要整家公司数据范围");}
         if(operation.startsWith("reversal.")) {
             String type=String.valueOf(row.get("sourceType"));
+            if(type.equals("purchase_fee_doc")) OrgOwnership.requireSource(jdbc,actor,type,row.get("sourceId"));
             if(type.equals("price_adjustment")) {
                 var prices=jdbc.queryForList("SELECT * FROM price_adjustment WHERE tenant_id=? AND company_id=? AND id=?",actor.tenantId(),actor.companyId(),row.get("sourceId"));
                 if(prices.isEmpty())throw missing();
@@ -118,6 +120,7 @@ public class CommandResultAccess {
             case "stock_misc_doc" -> "stock_misc_doc";
             case "qc_inspection" -> "qc_inspection";
             case "price_adjustment" -> "price_adjustment";
+            case "purchase_fee_doc" -> "purchase_fee_doc";
             default -> null;
         };
     }

@@ -212,7 +212,7 @@ public class ReportService {
         types.put("stock_adjustment","adjust_no");types.put("stock_count","count_no");types.put("stock_transfer","transfer_no");types.put("refund_request","refund_no");
         types.put("stock_misc_doc","document_no");
         types.put("mfg_issue_doc","document_no");types.put("mfg_receipt_doc","document_no");
-        types.put("price_adjustment","adjust_no");
+        types.put("price_adjustment","adjust_no");types.put("purchase_fee_doc","document_no");
         for(var type:types.entrySet()) {
             var ids=new HashSet<Object>();
             for(var row:rows) { if(row.get("source_no")==null && type.getKey().equals(documentType(row.get("source_type"))) && row.get("source_id")!=null) { ids.add(row.get("source_id")); } }
@@ -239,6 +239,8 @@ public class ReportService {
             case "sales_return_line" -> "sales_return";case "goods_receipt_line","purchase_order_fee" -> "goods_receipt";
             case "purchase_return_line" -> "purchase_return";
             case "price_adjustment_line","price_adjustment_cost" -> "price_adjustment";
+            case "purchase_fee_doc_line","purchase_fee_cost" -> "purchase_fee_doc";
+            case "goods_receipt_fee" -> "goods_receipt";
             case "stock_transfer_out","stock_transfer_in","stock_transfer_diff" -> "stock_transfer";
             case "stock_misc_line" -> "stock_misc_doc";
             case "mfg_issue_line" -> "mfg_issue_doc";
@@ -293,6 +295,7 @@ public class ReportService {
             case "shipment_post","shipment_sign","shipment_diff","shipment" -> "shipments";
             case "goods_receipt","goods_receipt_fee" -> "goods-receipts";
             case "price_adjustment" -> "purchase-price-adjustments";
+            case "purchase_fee_doc" -> "purchase-fee-documents";
             case "sales_return" -> "sales-returns";case "purchase_return" -> "purchase-returns";
             case "receipt" -> "receipts";case "payment" -> "payments";case "document_reversal" -> "document-reversals";
             case "stock_transfer","stock_transfer_out","stock_transfer_in","stock_transfer_diff" -> "stock-transfers";

@@ -61,6 +61,7 @@ public class PricingService {
             if(input.fees().size()>50) {throw invalid("费用最多50行");}
             for(var fee:input.fees()) {
                 if(fee==null) {throw invalid("费用行不能为空");}
+                if(sales&&"loading".equals(fee.feeType())) throw invalid("销售费用类型须为运费或其他费用");
                 String tax=chosenTax(scope,fee.taxRate(),DEFAULT_FEE_TAX_RATE);
                 fees.add(new PricingModels.Fee(fee.feeType(),fee.bearer(),fee.amount(),tax));
             }

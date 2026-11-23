@@ -21,7 +21,7 @@ public class WorkflowAccess {
                 continue;
             if(Set.of("credit_increase", "gl_voucher", "ar_bad_debt").contains(type)
                     && (!actor.allWarehouses() || !actor.orgScope().allDepartments() || !actor.hasPermission("cost:view"))) continue;
-            if(type.equals("price_adjustment") && (!actor.hasPermission("cost:view")
+            if(Set.of("price_adjustment","purchase_fee_doc").contains(type) && (!actor.hasPermission("cost:view")
                     || review && (!actor.allWarehouses() || !actor.orgScope().allDepartments()))) continue;
             String where =
                     "h.tenant_id="
@@ -32,6 +32,7 @@ public class WorkflowAccess {
                             + instance
                             + ".business_id"
                             + OrgOwnership.filter(actor, "h");
+            if(type.equals("purchase_fee_doc")) where += " AND " + cn.erp.shared.PurchaseFeeScope.condition(actor,"h");
             if(type.equals("price_adjustment")) where += " AND " + cn.erp.shared.PriceAdjustmentScope.condition(actor,"h");
             if (Set.of("sales_order", "purchase_order", "purchase_requisition").contains(type)) {
                 where += " AND h.is_deleted=0";
@@ -85,7 +86,7 @@ public class WorkflowAccess {
                                 "stock_misc_doc",
                                 "mfg_issue_doc",
                                 "mfg_receipt_doc",
-                                "price_adjustment"))
+                                "price_adjustment","purchase_fee_doc"))
                     if (actor.hasPermission(ManufacturingReversalPort.viewPermission(source))) {
                         String predicate =
                                 "s.tenant_id=h.tenant_id AND s.company_id=h.company_id AND"

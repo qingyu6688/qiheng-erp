@@ -5,7 +5,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 /** 归属只在新建时写入，后续审批、移部门和调整人员任职都不回写历史单据。 */
 public final class OrgOwnership {
-    public static final Set<String> TABLES=Set.of("sales_order","shipment","receipt","sales_return","refund_request","purchase_requisition","purchase_order","goods_receipt","purchase_return","payment","account_transfer","opening_entry","stock_adjustment","stock_count","stock_transfer","stock_misc_doc","qc_inspection","document_reversal","invoice_registration","mfg_work_order","mfg_issue_doc","mfg_receipt_doc","price_adjustment");
+    public static final Set<String> TABLES=Set.of("sales_order","shipment","receipt","sales_return","refund_request","purchase_requisition","purchase_order","goods_receipt","purchase_return","payment","account_transfer","opening_entry","stock_adjustment","stock_count","stock_transfer","stock_misc_doc","qc_inspection","document_reversal","invoice_registration","mfg_work_order","mfg_issue_doc","mfg_receipt_doc","price_adjustment","purchase_fee_doc");
     private OrgOwnership() {}
     public static OrgScope scope(ActorScope actor) { return actor instanceof OrgScoped org?org.orgScope():OrgScope.all(); }
     public static String filter(ActorScope actor,String alias) { return scope(actor).allDepartments()?"":" AND ("+scope(actor).ownerFilter(alias)+")"; }
@@ -41,18 +41,19 @@ public final class OrgOwnership {
         result.put("sales_order_fee","shipment");result.put("purchase_order_fee","goods_receipt");
         result.put("stock_misc_line","stock_misc_doc");
         result.put("mfg_issue_line","mfg_issue_doc");result.put("mfg_receipt_line","mfg_receipt_doc");
-        result.put("price_adjustment_cost","price_adjustment");result.put("shipment_diff","shipment");result.put("stock_transfer_event","stock_transfer");return Map.copyOf(result);
+        result.put("purchase_fee_cost","purchase_fee_doc");result.put("goods_receipt_fee","goods_receipt");result.put("price_adjustment_cost","price_adjustment");result.put("shipment_diff","shipment");result.put("stock_transfer_event","stock_transfer");return Map.copyOf(result);
     }
     public static String sourceCondition(ActorScope actor,String type,String id) {
-        if(scope(actor).allDepartments()) return PriceAdjustmentScope.sourceCondition(actor,type,id);
+        if(scope(actor).allDepartments()) return PriceAdjustmentScope.sourceCondition(actor,type,id)+" AND "+PurchaseFeeScope.sourceCondition(actor,type,id);
         var parts=new ArrayList<String>();
         for(String table:TABLES.stream().sorted().toList()) {
             String kinds=SOURCE_TABLES.entrySet().stream().filter(entry->entry.getValue().equals(table)).map(entry->"'"+entry.getKey()+"'").sorted().reduce((a,b)->a+","+b).orElseThrow();
             String scope=ManufacturingReversalPort.supports(table)?" AND "+ManufacturingScope.stockCondition(actor,"od"):filter(actor,"od");
+            if(table.equals("purchase_fee_doc")) scope+=" AND "+PurchaseFeeScope.condition(actor,"od");
             if(table.equals("price_adjustment")) scope+=" AND "+PriceAdjustmentScope.condition(actor,"od");
             parts.add("("+type+" IN ("+kinds+") AND EXISTS(SELECT 1 FROM "+table+" od WHERE od.tenant_id="+actor.tenantId()+" AND od.company_id="+actor.companyId()+" AND od.id="+id+scope+"))");
         }
-        return "("+String.join(" OR ",parts)+") AND "+PriceAdjustmentScope.sourceCondition(actor,type,id);
+        return "("+String.join(" OR ",parts)+") AND "+PriceAdjustmentScope.sourceCondition(actor,type,id)+" AND "+PurchaseFeeScope.sourceCondition(actor,type,id);
     }
     public static String itemCondition(ActorScope actor,String alias) {
         if(scope(actor).allDepartments() && priceUnrestricted(actor)) return "1=1";
@@ -72,8 +73,12 @@ public final class OrgOwnership {
             require(jdbc,actor,table,id);
             var rows=jdbc.queryForList("SELECT source_type,source_id FROM document_reversal WHERE tenant_id=? AND company_id=? AND id=?",actor.tenantId(),actor.companyId(),id);
             if(rows.isEmpty()) throw missing();
-            if(rows.getFirst().get("source_type").equals("price_adjustment")) requireSource(jdbc,actor,"price_adjustment",rows.getFirst().get("source_id"));
+            if(Set.of("price_adjustment","purchase_fee_doc").contains(rows.getFirst().get("source_type"))) requireSource(jdbc,actor,rows.getFirst().get("source_type").toString(),rows.getFirst().get("source_id"));
             return;
+        }
+        if("purchase_fee_doc".equals(table)) {
+            var rows=jdbc.queryForList("SELECT * FROM purchase_fee_doc WHERE tenant_id=? AND company_id=? AND id=?",actor.tenantId(),actor.companyId(),id);
+            if(rows.isEmpty()) throw missing();PurchaseFeeScope.require(jdbc,actor,rows.getFirst());return;
         }
         if("price_adjustment".equals(table)) {
             var rows=jdbc.queryForList("SELECT * FROM price_adjustment WHERE tenant_id=? AND company_id=? AND id=?",actor.tenantId(),actor.companyId(),id);
@@ -82,7 +87,7 @@ public final class OrgOwnership {
         if(scope(actor).allDepartments()) return;
         if(table==null) throw missing();require(jdbc,actor,table,id);
     }
-    private static boolean priceUnrestricted(ActorScope actor) { return PriceAdjustmentScope.condition(actor,"od").equals("1=1"); }
+    private static boolean priceUnrestricted(ActorScope actor) { return PriceAdjustmentScope.condition(actor,"od").equals("1=1") && PurchaseFeeScope.condition(actor,"od").equals("1=1"); }
     private static long number(Object value) { return value==null?0:Long.parseLong(value.toString()); }
     private static ApiException missing() { return new ApiException(404,"NOT_FOUND","单据不存在或无权查看"); }
 }

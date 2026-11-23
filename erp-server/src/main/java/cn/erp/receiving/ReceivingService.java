@@ -47,6 +47,9 @@ public class ReceivingService {
         this.references=references;this.pricing=pricing;this.inventory=inventory;this.ledger=ledger;this.settlement=settlement;this.orders=orders;this.quality=quality;
         this.putawayTasks=putawayTasks;this.json=json;
     }
+    private cn.erp.purchasefees.ReceiptFeePosting receiptFees;
+    @org.springframework.beans.factory.annotation.Autowired
+    void receiptFees(cn.erp.purchasefees.ReceiptFeePosting receiptFees) {this.receiptFees=receiptFees;}
     private record Line(long sourceId,long unitId,String qty,StockSelection selection) {}
     public Map<String,Object> createReceipt(CompanyAccess scope,String key,ReceivingModels.ReceiptInput input) {
         return execute(scope,false,"create",key,input,201,()->create(scope,false,input.supplierId(),input.warehouseId(),input.businessDate(),input.remark(),input.lines().stream().map(l->new Line(l.orderLineId(),l.unitId(),l.qty(),l.stockSelection())).toList(),input.buyerUserId()));
@@ -187,6 +190,7 @@ public class ReceivingService {
             var hold=quality.beforePurchaseReturn(scope,id,lineId,id(line,"receipt_line_id"),decimal(line,"base_qty"));
             if(hold!=null)holds.put(lineId,hold);
         }
+        if(!returning) jdbc.queryForObject("SELECT id FROM company WHERE tenant_id=? AND id=? FOR SHARE",Long.class,scope.tenantId(),scope.companyId());
         inventory.lockKeys(scope,lines.stream().map(line->new Key(warehouse,id(line,"sku_id"))).toList());
         boolean inclusive=false;
         if(!returning) {
@@ -233,12 +237,14 @@ public class ReceivingService {
         add(journal,"AP","C",amount,supplier,null,null,lineId);return new BigDecimal[]{amount,tax,cost};
     }
     private BigDecimal[] postFees(CompanyAccess scope,long receipt,long supplier,LocalDate day,long period,List<Map<String,Object>> lines,boolean inclusive,List<LedgerService.Line> journal,Map<Long,LocalDate> dueDates) {
-        var orderIds=orderIds(scope,false,lines);BigDecimal amount=ZERO,tax=ZERO;
+        var automatic=receiptFees.post(scope,receipt,day,period,inclusive,journal);
+        if(automatic.enabled()) return new BigDecimal[]{automatic.amount(),automatic.tax()};
+        var orderIds=orderIds(scope,false,lines);BigDecimal amount=automatic.amount(),tax=automatic.tax();
         for(long order:orderIds) {
             var fees=jdbc.queryForList("SELECT * FROM purchase_order_fee WHERE tenant_id=? AND company_id=? AND order_id=? AND bearer='buyer' AND recognized_receipt_id IS NULL ORDER BY id FOR UPDATE",scope.tenantId(),scope.companyId(),order);
             for(var fee:fees) {
                 BigDecimal gross=decimal(fee,"total_amount"),vat=decimal(fee,"tax_amount");long id=id(fee,"id");
-                jdbc.update("UPDATE purchase_order_fee SET recognized_receipt_id=?,version=version+1,updated_by=? WHERE id=?",receipt,scope.userId(),id);
+                jdbc.update("UPDATE purchase_order_fee SET recognized_receipt_id=?,recognized_amount=total_amount,recognized_tax=tax_amount,version=version+1,updated_by=? WHERE id=?",receipt,scope.userId(),id);
                 long open=payable(scope,supplier,"charge","purchase_order_fee",receipt,id,gross,vat,day,period,dueForOrder(scope,order,day,dueDates));if(open!=0) {settlement.autoAllocatePurchaseOrder(scope,order,open);}
                 add(journal,"PURCHASE_FEE","D",inclusive?gross:gross.subtract(vat),null,null,null,id);
                 add(journal,"INPUT_VAT","D",inclusive?ZERO:vat,null,null,null,id);add(journal,"AP","C",gross,supplier,null,null,id);

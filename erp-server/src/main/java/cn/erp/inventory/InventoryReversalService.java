@@ -28,12 +28,13 @@ public class InventoryReversalService {
         String types=switch(type) {
             case "shipment" -> "'shipment_line','shipment_diff'";
             case "sales_return" -> "'sales_return_line'";
-            case "goods_receipt" -> "'goods_receipt_line'";
+            case "goods_receipt" -> "'goods_receipt_line','goods_receipt_fee'";
             case "purchase_return" -> "'purchase_return_line'";
             case "stock_adjustment" -> "'stock_adjustment'";
             case "stock_misc_doc" -> "'stock_misc_line'";
             case "mfg_issue_doc" -> "'mfg_issue_line'";
             case "mfg_receipt_doc" -> "'mfg_receipt_line'";
+            case "purchase_fee_doc" -> "'purchase_fee_cost'";
             case "price_adjustment" -> "'price_adjustment_cost'";
             default -> null;
         };
@@ -50,7 +51,7 @@ public class InventoryReversalService {
             amounts[2]=amounts[2].subtract(number(row,"cost_delta"));
         }
         for(var row:adjustments) {
-            if("purchase_price_issued".equals(row.get("adjust_type")))continue;
+            if(Set.of("purchase_price_issued","purchase_fee_issued").contains(row.get("adjust_type")))continue;
             var amounts=changes.computeIfAbsent(key(row),ignored->zeros());amounts[2]=amounts[2].subtract(number(row,"amount"));
         }
         inventory.lockKeys(scope,new ArrayList<>(changes.keySet()));

@@ -42,7 +42,7 @@ public final class PricingModels {
                        String lineDiscountRatio,String taxRate) {}
 
     public record Fee(
-            @NotNull(message="请输入费用类型") @Pattern(regexp="freight|other",message="费用类型无效") String feeType,
+            @NotNull(message="请输入费用类型") @Pattern(regexp="freight|loading|other",message="费用类型无效") String feeType,
             @NotNull(message="请选择费用承担方") @Pattern(regexp="buyer|seller",message="费用承担方无效") String bearer,
             @NotBlank(message="请输入费用金额") String amount,
             String taxRate) {}

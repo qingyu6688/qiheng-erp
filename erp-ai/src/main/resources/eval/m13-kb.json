@@ -4861,5 +4861,201 @@
         "库存"
       ]
     ]
+  },
+  {
+    "id": "m13-281",
+    "category": "knowledge",
+    "question": "公司关闭采购费用计入存货成本后，随单费用如何确认？历史费用会回溯吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "关闭"
+      ],
+      [
+        "首次收货"
+      ],
+      [
+        "整笔"
+      ],
+      [
+        "不追溯"
+      ]
+    ]
+  },
+  {
+    "id": "m13-282",
+    "category": "knowledge",
+    "question": "采购订单随单运费分批收货时怎么分摊？超收会多确认费用吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "累计收货进度"
+      ],
+      [
+        "同一订单"
+      ],
+      [
+        "超收"
+      ],
+      [
+        "不额外"
+      ]
+    ]
+  },
+  {
+    "id": "m13-283",
+    "category": "knowledge",
+    "question": "采购费用按金额、基本数量和重量分摊时各用什么权重？权重合计为零怎么办？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "未税货款"
+      ],
+      [
+        "基本数量"
+      ],
+      [
+        "每基本单位重量"
+      ],
+      [
+        "更换方式"
+      ]
+    ]
+  },
+  {
+    "id": "m13-284",
+    "category": "knowledge",
+    "question": "采购运费在一般纳税人和小规模纳税人的成本口径怎样区分，已出库部分怎么处理？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "一般纳税人"
+      ],
+      [
+        "未税费用"
+      ],
+      [
+        "小规模纳税人"
+      ],
+      [
+        "含税费用"
+      ],
+      [
+        "成本差异"
+      ]
+    ]
+  },
+  {
+    "id": "m13-285",
+    "category": "knowledge",
+    "question": "事后运费承运商与商品供应商不同可以录入吗，费用应付采用谁的账期？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "承运商"
+      ],
+      [
+        "不同"
+      ],
+      [
+        "批准时冻结"
+      ],
+      [
+        "费用日期"
+      ],
+      [
+        "不自动核销"
+      ]
+    ]
+  },
+  {
+    "id": "m13-286",
+    "category": "knowledge",
+    "question": "采购费用草稿的来源已退货、调价或重量改变，能直接审批过账吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "来源版本"
+      ],
+      [
+        "更新草稿"
+      ],
+      [
+        "作废"
+      ],
+      [
+        "成本权限"
+      ]
+    ]
+  },
+  {
+    "id": "m13-287",
+    "category": "knowledge",
+    "question": "采购费用单可以直接删除吗，随单费用和手工费用如何冲销？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "手工费用"
+      ],
+      [
+        "统一冲销"
+      ],
+      [
+        "随单费用只读"
+      ],
+      [
+        "原收货整体冲销"
+      ],
+      [
+        "进度"
+      ]
+    ]
+  },
+  {
+    "id": "m13-288",
+    "category": "knowledge",
+    "question": "查看采购费用详情会跳转页面吗，收货详情显示哪些成本，网络未知结果怎么重试？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "右侧抽屉"
+      ],
+      [
+        "保留列表"
+      ],
+      [
+        "货款成本"
+      ],
+      [
+        "分摊费用"
+      ],
+      [
+        "幂等键"
+      ]
+    ]
   }
 ]

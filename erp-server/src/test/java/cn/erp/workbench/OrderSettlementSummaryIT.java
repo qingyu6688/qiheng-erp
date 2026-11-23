@@ -160,6 +160,18 @@ class OrderSettlementSummaryIT {
                 .isEqualTo(summary("8.25", "17.75", "company"));
         assertThat(documents.settlementSummary(company(Set.of("purchase_order:view", "settlement:view", "goods_receipt:view")),
                 "purchase-orders", 71701)).isEqualTo(summary(null, "17.75", "company"));
+        jdbc.update("""
+                INSERT INTO purchase_fee_doc(id,tenant_id,company_id,document_no,source_kind,source_receipt_id,partner_id,warehouse_id,business_date,
+                  allocation_method,reason,cost_tax_inclusive,status,amount,untaxed_amount,tax_amount,stock_cost,period_id,posted_by,posted_at,owner_user_id,created_by,updated_by)
+                VALUES(83010,70101,70201,'费用摘要','receipt',82001,70401,70301,'2026-11-15','amount','分批费用摘要',0,'posted',6,6,0,6,70601,101,NOW(),101,101,101)
+                """);
+        jdbc.update("""
+                INSERT INTO purchase_fee_doc_line(id,tenant_id,company_id,document_id,line_no,order_fee_id,fee_type,amount,untaxed_amount,tax_amount,tax_rate)
+                VALUES(83011,70101,70201,83010,1,82020,'freight',6,6,0,0)
+                """);
+        jdbc.update("UPDATE payable SET source_line_id=83011 WHERE id=82021");
+        assertThat(documents.settlementSummary(actor,"purchase-orders",71701)).isEqualTo(summary("8.25","17.75","company"));
+        assertThat(documents.page(actor,"purchase-orders",71701,"settlement-allocations",null,20).items()).hasSize(2);
     }
 
     private void prepareSalesReceipt() {

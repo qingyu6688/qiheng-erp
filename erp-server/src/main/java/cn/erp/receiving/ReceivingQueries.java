@@ -28,6 +28,12 @@ public class ReceivingQueries {
     }
     public Map<String,Object> get(CompanyAccess scope,boolean returning,long id) {
         var header=header(scope,returning,id,false);var result=view(header);
+        var feeCosts=new HashMap<Long,java.math.BigDecimal>();
+        if(!returning&&scope.hasPermission("cost:view")) jdbc.query("SELECT a.receipt_line_id,SUM(a.cost_amount) fee_cost FROM purchase_fee_allocation a"
+                +" JOIN purchase_fee_doc f ON f.tenant_id=a.tenant_id AND f.company_id=a.company_id AND f.id=a.document_id"
+                +" JOIN goods_receipt_line l ON l.tenant_id=a.tenant_id AND l.company_id=a.company_id AND l.id=a.receipt_line_id"
+                +" WHERE a.tenant_id=? AND a.company_id=? AND l.receipt_id=? AND f.status='posted' GROUP BY a.receipt_line_id",
+                row->{feeCosts.put(row.getLong("receipt_line_id"),row.getBigDecimal("fee_cost"));},scope.tenantId(),scope.companyId(),id);
         result.put("documentNo",header.get(returning?"return_no":"receipt_no"));
         result.put("supplierName",jdbc.queryForObject("SELECT name FROM business_partner WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),header.get("supplier_id")));
         result.put("warehouseName",jdbc.queryForObject("SELECT name FROM warehouse WHERE tenant_id=? AND company_id=? AND id=?",String.class,scope.tenantId(),scope.companyId(),header.get("warehouse_id")));
@@ -36,10 +42,25 @@ public class ReceivingQueries {
             row.put("stockSelection",inventory.viewSelection(raw.get("stock_selection")));
             row.put("skuName",jdbc.queryForObject("SELECT name FROM sku WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),raw.get("sku_id")));
             row.put("unitName",jdbc.queryForObject("SELECT name FROM unit WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),raw.get("unit_id")));
+            if(!returning&&scope.hasPermission("cost:view")) feeAmounts(row,raw,feeCosts.getOrDefault(id(raw,"id"),java.math.BigDecimal.ZERO));
             if(!scope.hasPermission("cost:view")) {hideCost(row);}return row;
         }).toList());
+        if(!returning&&scope.hasPermission("cost:view")) {
+            feeAmounts(result,header,feeCosts.values().stream().reduce(java.math.BigDecimal.ZERO,java.math.BigDecimal::add));
+            if(scope.hasPermission("purchase_fee_doc:view")) result.put("feeDocuments",jdbc.queryForList("SELECT DISTINCT f.id,f.document_no,f.source_kind,f.status FROM purchase_fee_doc f"
+                    +" JOIN purchase_fee_allocation a ON a.tenant_id=f.tenant_id AND a.company_id=f.company_id AND a.document_id=f.id"
+                    +" JOIN goods_receipt_line l ON l.tenant_id=a.tenant_id AND l.company_id=a.company_id AND l.id=a.receipt_line_id"
+                    +" WHERE f.tenant_id=? AND f.company_id=? AND l.receipt_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"f")+" AND "+cn.erp.shared.PurchaseFeeScope.condition(scope,"f")+" ORDER BY f.id DESC",
+                    scope.tenantId(),scope.companyId(),id).stream().map(cn.erp.shared.ApiRows::row).toList());
+        }
         if(!scope.hasPermission("cost:view")) {hideCost(result);}
         result.put("allowedActions",actions(scope,returning,header.get("status").toString()));cn.erp.shared.BusinessPeople.enrich(jdbc,scope,result);return result;
+    }
+    private static void feeAmounts(Map<String,Object> result,Map<String,Object> raw,java.math.BigDecimal fee) {
+        result.put("purchaseFeeCost",fee.setScale(2).toPlainString());
+        if(raw.get("cost_amount") instanceof java.math.BigDecimal goods) {
+            result.put("goodsCostAmount",goods.toPlainString());result.put("landedCostAmount",goods.add(fee).toPlainString());
+        }
     }
     private List<String> actions(CompanyAccess scope,boolean returning,String status) {
         var names=status.equals("draft")?List.of("update","submit"):status.equals("submitted")?List.of("void","post"):List.<String>of();
@@ -80,5 +101,5 @@ public class ReceivingQueries {
         var result=new LinkedHashMap<String,Object>();result.put("items",items);result.put("nextCursor",rows.size()>limit?items.getLast().get("id"):null);return result;
     }
     private static void validatePage(Long cursor,int limit) {if(limit<1||limit>200||cursor!=null&&cursor<=0) {throw invalid("分页参数无效");}}
-    static void hideCost(Map<String,Object> row) {for(String name:List.of("costAmount","unitCost","costAdjustAmount","pricingReturnBasis")) {row.remove(name);}}
+    static void hideCost(Map<String,Object> row) {for(String name:List.of("costAmount","unitCost","costAdjustAmount","pricingReturnBasis","purchaseFeeCost","goodsCostAmount","landedCostAmount","feeDocuments")) {row.remove(name);}}
 }

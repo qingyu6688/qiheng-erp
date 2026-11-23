@@ -20,6 +20,8 @@ import BusinessUserSelect from '../components/BusinessUserSelect.vue'
 const PurchasePriceAdjustmentDrawer = defineAsyncComponent(
   () => import('../components/procurement/PurchasePriceAdjustmentDrawer.vue'),
 )
+const PurchaseFeeDrawer = defineAsyncComponent(() => import('../components/procurement/PurchaseFeeDrawer.vue'))
+const feeDetailId = ref<string>()
 const priceDetailId = ref<string>()
 const props = defineProps<{ type: string }>(),
   session = useSessionStore(),
@@ -239,6 +241,7 @@ function page(forward: boolean): void {
   void load()
 }
 function link(row: Record<string, unknown>): string | undefined {
+  if (['purchase_fee_doc', 'purchase_fee_doc_line', 'purchase_fee_cost'].includes(String(row.sourceType)) && !feeSourceId(row)) return undefined
   if (
     ['price_adjustment', 'price_adjustment_line', 'price_adjustment_cost'].includes(
       String(row.sourceType),
@@ -253,6 +256,11 @@ function link(row: Record<string, unknown>): string | undefined {
   )
     return row.sourceUrl
   return documentLink(row.sourceType, row.sourceId)
+}
+function feeSourceId(row: Record<string, unknown>): string | undefined {
+  return session.can('purchase_fee_doc:view') && session.can('cost:view') && session.can('goods_receipt:view')
+    && ['purchase_fee_doc', 'purchase_fee_doc_line', 'purchase_fee_cost'].includes(String(row.sourceType))
+    && typeof row.sourceId === 'string' && /^[1-9][0-9]*$/.test(row.sourceId) ? row.sourceId : undefined
 }
 function priceSourceId(row: Record<string, unknown>): string | undefined {
   if (
@@ -554,7 +562,8 @@ onBeforeUnmount(() => {
         min-width="140"
         ><template #default="{ row }"
           ><button
-            v-if="field === 'sourceNo' && priceSourceId(row)"
+            v-if="field === 'sourceNo' && feeSourceId(row)" type="button" class="text-link" @click="feeDetailId = feeSourceId(row)">{{ reportCell(field, row[field]) }}</button><button
+            v-else-if="field === 'sourceNo' && priceSourceId(row)"
             type="button"
             class="text-link"
             @click="priceDetailId = priceSourceId(row)"
@@ -587,6 +596,7 @@ onBeforeUnmount(() => {
             @click="flow(row)"
             >库存流水</el-button
           ><el-button
+            v-else-if="feeSourceId(row)" text @click="feeDetailId = feeSourceId(row)">查看原单</el-button><el-button
             v-else-if="priceSourceId(row)"
             text
             @click="priceDetailId = priceSourceId(row)"
@@ -610,6 +620,7 @@ onBeforeUnmount(() => {
       </div>
     </footer>
   </section>
+  <PurchaseFeeDrawer v-if="feeDetailId" :key="String(session.companyId) + '-' + feeDetailId" :id="feeDetailId" @close="feeDetailId = undefined" />
   <PurchasePriceAdjustmentDrawer
     v-if="priceDetailId"
     :key="String(session.companyId) + '-' + priceDetailId"

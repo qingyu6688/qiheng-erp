@@ -19,7 +19,7 @@ const props = defineProps<{ kind: StockKind; original?: StockDocument; presetSou
 const emit = defineEmits<{ close: []; saved: [StockDocument] }>()
 const session = useSessionStore(), spec = computed(() => stockSpecs.find(item => item.path === props.kind)!)
 const transfer = computed(() => props.kind === 'stock-transfers'), reversal = computed(() => props.kind === 'document-reversals')
-const sourceTypes = computed(() => reversalTypes.filter(item => session.can(item.permission) && (item.value !== 'price_adjustment' || session.can('cost:view') && session.can('goods_receipt:view'))))
+const sourceTypes = computed(() => reversalTypes.filter(item => session.can(item.permission) && (!['price_adjustment', 'purchase_fee_doc'].includes(item.value) || session.can('cost:view') && session.can('goods_receipt:view'))))
 const form = reactive({ fromWarehouseId: props.original?.fromWarehouseId ?? '', toWarehouseId: props.original?.toWarehouseId ?? '', warehouseId: props.original?.warehouseId ?? '', businessDate: props.original?.businessDate ?? today(), remark: props.original?.remark ?? '', reason: '', sourceType: props.presetSource?.sourceType ?? sourceTypes.value[0]?.value ?? '', sourceId: props.presetSource?.id ?? '' })
 interface InputLine { skuId: string; unitId: string; qty: string; stockSelection?: StockSelection | null }
 const lines = ref<InputLine[]>((props.original?.lines ?? []).map(line => ({ skuId: line.skuId, unitId: line.unitId ?? '', qty: line.qty ?? '1', stockSelection: line.stockSelection })))

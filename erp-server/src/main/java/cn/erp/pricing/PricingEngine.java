@@ -100,7 +100,7 @@ public class PricingEngine {
         if(values==null) {return result;}
         for(int i=0;i<values.size();i++) {
             var fee=values.get(i);
-            if(fee==null || fee.feeType()==null || !List.of("freight","other").contains(fee.feeType())
+            if(fee==null || fee.feeType()==null || !List.of("freight","loading","other").contains(fee.feeType())
                     || fee.bearer()==null || !List.of("buyer","seller").contains(fee.bearer())) {throw invalid("费用类型或承担方有误");}
             BigDecimal amount=amount(fee.amount(),"费用金额");
             if(amount.signum()==0) {throw invalid("费用金额必须大于零");}

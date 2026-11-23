@@ -157,7 +157,7 @@ class OrderRelatedDocuments {
 
     private static String charges(Order order, DocumentBrowser.Spec original) {
         String recognized = "recognized_" + order.parentId();
-        return """
+        String result="""
                 SELECT '%s_line' source_type, origin_line.id line_id, origin_line.%s document_id
                 FROM %s o JOIN %s_line origin_line ON origin_line.tenant_id=o.tenant_id AND origin_line.company_id=o.company_id
                     AND origin_line.order_line_id=o.id
@@ -168,6 +168,13 @@ class OrderRelatedDocuments {
                     AND fee.%s IS NOT NULL
                 """.formatted(original.type(), order.parentId(), order.lineTable(), original.type(), order.feeTable(),
                         recognized, order.feeTable(), recognized);
+        if(order.feeTable().equals("purchase_order_fee")) result+="""
+                UNION ALL SELECT 'purchase_order_fee',l.id,h.source_receipt_id
+                FROM purchase_order_fee f JOIN purchase_fee_doc_line l ON l.tenant_id=f.tenant_id AND l.company_id=f.company_id AND l.order_fee_id=f.id
+                JOIN purchase_fee_doc h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.document_id
+                WHERE f.tenant_id=:tenant AND f.company_id=:company AND f.order_id=:order AND h.source_kind='receipt'
+                """;
+        return result;
     }
 
     private static RowMapper<Row> mapRow() {

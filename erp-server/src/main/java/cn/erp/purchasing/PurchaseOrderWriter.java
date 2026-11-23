@@ -120,7 +120,11 @@ class PurchaseOrderWriter {
                         fee.feeType(),fee.bearer(),fee.amount(),fee.priceTaxInclusive(),fee.taxRate(),fee.untaxedAmount(),fee.taxAmount(),scope.userId(),feeId);
             }
         }
-        for(var row:old) {if(!kept.contains(number(row,"id"))) {jdbc.update("DELETE FROM purchase_order_fee WHERE id=? AND recognized_receipt_id IS NULL",number(row,"id"));}}
+        for(var row:old) if(!kept.contains(number(row,"id"))) {
+            if(!jdbc.queryForList("SELECT id FROM purchase_fee_doc_line WHERE tenant_id=? AND company_id=? AND order_fee_id=? LIMIT 1",Long.class,scope.tenantId(),scope.companyId(),row.get("id")).isEmpty())
+                throw new ApiException(422,"CHANGE_NOT_ALLOWED","费用已有收货归集历史，不能删除原费用行；不再承担时请通过订单变更调整承担方");
+            jdbc.update("DELETE FROM purchase_order_fee WHERE id=? AND recognized_receipt_id IS NULL",number(row,"id"));
+        }
     }
 
     private boolean sameFee(Map<String,Object> old,PricingModels.FeeResult next) {

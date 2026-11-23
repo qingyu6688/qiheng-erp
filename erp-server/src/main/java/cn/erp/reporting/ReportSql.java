@@ -35,7 +35,7 @@ final class ReportSql {
               FROM inventory_movement m WHERE tenant_id=:t AND company_id=:c
                 AND m.movement_type NOT IN ('location_move_out','location_move_in') AND %s
               UNION ALL SELECT id,warehouse_id,sku_id,business_date,0,0,amount,source_type,source_id,source_line_id,'adjustment'
-              FROM cost_adjustment a WHERE tenant_id=:t AND company_id=:c AND adjust_type<>'purchase_price_issued' AND %s)
+              FROM cost_adjustment a WHERE tenant_id=:t AND company_id=:c AND adjust_type NOT IN('purchase_price_issued','purchase_fee_issued') AND %s)
             """.formatted(source(actor,"m.source_type","m.source_id"),source(actor,"a.source_type","a.source_id"));
         if(detail) { return events+"SELECT * FROM e WHERE business_date BETWEEN :f AND :d"; }
         return events+"""
@@ -70,9 +70,14 @@ final class ReportSql {
         base+=ownerAnd(actor,"h");
         base+=" UNION ALL SELECT l.id,h.warehouse_id,l.sku_id,h."+partner+",h.business_date,'"+ret+"',h.id,h.return_no,l.id,-l.base_qty,-l."+credit+",-l.untaxed_amount,-l.tax_amount,-l.cost_amount,h."+rep+",h.owner_department_id FROM "+ret+"_line l JOIN "+ret+" h ON h.id=l.return_id AND h.tenant_id=l.tenant_id AND h.company_id=l.company_id WHERE l.tenant_id=:t AND l.company_id=:c AND h.status IN ('posted','reversed')";
         base+=ownerAnd(actor,"h");
-        base+=" UNION ALL SELECT r.id,h.warehouse_id,NULL,r."+partner+",r.business_date,'"+head+"',h.id,h."+no+",r.source_line_id,0,r.amount,r.untaxed_amount,r.tax_amount,0,h."+rep+",h.owner_department_id FROM "+fact+" r JOIN "+head+" h ON h.id=r.source_id AND h.tenant_id=r.tenant_id AND h.company_id=r.company_id WHERE r.tenant_id=:t AND r.company_id=:c AND r.source_type='"+fee+"' AND r.posting_action='post'";
+        String feeCost=sales?"0":"COALESCE(IF(auto_head.cost_tax_inclusive=1,auto_fee.amount,auto_fee.untaxed_amount),0)";
+        String feeJoin=sales?"":" LEFT JOIN purchase_fee_doc_line auto_fee ON auto_fee.tenant_id=r.tenant_id AND auto_fee.company_id=r.company_id AND auto_fee.id=r.source_line_id LEFT JOIN purchase_fee_doc auto_head ON auto_head.tenant_id=auto_fee.tenant_id AND auto_head.company_id=auto_fee.company_id AND auto_head.id=auto_fee.document_id AND auto_head.source_kind='receipt'";
+        base+=" UNION ALL SELECT r.id,h.warehouse_id,NULL,r."+partner+",r.business_date,'"+head+"',h.id,h."+no+",r.source_line_id,0,r.amount,r.untaxed_amount,r.tax_amount,"+feeCost+",h."+rep+",h.owner_department_id FROM "+fact+" r JOIN "+head+" h ON h.id=r.source_id AND h.tenant_id=r.tenant_id AND h.company_id=r.company_id"+feeJoin+" WHERE r.tenant_id=:t AND r.company_id=:c AND r.source_type='"+fee+"' AND r.posting_action='post'";
         base+=ownerAnd(actor,"h");
         if(!sales) {
+            base+=" UNION ALL SELECT a.id,rh.warehouse_id,a.sku_id,h.partner_id,h.business_date,'purchase_fee_doc',h.id,h.document_no,a.id,0,a.amount,a.untaxed_amount,a.tax_amount,a.cost_amount,rh.buyer_user_id,h.owner_department_id FROM purchase_fee_allocation a JOIN purchase_fee_doc h ON h.tenant_id=a.tenant_id AND h.company_id=a.company_id AND h.id=a.document_id JOIN goods_receipt_line rl ON rl.tenant_id=a.tenant_id AND rl.company_id=a.company_id AND rl.id=a.receipt_line_id JOIN goods_receipt rh ON rh.tenant_id=rl.tenant_id AND rh.company_id=rl.company_id AND rh.id=rl.receipt_id WHERE a.tenant_id=:t AND a.company_id=:c AND h.source_kind='manual' AND h.status IN('posted','reversed')";
+            base+=ownerAnd(actor,"h");
+            if(actor!=null) base+=" AND "+cn.erp.shared.PurchaseFeeScope.condition(actor,"h");
             base+=" UNION ALL SELECT l.id,h.warehouse_id,l.sku_id,h.partner_id,h.business_date,'price_adjustment',h.id,h.adjust_no,l.id,0,l.amount,l.untaxed_amount,l.tax_amount,l.stock_cost+l.issued_cost,rh.buyer_user_id,h.owner_department_id FROM price_adjustment_line l JOIN price_adjustment h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.adjustment_id JOIN goods_receipt_line rl ON rl.tenant_id=l.tenant_id AND rl.company_id=l.company_id AND rl.id=l.receipt_line_id JOIN goods_receipt rh ON rh.tenant_id=rl.tenant_id AND rh.company_id=rl.company_id AND rh.id=rl.receipt_id WHERE l.tenant_id=:t AND l.company_id=:c AND h.kind='purchase' AND h.status IN('posted','reversed')";
             base+=ownerAnd(actor,"h");
             if(actor!=null) base+=" AND "+cn.erp.shared.PriceAdjustmentScope.condition(actor,"h");
@@ -84,14 +89,15 @@ final class ReportSql {
         String st="COALESCE(original.source_type,r.source_type)",si="COALESCE(original.source_id,r.source_id)";
         String remaining="IF(:agingNow,i.open_amount,i.amount-"+allocatedAtCutoff("debit","D")+"-"+allocatedAtCutoff("credit","C")+")";
         return "WITH facts AS (SELECT i.id,i.partner_id,r.source_type,r.source_id,r.source_line_id,i.aging_date,r.due_date,GREATEST(0,DATEDIFF(:today,r.due_date)) overdue_days,i.direction,"
-                +remaining+" remaining,GREATEST(0,DATEDIFF(:today,IF(:agingBasis='due',r.due_date,i.aging_date))) age_days,COALESCE(h."+rep+",b."+rep+",price_origin."+rep+",0) business_user_id,"
-                +"COALESCE(h.owner_department_id,b.owner_department_id,e.owner_department_id,price.owner_department_id,0) department_id FROM partner_open_item i"
+                +remaining+" remaining,GREATEST(0,DATEDIFF(:today,IF(:agingBasis='due',r.due_date,i.aging_date))) age_days,COALESCE(h."+rep+",b."+rep+",price_origin."+rep+",fee_doc.created_by,0) business_user_id,"
+                +"COALESCE(h.owner_department_id,b.owner_department_id,e.owner_department_id,price.owner_department_id,fee_doc.owner_department_id,0) department_id FROM partner_open_item i"
                 +" JOIN "+fact+" r ON r.tenant_id=i.tenant_id AND r.company_id=i.company_id AND r.id=i.source_id"
                 +" LEFT JOIN "+fact+" original ON original.tenant_id=r.tenant_id AND original.company_id=r.company_id AND original.id=r.reverses_"+fact+"_id"
                 +" LEFT JOIN "+head+" h ON h.tenant_id=r.tenant_id AND h.company_id=r.company_id AND h.id="+si
                 +" AND "+st+" IN('"+head+"_line','"+(ar?"sales_order_fee":"purchase_order_fee")+"')"
                 +" LEFT JOIN "+ret+" b ON b.tenant_id=r.tenant_id AND b.company_id=r.company_id AND b.id="+si+" AND "+st+"='"+ret+"_line'"
                 +" LEFT JOIN opening_entry e ON e.tenant_id=r.tenant_id AND e.company_id=r.company_id AND e.id="+si+" AND "+st+"='opening_entry'"
+                +" LEFT JOIN purchase_fee_doc fee_doc ON fee_doc.tenant_id=r.tenant_id AND fee_doc.company_id=r.company_id AND fee_doc.id="+si+" AND "+st+"='purchase_fee_doc_line'"
                 +" LEFT JOIN price_adjustment price ON price.tenant_id=r.tenant_id AND price.company_id=r.company_id AND price.id="+si+" AND "+st+"='price_adjustment_line'"
                 +" LEFT JOIN price_adjustment_line price_line ON price_line.tenant_id=r.tenant_id AND price_line.company_id=r.company_id AND price_line.id=r.source_line_id AND price_line.adjustment_id=price.id"
                 +" LEFT JOIN "+(ar?"shipment_line":"goods_receipt_line")+" price_source ON price_source.tenant_id=price_line.tenant_id AND price_source.company_id=price_line.company_id AND price_source.id=price_line."+(ar?"shipment_line_id":"receipt_line_id")

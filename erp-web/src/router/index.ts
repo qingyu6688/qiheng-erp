@@ -46,6 +46,12 @@ export const router = createRouter({
       component: () => import('../components/AppShell.vue'),
       children: [
         {
+          path: 'purchase-fee-documents/:id?',
+          name: 'purchase-fee-documents',
+          component: () => import('../pages/PurchaseFeePage.vue'),
+          meta: { company: true, title: '采购费用', permission: 'purchase_fee_doc:view', allPermissions: ['cost:view', 'goods_receipt:view'] },
+        },
+        {
           path: 'purchase-price-adjustments/:id?',
           name: 'purchase-price-adjustments',
           component: () => import('../pages/PurchasePriceAdjustmentPage.vue'),

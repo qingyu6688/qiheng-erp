@@ -18,10 +18,10 @@ import static cn.erp.salesfinance.FinanceSupport.*;
 public class PeriodService {
     public record Version(@NotNull(message="请提供版本号") @PositiveOrZero(message="版本号无效") Long version,
         @Size(max=200,message="原因最多200字") String reason) {}
-    private static final Set<String> DOCUMENTS=Set.of("shipment","goods_receipt","sales_return","purchase_return","stock_transfer","stock_count","stock_adjustment","stock_misc_doc","document_reversal","price_adjustment");
+    private static final Set<String> DOCUMENTS=Set.of("shipment","goods_receipt","sales_return","purchase_return","stock_transfer","stock_count","stock_adjustment","stock_misc_doc","document_reversal","price_adjustment","purchase_fee_doc");
     private static final Map<String,String> DOCUMENT_NUMBERS=Map.ofEntries(Map.entry("shipment","shipment_no"),Map.entry("goods_receipt","receipt_no"),Map.entry("sales_return","return_no"),Map.entry("purchase_return","return_no"),
         Map.entry("stock_transfer","transfer_no"),Map.entry("stock_count","count_no"),Map.entry("stock_adjustment","adjust_no"),Map.entry("stock_misc_doc","document_no"),Map.entry("document_reversal","reversal_no"),Map.entry("receipt","receipt_no"),
-        Map.entry("payment","payment_no"),Map.entry("refund_request","refund_no"),Map.entry("account_transfer","transfer_no"),Map.entry("opening_entry","entry_no"),Map.entry("price_adjustment","adjust_no"));
+        Map.entry("payment","payment_no"),Map.entry("refund_request","refund_no"),Map.entry("account_transfer","transfer_no"),Map.entry("opening_entry","entry_no"),Map.entry("price_adjustment","adjust_no"),Map.entry("purchase_fee_doc","document_no"));
     private final JdbcTemplate jdbc;
     private final ReconciliationChecks checks;
     private final LedgerClosingProjection projections;
@@ -125,7 +125,7 @@ public class PeriodService {
             SELECT COUNT(*) FROM (
               SELECT warehouse_id,sku_id,SUM(q) q,SUM(a) a FROM (
                 SELECT warehouse_id,sku_id,on_hand_delta q,cost_delta a FROM inventory_movement WHERE tenant_id=? AND company_id=?
-                UNION ALL SELECT warehouse_id,sku_id,0,amount FROM cost_adjustment WHERE tenant_id=? AND company_id=? AND adjust_type<>'purchase_price_issued'
+                UNION ALL SELECT warehouse_id,sku_id,0,amount FROM cost_adjustment WHERE tenant_id=? AND company_id=? AND adjust_type NOT IN('purchase_price_issued','purchase_fee_issued')
               ) movements GROUP BY warehouse_id,sku_id HAVING q=0 AND a<>0
             ) residues
             """,Long.class,scope.tenantId(),scope.companyId(),scope.tenantId(),scope.companyId());
@@ -152,7 +152,7 @@ public class PeriodService {
             String states=switch(table) {
                 case "stock_transfer" -> "'submitted','shipped','received_with_diff'";
                 case "stock_count" -> "'counting','submitted','approved'";
-                case "stock_adjustment","stock_misc_doc","document_reversal","price_adjustment" -> "'pending','approved'";
+                case "stock_adjustment","stock_misc_doc","document_reversal","price_adjustment","purchase_fee_doc" -> "'pending','approved'";
                 case "refund_request" -> "'pending_review','pending_payment'";
                 case "opening_entry" -> "'approved'";
                 case "receipt","payment","account_transfer" -> "'pending_confirm'";

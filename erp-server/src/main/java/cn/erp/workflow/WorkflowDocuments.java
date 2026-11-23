@@ -63,7 +63,7 @@ public class WorkflowDocuments {
                 || priceApproval && !actor.hasPermission("sales_order:price_approve")) return null;
         if(creditApproval&&!creditEligible(actor))return null;
         try {
-            if (review && type.equals("price_adjustment")) FinancialScope.require(actor, "price_adjustment:approve");
+            if (review && Set.of("price_adjustment","purchase_fee_doc").contains(type)) FinancialScope.require(actor, type+":approve");
             var source = snapshot(actor, type, id);
             if (review
                     && separate(tenant, company, type)

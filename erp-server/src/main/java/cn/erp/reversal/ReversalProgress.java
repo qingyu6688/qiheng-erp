@@ -70,7 +70,23 @@ class ReversalProgress {
             }
         }
         if(type.equals("shipment"))jdbc.update("UPDATE sales_order_fee SET recognized_shipment_id=NULL,version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND recognized_shipment_id=?",scope.userId(),scope.tenantId(),scope.companyId(),source);
-        if(type.equals("goods_receipt"))jdbc.update("UPDATE purchase_order_fee SET recognized_receipt_id=NULL,version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND recognized_receipt_id=?",scope.userId(),scope.tenantId(),scope.companyId(),source);
+        if(type.equals("goods_receipt"))reverseFees(scope,source);
+    }
+    private void reverseFees(CompanyAccess scope,long receipt) {
+        // 旧费用用原订单费用编号，新费用用本次归集明细编号，两种事实分别退回进度。
+        jdbc.update("UPDATE purchase_order_fee f JOIN payable p ON p.tenant_id=f.tenant_id AND p.company_id=f.company_id AND p.source_type='purchase_order_fee' AND p.source_line_id=f.id AND p.posting_action='post'"
+                +" SET f.recognized_receipt_id=NULL,f.recognized_amount=0,f.recognized_tax=0,f.version=f.version+1,f.updated_by=?"
+                +" WHERE f.tenant_id=? AND f.company_id=? AND p.source_id=?",scope.userId(),scope.tenantId(),scope.companyId(),receipt);
+        var fees=jdbc.queryForList("SELECT l.* FROM purchase_fee_doc_line l JOIN purchase_fee_doc h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.document_id"
+                +" WHERE h.tenant_id=? AND h.company_id=? AND h.source_kind='receipt' AND h.source_receipt_id=? AND h.status='posted' ORDER BY l.order_fee_id FOR UPDATE",scope.tenantId(),scope.companyId(),receipt);
+        for(var fee:fees) {
+            var others=jdbc.queryForList("SELECT h.source_receipt_id FROM purchase_fee_doc_line l JOIN purchase_fee_doc h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.document_id"
+                    +" WHERE h.tenant_id=? AND h.company_id=? AND l.order_fee_id=? AND h.source_kind='receipt' AND h.source_receipt_id<>? AND h.status='posted' ORDER BY h.id LIMIT 1 FOR SHARE",Long.class,scope.tenantId(),scope.companyId(),fee.get("order_fee_id"),receipt);
+            if(jdbc.update("UPDATE purchase_order_fee SET recognized_receipt_id=?,recognized_amount=recognized_amount-?,recognized_tax=recognized_tax-?,version=version+1,updated_by=?"
+                    +" WHERE tenant_id=? AND company_id=? AND id=? AND recognized_amount>=? AND recognized_tax>=?",others.isEmpty()?null:others.getFirst(),fee.get("amount"),fee.get("tax_amount"),scope.userId(),scope.tenantId(),scope.companyId(),fee.get("order_fee_id"),fee.get("amount"),fee.get("tax_amount"))!=1)
+                throw new cn.erp.shared.ApiException(409,"FEE_PROGRESS_MISMATCH","随单费用进度不一致，请先核对");
+        }
+        jdbc.update("UPDATE purchase_fee_doc SET status='reversed',version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND source_kind='receipt' AND source_receipt_id=? AND status='posted'",scope.userId(),scope.tenantId(),scope.companyId(),receipt);
     }
     void refresh(CompanyAccess scope,String type,long source,Map<String,Object> head) {
         for(long order:ids(lines(scope,type,source),"order_id")) {

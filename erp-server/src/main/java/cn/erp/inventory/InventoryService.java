@@ -437,6 +437,31 @@ public class InventoryService {
     public void purchasePriceCost(CompanyAccess scope,Posting posting,BigDecimal stock,BigDecimal issued) {
         cn.erp.shared.FinancialScope.require(scope,"cost:view");
         if(!"price_adjustment_cost".equals(posting.source().type())) throw invalid("采购成本调整来源无效");
+        supplementalCost(scope,posting,stock,issued,"purchase_price");
+    }
+
+    @Transactional(propagation=org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void purchaseFeeCost(CompanyAccess scope,Posting posting,BigDecimal stock,BigDecimal issued) {
+        if(stock==null||issued==null||stock.signum()<0||issued.signum()<0) throw invalid("采购费用成本不能为负");
+        if("purchase_fee_cost".equals(posting.source().type())) {
+            cn.erp.shared.FinancialScope.require(scope,"cost:view");
+        } else if("goods_receipt_fee".equals(posting.source().type())) {
+            // 自动费用只承接当前收货事务中尚未对外可见的入库成本。
+            var sources=jdbc.queryForList("SELECT h.* FROM purchase_fee_cost c JOIN purchase_fee_allocation a"
+                    +" ON a.tenant_id=c.tenant_id AND a.company_id=c.company_id AND a.document_id=c.document_id AND a.id=c.allocation_id"
+                    +" JOIN goods_receipt_line l ON l.tenant_id=a.tenant_id AND l.company_id=a.company_id AND l.id=a.receipt_line_id"
+                    +" JOIN goods_receipt h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.receipt_id"
+                    +" WHERE c.tenant_id=? AND c.company_id=? AND c.id=? AND h.id=? AND h.status='submitted' AND h.posted_at IS NULL"
+                    +" AND c.warehouse_id=? AND c.sku_id=? AND c.stock_amount=? AND c.issued_amount=0 FOR UPDATE",
+                    scope.tenantId(),scope.companyId(),posting.source().lineId(),posting.source().id(),posting.key().warehouseId(),posting.key().skuId(),stock);
+            if(sources.isEmpty()||issued.signum()!=0||!scope.hasPermission("goods_receipt:post")||!scope.allowsWarehouse(posting.key().warehouseId()))
+                throw new ApiException(403,"FORBIDDEN","自动费用必须随当前收货事务处理");
+            cn.erp.shared.OrgOwnership.require(scope,sources.getFirst());
+        } else throw invalid("采购费用成本来源无效");
+        supplementalCost(scope,posting,stock,issued,"purchase_fee");
+    }
+
+    private void supplementalCost(CompanyAccess scope,Posting posting,BigDecimal stock,BigDecimal issued,String type) {
         store.lockPeriod(scope,posting);
         if(stock.signum()!=0) {
             var current=store.lockCost(scope,posting.key());
@@ -445,10 +470,10 @@ public class InventoryService {
                 throw new ApiException(422,"PURCHASE_COST_STOCK_CHANGED","库存已变化，无法承接本次成本调整，请刷新后重试");
             InventoryNumbers.money(next);
             jdbc.update("UPDATE inventory_cost SET total_cost=?,version=version+1 WHERE id=?",next,current.get("id"));
-            adjustment(scope,posting,"purchase_price_stock",stock);
+            adjustment(scope,posting,type+"_stock",stock);
             changed(scope,List.of(posting.key()));
         }
-        if(issued.signum()!=0) adjustment(scope,posting,"purchase_price_issued",issued);
+        if(issued.signum()!=0) adjustment(scope,posting,type+"_issued",issued);
     }
 
     private void adjustment(CompanyAccess scope,Posting p,String type,BigDecimal amount) {

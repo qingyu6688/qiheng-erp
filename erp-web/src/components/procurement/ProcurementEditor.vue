@@ -945,7 +945,7 @@ async function verify(): Promise<void> {
       <section v-if="order" class="sale-fees">
         <div v-for="(fee, index) in fees" :key="index" class="relation-row">
           <el-select v-model="fee.feeType" aria-label="采购费用类型"
-            ><el-option value="freight" label="运费" /><el-option
+            ><el-option value="freight" label="运费" /><el-option value="loading" label="装卸费" /><el-option
               value="other"
               label="其他费用" /></el-select
           ><el-select v-model="fee.bearer" aria-label="采购费用承担方"

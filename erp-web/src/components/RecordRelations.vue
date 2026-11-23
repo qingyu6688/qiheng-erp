@@ -19,6 +19,8 @@ const policyHelp = [
   '启用后制单人与审核人须为不同用户。',
   '启用后登记人与收付款确认人须为不同用户。',
   '按折后含税基本单位价格判断；需要审批时必须绑定含价格审批节点的流程。',
+  '开启后随收货进度确认费用并计入成本；关闭后首次收货整笔记采购费用。',
+  '重量按基本数量乘每基本单位重量计算，权重合计不能为零。',
 ]
 import PaymentTermsField from './PaymentTermsField.vue'
 import { readPaymentTerm } from '../utils/payment-terms'
@@ -125,6 +127,10 @@ const policyFields: FormField[] = [
       { value: 'block', label: '禁止' },
     ],
   },
+  { key: 'purchaseFeeCostEnabled', label: '采购费用计入存货成本', kind: 'boolean' },
+  { key: 'purchaseFeeAllocationMethod', label: '采购费用默认分摊方式', kind: 'select', options: [
+    { value: 'amount', label: '按金额' }, { value: 'quantity', label: '按基本数量' }, { value: 'weight', label: '按重量' },
+  ] },
 ]
 const allContactFields: FormField[] = [
   { key: 'name', label: '姓名', required: true, max: 50 },
