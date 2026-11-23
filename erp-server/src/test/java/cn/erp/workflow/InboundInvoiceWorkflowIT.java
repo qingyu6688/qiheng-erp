@@ -256,6 +256,93 @@ class InboundInvoiceWorkflowIT {
         zeroDifferences();
     }
 
+    @Test
+    @org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(named="ERP_B04_CAPACITY",matches="true")
+    void hundredRealSourcesAndTwentyThousandReleasedRelationsKeepMatchingAndReportsExact() throws Exception {
+        final int sourceCount=100, historyCount=20_000;
+        assertThat(Runtime.getRuntime().maxMemory()).as("本轮容量限制为1GB堆").isLessThanOrEqualTo(1_073_741_824L);
+        var lines=new java.util.ArrayList<InboundInvoiceMatching.Line>();
+        for(int index=0;index<sourceCount;index++) lines.add(line(payable(receive(false),"goods_receipt_line"),"100","0"));
+        long invoice=invoice("B04-CAPACITY","10000","0");
+        var historyRows=new java.util.ArrayList<Object[]>();
+        for(int index=0;index<historyCount;index++) historyRows.add(new Object[]{Ids.next(),d.tenant,d.company,invoice,
+                lines.get(index%sourceCount).payableId(),d.day,d.maker,d.day,d.maker});
+        // 仅为查询构造已释放历史，不冒充两万次真实操作；真实过账来源由上面的业务服务生成。
+        jdbc.batchUpdate("""
+                INSERT INTO einv_inbound_match(id,tenant_id,company_id,invoice_id,payable_id,
+                  invoice_untaxed_amount,invoice_tax_amount,payable_untaxed_amount,payable_tax_amount,
+                  matched_at,matched_date,matched_by,released_at,released_date,released_by,released_reason)
+                VALUES(?,?,?,?,?,100,0,100,0,UTC_TIMESTAMP(3),?,?,UTC_TIMESTAMP(3),?,?,'容量历史样本')
+                """,historyRows);
+        var original=financialFacts();
+        var before=uninvoiced(java.time.LocalDate.now());
+        assertThat(before.items()).hasSize(sourceCount);
+        assertThat(before.summary()).containsEntry("uninvoicedAmount","10000.00");
+        var previewMs=new java.util.ArrayList<Double>();
+        var input=new InboundInvoiceMatching.Allocation(0L,lines);
+        for(int round=0;round<3;round++) {
+            long started=System.nanoTime();
+            assertThat(invoices.preview(d.actor(d.maker),invoice,input)).containsEntry("fullyAllocated",true).containsEntry("absoluteDifference","0.00");
+            previewMs.add(elapsedMs(started));
+        }
+        long started=System.nanoTime();
+        var saved=invoices.allocate(d.actor(d.maker),invoice,key(),input);
+        double saveMs=elapsedMs(started);
+        assertThat(saved).containsEntry("matchStatus","matched").containsEntry("fullyAllocated",true);
+        started=System.nanoTime();
+        var matched=uninvoiced(java.time.LocalDate.now());
+        double reportMs=elapsedMs(started);
+        assertThat(matched.items()).isEmpty();
+        assertThat(invoices.detail(d.actor(d.maker),invoice).get("allocations")).asList().hasSize(sourceCount);
+        var replacement=new InboundInvoiceMatching.Allocation(1L,lines);
+        String replacementKey=key();
+        invoices.allocate(d.actor(d.maker),invoice,replacementKey,replacement);
+        invoices.allocate(d.actor(d.maker),invoice,replacementKey,replacement);
+        assertThat(((Number)invoices.detail(d.actor(d.maker),invoice).get("version")).longValue()).isEqualTo(2L);
+        started=System.nanoTime();
+        int visited=visitInvoicePages(invoice,true);
+        double historyMs=elapsedMs(started);
+        assertThat(visited).isEqualTo(historyCount+sourceCount);
+        assertThat(visitInvoicePages(invoice,false)).isEqualTo(sourceCount);
+        invoices.allocate(d.actor(d.maker),invoice,key(),new InboundInvoiceMatching.Allocation(2L,List.of()));
+        assertThat(visitInvoicePages(invoice,true)).isEqualTo(historyCount+2*sourceCount);
+        assertThat(uninvoiced(java.time.LocalDate.now()).summary()).containsEntry("uninvoicedAmount","10000.00");
+        assertThat(financialFacts()).as("核对及报表不得改写资金、库存、应付或总账事实").isEqualTo(original);
+        zeroDifferences();
+        var evidence=new java.util.LinkedHashMap<String,Object>();
+        evidence.put("realReceiptSources",sourceCount);evidence.put("syntheticReleasedHistory",historyCount);
+        evidence.put("historyAfterTwoRealAllocations",historyCount+2*sourceCount);
+        evidence.put("maxHeapBytes",Runtime.getRuntime().maxMemory());evidence.put("previewMs",previewMs);
+        evidence.put("saveMs",saveMs);evidence.put("matchedReportMs",reportMs);evidence.put("historyFullWalkMs",historyMs);
+        evidence.put("netAmount","10000.00");evidence.put("financialFactsUnchanged",true);evidence.put("reconciliationDifferences",0);
+        var root=java.nio.file.Path.of(System.getenv("ERP_TEST_ROOT")).toRealPath();
+        java.nio.file.Files.writeString(root.resolve("B04-进项核对容量.json"),json.writeValueAsString(evidence),java.nio.file.StandardOpenOption.CREATE_NEW);
+    }
+
+    @SuppressWarnings("unchecked")
+    private int visitInvoicePages(long invoice,boolean historical) {
+        Long cursor=null;long previous=Long.MAX_VALUE;int count=0;
+        do {
+            var page=historical?invoices.history(d.actor(d.maker),invoice,cursor,100):invoices.candidates(d.actor(d.maker),invoice,cursor,30);
+            for(var row:(List<Map<String,Object>>)page.get("items")) {
+                long current=id(row);assertThat(current).as("游标需严格递减且不能重复").isLessThan(previous);
+                previous=current;count++;
+            }
+            Object next=page.get("nextCursor");cursor=next==null?null:Long.parseLong(next.toString());
+        } while(cursor!=null);
+        return count;
+    }
+
+    private Map<String,List<Map<String,Object>>> financialFacts() {
+        var snapshot=new java.util.TreeMap<String,List<Map<String,Object>>>();
+        for(String table:List.of("payable","partner_open_item","cash_account_balance","inventory_balance","inventory_cost",
+                "inventory_movement","journal","journal_line","outbox_event","gl_voucher","gl_voucher_line","gl_balance"))
+            snapshot.put(table,jdbc.queryForList("SELECT * FROM "+table+" WHERE tenant_id=? ORDER BY id",d.tenant));
+        return snapshot;
+    }
+
+    private static double elapsedMs(long started) {return (System.nanoTime()-started)/1e6;}
+
     private long receive(boolean freight) {
         var fees=freight?List.of(new PurchaseOrderModels.Fee(null,"freight","buyer","11.30","0.13")):List.<PurchaseOrderModels.Fee>of();
         var input=new PurchaseOrderModels.Input(Long.toString(d.customer),d.day,null,true,"0",
