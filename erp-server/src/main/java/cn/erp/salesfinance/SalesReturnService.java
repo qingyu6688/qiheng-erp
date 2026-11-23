@@ -4,6 +4,7 @@ import cn.erp.accounting.*;
 import cn.erp.identity.CompanyAccess;
 import cn.erp.inventory.*;
 import cn.erp.pricing.PricingEngine;
+import cn.erp.pricing.ShipmentReturnPricing;
 import cn.erp.reference.ReferenceAvailability;
 import cn.erp.salesorder.SalesOrderQueries;
 import cn.erp.shared.*;
@@ -11,9 +12,11 @@ import cn.erp.shared.PutawayPort;
 import java.math.*;
 import java.time.*;
 import java.util.*;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 import static cn.erp.salesfinance.FinanceSupport.*;
 import static cn.erp.inventory.InventoryModels.*;
 
@@ -30,6 +33,8 @@ public class SalesReturnService {
     private final SettlementService settlement;
     private final InventoryService inventory;
     private final PricingEngine pricing;
+    private ObjectMapper json;
+    @Autowired void json(ObjectMapper json) {this.json=json;}
     private final SalesOrderQueries orders;
     private final PutawayPort putawayTasks;
     public SalesReturnService(JdbcTemplate jdbc,FinanceSupport support,DocumentNumbers numbers,BusinessCommands commands,AuditService audit,
@@ -252,8 +257,8 @@ public class SalesReturnService {
         long lineId=id(line,"id"),sourceLine=id(line,"shipment_line_id"),sku=id(line,"sku_id");
         BigDecimal qty=decimal(line,"base_qty"),previous=decimal(original,"returned_base_qty"),signed=decimal(original,"signed_base_qty");
         if(decimal(original,"pending_return_base_qty").compareTo(qty)<0||previous.add(qty).compareTo(signed)>0) {throw new ApiException(422,"RETURN_QTY_EXCEEDED","退货占用与原发货行不一致");}
-        var recognition=pricing.recognize(decimal(original,"receivable_amount").toPlainString(),decimal(original,"tax_amount").toPlainString(),signed.toPlainString(),previous.toPlainString(),previous.add(qty).toPlainString());
-        BigDecimal credit=new BigDecimal(recognition.totalAmount()),tax=new BigDecimal(recognition.taxAmount()),untaxed=credit.subtract(tax);
+        var recognition=ShipmentReturnPricing.calculate(original,qty,date,pricing,json);
+        BigDecimal credit=recognition.amount(),tax=recognition.tax(),untaxed=credit.subtract(tax);
         BigDecimal signedCost=decimal(original,"signed_cost_amount");
         BigDecimal cost=signedCost.multiply(previous.add(qty)).divide(signed,2,RoundingMode.HALF_UP)
                 .subtract(signedCost.multiply(previous).divide(signed,2,RoundingMode.HALF_UP));
