@@ -6,7 +6,7 @@ import { isCancelled, messageOf } from '../api/http'
 import { useSessionStore } from '../stores/session'
 import { priceStatusLabels } from '../types/price-adjustments'
 import type { PriceAdjustment, PriceAdjustmentStatus } from '../types/price-adjustments'
-import { formatMoney } from '../utils/format'
+import FinancialAmount from '../components/FinancialAmount.vue'
 import PurchasePriceAdjustmentDrawer from '../components/procurement/PurchasePriceAdjustmentDrawer.vue'
 import StatusTag from '../components/StatusTag.vue'
 
@@ -135,8 +135,8 @@ void load()
       <el-table-column prop="warehouseName" label="原收货仓库" min-width="140" />
       <el-table-column prop="businessDate" label="调价日期" min-width="120" />
       <el-table-column label="含税调整（元）" min-width="140" align="right"
-        ><template #default="{ row }">{{ formatMoney(row.amount) }}</template></el-table-column
-      >
+        ><template #default="{ row }"><FinancialAmount :value="row.amount" signed /></template
+      ></el-table-column>
       <el-table-column label="状态" min-width="110"
         ><template #default="{ row }"
           ><StatusTag :label="priceStatusLabels[row.status as PriceAdjustmentStatus]" /></template

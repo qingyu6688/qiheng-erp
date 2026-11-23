@@ -12,6 +12,7 @@ import {
 } from '../../types/purchase-fees'
 import { formatMoney, formatQuantity } from '../../utils/format'
 import StatusTag from '../StatusTag.vue'
+import FinancialAmount from '../FinancialAmount.vue'
 import WorkflowProgressPanel from '../workflow/WorkflowProgressPanel.vue'
 import WorkflowStarterSelector from '../workflow/WorkflowStarterSelector.vue'
 import StockDocumentEditor from '../stock-operations/StockDocumentEditor.vue'
@@ -209,8 +210,10 @@ function reversalSaved(value: StockDocument): void {
             </div>
             <ul class="fee-sources">
               <li v-for="(source, index) in draft.sources" :key="source.receiptLineId">
-                <span>{{ source.label }}</span
-                ><el-button link type="danger" @click="draft.sources.splice(index, 1)"
+                <span>{{ source.label }}</span><el-button
+                  link
+                  type="danger"
+                  @click="draft.sources.splice(index, 1)"
                   >移除来源</el-button
                 >
               </li>
@@ -250,9 +253,9 @@ function reversalSaved(value: StockDocument): void {
             <dt>分摊方式</dt>
             <dd>{{ allocationMethodLabels[document.allocationMethod] }}</dd>
           </div>
-          <div>
+          <div class="fee-total">
             <dt>含税费用</dt>
-            <dd>{{ formatMoney(document.amount) }} 元</dd>
+            <dd><FinancialAmount :value="document.amount" /><span class="fee-unit">元</span></dd>
           </div>
           <div>
             <dt>未税费用</dt>
@@ -276,11 +279,14 @@ function reversalSaved(value: StockDocument): void {
                 feeTypeLabels[row.feeType as keyof typeof feeTypeLabels]
               }}</template></el-table-column
             >
-            <el-table-column label="含税费用" align="right" min-width="110"
-              ><template #default="{ row }">{{
-                formatMoney(row.amount)
-              }}</template></el-table-column
-            >
+            <el-table-column
+              label="含税费用（元）"
+              align="right"
+              min-width="130"
+              class-name="fee-impact-cell"
+              label-class-name="fee-impact-cell"
+              ><template #default="{ row }"><FinancialAmount :value="row.amount" /></template
+            ></el-table-column>
             <el-table-column label="税额" align="right" min-width="100"
               ><template #default="{ row }">{{
                 formatMoney(row.taxAmount)
@@ -300,28 +306,32 @@ function reversalSaved(value: StockDocument): void {
               prop="skuName"
               label="商品"
               min-width="130"
-            />
+              ><template #default="{ row }"
+                ><strong class="fee-item-name">{{ row.skuName }}</strong></template
+              ></el-table-column
+            >
             <el-table-column prop="sourceWarehouseName" label="原收货仓" min-width="120" />
             <el-table-column label="剩余基本数量" align="right" min-width="120"
               ><template #default="{ row }">{{
                 formatQuantity(row.sourceBaseQty)
               }}</template></el-table-column
             >
-            <el-table-column label="含税分摊" align="right" min-width="105"
-              ><template #default="{ row }">{{
-                formatMoney(row.amount)
-              }}</template></el-table-column
-            >
+            <el-table-column label="含税分摊（元）" align="right" min-width="125"
+              ><template #default="{ row }"><FinancialAmount :value="row.amount" /></template
+            ></el-table-column>
             <el-table-column label="税额" align="right" min-width="90"
               ><template #default="{ row }">{{
                 formatMoney(row.taxAmount)
               }}</template></el-table-column
             >
-            <el-table-column label="费用成本" align="right" min-width="105"
-              ><template #default="{ row }">{{
-                formatMoney(row.costAmount)
-              }}</template></el-table-column
-            >
+            <el-table-column
+              label="费用成本（元）"
+              align="right"
+              min-width="125"
+              class-name="fee-impact-cell"
+              label-class-name="fee-impact-cell"
+              ><template #default="{ row }"><FinancialAmount :value="row.costAmount" /></template
+            ></el-table-column>
           </el-table>
         </section>
         <WorkflowProgressPanel
@@ -334,26 +344,32 @@ function reversalSaved(value: StockDocument): void {
           <h3>{{ preview ? '成本分配预览' : '成本处理结果' }}</h3>
           <p v-if="preview" class="fee-help">{{ preview.notice }}</p>
           <el-table :data="costRows" border>
-            <el-table-column prop="skuName" label="商品" min-width="130" /><el-table-column
-              prop="warehouseName"
-              label="成本归属仓"
-              min-width="140"
-            />
+            <el-table-column prop="skuName" label="商品" min-width="130"
+              ><template #default="{ row }"
+                ><strong class="fee-item-name">{{ row.skuName }}</strong></template
+              ></el-table-column
+            ><el-table-column prop="warehouseName" label="成本归属仓" min-width="140" />
             <el-table-column label="在库基本数量" align="right" min-width="125"
               ><template #default="{ row }">{{
                 formatQuantity(row.inStockQty)
               }}</template></el-table-column
             >
-            <el-table-column label="计入库存成本" align="right" min-width="125"
-              ><template #default="{ row }">{{
-                formatMoney(row.stockAmount)
-              }}</template></el-table-column
-            >
-            <el-table-column label="已出库差异" align="right" min-width="120"
-              ><template #default="{ row }">{{
-                formatMoney(row.issuedAmount)
-              }}</template></el-table-column
-            >
+            <el-table-column
+              label="计入库存成本（元）"
+              align="right"
+              min-width="155"
+              class-name="fee-impact-cell"
+              label-class-name="fee-impact-cell"
+              ><template #default="{ row }"><FinancialAmount :value="row.stockAmount" /></template
+            ></el-table-column>
+            <el-table-column
+              label="已出库差异（元）"
+              align="right"
+              min-width="145"
+              class-name="fee-impact-cell"
+              label-class-name="fee-impact-cell"
+              ><template #default="{ row }"><FinancialAmount :value="row.issuedAmount" /></template
+            ></el-table-column>
           </el-table>
         </section>
         <section v-if="submitting" class="fee-section">
@@ -431,7 +447,9 @@ function reversalSaved(value: StockDocument): void {
 <style scoped>
 .fee-panel {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
+  min-width: 0;
 }
 .fee-fields {
   display: grid;
@@ -498,6 +516,25 @@ function reversalSaved(value: StockDocument): void {
 .fee-description dd {
   margin: 0;
   overflow-wrap: anywhere;
+}
+.fee-total :deep(.financial-amount) {
+  font-size: 24px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.fee-unit {
+  margin-left: 6px;
+  color: var(--erp-text-2);
+  font-size: 12px;
+}
+.fee-item-name {
+  font-weight: 600;
+}
+.fee-panel :deep(.el-table .fee-impact-cell) {
+  background: var(--erp-primary-1);
+}
+.fee-panel :deep(.el-table th.fee-impact-cell) {
+  color: var(--erp-primary-7);
 }
 .fee-footer {
   justify-content: flex-end;

@@ -6,6 +6,7 @@ import type { PriceCostPart } from '../../types/price-adjustments'
 import { priceActionLabels, priceStatusLabels } from '../../types/price-adjustments'
 import { formatMoney, formatQuantity } from '../../utils/format'
 import StatusTag from '../StatusTag.vue'
+import FinancialAmount from '../FinancialAmount.vue'
 import WorkflowProgressPanel from '../workflow/WorkflowProgressPanel.vue'
 import WorkflowStarterSelector from '../workflow/WorkflowStarterSelector.vue'
 import StockDocumentEditor from '../stock-operations/StockDocumentEditor.vue'
@@ -258,9 +259,13 @@ function reversalSaved(value: StockDocument): void {
               <dt>调价日期</dt>
               <dd>{{ document.businessDate }}</dd>
             </div>
-            <div>
+            <div class="price-total">
               <dt>含税调整</dt>
-              <dd>{{ formatMoney(document.amount) }} 元</dd>
+              <dd>
+                <FinancialAmount :value="document.amount" signed /><span class="price-unit"
+                  >元</span
+                >
+              </dd>
             </div>
             <div>
               <dt>未税调整</dt>
@@ -273,27 +278,35 @@ function reversalSaved(value: StockDocument): void {
           </dl>
           <p class="price-reason"><strong>调价依据：</strong>{{ document.reason }}</p>
           <div class="price-table-scroll">
-            <table class="price-table">
+            <table class="price-table" aria-label="采购调价明细">
               <thead>
                 <tr>
-                  <th>原收货 / 商品</th>
-                  <th>剩余基本数量</th>
-                  <th>原含税单价</th>
-                  <th>新含税单价</th>
-                  <th>含税调整</th>
-                  <th>税额调整</th>
+                  <th scope="col">原收货 / 商品</th>
+                  <th scope="col" class="price-number">剩余基本数量</th>
+                  <th scope="col" class="price-number">原含税单价</th>
+                  <th scope="col" class="price-number price-impact-cell">新含税单价</th>
+                  <th scope="col" class="price-number price-impact-cell">含税调整（元）</th>
+                  <th scope="col" class="price-number">税额调整（元）</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="line in document.lines" :key="line.id">
                   <td>
-                    {{ line.receiptNo }}<small>{{ line.skuName }} · {{ line.unitName }}</small>
+                    <strong class="price-item-name">{{ line.skuName }}</strong>
+                    <small>{{ line.receiptNo }} · {{ line.unitName }}</small>
                   </td>
                   <td class="price-number">{{ formatQuantity(line.sourceBaseQty) }}</td>
-                  <td class="price-number">{{ formatQuantity(line.oldUnitPrice) }}</td>
-                  <td class="price-number">{{ formatQuantity(line.newUnitPrice) }}</td>
-                  <td class="price-number">{{ formatMoney(line.amount) }}</td>
-                  <td class="price-number">{{ formatMoney(line.taxAmount) }}</td>
+                  <td class="price-number price-original">
+                    {{ formatQuantity(line.oldUnitPrice) }}
+                  </td>
+                  <td class="price-number price-impact-cell">
+                    <span class="price-change-arrow" aria-hidden="true">→</span>
+                    <strong class="price-new-value">{{ formatQuantity(line.newUnitPrice) }}</strong>
+                  </td>
+                  <td class="price-number price-impact-cell">
+                    <FinancialAmount :value="line.amount" signed />
+                  </td>
+                  <td class="price-number"><FinancialAmount :value="line.taxAmount" signed /></td>
                 </tr>
               </tbody>
             </table>
@@ -307,23 +320,32 @@ function reversalSaved(value: StockDocument): void {
             <h3>{{ preview ? '成本分配预览' : '成本处理结果' }}</h3>
             <p v-if="preview" class="price-help">{{ preview.notice }}</p>
             <div class="price-table-scroll">
-              <table class="price-table">
+              <table class="price-table" aria-label="调价成本处理明细">
                 <thead>
                   <tr>
-                    <th>明细</th>
-                    <th>成本归属仓</th>
-                    <th>在库份额（基本数量）</th>
-                    <th>调整库存成本</th>
-                    <th>已出库差异</th>
+                    <th scope="col">明细</th>
+                    <th scope="col">成本归属仓</th>
+                    <th scope="col" class="price-number">在库份额（基本数量）</th>
+                    <th scope="col" class="price-number price-impact-cell">调整库存成本（元）</th>
+                    <th scope="col" class="price-number price-impact-cell">已出库差异（元）</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="part in costRows" :key="part.lineNo + '-' + part.warehouseId">
-                    <td>{{ part.lineNo }} · {{ part.skuName }}</td>
+                    <td>
+                      <span class="price-line-no">{{ part.lineNo }}</span><strong
+                        class="price-item-name"
+                        >{{ part.skuName }}</strong
+                      >
+                    </td>
                     <td>{{ part.warehouseName }}</td>
                     <td class="price-number">{{ formatQuantity(part.inStockQty) }}</td>
-                    <td class="price-number">{{ formatMoney(part.stockAmount) }}</td>
-                    <td class="price-number">{{ formatMoney(part.issuedAmount) }}</td>
+                    <td class="price-number price-impact-cell">
+                      <FinancialAmount :value="part.stockAmount" signed />
+                    </td>
+                    <td class="price-number price-impact-cell">
+                      <FinancialAmount :value="part.issuedAmount" signed />
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -406,7 +428,9 @@ function reversalSaved(value: StockDocument): void {
 <style scoped>
 .price-panel {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
+  min-width: 0;
 }
 .price-fields {
   display: grid;
@@ -428,6 +452,8 @@ function reversalSaved(value: StockDocument): void {
   min-width: 180px;
 }
 .price-table-scroll {
+  min-width: 0;
+  max-width: 100%;
   overflow-x: auto;
 }
 .price-table {
@@ -460,6 +486,36 @@ function reversalSaved(value: StockDocument): void {
   display: block;
   margin-top: 5px;
   color: var(--erp-text-2);
+}
+.price-item-name {
+  font-weight: 600;
+  color: var(--erp-text-1);
+}
+.price-line-no {
+  margin-right: 8px;
+  color: var(--erp-text-2);
+  font-size: 12px;
+}
+.price-table .price-impact-cell {
+  background: var(--erp-primary-1);
+}
+.price-table th.price-impact-cell,
+.price-new-value {
+  color: var(--erp-primary-7);
+}
+.price-new-value {
+  font-size: 17px;
+  font-weight: 650;
+}
+.price-original,
+.price-change-arrow {
+  color: var(--erp-text-2);
+}
+.price-change-arrow {
+  margin-right: 10px;
+}
+.price-table tbody tr:hover td:not(.price-impact-cell) {
+  background: var(--erp-fill-1);
 }
 .price-table .price-number {
   text-align: right;
@@ -500,6 +556,17 @@ function reversalSaved(value: StockDocument): void {
   margin: 7px 0 0;
   font-weight: 500;
   overflow-wrap: anywhere;
+}
+.price-total :deep(.financial-amount) {
+  font-size: 24px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.price-unit {
+  margin-left: 6px;
+  color: var(--erp-text-2);
+  font-size: 12px;
+  font-weight: 400;
 }
 .price-reason {
   margin: 0;

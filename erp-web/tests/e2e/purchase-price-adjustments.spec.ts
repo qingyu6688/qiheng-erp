@@ -50,7 +50,12 @@ async function settledDrawer(page: Page, drawer: Locator): Promise<void> {
   await expect
     .poll(async () => {
       const box = await drawer.boundingBox()
-      return box !== null && Math.abs(box.x + box.width - width) < 1
+      return (
+        box !== null &&
+        box.x >= -1 &&
+        box.width <= width + 1 &&
+        Math.abs(box.x + box.width - width) < 1
+      )
     })
     .toBe(true)
 }
@@ -83,11 +88,16 @@ test('真实采购和部分销售后调价，双人审批过账及右侧详情�
       return Array.isArray(data) ? data : data.items
     }
     const partners = await list('partners'),
-      warehouses = await list('warehouses'),
       skus = await list('skus')
     const supplier = partners.find((item) => item.code === 'E2E-M5-SUPPLIER')!.id
     const customer = partners.find((item) => item.code === 'E2E-CUSTOMER')!.id
-    const warehouse = warehouses.find((item) => item.code === 'E2E-M5-WAREHOUSE')!.id
+    // 每个成本场景使用独立仓库，避免其他用例留下的库存改变来源份额。
+    const warehouse = (
+      await api<Master>(page, company, '/warehouses', {
+        code: 'PA-' + randomUUID().slice(0, 12),
+        name: '采购调价验收仓',
+      })
+    ).id
     const sku = skus.find((item) => item.code === 'E2E-M5-SKU')!.id
     const detail = await api<Master>(page, company, '/skus/' + sku)
     const unit = detail.units!.find((item) => item.isBase)!.unitId
@@ -216,6 +226,33 @@ test('真实采购和部分销售后调价，双人审批过账及右侧详情�
       page.getByRole('dialog', { name: '采购调价 · ' + created.documentNo }),
     )
     await page.screenshot({ path: info.outputPath('采购调价过账与成本拆分.png'), fullPage: true })
+    const detailTable = panel.getByRole('table', { name: '采购调价明细', exact: true })
+    await expect(detailTable.locator('.price-new-value')).toHaveText('12')
+    await expect(detailTable.locator('.financial-amount').first()).toHaveText('+20.00')
+    await expect(detailTable.locator('.financial-amount.is-muted')).toHaveText('0.00')
+    const costTable = panel.getByRole('table', { name: '调价成本处理明细', exact: true })
+    await expect(costTable.locator('.financial-amount')).toHaveText(['+8.00', '+12.00'])
+    await page.setViewportSize({ width: 390, height: 844 })
+    await settledDrawer(page, panel)
+    await expect
+      .poll(() =>
+        panel
+          .locator('.price-panel')
+          .evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+      )
+      .toBe(true)
+    await expect(panel.locator('.price-total')).toBeInViewport()
+    await expect
+      .poll(() =>
+        panel
+          .locator('.price-table-scroll')
+          .first()
+          .evaluate((element) => element.scrollWidth > element.clientWidth),
+      )
+      .toBe(true)
+    await page.screenshot({ path: info.outputPath('采购调价移动端重点列.png') })
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await settledDrawer(page, panel)
     await page
       .getByRole('dialog', { name: '采购调价 · ' + created.documentNo })
       .getByRole('button', { name: '关闭', exact: true })

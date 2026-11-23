@@ -83,11 +83,16 @@ test('真实采购和部分销售后分摊运费，双人审批过账及右侧�
       return Array.isArray(data) ? data : data.items
     }
     const partners = await list('partners'),
-      warehouses = await list('warehouses'),
       skus = await list('skus')
     const supplier = partners.find((item) => item.code === 'E2E-M5-SUPPLIER')!.id
     const customer = partners.find((item) => item.code === 'E2E-CUSTOMER')!.id
-    const warehouse = warehouses.find((item) => item.code === 'E2E-M5-WAREHOUSE')!.id
+    // 每个成本场景使用独立仓库，避免其他用例留下的库存改变来源份额。
+    const warehouse = (
+      await api<Master>(page, company, '/warehouses', {
+        code: 'PF-' + randomUUID().slice(0, 12),
+        name: '采购费用验收仓',
+      })
+    ).id
     const sku = skus.find((item) => item.code === 'E2E-M5-SKU')!.id
     const detail = await api<Master>(page, company, '/skus/' + sku)
     const supplierName = (await api<{ name: string }>(page, company, '/partners/' + supplier)).name
