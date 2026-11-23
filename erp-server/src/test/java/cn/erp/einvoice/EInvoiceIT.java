@@ -101,7 +101,7 @@ class EInvoiceIT {
         register(viewer,tenant,company,"viewer",hash,List.of("einv:view"));
         jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,viewer,otherCompany);
         register(noPermission,tenant,company,"member",hash,List.of());
-        register(outsider,foreign,foreignCompany,"outsider",hash,List.of("einv:view","einv:download","einv:inbound","einv:manage","sku:view","sku:update"));
+        register(outsider,foreign,foreignCompany,"outsider",hash,List.of("einv:view","einv:download","einv:inbound","einv:inbound_register","einv:manage","sku:view","sku:update"));
         when(provider.available()).thenReturn(true);
         when(provider.query(any(),anyString())).thenReturn(new EInvoiceProvider.Result(NOT_FOUND,null,null));
         config.save(approver,new EInvoiceConfig.Input(taxNo,token,true,0L));
@@ -232,6 +232,7 @@ class EInvoiceIT {
         assertThat(candidates.get(0).path("id").asString()).isEqualTo(Long.toString(payable));
         var match=finance.send("POST","/inbound/"+id+"/match",Map.of("version",0,"payableId",Long.toString(payable)),200);
         assertThat(match.path("payableId").asString()).isEqualTo(Long.toString(payable));
+        assertThat(match.path("allocations").get(0).path("sourceNo").asString()).isNotBlank();
         var limited=new CompanyAccess(tenant,checker,company,false,Set.of(warehouse),Set.of());
         assertCode(()->inbound.list(limited,null,30),"FORBIDDEN");
         when(provider.downloadInbound(any(),eq(today),eq(today))).thenReturn(List.of(inbound("red_issued")));
@@ -325,6 +326,31 @@ class EInvoiceIT {
 
     private Map<String,Object> manual(String no,String amount,String tax) {
         return Map.of("supplierId",Long.toString(partner),"invoiceNo",no,"sellerTaxNo",taxNo,"invoiceDate",today,"receivedDate",today,"amount",amount,"taxAmount",tax);
+    }
+
+    @Test void manualSupplierLookupReturnsOnlyActiveIdentitiesWithinTheCurrentTenantAndRights() throws Exception {
+        var finance=new Browser("checker",tenantCode,company);
+        var selected=finance.send("GET","/inbound/suppliers?keyword=PARTNER",null,200).path("items");
+        assertThat(selected.size()).isEqualTo(1);
+        assertThat(selected.get(0).path("id").asString()).isEqualTo(Long.toString(partner));
+        assertThat(selected.get(0).size()).isEqualTo(4);
+        finance.send("GET","/inbound/suppliers?limit=101",null,400);
+        assertThat(finance.send("GET","/inbound/suppliers?keyword=%25",null,200).path("items")).isEmpty();
+        new Browser("viewer",tenantCode,company).send("GET","/inbound/suppliers",null,403);
+        assertThat(new Browser("outsider",foreignCode,foreignCompany).send("GET","/inbound/suppliers",null,200).path("items")).isEmpty();
+        jdbc.update("UPDATE partner_role SET status='disabled' WHERE tenant_id=? AND partner_id=? AND role='supplier'",tenant,partner);
+        assertThat(finance.send("GET","/inbound/suppliers",null,200).path("items")).isEmpty();
+        finance.send("POST","/inbound",manual("DISABLED-ROLE","1","0"),404);
+        jdbc.update("UPDATE partner_role SET status='active' WHERE tenant_id=? AND partner_id=? AND role='supplier'",tenant,partner);
+        jdbc.update("UPDATE business_partner SET status='disabled' WHERE id=?",partner);
+        assertThat(finance.send("GET","/inbound/suppliers",null,200).path("items")).isEmpty();
+    }
+
+    @Test void manualInvoiceRejectsDatesOutsideTheStorageRangeBeforeWriting() throws Exception {
+        var finance=new Browser("checker",tenantCode,company);
+        var input=new java.util.LinkedHashMap<>(manual("DATE-RANGE","1","0"));input.put("invoiceDate","0001-01-01");
+        finance.send("POST","/inbound",input,400);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM einv_inbound WHERE tenant_id=?",Integer.class,tenant)).isZero();
     }
 
     @Test void providerInvoiceCannotBindAnExplicitPayableWithMissingSupplierTaxIdentity() throws Exception {

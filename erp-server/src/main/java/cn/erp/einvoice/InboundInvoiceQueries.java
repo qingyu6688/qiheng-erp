@@ -28,6 +28,20 @@ class InboundInvoiceQueries {
     private final NamedParameterJdbcTemplate jdbc;
     InboundInvoiceQueries(JdbcTemplate jdbc) { this.jdbc = new NamedParameterJdbcTemplate(jdbc); }
 
+    Map<String,Object> suppliers(CompanyAccess actor,String keyword,Long cursor,int limit) {
+        if(limit<1||limit>100||cursor!=null&&cursor<=0||keyword!=null&&keyword.length()>100)throw invalid("供应商查询条件无效");
+        var params=params(actor);params.put("before",cursor==null?Long.MAX_VALUE:cursor);params.put("limit",limit+1);
+        String filter="";
+        if(keyword!=null&&!keyword.isBlank()) {
+            params.put("keyword","%"+keyword.trim().replace("!","!!").replace("%","!%").replace("_","!_")+"%");
+            filter=" AND (p.code LIKE :keyword ESCAPE '!' OR p.name LIKE :keyword ESCAPE '!' OR p.tax_no LIKE :keyword ESCAPE '!')";
+        }
+        var rows=jdbc.queryForList("SELECT p.id,p.code,p.name,p.tax_no FROM business_partner p WHERE p.tenant_id=:t AND p.id<:before AND p.status='active'"
+                +" AND EXISTS(SELECT 1 FROM partner_role r WHERE r.tenant_id=p.tenant_id AND r.partner_id=p.id AND r.role='supplier' AND r.status='active')"+filter+" ORDER BY p.id DESC LIMIT :limit",params);
+        var result=new LinkedHashMap<String,Object>();result.put("items",rows.stream().limit(limit).map(ApiRows::row).toList());
+        result.put("nextCursor",rows.size()>limit?rows.get(limit-1).get("id").toString():null);return result;
+    }
+
     List<Map<String, Object>> list(CompanyAccess actor, Long cursor, int limit, String status, String source, String keyword) {
         InboundInvoiceScope.requireFull(actor);
         if (limit < 1 || limit > 100 || cursor != null && cursor <= 0) throw invalid("进项发票分页条件无效");
@@ -94,8 +108,12 @@ class InboundInvoiceQueries {
     }
 
     private static String matchSelect() {
-        return "SELECT m.*,p.source_type,p.source_id,p.source_line_id,p.business_date,p.supplier_id,p.amount source_amount,p.untaxed_amount source_untaxed_amount,p.tax_amount source_tax_amount"
-                + " FROM einv_inbound_match m JOIN payable p ON p.tenant_id=m.tenant_id AND p.company_id=m.company_id AND p.id=m.payable_id";
+        return "SELECT m.*,p.source_type,p.source_id,p.source_line_id,p.business_date,p.supplier_id,p.amount source_amount,p.untaxed_amount source_untaxed_amount,p.tax_amount source_tax_amount,"
+                +"COALESCE(receipt.receipt_no,price.adjust_no,fee.document_no) source_no"
+                + " FROM einv_inbound_match m JOIN payable p ON p.tenant_id=m.tenant_id AND p.company_id=m.company_id AND p.id=m.payable_id"
+                +" LEFT JOIN goods_receipt receipt ON receipt.tenant_id=p.tenant_id AND receipt.company_id=p.company_id AND receipt.id=p.source_id AND p.source_type IN('goods_receipt_line','purchase_order_fee')"
+                +" LEFT JOIN price_adjustment price ON price.tenant_id=p.tenant_id AND price.company_id=p.company_id AND price.id=p.source_id AND p.source_type='price_adjustment_line'"
+                +" LEFT JOIN purchase_fee_doc fee ON fee.tenant_id=p.tenant_id AND fee.company_id=p.company_id AND fee.id=p.source_id AND p.source_type='purchase_fee_doc_line'";
     }
     private static Map<String, Object> view(Map<String, Object> row) {
         var result = ApiRows.row(row);

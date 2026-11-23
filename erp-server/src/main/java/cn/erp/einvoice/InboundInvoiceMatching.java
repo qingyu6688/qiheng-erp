@@ -67,6 +67,9 @@ public class InboundInvoiceMatching {
     }
 
     public Map<String, Object> detail(CompanyAccess actor, long id) { require(actor, "einv:inbound"); return queries.detail(actor, id); }
+    public Map<String,Object> suppliers(CompanyAccess actor,String keyword,Long cursor,int limit) {
+        require(actor,"einv:inbound_register");return queries.suppliers(actor,keyword,cursor,limit);
+    }
     public Map<String, Object> history(CompanyAccess actor, long id, Long cursor, int limit) { require(actor, "einv:inbound"); return queries.history(actor, id, cursor, limit); }
     public Map<String, Object> candidates(CompanyAccess actor, long id, Long cursor, int limit) {
         require(actor, "einv:inbound"); var invoice = queries.head(actor, id, false); normal(invoice); return sources.candidates(actor, invoice, cursor, limit);
@@ -185,11 +188,11 @@ public class InboundInvoiceMatching {
         if (input == null || input.supplierId() == null || input.supplierId() <= 0 || input.invoiceNo() == null || !input.invoiceNo().trim().matches("[A-Za-z0-9_/-]{1,64}")) throw invalid("请输入有效供应商和发票号码");
         if (input.sellerTaxNo() == null || !input.sellerTaxNo().trim().matches("[0-9A-Z]{8,32}")) throw invalid("请输入有效的销方纳税人识别号");
         var today = LocalDate.now(EInvoiceService.ZONE);
-        if (input.invoiceDate() == null || input.receivedDate() == null || input.invoiceDate().isAfter(today) || input.receivedDate().isAfter(today) || input.receivedDate().isBefore(input.invoiceDate())) throw invalid("开票及接收日期不能晚于今天，接收日期不能早于开票日期");
+        if (input.invoiceDate() == null || input.receivedDate() == null || input.invoiceDate().getYear()<1000 || input.receivedDate().getYear()<1000 || input.invoiceDate().isAfter(today) || input.receivedDate().isAfter(today) || input.receivedDate().isBefore(input.invoiceDate())) throw invalid("开票及接收日期须有效且不能晚于今天，接收日期不能早于开票日期");
         var amount = InboundInvoiceAmounts.parseMoney(input.amount()); var tax = InboundInvoiceAmounts.parseMoney(input.taxAmount());
         if (amount.signum() == 0 || tax.compareTo(amount) > 0) throw invalid("价税合计必须大于零，税额不能超过价税合计");
         if (input.remark() != null && input.remark().length() > 200 || input.sellerName() != null && input.sellerName().trim().length() > 100) throw invalid("销方名称最多100字，备注最多200字");
-        var supplier = jdbc.queryForList("SELECT p.id,p.name,p.tax_no FROM business_partner p WHERE p.tenant_id=? AND p.id=? AND p.status='active' AND EXISTS(SELECT 1 FROM partner_role r WHERE r.tenant_id=p.tenant_id AND r.partner_id=p.id AND r.role='supplier')", actor.tenantId(), input.supplierId()).stream().findFirst().orElseThrow(InboundInvoiceQueries::missing);
+        var supplier = jdbc.queryForList("SELECT p.id,p.name,p.tax_no FROM business_partner p WHERE p.tenant_id=? AND p.id=? AND p.status='active' AND EXISTS(SELECT 1 FROM partner_role r WHERE r.tenant_id=p.tenant_id AND r.partner_id=p.id AND r.role='supplier' AND r.status='active')", actor.tenantId(), input.supplierId()).stream().findFirst().orElseThrow(InboundInvoiceQueries::missing);
         checkTax(supplier.get("tax_no"), input.sellerTaxNo().trim());
         return supplier;
     }

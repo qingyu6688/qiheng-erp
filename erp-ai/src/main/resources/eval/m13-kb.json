@@ -5057,5 +5057,210 @@
         "幂等键"
       ]
     ]
+  },
+  {
+    "id": "m13-289",
+    "category": "knowledge",
+    "question": "进项发票能一票核对多张收货单吗，纸质票如何登记和更正？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "多对多"
+      ],
+      [
+        "一票多单"
+      ],
+      [
+        "一单多票"
+      ],
+      [
+        "手工登记"
+      ],
+      [
+        "没有有效核对关系"
+      ],
+      [
+        "不依赖服务商网关"
+      ]
+    ]
+  },
+  {
+    "id": "m13-290",
+    "category": "knowledge",
+    "question": "进项核对容差默认多少，未税差额与税额差额可以正负抵销或分次绕过吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "1.00"
+      ],
+      [
+        "绝对值合计"
+      ],
+      [
+        "不能正负抵销"
+      ],
+      [
+        "超容差拒绝"
+      ],
+      [
+        "不自动追加应付"
+      ]
+    ]
+  },
+  {
+    "id": "m13-291",
+    "category": "knowledge",
+    "question": "供应商货款已经付清还要到票吗，99.99的票覆盖100.00应付会留下0.01未到票吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "付款结清不等于已到票"
+      ],
+      [
+        "99.99"
+      ],
+      [
+        "100.00"
+      ],
+      [
+        "不遗留一分未到票"
+      ],
+      [
+        "原应付"
+      ]
+    ]
+  },
+  {
+    "id": "m13-292",
+    "category": "knowledge",
+    "question": "采购退货或调价后，原进项核对关系怎样变化，申请或批准冲销就释放吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "公司核对锁"
+      ],
+      [
+        "整张"
+      ],
+      [
+        "待核对"
+      ],
+      [
+        "已释放历史"
+      ],
+      [
+        "仅申请或批准冲销不释放"
+      ]
+    ]
+  },
+  {
+    "id": "m13-293",
+    "category": "knowledge",
+    "question": "数电进项重复同步、红冲或与手工票同号码时怎么处理，供应商税号空白可关联吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "不增版"
+      ],
+      [
+        "不重复释放"
+      ],
+      [
+        "整批回滚"
+      ],
+      [
+        "缺失或空白税号不能关联"
+      ]
+    ]
+  },
+  {
+    "id": "m13-294",
+    "category": "knowledge",
+    "question": "有差异的进项票代表已经分完了吗，单仓人员可以核对整家公司进项吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "尚未分完"
+      ],
+      [
+        "完整公司仓库和部门范围"
+      ],
+      [
+        "独立权限"
+      ],
+      [
+        "全部历史来源"
+      ]
+    ]
+  },
+  {
+    "id": "m13-295",
+    "category": "knowledge",
+    "question": "已收货未到票报表怎样处理历史截止日、跨收货运费和暂估凭证？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "费用应付计一次"
+      ],
+      [
+        "截止日"
+      ],
+      [
+        "释放日期"
+      ],
+      [
+        "旧更新时间"
+      ],
+      [
+        "不自动生成总账凭证或次月冲回"
+      ]
+    ]
+  },
+  {
+    "id": "m13-296",
+    "category": "knowledge",
+    "question": "进项核对提交超时能改内容重试吗，关闭右侧详情后会丢筛选吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "右侧抽屉"
+      ],
+      [
+        "保留列表筛选"
+      ],
+      [
+        "原载荷与幂等键"
+      ],
+      [
+        "重新读取当前详情"
+      ],
+      [
+        "不能关闭或切换公司"
+      ]
+    ]
   }
 ]

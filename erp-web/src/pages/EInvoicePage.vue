@@ -2,30 +2,25 @@
 import { ElMessage } from 'element-plus/es/components/message/index.mjs'
 import { computed, reactive, ref, watch } from 'vue'
 import { allRecords } from '../api/admin'
+import InboundInvoiceLedger from '../components/einvoice/InboundInvoiceLedger.vue'
 import {
   createInvoice,
   downloadInvoice,
-  inboundInvoices,
   invoiceAction,
   invoiceCandidates,
   invoiceDetail,
   invoiceProvider,
   invoiceRequests,
   invoiceSkus,
-  linkPayable,
-  payableCandidates,
   saveInvoiceProvider,
   saveSkuTaxCategory,
-  syncInvoices,
   testInvoiceProvider,
 } from '../api/e-invoice'
 import type {
-  InboundInvoice,
   InvoiceCandidate,
   InvoiceDetail,
   InvoiceFile,
   InvoiceKind,
-  InvoicePayable,
   InvoiceProvider,
   InvoiceRequest,
   InvoiceSku,
@@ -36,7 +31,7 @@ import { useSessionStore } from '../stores/session'
 import type { DataRow } from '../types/admin'
 
 type Tab = 'requests' | 'inbound' | 'provider' | 'skus'
-type Dialog = 'create' | 'detail' | 'match' | 'tax'
+type Dialog = 'create' | 'detail' | 'tax'
 
 const labels: Record<InvoiceStatus, string> = {
   draft: '待确认',
@@ -48,6 +43,10 @@ const labels: Record<InvoiceStatus, string> = {
 }
 const session = useSessionStore()
 const tab = ref<Tab>('requests')
+const inboundLedger = ref<{ mayLeave(): boolean }>()
+function leaveTab(_next: string | number, previous: string | number): boolean {
+  return previous !== 'inbound' || (inboundLedger.value?.mayLeave() ?? true)
+}
 const dialog = ref<Dialog>()
 const dialogVisible = computed({
   get: () => dialog.value !== undefined,
@@ -60,12 +59,9 @@ const dialogTitle = computed(() =>
     ? '新建开具申请'
     : dialog.value === 'detail'
       ? '开具详情'
-      : dialog.value === 'match'
-        ? '匹配采购应付'
-        : '维护税收分类编码',
+      : '维护税收分类编码',
 )
 const requests = ref<InvoiceRequest[]>([])
-const inbound = ref<InboundInvoice[]>([])
 const detail = ref<InvoiceDetail>()
 const skus = ref<InvoiceSku[]>([])
 const selectedSku = ref<InvoiceSku>()
@@ -81,7 +77,6 @@ const pages = ref<string[]>([])
 const canManage = computed(() => session.can('einv:manage') && session.company?.allWarehouses)
 const canInbound = computed(() => session.can('einv:inbound') && session.company?.allWarehouses)
 const cursor = computed(() => pages.value.at(-1))
-const currentRows = computed(() => (tab.value === 'inbound' ? inbound.value : requests.value))
 const sequence = ref(0)
 const partners = ref<DataRow[]>([])
 const candidates = ref<InvoiceCandidate[]>([])
@@ -90,12 +85,8 @@ const draft = reactive<{ partnerId: string; invoiceKind: InvoiceKind; receivable
   invoiceKind: 'normal',
   receivableIds: [],
 })
-const selectedInbound = ref<InboundInvoice>()
-const payables = ref<InvoicePayable[]>([])
-const payableId = ref('')
 const showRedInput = ref(false)
 const redReason = ref('')
-const syncRange = reactive({ from: '', to: '' })
 let commandKey = ''
 let commandSignature = ''
 
@@ -117,9 +108,6 @@ async function load(): Promise<void> {
     if (currentTab === 'requests') {
       const rows = await invoiceRequests(cursor.value)
       if (version === sequence.value) requests.value = rows
-    } else if (currentTab === 'inbound' && canInbound.value) {
-      const rows = await inboundInvoices(cursor.value)
-      if (version === sequence.value) inbound.value = rows
     } else if (currentTab === 'provider' && canManage.value) {
       const result = await invoiceProvider()
       if (version === sequence.value) setProvider(result)
@@ -140,7 +128,7 @@ function setProvider(value: InvoiceProvider): void {
 }
 
 function followPage(next: boolean): void {
-  const last = currentRows.value.at(-1)
+  const last = requests.value.at(-1)
   if (next && last) pages.value.push(last.id)
   if (!next) pages.value.pop()
   void load()
@@ -241,36 +229,6 @@ function download(file: InvoiceFile): void {
   if (document) void perform(() => downloadInvoice(document, file), true)
 }
 
-function syncInbound(): void {
-  void perform(async () => {
-    const result = await syncInvoices(syncRange.from, syncRange.to)
-    ElMessage.success(`已同步 ${result.count} 张进项发票`)
-    pages.value = []
-    await load()
-  })
-}
-
-function openMatch(invoice: InboundInvoice): void {
-  selectedInbound.value = invoice
-  payableId.value = invoice.payableId ?? ''
-  payables.value = []
-  start('match')
-  void perform(async () => {
-    payables.value = await payableCandidates(invoice.id)
-  }, true)
-}
-
-function saveMatch(unlink = false): void {
-  const invoice = selectedInbound.value
-  if (!invoice || (!unlink && !payableId.value)) return
-  void perform(async () => {
-    const target = unlink ? null : payableId.value
-    await linkPayable(invoice, target, key(JSON.stringify([invoice.id, invoice.version, target])))
-    dialog.value = undefined
-    await load()
-  }, true)
-}
-
 function saveProvider(): void {
   const current = provider.value
   if (!current) return
@@ -316,16 +274,13 @@ watch(
       sequence.value++
       dialog.value = undefined
       requests.value = []
-      inbound.value = []
       partners.value = []
       skus.value = []
       provider.value = undefined
       providerForm.token = ''
       detail.value = undefined
       selectedSku.value = undefined
-      selectedInbound.value = undefined
       candidates.value = []
-      payables.value = []
       if (tab.value !== 'requests') {
         tab.value = 'requests'
         return
@@ -345,7 +300,9 @@ watch(
       <p class="muted">按已签收应收开票，查询服务商处理结果并核对采购进项。</p>
     </div>
     <div class="invoice-actions">
-      <el-button :loading="loading" :disabled="busy" @click="load">刷新</el-button>
+      <el-button v-if="tab !== 'inbound'" :loading="loading" :disabled="busy" @click="load"
+        >刷新</el-button
+      >
       <el-button
         v-if="tab === 'requests' && session.can('einv:create')"
         type="primary"
@@ -357,7 +314,7 @@ watch(
   </div>
   <section class="panel">
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
-    <el-tabs v-model="tab">
+    <el-tabs v-model="tab" :before-leave="leaveTab">
       <el-tab-pane name="requests" label="开具记录">
         <el-table v-loading="loading" :data="requests" row-key="id" empty-text="暂无开具申请">
           <el-table-column prop="buyerName" label="购方" min-width="160" />
@@ -388,50 +345,7 @@ watch(
         </el-table>
       </el-tab-pane>
       <el-tab-pane v-if="canInbound" name="inbound" label="进项台账">
-        <el-form inline @submit.prevent="syncInbound">
-          <el-form-item label="起始日期"
-            ><el-input v-model="syncRange.from" type="date"
-          /></el-form-item>
-          <el-form-item label="截止日期"
-            ><el-input v-model="syncRange.to" type="date"
-          /></el-form-item>
-          <el-form-item
-            ><el-button
-              native-type="submit"
-              :loading="busy"
-              :disabled="!syncRange.from || !syncRange.to"
-              >同步进项</el-button
-            ></el-form-item
-          >
-        </el-form>
-        <el-table v-loading="loading" :data="inbound" row-key="id" empty-text="暂无进项发票">
-          <el-table-column prop="invoiceNo" label="发票号码" min-width="150" />
-          <el-table-column prop="sellerName" label="销方" min-width="150" />
-          <el-table-column prop="invoiceDate" label="开票日期" width="120" />
-          <el-table-column prop="amount" label="价税合计" align="right" width="120" />
-          <el-table-column label="状态" width="92"
-            ><template #default="{ row }">{{
-              row.status === 'normal' ? '正常' : row.status === 'red_issued' ? '已红冲' : '已作废'
-            }}</template></el-table-column
-          >
-          <el-table-column label="勾选" width="80"
-            ><template #default="{ row }">{{
-              row.checked ? '已勾选' : '未勾选'
-            }}</template></el-table-column
-          >
-          <el-table-column label="应付关联" width="100"
-            ><template #default="{ row }">
-              <el-button
-                v-if="row.status === 'normal'"
-                link
-                type="primary"
-                :disabled="busy"
-                @click="openMatch(row as InboundInvoice)"
-                >{{ row.payableId ? '查看匹配' : '匹配' }}</el-button
-              >
-            </template></el-table-column
-          >
-        </el-table>
+        <InboundInvoiceLedger v-if="tab === 'inbound'" ref="inboundLedger" />
       </el-tab-pane>
       <el-tab-pane v-if="canManage" name="provider" label="服务商配置">
         <el-form
@@ -503,11 +417,11 @@ watch(
       </el-tab-pane>
     </el-tabs>
     <div
-      v-if="(tab === 'requests' || tab === 'inbound') && (pages.length || currentRows.length >= 30)"
+      v-if="tab === 'requests' && (pages.length || requests.length >= 30)"
       class="invoice-actions"
     >
       <el-button :disabled="!pages.length || loading" @click="followPage(false)">上一页</el-button>
-      <el-button :disabled="currentRows.length < 30 || loading" @click="followPage(true)"
+      <el-button :disabled="requests.length < 30 || loading" @click="followPage(true)"
         >下一页</el-button
       >
     </div>
@@ -624,27 +538,6 @@ watch(
       </el-form>
     </template>
     <el-form
-      v-else-if="dialog === 'match' && selectedInbound"
-      label-position="top"
-      @submit.prevent="saveMatch()"
-    >
-      <el-form-item :label="`发票 ${selectedInbound.invoiceNo} 的采购应付`">
-        <el-select
-          v-model="payableId"
-          class="invoice-select"
-          :loading="busy"
-          placeholder="选择金额和税额一致的收货应付"
-        >
-          <el-option
-            v-for="payable in payables"
-            :key="payable.id"
-            :value="payable.id"
-            :label="`${payable.receiptNo} / ${payable.businessDate} / ${payable.amount}`"
-          />
-        </el-select>
-      </el-form-item>
-    </el-form>
-    <el-form
       v-else-if="dialog === 'tax' && selectedSku"
       label-position="top"
       @submit.prevent="saveTax"
@@ -690,18 +583,6 @@ watch(
           :disabled="!redReason.trim()"
           @click="execute('red-issue')"
           >确认红冲申请</el-button
-        >
-      </template>
-      <template v-if="dialog === 'match'">
-        <el-button v-if="selectedInbound?.payableId" :disabled="busy" @click="saveMatch(true)"
-          >解除关联</el-button
-        >
-        <el-button
-          type="primary"
-          :loading="busy"
-          :disabled="!payableId || payableId === selectedInbound?.payableId"
-          @click="saveMatch()"
-          >确认关联</el-button
         >
       </template>
       <el-button

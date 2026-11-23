@@ -173,6 +173,11 @@ class KnowledgeIsolationIT {
         answersOfficialEvidence(281,288,"B03-采购费用知识问答.json");
     }
 
+    @Test
+    void answersInboundInvoiceRulesUsingActuallyImportedOfficialEvidence() throws Exception {
+        answersOfficialEvidence(289,296,"B04-进项核对知识问答.json");
+    }
+
     private void answersOfficialEvidence(int first,int last,String reportName) throws Exception {
         catalog.seed(operator);
         worker.processUploads();

@@ -112,6 +112,11 @@ class EInvoiceController {
     @GetMapping("/inbound/{id}")
     ApiResponse<?> inboundDetail(HttpServletRequest request,@PathVariable long id) {return ApiResponse.success(inboundMatching.detail(actor(request,"einv:inbound"),id));}
 
+    @GetMapping("/inbound/suppliers")
+    ApiResponse<?> inboundSuppliers(HttpServletRequest request,@RequestParam(required=false) String keyword,@RequestParam(required=false) Long cursor,@RequestParam(defaultValue="50") int limit) {
+        return ApiResponse.success(inboundMatching.suppliers(actor(request,"einv:inbound_register"),keyword,cursor,limit));
+    }
+
     @GetMapping("/inbound/{id}/history")
     ApiResponse<?> inboundHistory(HttpServletRequest request,@PathVariable long id,@RequestParam(required=false) Long cursor,@RequestParam(defaultValue="50") int limit) {
         return ApiResponse.success(inboundMatching.history(actor(request,"einv:inbound"),id,cursor,limit));
