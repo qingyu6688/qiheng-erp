@@ -19,6 +19,21 @@ public class CommandResultAccess {
             return;
         }
         if(!(actor instanceof WarehouseScope scope) || !(response instanceof Map<?,?> row)) {return;}
+        if(operation.startsWith("sales_price_adjustment.")&&row.get("id")!=null) {
+            if(!(actor instanceof PermissionScope permissions)||!permissions.hasPermission("sales_price_adjustment:view"))throw new ApiException(403,"FORBIDDEN","无权查看销售调价结果");
+            var headers=jdbc.queryForList("SELECT * FROM price_adjustment WHERE tenant_id=? AND company_id=? AND id=? AND kind='sales'",actor.tenantId(),actor.companyId(),row.get("id"));
+            if(headers.isEmpty())throw missing();PriceAdjustmentScope.require(jdbc,actor,headers.getFirst());
+            if(row.get("lines") instanceof List<?> lines)for(Object line:lines)if(line instanceof Map<?,?> fields&&fields.get("redInvoices") instanceof List<?> invoices)
+                for(Object invoice:invoices)if(invoice instanceof Map<?,?> reference) {
+                    if(!permissions.hasPermission("invoice_registration:view"))throw new ApiException(403,"FORBIDDEN","无权读取原票摘要");
+                    if(reference.get("invoiceId")==null)throw missing();
+                    SalesInvoiceScope.registration(jdbc,actor,Long.parseLong(reference.get("invoiceId").toString()));
+                }
+            return;
+        }
+        if(java.util.Set.of("einv.create","einv.submit","einv.red_issue").contains(operation)&&row.get("id")!=null)
+            for(long ar:jdbc.queryForList("SELECT receivable_id FROM einv_issue_line WHERE tenant_id=? AND company_id=? AND request_id=?",Long.class,actor.tenantId(),actor.companyId(),row.get("id")))
+                SalesInvoiceScope.receivable(jdbc,actor,ar);
         if(operation.startsWith("invoice_registration.")&&row.get("id")!=null)
             SalesInvoiceScope.registration(jdbc,actor,Long.parseLong(row.get("id").toString()));
         if(operation.startsWith("invoice_red.")) {
@@ -69,7 +84,7 @@ public class CommandResultAccess {
         if(operation.startsWith("reversal.")) {
             String type=String.valueOf(row.get("sourceType"));
             if(type.equals("purchase_fee_doc")) OrgOwnership.requireSource(jdbc,actor,type,row.get("sourceId"));
-            if(type.equals("price_adjustment")) {
+            if(java.util.Set.of("price_adjustment","sales_price_adjustment").contains(type)) {
                 var prices=jdbc.queryForList("SELECT * FROM price_adjustment WHERE tenant_id=? AND company_id=? AND id=?",actor.tenantId(),actor.companyId(),row.get("sourceId"));
                 if(prices.isEmpty())throw missing();
                 PriceAdjustmentScope.require(jdbc,actor,prices.getFirst());

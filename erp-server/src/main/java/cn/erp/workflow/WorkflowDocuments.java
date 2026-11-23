@@ -64,6 +64,7 @@ public class WorkflowDocuments {
         if(creditApproval&&!creditEligible(actor))return null;
         try {
             if (review && Set.of("price_adjustment","purchase_fee_doc").contains(type)) FinancialScope.require(actor, type+":approve");
+            if (review && type.equals("sales_price_adjustment") && (!actor.allWarehouses()||!actor.orgScope().allDepartments())) return null;
             var source = snapshot(actor, type, id);
             if (review
                     && separate(tenant, company, type)
@@ -142,4 +143,6 @@ public class WorkflowDocuments {
     static ApiException missing() {
         return new ApiException(404, "NOT_FOUND", "流程不存在或不在当前权限范围");
     }
+
+    static String table(String type) { return SystemWorkflowPlan.sourceTable(type); }
 }

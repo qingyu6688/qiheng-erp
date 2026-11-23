@@ -33,7 +33,8 @@ class ReversalPosting {
         for(long journal:jdbc.queryForList("SELECT id FROM journal WHERE tenant_id=? AND company_id=? AND source_id=? AND source_type IN("+journals+") AND posting_action='post' ORDER BY id FOR SHARE",Long.class,scope.tenantId(),scope.companyId(),source))ledger.reverse(scope,journal,"document_reversal",reversal,revision++,period,day);
         progress.reverse(scope,type,source,head);
         sources.restoreProgress(scope,type,head);
-        jdbc.update("UPDATE "+type+" SET status='reversed',version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?",scope.userId(),scope.tenantId(),scope.companyId(),source);
+        String table=type.equals("sales_price_adjustment")?"price_adjustment":type;
+        jdbc.update("UPDATE "+table+" SET status='reversed',version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?",scope.userId(),scope.tenantId(),scope.companyId(),source);
         progress.refresh(scope,type,source,head);
     }
     private void reverseFact(CompanyAccess scope,String fact,Map<String,Object> original,long reversal,long period,LocalDate day) {

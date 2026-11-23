@@ -35,6 +35,8 @@ public class SalesReturnService {
     private final PricingEngine pricing;
     private ObjectMapper json;
     @Autowired void json(ObjectMapper json) {this.json=json;}
+    private SalesInvoiceLock invoiceLock;
+    @Autowired void invoiceLock(SalesInvoiceLock invoiceLock) {this.invoiceLock=invoiceLock;}
     private final SalesOrderQueries orders;
     private final PutawayPort putawayTasks;
     public SalesReturnService(JdbcTemplate jdbc,FinanceSupport support,DocumentNumbers numbers,BusinessCommands commands,AuditService audit,
@@ -176,9 +178,10 @@ public class SalesReturnService {
         }
     }
 
-    @Transactional
+    @Transactional(isolation=org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public Map<String,Object> command(CompanyAccess scope,long id,String action,String key,FinanceModels.Version input) {
         return execute(scope,"sales_return."+action,key,List.of(id,input),200,()->{
+            invoiceLock.lock(scope);
             var snapshot=header(scope,id,false);
             LocalDate businessDate=input.businessDate()==null?((java.sql.Date)snapshot.get("business_date")).toLocalDate():input.businessDate();
             Long period=null;

@@ -41,7 +41,7 @@ public final class OrgOwnership {
         result.put("sales_order_fee","shipment");result.put("purchase_order_fee","goods_receipt");
         result.put("stock_misc_line","stock_misc_doc");
         result.put("mfg_issue_line","mfg_issue_doc");result.put("mfg_receipt_line","mfg_receipt_doc");
-        result.put("purchase_fee_cost","purchase_fee_doc");result.put("goods_receipt_fee","goods_receipt");result.put("price_adjustment_cost","price_adjustment");result.put("shipment_diff","shipment");result.put("stock_transfer_event","stock_transfer");return Map.copyOf(result);
+        result.put("sales_price_adjustment","price_adjustment");result.put("purchase_fee_cost","purchase_fee_doc");result.put("goods_receipt_fee","goods_receipt");result.put("price_adjustment_cost","price_adjustment");result.put("shipment_diff","shipment");result.put("stock_transfer_event","stock_transfer");return Map.copyOf(result);
     }
     public static String sourceCondition(ActorScope actor,String type,String id) {
         if(scope(actor).allDepartments()) return PriceAdjustmentScope.sourceCondition(actor,type,id)+" AND "+PurchaseFeeScope.sourceCondition(actor,type,id);
@@ -73,7 +73,7 @@ public final class OrgOwnership {
             require(jdbc,actor,table,id);
             var rows=jdbc.queryForList("SELECT source_type,source_id FROM document_reversal WHERE tenant_id=? AND company_id=? AND id=?",actor.tenantId(),actor.companyId(),id);
             if(rows.isEmpty()) throw missing();
-            if(Set.of("price_adjustment","purchase_fee_doc").contains(rows.getFirst().get("source_type"))) requireSource(jdbc,actor,rows.getFirst().get("source_type").toString(),rows.getFirst().get("source_id"));
+            if(Set.of("price_adjustment","sales_price_adjustment","purchase_fee_doc").contains(rows.getFirst().get("source_type"))) requireSource(jdbc,actor,rows.getFirst().get("source_type").toString(),rows.getFirst().get("source_id"));
             return;
         }
         if("purchase_fee_doc".equals(table)) {

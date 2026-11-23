@@ -113,10 +113,12 @@ class EInvoiceIT {
         logs.flush();
         jdbc.queryForList("SELECT storage_key FROM attachment WHERE tenant_id=?",String.class,tenant).forEach(objects::delete);
         for(String table:List.of("einv_inbound_match","inbound_invoice_lock","einv_file_task","einv_file","attachment","einv_inbound","einv_issue_line","einv_issue_request",
-                "einv_provider_config","invoice_red_registration","invoice_registration_line","invoice_registration","receivable","payable","goods_receipt","shipment_line","shipment",
+                "einv_provider_config","invoice_red_registration","invoice_registration_line","invoice_registration",
+                "outbox_event","journal_line","journal","ledger_balance","partner_open_item",
+                "price_adjustment_cost","price_adjustment_line","price_adjustment","receivable","payable","goods_receipt","shipment_line","shipment",
                 "sales_order_line","sales_order","unit_conversion","sku","product","product_category","unit","idempotency_record","audit_log",
                 "sys_api_access_log","sys_api_error_log","sys_login_log","org_user_data_scope","sys_user_role","sys_role_permission","sys_role","sys_user",
-                "accounting_period","partner_role","business_partner","warehouse","company_policy","company")) {
+                "document_sequence","accounting_period","partner_role","business_partner","warehouse","company_policy","company")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id IN (?,?)",tenant,foreign);
         }
         jdbc.update("DELETE FROM tenant WHERE id IN (?,?)",tenant,foreign);
@@ -456,6 +458,37 @@ class EInvoiceIT {
                     amount,untaxed_amount,tax_amount,business_date,period_id)
                 VALUES(?,?,?,?,'charge','goods_receipt_line',?,?,113,100,13,?,?)
                 """,payable,tenant,company,partner,receipt,Ids.next(),today,period);
+    }
+
+    @Test void salesPriceHttpCommandsExposeSupplementalElectronicSourceWithoutExtraPhysicalQuantity() throws Exception {
+        if(jdbc.queryForObject("SELECT COUNT(*) FROM partner_role WHERE tenant_id=? AND partner_id=? AND role='customer'",Long.class,tenant,partner)==0)
+            jdbc.update("INSERT INTO partner_role(id,tenant_id,partner_id,role) VALUES(?,?,?,'customer')",Ids.next(),tenant,partner);
+        for(long user:List.of(maker,checker)) {
+            long role=jdbc.queryForObject("SELECT role_id FROM sys_user_role WHERE tenant_id=? AND user_id=?",Long.class,tenant,user);
+            for(long permission:jdbc.queryForList("SELECT id FROM sys_permission WHERE code LIKE 'sales_price_adjustment:%' OR code IN('shipment:view','invoice_registration:view')",Long.class))
+                jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) VALUES(?,?,?,?)",Ids.next(),tenant,role,permission);
+        }
+        legacy.create(approver,"original-before-supplement",new InvoiceService.Input("sales",partner,"ORIGINAL-PRICE",today,"113","13",List.of(new InvoiceService.Line(ar,"113")),null));
+        long source=jdbc.queryForObject("SELECT source_line_id FROM receivable WHERE id=?",Long.class,ar);
+        var author=new Browser("maker",tenantCode,company);var finance=new Browser("checker",tenantCode,company);
+        var input=Map.of("partnerId",Long.toString(partner),"warehouseId",Long.toString(warehouse),"businessDate",today.toString(),"reason","结算补收",
+                "lines",List.of(Map.of("shipmentLineId",Long.toString(source),"newUnitPrice","124.30")));
+        var created=author.sendApi("POST","/sales-price-adjustments",input,201,"supplement-http");String id=created.path("id").asString();
+        author.sendApi("GET","/sales-price-adjustments/sources?partnerId="+partner,null,200,"unused");
+        author.sendApi("POST","/sales-price-adjustments/"+id+"/submit",Map.of("version",0),200,"supplement-submit");
+        finance.sendApi("POST","/sales-price-adjustments/"+id+"/approve",Map.of("version",1),200,"supplement-approve");
+        var posted=author.sendApi("POST","/sales-price-adjustments/"+id+"/post",Map.of("version",2),200,"supplement-post");
+        assertThat(posted.path("amount").asString()).isEqualTo("11.30");assertThat(posted.has("stockCost")).isFalse();
+        var candidates=sources.candidates(approver,partner);assertThat(candidates).hasSize(1);
+        long extra=Long.parseLong(candidates.getFirst().get("id").toString());
+        assertThat(candidates.getFirst().get("amount")).isEqualTo("11.30");
+        var draft=requests.create(approver,"supplement-blue",new EInvoiceService.Draft(partner,"normal",List.of(extra)));
+        var detail=requests.detail(approver,Long.parseLong(draft.get("id").toString()));
+        var line=(Map<?,?>)((List<?>)detail.get("lines")).getFirst();
+        assertThat(line.get("goodsName").toString()).endsWith("（价格调整）");assertThat(line.get("unitName")).isEqualTo("笔");
+        assertThat(new BigDecimal(line.get("quantity").toString())).isEqualByComparingTo("1");
+        assertThat(new BigDecimal(line.get("untaxedAmount").toString())).isEqualByComparingTo("10");
+        assertThat(new BigDecimal(line.get("taxAmount").toString())).isEqualByComparingTo("1.30");
     }
 
     @Test void manualRedEndpointsValidateAuthenticateAndConfirmTheWholeBlueWithTwoUsers() throws Exception {

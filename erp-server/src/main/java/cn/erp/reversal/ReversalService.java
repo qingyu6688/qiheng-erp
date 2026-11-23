@@ -16,6 +16,8 @@ public class ReversalService {
     private InboundInvoiceChangePort invoices;
     @org.springframework.beans.factory.annotation.Autowired
     void invoices(InboundInvoiceChangePort invoices) {this.invoices=invoices;}
+    private SalesInvoiceLock salesInvoiceLock;
+    @org.springframework.beans.factory.annotation.Autowired void salesInvoiceLock(SalesInvoiceLock salesInvoiceLock) {this.salesInvoiceLock=salesInvoiceLock;}
     private cn.erp.shared.WorkflowPort workflow;
     @org.springframework.beans.factory.annotation.Autowired
     void workflow(cn.erp.shared.WorkflowPort workflow) {this.workflow=workflow;}
@@ -61,6 +63,7 @@ public class ReversalService {
         return execute(scope,action,key,List.of(id,input),200,()->{
             workflow.guard(scope,"document_reversal",id,action);
             var snapshot=find(scope,id,false);String type=snapshot.get("source_type").toString();long source=id(snapshot,"source_id");
+            if(action.equals("post")&&Set.of("shipment","sales_return","sales_price_adjustment").contains(type))salesInvoiceLock.lock(scope);
             if(action.equals("post")&&Set.of("goods_receipt","purchase_return","price_adjustment","purchase_fee_doc").contains(type))invoices.lock(scope);
             var day=((java.sql.Date)snapshot.get("business_date")).toLocalDate();
             long period=action.equals("post")?finance.period(scope,day):0;

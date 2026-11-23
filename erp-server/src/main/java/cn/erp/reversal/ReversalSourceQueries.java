@@ -16,7 +16,7 @@ class ReversalSourceQueries {
     private static final Map<String,String> NUMBERS=Map.ofEntries(Map.entry("shipment","shipment_no"),Map.entry("sales_return","return_no"),
         Map.entry("goods_receipt","receipt_no"),Map.entry("purchase_return","return_no"),Map.entry("receipt","receipt_no"),
         Map.entry("payment","payment_no"),Map.entry("account_transfer","transfer_no"),Map.entry("stock_adjustment","adjust_no"),
-        Map.entry("stock_misc_doc","document_no"),Map.entry("mfg_issue_doc","document_no"),Map.entry("mfg_receipt_doc","document_no"),Map.entry("price_adjustment","adjust_no"),Map.entry("purchase_fee_doc","document_no"));
+        Map.entry("stock_misc_doc","document_no"),Map.entry("mfg_issue_doc","document_no"),Map.entry("mfg_receipt_doc","document_no"),Map.entry("price_adjustment","adjust_no"),Map.entry("sales_price_adjustment","adjust_no"),Map.entry("purchase_fee_doc","document_no"));
     private final JdbcTemplate jdbc;
     ReversalSourceQueries(JdbcTemplate jdbc) {this.jdbc=jdbc;}
     Map<String,Object> list(CompanyAccess scope,String sourceType,Long cursor,int limit,String keyword) {
@@ -25,12 +25,12 @@ class ReversalSourceQueries {
         if(!scope.hasPermission(ManufacturingReversalPort.viewPermission(sourceType))) {throw new cn.erp.shared.ApiException(403,"FORBIDDEN","没有查看来源单据的权限");}
         boolean warehouse=Set.of("shipment","sales_return","goods_receipt","purchase_return","stock_adjustment","stock_misc_doc").contains(sourceType);
         if(warehouse&&!scope.allWarehouses()&&scope.warehouseIds().isEmpty()) {return page(List.of(),limit);}
-        String table=NUMBERS.keySet().stream().filter(sourceType::equals).findFirst().orElseThrow();
-        String number=NUMBERS.get(table),states=sourceType.equals("shipment")?"'posted','signed','signed_with_diff'":Set.of("receipt","payment","account_transfer").contains(sourceType)?"'confirmed'":"'posted'";
+        String table=sourceType.equals("sales_price_adjustment")?"price_adjustment":sourceType;
+        String number=NUMBERS.get(sourceType),states=sourceType.equals("shipment")?"'posted','signed','signed_with_diff'":Set.of("receipt","payment","account_transfer").contains(sourceType)?"'confirmed'":"'posted'";
         var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),before,keyword));
         String filter=cn.erp.shared.OrgOwnership.filter(scope,"d");
         if(sourceType.equals("purchase_fee_doc"))filter+=" AND d.source_kind='manual' AND "+cn.erp.shared.PurchaseFeeScope.condition(scope,"d");
-        if(sourceType.equals("price_adjustment"))filter+=" AND "+cn.erp.shared.PriceAdjustmentScope.condition(scope,"d");
+        if(Set.of("price_adjustment","sales_price_adjustment").contains(sourceType))filter+=" AND d.kind='"+(sourceType.equals("price_adjustment")?"purchase":"sales")+"' AND "+cn.erp.shared.PriceAdjustmentScope.condition(scope,"d");
         if(ManufacturingReversalPort.supports(sourceType)) {filter+=" AND "+ManufacturingScope.stockCondition(scope,"d");}
         if(warehouse&&!scope.allWarehouses()) {filter+=" AND d.warehouse_id IN ("+String.join(",",Collections.nCopies(scope.warehouseIds().size(),"?"))+")";args.addAll(scope.warehouseIds());}
         args.add(sourceType);

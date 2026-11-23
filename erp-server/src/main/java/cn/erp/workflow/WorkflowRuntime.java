@@ -84,7 +84,7 @@ public class WorkflowRuntime implements WorkflowPort {
                 throw new ApiException(422, "PRICE_APPROVAL_REQUIRED", "低于最低售价须配置人工价格审批，当前没有匹配流程");
             state.jdbc.update(
                     "UPDATE "
-                            + type
+                            + table(type)
                             + " SET wf_instance_id=0 WHERE tenant_id=? AND company_id=? AND id=?",
                     actor.tenantId(),
                     actor.companyId(),
@@ -111,7 +111,7 @@ public class WorkflowRuntime implements WorkflowPort {
                         422, "PRICE_APPROVAL_REQUIRED", "低于最低售价须配置并完成人工价格审批，当前没有匹配的流程");
             state.jdbc.update(
                     "UPDATE "
-                            + type
+                            + table(type)
                             + " SET wf_instance_id=0 WHERE tenant_id=? AND company_id=? AND id=?",
                     actor.tenantId(),
                     actor.companyId(),
@@ -171,7 +171,7 @@ public class WorkflowRuntime implements WorkflowPort {
                 state.json.writeValueAsString(selected));
         state.jdbc.update(
                 "UPDATE "
-                        + type
+                        + table(type)
                             + " SET wf_instance_id=?" + (legacy ? ",updated_at=updated_at" : "")
                             + " WHERE tenant_id=? AND company_id=? AND id=?",
                 instance,

@@ -28,8 +28,9 @@ public class InvoiceService {
     private final AuditService audit;
     private final BusinessCommands commands;
     private final SalesInvoiceLock invoiceLock;
-    public InvoiceService(JdbcTemplate jdbc,AuditService audit,BusinessCommands commands,SalesInvoiceLock invoiceLock) {
-        this.jdbc=jdbc;this.audit=audit;this.commands=commands;this.invoiceLock=invoiceLock;
+    private final SalesInvoiceAmounts invoiceAmounts;
+    public InvoiceService(JdbcTemplate jdbc,AuditService audit,BusinessCommands commands,SalesInvoiceLock invoiceLock,SalesInvoiceAmounts invoiceAmounts) {
+        this.jdbc=jdbc;this.audit=audit;this.commands=commands;this.invoiceLock=invoiceLock;this.invoiceAmounts=invoiceAmounts;
     }
 
     @Transactional(isolation=Isolation.READ_COMMITTED)
@@ -73,6 +74,7 @@ public class InvoiceService {
         var sorted=input.lines().stream().sorted(Comparator.comparing(Line::receivableId)).toList();
         if(sorted.stream().map(Line::receivableId).distinct().count()!=sorted.size()) {throw invalid("应收来源不能重复");}
         BigDecimal allocated=BigDecimal.ZERO,sourceTax=BigDecimal.ZERO;
+        var groupRequested=new HashMap<String,BigDecimal>();
         for(var line:sorted) {
             SalesInvoiceScope.receivable(jdbc,scope,line.receivableId());
             BigDecimal part=number(line.amount(),true);
@@ -88,12 +90,15 @@ public class InvoiceService {
                     ON h.id=l.invoice_id AND h.tenant_id=l.tenant_id AND h.company_id=l.company_id
                     WHERE l.tenant_id=? AND l.company_id=? AND l.receivable_id=? AND h.status='registered' FOR SHARE
                     """,BigDecimal.class,scope.tenantId(),scope.companyId(),line.receivableId()).stream().reduce(BigDecimal.ZERO,BigDecimal::add);
-            BigDecimal total=(BigDecimal)ar.get("amount");
-            if(used.add(part).compareTo(total)>0) {throw new ApiException(422,"INVOICE_AMOUNT_EXCEEDED","关联开票金额超过该笔应收");}
+            var capacity=invoiceAmounts.capacities(scope,List.of(line.receivableId())).get(line.receivableId());
+            BigDecimal total=capacity.amount();
+            BigDecimal requested=groupRequested.merge(capacity.group(),part,BigDecimal::add);
+            if(used.add(part).compareTo(total)>0||capacity.groupUsed().add(requested).compareTo(capacity.groupAmount())>0)
+                throw new ApiException(422,"INVOICE_AMOUNT_EXCEEDED","关联金额超过退货及折让后的净开票额度，请核对原票与红字记录");
             jdbc.update("UPDATE receivable SET invoiced_amount=?,version=version+1 WHERE tenant_id=? AND company_id=? AND id=?",used.add(part),scope.tenantId(),scope.companyId(),line.receivableId());
             allocated=allocated.add(part);
-            sourceTax=sourceTax.add(((BigDecimal)ar.get("tax_amount")).multiply(used.add(part)).divide(total,2,RoundingMode.HALF_UP)
-                    .subtract(((BigDecimal)ar.get("tax_amount")).multiply(used).divide(total,2,RoundingMode.HALF_UP)));
+            sourceTax=sourceTax.add(capacity.tax().multiply(used.add(part)).divide(total,2,RoundingMode.HALF_UP)
+                    .subtract(capacity.tax().multiply(used).divide(total,2,RoundingMode.HALF_UP)));
         }
         if(allocated.compareTo(amount)!=0) {throw invalid("分配金额合计须等于发票金额");}
         long id=Ids.next();
@@ -195,10 +200,12 @@ public class InvoiceService {
             args.addAll(scope.warehouseIds().stream().sorted().toList());
         }
         if(!scope.orgScope().allDepartments())allowed.add("("+scope.orgScope().ownerFilter("h")+")");
+        allowed.add(OrgOwnership.sourceCondition(scope,"invoice_source.source_type","invoice_source.source_id"));
         String request=registration?"e.einvoice_request_id":"e.id";
         return " AND NOT EXISTS("+"""
                 SELECT 1 FROM einv_issue_line l JOIN shipment h
                 ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.shipment_id
+                JOIN receivable invoice_source ON invoice_source.tenant_id=l.tenant_id AND invoice_source.company_id=l.company_id AND invoice_source.id=l.receivable_id
                 WHERE l.tenant_id=e.tenant_id AND l.company_id=e.company_id AND l.request_id="""+request+
                 " AND NOT COALESCE(("+String.join(" AND ",allowed)+"),FALSE))";
     }
