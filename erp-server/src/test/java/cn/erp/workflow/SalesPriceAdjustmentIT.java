@@ -34,6 +34,9 @@ import cn.erp.receiving.ReceivingService;
 import cn.erp.reconciliation.ReconciliationChecks;
 import cn.erp.reversal.ReversalModels;
 import cn.erp.reversal.ReversalService;
+import cn.erp.reporting.ReportQuery;
+import cn.erp.reporting.ReportService;
+import cn.erp.reporting.ReportType;
 import cn.erp.salesfinance.FinanceModels;
 import cn.erp.salesfinance.SalesReturnService;
 import cn.erp.salesorder.SalesOrderModels;
@@ -67,6 +70,7 @@ class SalesPriceAdjustmentIT {
     @Autowired ReconciliationChecks checks;
     @Autowired WorkflowTasks tasks;
     @Autowired CommandResults results;
+    @Autowired ReportService reports;
     private WorkflowTestData d;
     private long period;
 
@@ -208,6 +212,58 @@ class SalesPriceAdjustmentIT {
         assertThat(((Map<?,?>)lines.getFirst()).get("redInvoices")).asList().isEmpty();
         code(()->prices.create(limited,"cached-sales-price",input),"NOT_FOUND");
         code(()->results.get(limited,"sales_price_adjustment.create","cached-sales-price"),"NOT_FOUND");
+    }
+
+    @Test void salesMarginAgingAndBoundCustomerStatementIncludePriceChangesWithoutAddingQuantity() {
+        long source=ship("10","11.30","0.13",null),price=adjust(source,"12.43",null);
+        post(price);
+        var query=new ReportQuery(d.day,d.day.plusDays(5),null,null,d.customer,null,true);
+        salesMeasures(query,"10","124.30","110","14.30","50","60");
+        var detail=reports.snapshot(actor(d.maker),ReportType.SALES_SUMMARY,query);
+        assertThat(detail.items()).anySatisfy(row->{
+            assertThat(row.get("sourceId")).isEqualTo(Long.toString(price));
+            assertThat(row).containsEntry("sourceType","sales_price_adjustment").containsEntry("sourceUrl","/sales-price-adjustments/"+price);
+            assertThat(row).doesNotContainKeys("costAmount","grossMargin");
+        });
+        var aging=reports.snapshot(actor(d.maker),ReportType.RECEIVABLE_AGING,query);
+        assertThat(aging.items()).anySatisfy(row->{
+            assertThat(row.get("sourceId")).isEqualTo(Long.toString(price));
+            assertThat(row).containsEntry("sourceType","sales_price_adjustment").containsEntry("sourceUrl","/sales-price-adjustments/"+price);
+            assertThat(row.get("sourceNo")).isEqualTo(queries.get(actor(d.maker),price).get("documentNo"));
+        });
+        var customer=reports.customerStatement(d.tenant,d.company,d.customer,d.day,d.day.plusDays(5));
+        metric(customer.summary(),"closingBalance","124.30");
+        assertThat(customer.items()).anySatisfy(row->assertThat(row.get("sourceNo")).isEqualTo(queries.get(actor(d.maker),price).get("documentNo")));
+        metric(reports.customerStatement(d.tenant,d.company,d.customer+1,d.day,d.day.plusDays(5)).summary(),"closingBalance","0");
+        jdbc.update("UPDATE price_adjustment SET owner_department_id=? WHERE id=?",d.parentDepartment,price);
+        var child=new CompanyAccess(d.tenant,d.maker,d.company,true,Set.of(),actor(d.maker).permissions(),cn.erp.shared.OrgScope.restricted(Set.of(d.department),Set.of(),d.department));
+        metric(reports.snapshot(child,ReportType.SALES_SUMMARY,query).summary(),"amount","113");
+        var parent=new CompanyAccess(d.tenant,d.maker,d.company,true,Set.of(),actor(d.maker).permissions(),cn.erp.shared.OrgScope.restricted(Set.of(d.parentDepartment),Set.of(),d.parentDepartment));
+        var parentRows=reports.snapshot(parent,ReportType.SALES_SUMMARY,query);
+        metric(parentRows.summary(),"amount","11.30");metric(parentRows.summary(),"qty","0");
+        long returned=returned(source,"2",d.day.plusDays(3));
+        salesMeasures(query,"8","99.44","88","11.44","40","48");
+        metric(reports.customerStatement(d.tenant,d.company,d.customer,d.day,d.day.plusDays(5)).summary(),"closingBalance","99.44");
+        reverse("sales_return",returned);reverse("sales_price_adjustment",price);
+        long discount=adjust(source,"9.04",null);post(discount);
+        salesMeasures(query,"10","90.40","80","10.40","50","30");
+        metric(reports.customerStatement(d.tenant,d.company,d.customer,d.day,d.day.plusDays(5)).summary(),"closingBalance","90.40");
+        reverse("sales_price_adjustment",discount);
+        salesMeasures(query,"10","113","100","13","50","50");
+        zeroDifferences();
+    }
+
+    private void salesMeasures(ReportQuery query,String qty,String gross,String untaxed,String tax,String cost,String margin) {
+        var sales=reports.snapshot(actor(d.maker),ReportType.SALES_SUMMARY,query);
+        metric(sales.summary(),"qty",qty);metric(sales.summary(),"amount",gross);
+        metric(sales.summary(),"untaxedAmount",untaxed);metric(sales.summary(),"taxAmount",tax);
+        assertThat(sales.summary()).doesNotContainKeys("costAmount","grossMargin");
+        var profits=reports.snapshot(d.actor(d.maker),ReportType.GROSS_MARGIN,query);
+        metric(profits.summary(),"costAmount",cost);metric(profits.summary(),"grossMargin",margin);
+    }
+
+    private static void metric(Map<String,Object> row,String field,String value) {
+        assertThat(new BigDecimal(row.get(field).toString())).as(field).isEqualByComparingTo(value);
     }
 
     @Test void discountAndBlueRegistrationCannotPassEachOtherAtTheOriginalAmount() throws Exception {

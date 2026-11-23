@@ -239,7 +239,7 @@ public class ReportService {
         types.put("stock_adjustment","adjust_no");types.put("stock_count","count_no");types.put("stock_transfer","transfer_no");types.put("refund_request","refund_no");
         types.put("stock_misc_doc","document_no");
         types.put("mfg_issue_doc","document_no");types.put("mfg_receipt_doc","document_no");
-        types.put("price_adjustment","adjust_no");types.put("purchase_fee_doc","document_no");
+        types.put("price_adjustment","adjust_no");types.put("sales_price_adjustment","adjust_no");types.put("purchase_fee_doc","document_no");
         for(var type:types.entrySet()) {
             var ids=new HashSet<Object>();
             for(var row:rows) { if(row.get("source_no")==null && type.getKey().equals(documentType(row.get("source_type"))) && row.get("source_id")!=null) { ids.add(row.get("source_id")); } }
@@ -247,7 +247,9 @@ public class ReportService {
             var params=Map.<String,Object>of("t",actor.tenantId(),"c",actor.companyId(),"ids",ids);
             var documents=new HashMap<String,Map<String,Object>>();
             String extra=type.getKey().equals("stock_misc_doc")?",direction":"";
-            for(var value:jdbc.queryForList("SELECT id,"+type.getValue()+" no"+extra+" FROM "+type.getKey()+" WHERE tenant_id=:t AND company_id=:c AND id IN (:ids)",params)) {
+            String table=type.getKey().equals("sales_price_adjustment")?"price_adjustment":type.getKey();
+            if(table.equals("price_adjustment"))extra+=",kind";
+            for(var value:jdbc.queryForList("SELECT id,"+type.getValue()+" no"+extra+" FROM "+table+" WHERE tenant_id=:t AND company_id=:c AND id IN (:ids)",params)) {
                 documents.put(value.get("id").toString(),value);
             }
             for(var row:rows) {
@@ -255,6 +257,7 @@ public class ReportService {
                 var document=documents.get(Objects.toString(row.get("source_id")));
                 if(document==null)continue;
                 row.put("source_no",document.get("no"));
+                if("sales".equals(document.get("kind")))row.put("source_type","sales_price_adjustment");
                 if(document.containsKey("direction"))row.put("source_url","/stock-misc-"+document.get("direction")+"/"+row.get("source_id"));
             }
         }
@@ -322,6 +325,7 @@ public class ReportService {
             case "shipment_post","shipment_sign","shipment_diff","shipment" -> "shipments";
             case "goods_receipt","goods_receipt_fee" -> "goods-receipts";
             case "price_adjustment" -> "purchase-price-adjustments";
+            case "sales_price_adjustment" -> "sales-price-adjustments";
             case "purchase_fee_doc" -> "purchase-fee-documents";
             case "sales_return" -> "sales-returns";case "purchase_return" -> "purchase-returns";
             case "receipt" -> "receipts";case "payment" -> "payments";case "document_reversal" -> "document-reversals";
