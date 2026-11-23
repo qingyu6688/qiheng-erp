@@ -85,6 +85,7 @@ public class PurchaseOrderService {
                     state(before,"pending");separateApprover(scope,before);active(scope,before,rows,true);
                     var policy=jdbc.queryForList("SELECT over_receipt_pct FROM company_policy WHERE tenant_id=? AND company_id=?",BigDecimal.class,scope.tenantId(),scope.companyId());
                     freeze(scope,id,policy.isEmpty()?BigDecimal.ZERO:policy.getFirst());
+                    PaymentTerms.snapshot(jdbc,scope,"purchase_order",id,number(before,"supplier_id"),"supplier");
                     jdbc.update("UPDATE purchase_order SET status='approved',approved_by=?,approved_at=UTC_TIMESTAMP(3),revision=revision+1,version=version+1,updated_by=? WHERE id=?",scope.userId(),scope.userId(),id);
                 }
                 case "revoke_approval" -> {state(before,"approved");assertNoReceipt(scope,id);jdbc.update("UPDATE purchase_order SET status='draft',over_receipt_pct=0,version=version+1,updated_by=? WHERE id=?",scope.userId(),id);}

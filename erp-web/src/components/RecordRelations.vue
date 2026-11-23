@@ -20,6 +20,9 @@ const policyHelp = [
   '启用后登记人与收付款确认人须为不同用户。',
   '按折后含税基本单位价格判断；需要审批时必须绑定含价格审批节点的流程。',
 ]
+import PaymentTermsField from './PaymentTermsField.vue'
+import { readPaymentTerm } from '../utils/payment-terms'
+
 const props = defineProps<{ resource: string; row: DataRow; inline?: boolean }>()
 const emit = defineEmits<{
   close: []
@@ -37,6 +40,10 @@ const notice = ref('')
 const items = ref<DataRow[]>([])
 const options = reactive<Record<string, SelectOption[]>>({})
 const input = reactive<Record<string, unknown>>({})
+const defaultPaymentTerms = computed({
+  get: () => readPaymentTerm(input.defaultPaymentTerms),
+  set: (value) => { input.defaultPaymentTerms = value ?? { type: null, value: null } },
+})
 const roleIds = ref<string[]>([])
 const permissionCodes = ref<string[]>([])
 const permissions = ref<{ code: string; name: string }[]>([])
@@ -396,6 +403,8 @@ function createContact(): void {
           :disabled="busy"
           @change="(k, v) => (input[k] = v)"
         />
+        <PaymentTermsField v-model="defaultPaymentTerms" label="默认账期" />
+        <p>往来单位未设置账期时使用本值；两处均未设置时不计算逾期。</p>
         <ul class="policy-help">
           <li v-for="(help, index) in policyHelp" :key="help">
             {{ policyFields[index]?.label }}：{{ help }}

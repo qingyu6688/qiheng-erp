@@ -66,6 +66,8 @@ public class ReportService {
         if(query.agingDate()!=null&&!agingReport)throw invalid("账龄截止日期仅用于应收和应付账龄报表");
         var statisticDate=query.agingDate()==null?today:query.agingDate();
         params.put("f",query.dateFrom());params.put("d",query.dateTo());params.put("today",statisticDate);
+        if(!agingReport&&"due".equals(query.agingBasis())) throw invalid("到期日口径仅用于应收和应付账龄报表");
+        params.put("agingBasis",query.agingBasis()==null?"business":query.agingBasis());
         params.put("agingNow",statisticDate.equals(today));
         params.put("agingEnd",statisticDate.plusDays(1).atStartOfDay(ZoneId.of("Asia/Shanghai")).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime());
         String sql="SELECT q.* FROM ("+ReportSql.query(type,Boolean.TRUE.equals(query.detail()),actor)+") q WHERE 1=1";
@@ -277,7 +279,7 @@ public class ReportService {
         for(String key:List.of("age_0_30","age_31_60","age_61_90","age_91_180","age_over_180")) { row.put(key,key.equals(bucket)?row.get("open_amount"):BigDecimal.ZERO); }
     }
     private static List<Map<String,Object>> groupAging(List<Map<String,Object>> rows,String by) {
-        String field=by.equals("department")?"department_id":"business_user_id";var groups=new LinkedHashMap<Object,Map<String,Object>>();for(var row:rows) {Object key=row.get(field);var total=groups.get(key);if(total==null) {total=new LinkedHashMap<>(row);for(var e:row.entrySet())if(e.getValue() instanceof BigDecimal)total.put(e.getKey(),BigDecimal.ZERO);total.remove("source_type");total.remove("source_id");total.remove("source_line_id");total.remove("source_no");total.remove("partner_id");total.remove("partner_name");total.remove("direction");total.put("source_count",0L);if(by.equals("department")) {total.remove("business_user_id");total.put("business_user_name","多位业务员");}else {total.remove("department_id");total.put("department_name","按业务员汇总");}groups.put(key,total);}for(var e:row.entrySet())if(e.getValue() instanceof BigDecimal value)total.put(e.getKey(),((BigDecimal)total.get(e.getKey())).add(value));total.put("source_count",((Long)total.get("source_count"))+1);}
+        String field=by.equals("department")?"department_id":"business_user_id";var groups=new LinkedHashMap<Object,Map<String,Object>>();for(var row:rows) {Object key=row.get(field);var total=groups.get(key);if(total==null) {total=new LinkedHashMap<>(row);for(var e:row.entrySet())if(e.getValue() instanceof BigDecimal)total.put(e.getKey(),BigDecimal.ZERO);total.remove("source_type");total.remove("source_id");total.remove("source_line_id");total.remove("source_no");total.remove("due_date");total.remove("overdue_days");total.remove("partner_id");total.remove("partner_name");total.remove("direction");total.put("source_count",0L);if(by.equals("department")) {total.remove("business_user_id");total.put("business_user_name","多位业务员");}else {total.remove("department_id");total.put("department_name","按业务员汇总");}groups.put(key,total);}for(var e:row.entrySet())if(e.getValue() instanceof BigDecimal value)total.put(e.getKey(),((BigDecimal)total.get(e.getKey())).add(value));total.put("source_count",((Long)total.get("source_count"))+1);}
         return new ArrayList<>(groups.values());
     }
     private static boolean costField(String key) { return key.contains("cost") || key.equals("gross_margin"); }

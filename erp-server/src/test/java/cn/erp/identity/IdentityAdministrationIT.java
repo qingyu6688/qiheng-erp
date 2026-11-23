@@ -46,6 +46,17 @@ class IdentityAdministrationIT {
         actor=new CompanyAccess(tenant,user,0,true,Set.of(),Set.copyOf(jdbc.queryForList("SELECT code FROM sys_permission",String.class)));
     }
 
+    @Test void defaultPaymentTermsAreValidatedAndPreservedForOldClients() {
+        var created=organization.create(actor,UUID.randomUUID().toString(),new CompanyInput("TERM","账期公司",null,null,null,null));
+        long id=Long.parseLong(created.id());
+        var saved=organization.policy(actor,id,new PolicyInput("general",30,7,"0.00",true,true,0L,"warn",new cn.erp.shared.PaymentTerms.Term("days",30)));
+        assertThat(saved.defaultPaymentTerms()).isEqualTo(new cn.erp.shared.PaymentTerms.Term("days",30));
+        var oldClient=organization.policy(actor,id,new PolicyInput("general",30,7,"0.00",true,true,saved.version()));
+        assertThat(oldClient.defaultPaymentTerms()).isEqualTo(saved.defaultPaymentTerms());
+        assertThatThrownBy(()->organization.policy(actor,id,new PolicyInput("general",30,7,"0.00",true,true,oldClient.version(),"warn",new cn.erp.shared.PaymentTerms.Term("monthly",29))))
+                .isInstanceOf(ApiException.class);
+    }
+
     @Test
     void companyAndPolicyChangesAreVersionedAndAudited() {
         var input=new CompanyInput("N","新公司",null,null,null,null);

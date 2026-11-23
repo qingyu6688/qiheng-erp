@@ -6,6 +6,7 @@ import java.util.List;
 enum AlertKind {
     CREDIT_EXCEEDED("credit_exceeded","信用额度超额","critical","realtime","0","CNY"),
     RECEIVABLE_OVERDUE("receivable_overdue","应收逾期","warning","daily","0","天"),
+    PAYABLE_DUE("payable_due","应付即将到期","warning","daily","7","天"),
     NEGATIVE_MARGIN("negative_margin","销售负毛利","warning","realtime","0","CNY"),
     STOCK_BELOW_SAFETY("stock_below_safety","低于安全库存","warning","realtime",null,null),
     STOCK_SLOW_MOVING("stock_slow_moving","库存呆滞","info","daily","90","天"),

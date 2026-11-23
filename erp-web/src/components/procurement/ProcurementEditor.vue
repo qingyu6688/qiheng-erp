@@ -24,6 +24,10 @@ import EmptyOptionHint from '../EmptyOptionHint.vue'
 import { ORDER_LINE_LIMIT } from '../../utils/order-line-paste'
 import type { PastedOrderLine } from '../../utils/order-line-paste'
 
+import PaymentTermsField from '../PaymentTermsField.vue'
+import { readPaymentTerm } from '../../utils/payment-terms'
+import type { PaymentTerm } from '../../types/payment-terms'
+
 const props = defineProps<{
   kind: ProcurementKind
   original?: ProcurementDocument
@@ -31,6 +35,7 @@ const props = defineProps<{
   inline?: boolean
 }>()
 const emit = defineEmits<{ close: []; saved: [ProcurementDocument, boolean?]; dirty: [boolean] }>()
+const paymentTerms = ref<PaymentTerm | null>(props.original?.termOverride ? readPaymentTerm({ type: props.original.termType, value: props.original.termValue }) : null)
 let submitRequested = false
 const session = useSessionStore(),
   spec = computed(() => procurementSpecs.find((s) => s.path === props.kind)!)
@@ -57,6 +62,7 @@ const form = reactive({
   toAccountId: props.original?.toAccountId ?? '',
   feeAmount: props.original?.feeAmount ?? '0',
   entryType: props.original?.entryType ?? 'cash',
+  dueDate: props.original?.dueDate ?? '',
   direction: props.original?.direction ?? 'D',
   adjustType: props.original?.adjustType ?? 'opening',
 })
@@ -320,6 +326,8 @@ function body(): Record<string, unknown> {
       ...common,
       extJson: fields.value.length ? ext.value : undefined,
       supplierId: form.supplierId,
+      paymentTerms: props.change ? undefined : paymentTerms.value,
+      inheritPaymentTerms: props.change ? undefined : paymentTerms.value === null,
       deliveryDate: form.deliveryDate || null,
       priceTaxInclusive: form.priceTaxInclusive,
       orderDiscountAmount: form.orderDiscountAmount,
@@ -403,6 +411,7 @@ function body(): Record<string, unknown> {
   return {
     ...common,
     entryType: form.entryType,
+    dueDate: form.entryType === 'cash' ? null : form.dueDate || null,
     direction: form.direction,
     partnerId: form.entryType === 'cash' ? null : form.supplierId,
     cashAccountId: form.entryType === 'cash' ? form.cashAccountId : null,
@@ -731,6 +740,11 @@ async function verify(): Promise<void> {
           for="purchase-reason"
           ><el-input id="purchase-reason" v-model="form.reason" maxlength="200"
         /></el-form-item>
+        <PaymentTermsField v-if="order && !change" v-model="paymentTerms" label="订单账期" allow-inherit />
+        <el-form-item v-if="kind === 'opening-entries' && form.entryType !== 'cash'" label="到期日" for="opening-due-date">
+          <el-input id="opening-due-date" v-model="form.dueDate" type="date" />
+          <span>不填时按往来单位或公司账期计算。</span>
+        </el-form-item>
         <el-form-item label="备注" for="purchase-remark"
           ><el-input id="purchase-remark" v-model="form.remark" maxlength="200"
         /></el-form-item>

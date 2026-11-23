@@ -30,6 +30,7 @@ const spec = computed(() => reportSpecs.find((item) => item.type === props.type)
 const dateFrom = ref(''),
   dateTo = ref(''),
   agingDate = ref(''),
+  agingBasis = ref<'business' | 'due'>('business'),
   warehouseId = ref(''),
   skuId = ref(''),
   partnerId = ref(''),
@@ -128,7 +129,7 @@ const columns = computed(() =>
                 ? 'departmentName'
                 : 'partnerName',
             ...(groupBy.value === 'standard'
-              ? ['businessUserName', 'departmentName', 'sourceNo', 'agingDate']
+              ? ['businessUserName', 'departmentName', 'sourceNo', 'agingDate', 'dueDate', 'overdueDays']
               : []),
             'openAmount',
             ...Array.from({ length: agingBounds.value.length + 1 }, (_, i) => 'aging' + i),
@@ -183,6 +184,7 @@ function query(): Record<string, unknown> {
     dateFrom: dateFrom.value || undefined,
     dateTo: dateTo.value || undefined,
     agingDate: agingReport.value ? agingDate.value || undefined : undefined,
+    agingBasis: agingReport.value ? agingBasis.value : undefined,
     warehouseId: warehouseId.value || undefined,
     skuId: skuId.value || undefined,
     partnerId: partnerId.value || undefined,
@@ -308,6 +310,7 @@ async function initialize(): Promise<void> {
     typeof route.query.dateFrom === 'string' ? route.query.dateFrom : local.slice(0, 8) + '01'
   dateTo.value = typeof route.query.dateTo === 'string' ? route.query.dateTo : local
   agingDate.value = typeof route.query.agingDate === 'string' ? route.query.agingDate : local
+  agingBasis.value = route.query.agingBasis === 'due' ? 'due' : 'business'
   warehouses.value = []
   skus.value = []
   partners.value = []
@@ -412,6 +415,12 @@ onBeforeUnmount(() => {
             <el-option v-if="brandGroup" value="brand" label="按品牌" />
           </el-select></div
       ></template>
+      <div v-if="agingReport" class="filter-field">
+        <label for="report-aging-basis">账龄口径</label>
+        <select id="report-aging-basis" v-model="agingBasis" class="el-input__inner">
+          <option value="business">按业务日期</option><option value="due">按到期日</option>
+        </select>
+      </div>
       <div v-if="agingReport" class="filter-field">
         <label for="report-aging-cutoff">截止日期</label>
         <input

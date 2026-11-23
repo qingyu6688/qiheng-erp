@@ -27,6 +27,7 @@ class AlertProbes {
         return switch (rule.kind()) {
             case CREDIT_EXCEEDED -> credit(tenant,company,rule.threshold(),params);
             case RECEIVABLE_OVERDUE -> rows("partner_open_item",OVERDUE,params);
+            case PAYABLE_DUE -> rows("partner_open_item",PAYABLE_DUE,params);
             case NEGATIVE_MARGIN -> rows("shipment_line",MARGIN,params);
             case STOCK_BELOW_SAFETY -> rows("stock_balance",STOCK_SAFETY,params);
             case STOCK_SLOW_MOVING -> rows("stock_balance",STOCK_SLOW,params);
@@ -92,6 +93,20 @@ class AlertProbes {
             LEFT JOIN crm_customer_profile p ON p.tenant_id=o.tenant_id AND p.company_id=o.company_id AND p.partner_id=o.partner_id
             WHERE o.tenant_id=:t AND o.company_id=:c AND o.item_type='receivable' AND o.direction='D' AND o.open_amount>0
               AND a.due_date<DATE_SUB(:today,INTERVAL :n DAY) ORDER BY o.id
+            """;
+    private static final String PAYABLE_DUE="""
+            SELECT o.id,CAST(o.id AS CHAR) event_key,NULL warehouse_id,
+                COALESCE(h.owner_department_id,e.owner_department_id,0) owner_department_id,
+                COALESCE(h.owner_user_id,e.owner_user_id,0) owner_user_id,
+                CONCAT(LEFT(b.name,80),' 应付将于 ',a.due_date,' 到期，未清 ',o.open_amount,' 元。') detail,
+                CONCAT('/reports/payable-aging?partnerId=',o.partner_id) target_url
+            FROM partner_open_item o JOIN payable a ON a.tenant_id=o.tenant_id AND a.company_id=o.company_id AND a.id=o.source_id
+            JOIN business_partner b ON b.tenant_id=o.tenant_id AND b.id=o.partner_id
+            LEFT JOIN goods_receipt h ON h.tenant_id=a.tenant_id AND h.company_id=a.company_id AND h.id=a.source_id
+                AND a.source_type IN ('goods_receipt_line','purchase_order_fee')
+            LEFT JOIN opening_entry e ON e.tenant_id=a.tenant_id AND e.company_id=a.company_id AND e.id=a.source_id AND a.source_type='opening_entry'
+            WHERE o.tenant_id=:t AND o.company_id=:c AND o.item_type='payable' AND o.direction='C' AND o.open_amount>0
+                AND a.due_date BETWEEN :today AND DATE_ADD(:today,INTERVAL :n DAY) ORDER BY o.id
             """;
     private static final String MARGIN="""
             SELECT l.id,CAST(l.id AS CHAR) event_key,h.warehouse_id,h.owner_department_id,h.owner_user_id,

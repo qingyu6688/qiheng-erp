@@ -39,6 +39,7 @@ class PurchaseOrderWriter {
     }
 
     private void write(CompanyAccess scope,long orderId,PurchaseOrderModels.Input input,PricingModels.Preview preview,boolean newOrder) {
+        PaymentTerms.saveDraft(jdbc,scope,"purchase_order",orderId,input.paymentTerms(),input.inheritPaymentTerms());
         BusinessPeople.assign(jdbc,scope,"purchase_order",orderId,input.buyerUserId());
         links.replace(scope,orderId,input,preview);
         jdbc.update("""

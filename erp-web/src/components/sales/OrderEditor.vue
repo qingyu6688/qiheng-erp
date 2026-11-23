@@ -20,8 +20,13 @@ import OrderLineImport from '../OrderLineImport.vue'
 import { ORDER_LINE_LIMIT } from '../../utils/order-line-paste'
 import type { PastedOrderLine } from '../../utils/order-line-paste'
 
+import PaymentTermsField from '../PaymentTermsField.vue'
+import { readPaymentTerm } from '../../utils/payment-terms'
+import type { PaymentTerm } from '../../types/payment-terms'
+
 const props = defineProps<{ original?: SalesDocument; change?: boolean; inline?: boolean }>()
 const emit = defineEmits<{ close: []; saved: [SalesDocument, boolean?]; dirty: [boolean] }>()
+const paymentTerms = ref<PaymentTerm | null>(props.original?.termOverride ? readPaymentTerm({ type: props.original.termType, value: props.original.termValue }) : null)
 let submitRequested = false
 const session = useSessionStore()
 const customerId = props.original?.customerId ?? props.original?.customer?.id ?? ''
@@ -150,6 +155,8 @@ const ready = computed(() =>
 function body(): Record<string, unknown> {
   return {
     ...form,
+    paymentTerms: props.change ? undefined : paymentTerms.value,
+    inheritPaymentTerms: props.change ? undefined : paymentTerms.value === null,
     extJson: fields.value.length ? ext.value : undefined,
     salesUserId: form.salesUserId || null,
     deliveryAreaId: form.deliveryAreaId || null,
@@ -387,6 +394,7 @@ async function verify(): Promise<void> {
         <el-form-item label="整单优惠" for="order-discount"
           ><el-input id="order-discount" v-model="form.orderDiscountAmount"
         /></el-form-item>
+        <PaymentTermsField v-if="!change" v-model="paymentTerms" label="订单账期" allow-inherit />
         <el-form-item label="备注" for="order-remark"
           ><el-input id="order-remark" v-model="form.remark" maxlength="500"
         /></el-form-item>

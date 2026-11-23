@@ -78,8 +78,8 @@ final class ReportSql {
         String fact=ar?"receivable":"payable",direction=ar?"D":"C",head=ar?"shipment":"goods_receipt",ret=ar?"sales_return":"purchase_return",rep=ar?"sales_user_id":"buyer_user_id";
         String st="COALESCE(original.source_type,r.source_type)",si="COALESCE(original.source_id,r.source_id)";
         String remaining="IF(:agingNow,i.open_amount,i.amount-"+allocatedAtCutoff("debit","D")+"-"+allocatedAtCutoff("credit","C")+")";
-        return "WITH facts AS (SELECT i.id,i.partner_id,r.source_type,r.source_id,r.source_line_id,i.aging_date,i.direction,"
-                +remaining+" remaining,DATEDIFF(:today,i.aging_date) age_days,COALESCE(h."+rep+",b."+rep+",0) business_user_id,"
+        return "WITH facts AS (SELECT i.id,i.partner_id,r.source_type,r.source_id,r.source_line_id,i.aging_date,r.due_date,GREATEST(0,DATEDIFF(:today,r.due_date)) overdue_days,i.direction,"
+                +remaining+" remaining,GREATEST(0,DATEDIFF(:today,IF(:agingBasis='due',r.due_date,i.aging_date))) age_days,COALESCE(h."+rep+",b."+rep+",0) business_user_id,"
                 +"COALESCE(h.owner_department_id,b.owner_department_id,e.owner_department_id,0) department_id FROM partner_open_item i"
                 +" JOIN "+fact+" r ON r.tenant_id=i.tenant_id AND r.company_id=i.company_id AND r.id=i.source_id"
                 +" LEFT JOIN "+fact+" original ON original.tenant_id=r.tenant_id AND original.company_id=r.company_id AND original.id=r.reverses_"+fact+"_id"
@@ -87,9 +87,9 @@ final class ReportSql {
                 +" AND "+st+" IN('"+head+"_line','"+(ar?"sales_order_fee":"purchase_order_fee")+"')"
                 +" LEFT JOIN "+ret+" b ON b.tenant_id=r.tenant_id AND b.company_id=r.company_id AND b.id="+si+" AND "+st+"='"+ret+"_line'"
                 +" LEFT JOIN opening_entry e ON e.tenant_id=r.tenant_id AND e.company_id=r.company_id AND e.id="+si+" AND "+st+"='opening_entry'"
-                +" WHERE i.tenant_id=:t AND i.company_id=:c AND i.item_type='"+fact+"' AND i.aging_date<=:today"
+                +" WHERE i.tenant_id=:t AND i.company_id=:c AND i.item_type='"+fact+"' AND i.aging_date<=:today AND (:agingBasis<>'due' OR r.due_date IS NOT NULL)"
                 +" AND (:agingNow OR (r.business_date<=:today AND i.created_at<:agingEnd)) AND "+source(actor,"r.source_type","r.source_id")
-                +") SELECT id,partner_id,source_type,source_id,source_line_id,aging_date,direction,IF(direction='"+direction
+                +") SELECT id,partner_id,source_type,source_id,source_line_id,aging_date,due_date,overdue_days,direction,IF(direction='"+direction
                 +"',remaining,-remaining) open_amount,age_days,business_user_id,department_id FROM facts WHERE remaining>0";
     }
 

@@ -46,7 +46,7 @@ public final class ExportCsv {
                 if(type==ReportType.GROSS_MARGIN) { add(columns,"grossMargin","毛利"); }
                 else if(!detail) { add(columns,"sourceCount","明细行数"); }
             }
-            case RECEIVABLE_AGING,PAYABLE_AGING -> add(columns,"partnerName",type==ReportType.RECEIVABLE_AGING?"客户":"供应商","sourceNo","来源单号","agingDate","账龄起算日","direction","方向","openAmount","未核销金额","ageDays","账龄天数","age030","0至30天","age3160","31至60天","age6190","61至90天","age91180","91至180天","ageOver180","180天以上");
+            case RECEIVABLE_AGING,PAYABLE_AGING -> add(columns,"partnerName",type==ReportType.RECEIVABLE_AGING?"客户":"供应商","sourceNo","来源单号","agingDate","账龄起算日","dueDate","到期日","overdueDays","逾期天数","direction","方向","openAmount","未核销金额","ageDays","账龄天数","age030","0至30天","age3160","31至60天","age6190","61至90天","age91180","91至180天","ageOver180","180天以上");
             case PARTNER_STATEMENT -> add(columns,"partnerName","往来单位","businessDate","业务日期","sourceNo","来源单号","accountCode","科目","direction","方向","debitAmount","借方发生额","creditAmount","贷方发生额","openingBalance","期初余额","runningBalance","本行余额");
             case CASH_JOURNAL -> add(columns,"cashAccountName","资金账户","businessDate","业务日期","sourceNo","来源单号","receiptAmount","收入","paymentAmount","支出","openingBalance","期初余额","runningBalance","本行余额");
         }

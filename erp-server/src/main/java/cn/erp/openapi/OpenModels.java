@@ -21,7 +21,9 @@ final class OpenModels {
             @NotBlank(message="请输入单位名") @Size(max=100,message="单位名称过长") String name,
             @Size(max=50,message="简称过长") String shortName,
             @NotEmpty(message="请选择客户或供应商角色") Set<@NotBlank(message="往来角色不能为空")
-                    @Pattern(regexp="customer|supplier",message="往来角色无效") String> roles,JsonNode extJson) {}
+                    @Pattern(regexp="customer|supplier",message="往来角色无效") String> roles,JsonNode extJson,@com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) Map<String,cn.erp.shared.PaymentTerms.Term> paymentTerms) {
+        PartnerInput(String code,String name,String shortName,Set<String> roles,JsonNode extJson) {this(code,name,shortName,roles,extJson,null);}
+    }
 
     record OrderInput(@NotNull(message="请输入业务日期") LocalDate businessDate,LocalDate deliveryDate,
             String customerId,String supplierId,Boolean priceTaxInclusive,

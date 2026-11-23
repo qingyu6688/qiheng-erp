@@ -106,6 +106,7 @@ public class SalesOrderService {
                 case "reject" -> {state(before,"pending");reason(input.comment());changeState(scope,id,"draft");approval(scope,id,before,"reject",input.comment());}
                 case "approve" -> {
                     state(before,"pending");separateApprover(scope,before);minimumPrices.approving(scope,id);credit.order(scope,id,"approve");active(scope,before,rows,true);reserveRows(scope,before,rows);
+                    PaymentTerms.snapshot(jdbc,scope,"sales_order",id,number(before,"customer_id"),"customer");
                     jdbc.update("UPDATE sales_order SET status='approved',revision=revision+1,approved_by=?,approved_at=UTC_TIMESTAMP(3),version=version+1,updated_by=? WHERE id=? AND tenant_id=? AND company_id=?",
                             scope.userId(),scope.userId(),id,scope.tenantId(),scope.companyId());
                     approval(scope,id,before,"approve",input.comment());

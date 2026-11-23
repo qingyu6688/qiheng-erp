@@ -274,9 +274,9 @@ public class SalesReturnService {
         if(credit.signum()>0) {
             long receivable=Ids.next();
             jdbc.update("""
-                    INSERT INTO receivable(id,tenant_id,company_id,customer_id,kind,source_type,source_id,source_line_id,amount,untaxed_amount,tax_amount,business_date,period_id,created_by)
-                    VALUES(?,?,?,?,'credit','sales_return_line',?,?,?,?,?,?,?,?)
-                    """,receivable,scope.tenantId(),scope.companyId(),customer,returnId,lineId,credit,untaxed,tax,date,period,scope.userId());
+                    INSERT INTO receivable(id,tenant_id,company_id,customer_id,kind,source_type,source_id,source_line_id,amount,untaxed_amount,tax_amount,business_date,period_id,created_by,due_date)
+                    VALUES(?,?,?,?,'credit','sales_return_line',?,?,?,?,?,?,?,?,?)
+                    """,receivable,scope.tenantId(),scope.companyId(),customer,returnId,lineId,credit,untaxed,tax,date,period,scope.userId(),PaymentTerms.original(jdbc,scope,"receivable","shipment_line",sourceLine));
             settlement.open(scope,new SettlementService.OpenItem("receivable",receivable,customer,"C",credit,date));
             journal.add(new LedgerService.Line("AR","C",credit,customer,null,null,null,lineId,"销售退货信用额"));
         }

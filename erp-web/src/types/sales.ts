@@ -71,6 +71,10 @@ export interface SalesLine {
   [key: string]: unknown
 }
 export interface SalesDocument {
+  termType?: 'days' | 'monthly' | null
+  termValue?: number | null
+  termOverride?: boolean | number
+  dueDate?: string | null
   extJson?: import('../api/platform-rules').FieldValues
   workflowInstanceId?: string
   workflowStatus?: string

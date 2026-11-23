@@ -43,7 +43,7 @@ class AlertScanCapacityIT {
         otherCompany=createCompany(otherTenant,"C");warehouse=Ids.next();sku=Ids.next();batch=Ids.next();user=Ids.next();
         partner=Ids.next();period=Ids.next();openItem=Ids.next();
         long unit=Ids.next(),category=Ids.next(),product=Ids.next(),role=Ids.next();
-        actor=new CompanyAccess(tenant,user,company,true,Set.of(),Set.of("alert:view","alert:configure","alert:handle","batch:view","report:receivable_aging"));
+        actor=new CompanyAccess(tenant,user,company,true,Set.of(),Set.of("alert:view","alert:configure","alert:handle","batch:view","report:receivable_aging","report:payable_aging"));
         jdbc.update("INSERT INTO warehouse(id,tenant_id,company_id,code,name) VALUES(?,?,?,'A','主仓')",warehouse,tenant,company);
         jdbc.update("INSERT INTO unit(id,tenant_id,name) VALUES(?,?,'件')",unit,tenant);
         jdbc.update("INSERT INTO product_category(id,tenant_id,code,name,path) VALUES(?,?,'A','分类','/')",category,tenant);
@@ -80,7 +80,7 @@ class AlertScanCapacityIT {
     private static final int HISTORY_PER_SOURCE = 240;
     private static final int ALERTS_PER_SOURCE = 1 + HISTORY_PER_SOURCE / 2;
     private static final List<AlertKind> POPULATED_RULES =
-            List.of(AlertKind.BATCH_EXPIRED, AlertKind.RECEIVABLE_OVERDUE);
+            List.of(AlertKind.BATCH_EXPIRED, AlertKind.RECEIVABLE_OVERDUE, AlertKind.PAYABLE_DUE);
 
     private record Sample(String label, CompanyAccess actor, long emptyCompany) {}
 
@@ -113,14 +113,14 @@ class AlertScanCapacityIT {
             }
             for (int round = 1; round <= 3; round++) {
                 for (var scenario : scenarios) scanAll(scenario, round);
-                assertThat(count("alert_event", sample.actor())).isEqualTo(2L * ALERTS_PER_SOURCE);
-                assertThat(count("notify_message", sample.actor())).isEqualTo(2L * ALERTS_PER_SOURCE);
+                assertThat(count("alert_event", sample.actor())).isEqualTo(2L * ALERTS_PER_SOURCE + HISTORY_PER_SOURCE / 2);
+                assertThat(count("notify_message", sample.actor())).isEqualTo(2L * ALERTS_PER_SOURCE + HISTORY_PER_SOURCE / 2);
                 assertThat(count("alert_event", scenarios.getLast().actor())).isZero();
                 assertThat(count("notify_message", scenarios.getLast().actor())).isZero();
                 assertThat(jdbc.queryForObject("""
                         SELECT COUNT(*) FROM alert_event WHERE tenant_id=? AND company_id=?
                           AND status='acknowledged' AND occurrence=1
-                        """, Long.class, tenantId, companyId)).isEqualTo(2);
+                        """, Long.class, tenantId, companyId)).isEqualTo(POPULATED_RULES.size());
             }
         }
     }
@@ -131,6 +131,8 @@ class AlertScanCapacityIT {
         var stockRows = new ArrayList<Object[]>();
         var receivableRows = new ArrayList<Object[]>();
         var itemRows = new ArrayList<Object[]>();
+        var payableRows = new ArrayList<Object[]>();
+        var payableItems = new ArrayList<Object[]>();
         for (int index = 0; index < HISTORY_PER_SOURCE; index++) {
             long batchId = Ids.next();
             long receivableId = Ids.next();
@@ -141,6 +143,10 @@ class AlertScanCapacityIT {
             receivableRows.add(new Object[] {receivableId, tenant, company, partner, receivableId,
                     today.minusDays(20), overdue ? today.minusDays(2) : today.plusDays(120), period});
             itemRows.add(new Object[] {Ids.next(), tenant, company, partner, receivableId, today.minusDays(20)});
+            long payableId=Ids.next();
+            payableRows.add(new Object[] {payableId,tenant,company,partner,payableId,today,
+                    overdue?today.plusDays(5):today.plusDays(120),period});
+            payableItems.add(new Object[] {Ids.next(),tenant,company,partner,payableId,today});
         }
         jdbc.batchUpdate("""
                 INSERT INTO inv_batch(id,tenant_id,company_id,sku_id,batch_no,expiry_date,source_type,source_id)
@@ -160,6 +166,15 @@ class AlertScanCapacityIT {
                   open_amount,aging_date)
                 VALUES(?,?,?,?,'receivable',?,'D',100,100,?)
                 """, itemRows);
+        jdbc.batchUpdate("""
+                INSERT INTO payable(id,tenant_id,company_id,supplier_id,kind,source_type,source_id,source_line_id,amount,
+                  untaxed_amount,tax_amount,business_date,due_date,period_id)
+                VALUES(?,?,?,?,'charge','opening_entry',?,1,100,100,0,?,?,?)
+                """,payableRows);
+        jdbc.batchUpdate("""
+                INSERT INTO partner_open_item(id,tenant_id,company_id,partner_id,item_type,source_id,direction,amount,open_amount,aging_date)
+                VALUES(?,?,?,?,'payable',?,'C',100,100,?)
+                """,payableItems);
         return new Sample(label, actor, companyTwo);
     }
 

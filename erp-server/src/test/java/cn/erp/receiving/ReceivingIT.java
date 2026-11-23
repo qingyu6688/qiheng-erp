@@ -253,6 +253,26 @@ class ReceivingIT {
         zeroDifferences();
     }
 
+    @Test void realApprovalReceiptFeeAndReturnKeepTheSameDueDate() {
+        jdbc.update("UPDATE partner_role SET term_type='monthly',term_value=28 WHERE tenant_id=? AND partner_id=?",tenant,supplier);
+        var input=new PurchaseOrderModels.Input(Long.toString(supplier),DAY.minusDays(5),null,true,"0",
+                List.of(new PurchaseOrderModels.Line(null,null,Long.toString(sku),Long.toString(warehouse),Long.toString(unit),"2","10",null,null,null,"0")),
+                List.of(new PurchaseOrderModels.Fee(null,"freight","buyer","3",null)),null,null,null);
+        var order=purchaseOrders.create(scope,key(),input);long orderId=documentId(order);
+        var submitted=purchaseOrders.command(scope,orderId,"submit",key(),new PurchaseOrderModels.Command(0L,null,null));
+        var reviewer=new CompanyAccess(tenant,Ids.next(),company,true,Set.of(),scope.permissions());
+        purchaseOrders.command(reviewer,orderId,"approve",key(),new PurchaseOrderModels.Command(((Number)submitted.get("version")).longValue(),null,null));
+        jdbc.update("UPDATE partner_role SET term_type='days',term_value=90 WHERE tenant_id=? AND partner_id=?",tenant,supplier);
+        long source=jdbc.queryForObject("SELECT id FROM purchase_order_line WHERE order_id=?",Long.class,orderId);
+        long receipt=receive(source,"2",DAY);
+        assertThat(jdbc.queryForList("SELECT due_date FROM payable WHERE tenant_id=? AND source_id=?",java.sql.Date.class,tenant,receipt))
+                .hasSize(2).allMatch(value->value.equals(java.sql.Date.valueOf(LocalDate.of(2026,12,28))));
+        long returned=returned(receiptLine(receipt),"1");
+        assertThat(jdbc.queryForObject("SELECT due_date FROM payable WHERE tenant_id=? AND source_id=?",java.sql.Date.class,tenant,returned))
+                .isEqualTo(java.sql.Date.valueOf(LocalDate.of(2026,12,28)));
+        zeroDifferences();
+    }
+
     private void changeSource(long source,long nextSku,long nextUnit,String qty,String price) {
         long order=jdbc.queryForObject("SELECT order_id FROM purchase_order_line WHERE id=?",Long.class,source);
         var before=purchaseQueries.get(scope,order);

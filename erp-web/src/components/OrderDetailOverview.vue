@@ -8,6 +8,7 @@ import { formatDateTime, formatMoney, formatQuantity } from '../utils/format'
 import { orderDetailProgress } from '../utils/order-detail-progress'
 import type { OrderDetailKind, OrderProgressInput } from '../utils/order-detail-progress'
 import StatusTag from './StatusTag.vue'
+import { paymentTermLabel } from '../utils/payment-terms'
 
 const props = defineProps<{
   kind: OrderDetailKind
@@ -17,6 +18,8 @@ const props = defineProps<{
     totalAmount?: string
     taxAmount?: string
     businessDate?: string
+    termType?: string | null
+    termValue?: number | null
     deliveryDate?: string
     afterSaleStatus?: string
     reason?: string
@@ -105,6 +108,7 @@ const updatedAt = computed(() => displayTime(props.order.updatedAt))
     <div class="order-overview__meta">
       <span v-if="party">{{ sale ? '客户' : '供应商' }} {{ party }}</span>
       <span v-if="order.businessDate">业务日期 {{ order.businessDate }}</span>
+      <span>账期 {{ paymentTermLabel(order.termType, order.termValue) }}</span>
       <span v-if="order.deliveryDate">交货日期 {{ order.deliveryDate }}</span>
       <span v-if="representative">{{ sale ? '销售员' : '采购员' }} {{ representative }}</span>
       <span v-if="createdAt">制单 {{ createdAt }}</span>

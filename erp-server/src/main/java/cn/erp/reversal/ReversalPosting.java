@@ -39,8 +39,8 @@ class ReversalPosting {
     private void reverseFact(CompanyAccess scope,String fact,Map<String,Object> original,long reversal,long period,LocalDate day) {
         boolean ar=fact.equals("receivable");String party=ar?"customer_id":"supplier_id",reverse=ar?"reverses_receivable_id":"reverses_payable_id";
         String kind=original.get("kind").equals("charge")?"credit":"charge";long id=Ids.next();
-        jdbc.update("INSERT INTO "+fact+"(id,tenant_id,company_id,"+party+",kind,source_type,source_id,source_line_id,posting_action,amount,untaxed_amount,tax_amount,business_date,period_id,"+reverse+",created_by) VALUES(?,?,?,?,?,?,?,?,'reverse',?,?,?,?,?,?,?)",
-            id,scope.tenantId(),scope.companyId(),original.get(party),kind,original.get("source_type"),original.get("source_id"),original.get("source_line_id"),original.get("amount"),original.get("untaxed_amount"),original.get("tax_amount"),day,period,original.get("id"),scope.userId());
+        jdbc.update("INSERT INTO "+fact+"(id,tenant_id,company_id,"+party+",kind,source_type,source_id,source_line_id,posting_action,amount,untaxed_amount,tax_amount,business_date,period_id,"+reverse+",created_by,due_date) VALUES(?,?,?,?,?,?,?,?,'reverse',?,?,?,?,?,?,?,?)",
+            id,scope.tenantId(),scope.companyId(),original.get(party),kind,original.get("source_type"),original.get("source_id"),original.get("source_line_id"),original.get("amount"),original.get("untaxed_amount"),original.get("tax_amount"),day,period,original.get("id"),scope.userId(),original.get("due_date"));
         String direction=ar?(kind.equals("charge")?"D":"C"):(kind.equals("charge")?"C":"D");
         long counter=settlement.open(scope,new SettlementService.OpenItem(fact,id,id(original,party),direction,decimal(original,"amount"),day));
         long old=jdbc.queryForObject("SELECT id FROM partner_open_item WHERE tenant_id=? AND company_id=? AND item_type=? AND source_id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),fact,original.get("id"));

@@ -20,9 +20,9 @@ class ReportController {
             @RequestParam(required=false) Long partnerId,@RequestParam(required=false) Long cashAccountId,
             @RequestParam(defaultValue="false") boolean detail,@RequestParam(defaultValue="false") boolean feesOnly,@RequestParam(required=false) Long cursor,
             @RequestParam(defaultValue="20") int limit,@RequestParam(required=false) Long businessUserId,@RequestParam(required=false) String groupBy,
-            @RequestParam(required=false) LocalDate agingDate) {
+            @RequestParam(required=false) LocalDate agingDate,@RequestParam(required=false) String agingBasis) {
         var report=ReportType.parse(type);
         return ApiResponse.success(reports.page(access.requireCompany(request,report.permission()),report,
-                new ReportQuery(dateFrom,dateTo,warehouseId,skuId,partnerId,cashAccountId,detail,feesOnly,businessUserId,groupBy,agingDate),cursor,limit));
+                new ReportQuery(dateFrom,dateTo,warehouseId,skuId,partnerId,cashAccountId,detail,feesOnly,businessUserId,groupBy,agingDate,agingBasis),cursor,limit));
     }
 }

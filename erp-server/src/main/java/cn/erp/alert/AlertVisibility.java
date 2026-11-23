@@ -32,9 +32,11 @@ class AlertVisibility implements AlertVisibilityPort {
     }
 
     private static void addCompanyKinds(List<String> kinds,CompanyAccess actor,String a) {
-        add(kinds,actor,"report:receivable_aging",a,"partner_open_item"," AND EXISTS(SELECT 1 FROM partner_open_item oi WHERE"
-                +" oi.tenant_id="+a+".tenant_id AND oi.company_id="+a+".company_id AND oi.id="+a+".target_id AND "
-                +OrgOwnership.itemCondition(actor,"oi")+")");
+        for(String side:List.of("receivable","payable")) {
+            add(kinds,actor,"report:"+side+"_aging",a,"partner_open_item"," AND EXISTS(SELECT 1 FROM partner_open_item oi WHERE"
+                    +" oi.tenant_id="+a+".tenant_id AND oi.company_id="+a+".company_id AND oi.id="+a+".target_id AND oi.item_type='"+side+"' AND "
+                    +OrgOwnership.itemCondition(actor,"oi")+")");
+        }
         add(kinds,actor,"collection:view",a,"ar_collection_plan"," AND "+a+".owner_user_id="+actor.userId()
                 +" AND EXISTS(SELECT 1 FROM ar_collection_plan p JOIN partner_open_item oi ON oi.tenant_id=p.tenant_id AND oi.company_id=p.company_id AND oi.id=p.open_item_id"
                 +" WHERE p.tenant_id="+a+".tenant_id AND p.company_id="+a+".company_id AND p.id="+a+".target_id AND "+OrgOwnership.itemCondition(actor,"oi")+")");

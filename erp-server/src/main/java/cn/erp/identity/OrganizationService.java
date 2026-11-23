@@ -86,7 +86,7 @@ class OrganizationService {
         var policies=jdbc.query("SELECT * FROM company_policy WHERE tenant_id=? AND company_id=?",(r,n)->
                 new PolicyView(r.getString("taxpayer_type"),r.getInt("reservation_valid_days"),r.getInt("reservation_grace_days"),
                         r.getBigDecimal("over_receipt_pct").toPlainString(),r.getBoolean("separate_order_approver"),
-                        r.getBoolean("separate_receipt_confirmer"),r.getLong("version"),r.getString("below_min_price_policy")),actor.tenantId(),id);
+                        r.getBoolean("separate_receipt_confirmer"),r.getLong("version"),r.getString("below_min_price_policy"),new cn.erp.shared.PaymentTerms.Term(r.getString("default_term_type"),r.getObject("default_term_value",Integer.class))),actor.tenantId(),id);
         return policies.isEmpty()?new PolicyView("general",30,7,"0.00",true,true,0):policies.getFirst();
     }
 
@@ -94,6 +94,7 @@ class OrganizationService {
     PolicyView policy(CompanyAccess actor,long id,PolicyInput input) {
         company(actor,id,true);
         var before=policy(actor,id);
+        cn.erp.shared.PaymentTerms.validate(input.defaultPaymentTerms());
         version(input.version(),before.version());
         jdbc.update("INSERT IGNORE INTO company_policy(id,tenant_id,company_id,created_by) VALUES(?,?,?,?)",Ids.next(),actor.tenantId(),id,actor.userId());
         jdbc.update("""
@@ -102,6 +103,8 @@ class OrganizationService {
                 WHERE tenant_id=? AND company_id=?
                 """,input.taxpayerType(),input.reservationValidDays(),input.reservationGraceDays(),new java.math.BigDecimal(input.overReceiptPct()),
                 input.separateOrderApprover(),input.separateReceiptConfirmer(),input.belowMinPricePolicy(),actor.userId(),actor.tenantId(),id);
+        if(input.defaultPaymentTerms()!=null) jdbc.update("UPDATE company_policy SET default_term_type=?,default_term_value=? WHERE tenant_id=? AND company_id=?",
+                input.defaultPaymentTerms().type(),input.defaultPaymentTerms().value(),actor.tenantId(),id);
         var after=policy(actor,id);
         audit.record(companyScope(actor,id),"company_policy.update","company_policy",id,before,after);
         return after;

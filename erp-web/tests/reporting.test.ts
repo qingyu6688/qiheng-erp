@@ -248,3 +248,19 @@ describe('报表页面请求与权限', () => {
     expect(wrapper.find('#report-date-to').exists()).toBe(true)
   })
 })
+
+
+describe('到期日账龄口径', () => {
+  it('查询与导出使用相同的到期日口径，显示到期日和逾期天数', async () => {
+    const wrapper = page('receivable-aging')
+    await flushPromises()
+    await wrapper.get('#report-aging-basis').setValue('due')
+    await wrapper.get('form.filters').trigger('submit')
+    await flushPromises()
+    expect(vi.mocked(reports.report).mock.calls.at(-1)?.[1]).toMatchObject({ agingBasis: 'due' })
+    expect(wrapper.findAllComponents({ name: 'ElTableColumn' }).map(column => column.props('label')))
+      .toEqual(expect.arrayContaining(['到期日', '逾期天数']))
+    await click(wrapper, '导出报表')
+    expect(vi.mocked(reports.createExport).mock.calls.at(-1)?.[1]).toMatchObject({ agingBasis: 'due' })
+  })
+})

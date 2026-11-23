@@ -27,10 +27,12 @@ final class AdminModels {
                        @NotNull(message="请输入超收容差") @DecimalMax(value="10.00",message="超收容差最多10%") @Pattern(regexp="(?:[0-9]|10)(?:\\.[0-9]{1,2})?",message="容差为0到10的两位小数") String overReceiptPct,
                        @NotNull(message="请选择审批经办分离规则") Boolean separateOrderApprover,@NotNull(message="请选择收付经办分离规则") Boolean separateReceiptConfirmer,
                        @NotNull(message="请提供版本号") @PositiveOrZero(message="版本号不能为负") Long version,
-                       @Pattern(regexp="warn|approval|block",message="最低售价控制方式无效") String belowMinPricePolicy) {
+                       @Pattern(regexp="warn|approval|block",message="最低售价控制方式无效") String belowMinPricePolicy, @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) cn.erp.shared.PaymentTerms.Term defaultPaymentTerms) {
+        public PolicyInput(String taxpayerType,int reservationValidDays,int reservationGraceDays,String overReceiptPct,Boolean separateOrderApprover,Boolean separateReceiptConfirmer,Long version,String belowMinPricePolicy) {this(taxpayerType,reservationValidDays,reservationGraceDays,overReceiptPct,separateOrderApprover,separateReceiptConfirmer,version,belowMinPricePolicy,null);}
         public PolicyInput(String taxpayerType,int reservationValidDays,int reservationGraceDays,String overReceiptPct,Boolean separateOrderApprover,Boolean separateReceiptConfirmer,Long version) {this(taxpayerType,reservationValidDays,reservationGraceDays,overReceiptPct,separateOrderApprover,separateReceiptConfirmer,version,null);}
     }
-    record PolicyView(String taxpayerType,int reservationValidDays,int reservationGraceDays,String overReceiptPct,Boolean separateOrderApprover,Boolean separateReceiptConfirmer,long version,String belowMinPricePolicy) {
+    record PolicyView(String taxpayerType,int reservationValidDays,int reservationGraceDays,String overReceiptPct,Boolean separateOrderApprover,Boolean separateReceiptConfirmer,long version,String belowMinPricePolicy, @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) cn.erp.shared.PaymentTerms.Term defaultPaymentTerms) {
+        public PolicyView(String taxpayerType,int reservationValidDays,int reservationGraceDays,String overReceiptPct,Boolean separateOrderApprover,Boolean separateReceiptConfirmer,long version,String belowMinPricePolicy) {this(taxpayerType,reservationValidDays,reservationGraceDays,overReceiptPct,separateOrderApprover,separateReceiptConfirmer,version,belowMinPricePolicy,null);}
         public PolicyView(String taxpayerType,int reservationValidDays,int reservationGraceDays,String overReceiptPct,Boolean separateOrderApprover,Boolean separateReceiptConfirmer,long version) {this(taxpayerType,reservationValidDays,reservationGraceDays,overReceiptPct,separateOrderApprover,separateReceiptConfirmer,version,"warn");}
     }
 

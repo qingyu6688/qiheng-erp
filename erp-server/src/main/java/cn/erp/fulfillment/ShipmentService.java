@@ -445,14 +445,15 @@ public class ShipmentService {
     private void createReceivables(CompanyAccess scope,long shipment,long customer,List<ReceivableInput> inputs,LocalDate date,long period) {
         if(inputs.isEmpty()) {return;}
         var inserts=new ArrayList<Object[]>();var open=new ArrayList<SettlementService.OpenItem>();var ordersBySource=new LinkedHashMap<Long,Long>();
+        var dueDates=PaymentTerms.forOrders(jdbc,scope,inputs.stream().map(ReceivableInput::order).collect(java.util.stream.Collectors.toSet()),"customer",date);
         for(var input:inputs) {
             long id=Ids.next();
-            inserts.add(new Object[]{id,scope.tenantId(),scope.companyId(),customer,input.type(),shipment,input.line(),input.amount(),input.amount().subtract(input.tax()),input.tax(),date,period,scope.userId()});
+            inserts.add(new Object[]{id,scope.tenantId(),scope.companyId(),customer,input.type(),shipment,input.line(),input.amount(),input.amount().subtract(input.tax()),input.tax(),date,period,scope.userId(),dueDates.get(input.order())});
             open.add(new SettlementService.OpenItem("receivable",id,customer,"D",input.amount(),date));ordersBySource.put(id,input.order());
         }
         jdbc.batchUpdate("""
                 INSERT INTO receivable(id,tenant_id,company_id,customer_id,kind,source_type,source_id,source_line_id,
-                amount,untaxed_amount,tax_amount,business_date,period_id,created_by) VALUES(?,?,?,?,'charge',?,?,?,?,?,?,?,?,?)
+                amount,untaxed_amount,tax_amount,business_date,period_id,created_by,due_date) VALUES(?,?,?,?,'charge',?,?,?,?,?,?,?,?,?,?)
                 """,inserts);
         var items=settlement.openReceivables(scope,open);var debits=new LinkedHashMap<Long,List<Long>>();
         ordersBySource.forEach((source,order)->debits.computeIfAbsent(order,unused->new ArrayList<>()).add(items.get(source)));

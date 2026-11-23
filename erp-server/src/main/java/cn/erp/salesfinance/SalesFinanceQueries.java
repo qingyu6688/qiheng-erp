@@ -70,6 +70,7 @@ public class SalesFinanceQueries {
         if(!Set.of("ar","ap").contains(side)) {throw invalid("往来侧须为ar或ap");}
         return page(jdbc.queryForList("""
                 SELECT i.*,p.name partner_name,DATEDIFF(DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')),i.aging_date) aging_days,
+                  COALESCE(ar.due_date,ap.due_date) due_date,GREATEST(0,DATEDIFF(DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')),COALESCE(ar.due_date,ap.due_date))) overdue_days,
                   CASE i.item_type WHEN 'receipt' THEN r.receipt_no WHEN 'refund_request' THEN f.refund_no
                     WHEN 'payment' THEN pm.payment_no
                     WHEN 'payable' THEN CASE ap.source_type WHEN 'purchase_return_line' THEN pr.return_no ELSE gr.receipt_no END
