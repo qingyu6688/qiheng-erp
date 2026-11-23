@@ -19,6 +19,11 @@ public class CommandResultAccess {
             return;
         }
         if(!(actor instanceof WarehouseScope scope) || !(response instanceof Map<?,?> row)) {return;}
+        if(operation.startsWith("einv.inbound_")) {
+            String permission=operation.equals("einv.inbound_register")||operation.equals("einv.inbound_update")?"einv:inbound_register":operation.equals("einv.inbound_void")?"einv:inbound_void":"einv:inbound";
+            if(!(actor instanceof PermissionScope permissions)||!permissions.hasPermission("einv:view")||!permissions.hasPermission("einv:inbound")||!permissions.hasPermission(permission))throw new ApiException(403,"FORBIDDEN","无权读取当前进项操作结果");
+            InboundInvoiceScope.require(jdbc,actor,row.get("id"));return;
+        }
         if(operation.startsWith("credit_limit.")||operation.startsWith("credit_increase.")||operation.startsWith("bad_debt.")||operation.startsWith("aging_config.")) {
             String action=operation.substring(operation.indexOf('.')+1);String permission=operation.startsWith("bad_debt.")?(java.util.Set.of("approve","reject").contains(action)?"bad_debt:approve":"bad_debt:edit"):operation.startsWith("aging_config.")?"aging_config:edit":java.util.Set.of("approve","reject").contains(action)||action.equals("cancel")&&row.get("approvedBy")!=null?"credit_limit:approve":"credit_limit:edit";
             FinancialScope.require(actor,permission);return;

@@ -89,9 +89,9 @@ afterEach(() => {
 })
 
 describe('报表类型与精度', () => {
-  it('十类报表独立权限、事实别名穿透和上海日期保持一致', () => {
-    expect(reportSpecs).toHaveLength(10)
-    expect(new Set(reportSpecs.map((spec) => reportPermission(spec.type))).size).toBe(10)
+  it('十一类报表独立权限、事实别名穿透和上海日期保持一致', () => {
+    expect(reportSpecs).toHaveLength(11)
+    expect(new Set(reportSpecs.map((spec) => reportPermission(spec.type))).size).toBe(11)
     expect(reportPermission('sales-summary', 'export')).toBe('export:sales_summary')
     expect(documentLink('shipment_sign', '123')).toBe('/shipments/123')
     expect(documentLink('sales_return_line', '124')).toBe('/sales-returns/124')
@@ -102,11 +102,70 @@ describe('报表类型与精度', () => {
     expect(reportCell('amount', '1234567890123456789012.34')).toBe('1234567890123456789012.34')
     expect(reportCell('direction', 'D')).toBe('借方')
     expect(reportCell('postingAction', 'reverse')).toBe('冲销')
+    expect(reportCell('invoicingStatus', 'partial')).toBe('部分到票')
+    expect(reportPermission('uninvoiced-receipts', 'export')).toBe('export:uninvoiced_receipts')
     expect(reportToday(new Date('2026-11-14T16:00:00Z'))).toBe('2026-11-15')
   })
 })
 
 describe('报表页面请求与权限', () => {
+  it('未到票突出精确金额与截止日，查看原单只打开右侧抽屉并保留筛选', async () => {
+    const row = {
+      id: '80',
+      sourceType: 'goods_receipt_line',
+      sourceId: '90',
+      sourceNo: 'GR-90',
+      uninvoicedAmount: '1234567890123456789012.34',
+      invoicingStatus: 'partial',
+    }
+    route.query = { partnerId: '4', dateFrom: '2026-11-01', dateTo: '2026-11-18' }
+    vi.mocked(reports.report).mockResolvedValue({
+      ...result(),
+      items: [row],
+      summary: {
+        uninvoicedAmount: row.uninvoicedAmount,
+        invoiceCutoff: '2026-11-18',
+        invoiceMatchNotice: '旧版日期按旧更新时间还原',
+      },
+    })
+    const wrapper = mount(ReportPage, {
+      props: { type: 'uninvoiced-receipts' },
+      global: {
+        stubs: {
+          ...stubs,
+          ElTableColumn: {
+            props: ['label'],
+            setup: () => ({ row }),
+            template: '<div>{{label}}<slot :row="row" /></div>',
+          },
+          ProcurementSourceDrawer: {
+            name: 'ProcurementSourceDrawer',
+            props: ['id'],
+            emits: ['close'],
+            template:
+              '<aside>收货原单 {{id}}<button @click="$emit(\'close\')">关闭原单</button></aside>',
+          },
+        },
+      },
+    })
+    mounted.push(wrapper)
+    await flushPromises()
+    expect(wrapper.get('h1').text()).toBe('已收货未到票')
+    expect(wrapper.text()).toContain('到票截止日')
+    expect(wrapper.text()).toContain('部分到票')
+    expect(wrapper.text()).toContain('旧版日期按旧更新时间还原')
+    expect(wrapper.find('.financial-amount')?.text()).toBe('1,234,567,890,123,456,789,012.34')
+    await click(wrapper, '查看原单')
+    expect(wrapper.findComponent({ name: 'ProcurementSourceDrawer' }).props('id')).toBe('90')
+    expect(push).not.toHaveBeenCalled()
+    await click(wrapper, '关闭原单')
+    expect(reports.report).toHaveBeenCalledTimes(1)
+    expect(wrapper.get<HTMLInputElement>('#report-date-to').element.value).toBe('2026-11-18')
+    expect(vi.mocked(reports.report).mock.calls[0][1]).toMatchObject({
+      partnerId: '4',
+      dateTo: '2026-11-18',
+    })
+  })
   it('较晚返回的旧查询不能覆盖新结果，卸载中止请求', async () => {
     const old = deferred<ReportResult>(),
       latest = deferred<ReportResult>()
@@ -249,7 +308,6 @@ describe('报表页面请求与权限', () => {
   })
 })
 
-
 describe('到期日账龄口径', () => {
   it('查询与导出使用相同的到期日口径，显示到期日和逾期天数', async () => {
     const wrapper = page('receivable-aging')
@@ -258,9 +316,12 @@ describe('到期日账龄口径', () => {
     await wrapper.get('form.filters').trigger('submit')
     await flushPromises()
     expect(vi.mocked(reports.report).mock.calls.at(-1)?.[1]).toMatchObject({ agingBasis: 'due' })
-    expect(wrapper.findAllComponents({ name: 'ElTableColumn' }).map(column => column.props('label')))
-      .toEqual(expect.arrayContaining(['到期日', '逾期天数']))
+    expect(
+      wrapper.findAllComponents({ name: 'ElTableColumn' }).map((column) => column.props('label')),
+    ).toEqual(expect.arrayContaining(['到期日', '逾期天数']))
     await click(wrapper, '导出报表')
-    expect(vi.mocked(reports.createExport).mock.calls.at(-1)?.[1]).toMatchObject({ agingBasis: 'due' })
+    expect(vi.mocked(reports.createExport).mock.calls.at(-1)?.[1]).toMatchObject({
+      agingBasis: 'due',
+    })
   })
 })

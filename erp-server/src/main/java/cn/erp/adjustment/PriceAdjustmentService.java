@@ -38,6 +38,8 @@ public class PriceAdjustmentService implements WorkflowBusiness {
     private final DocumentNumbers numbers;
     private final AuditService audit;
     private WorkflowPort workflow;
+    private cn.erp.shared.InboundInvoiceChangePort invoices;
+    @Autowired void invoices(cn.erp.shared.InboundInvoiceChangePort invoices) {this.invoices=invoices;}
     @Autowired void workflow(WorkflowPort workflow) { this.workflow = workflow; }
 
     PriceAdjustmentService(JdbcTemplate jdbc, PriceAdjustmentQueries queries, PriceAdjustmentWriter writer,
@@ -88,6 +90,7 @@ public class PriceAdjustmentService implements WorkflowBusiness {
         if (Set.of("approve", "reject", "post").contains(action)) FinancialScope.require(actor, TYPE + ":" + (action.equals("reject") ? "approve" : action));
         queries.head(actor, id, false);
         return execute(actor, action, key, Map.of("id", id, "input", input), 200, () -> {
+            if(action.equals("post"))invoices.lock(actor);
             workflow.guard(actor, TYPE, id, action);
             var before = queries.head(actor, id, true);
             version(before, input.version());
@@ -95,7 +98,7 @@ public class PriceAdjustmentService implements WorkflowBusiness {
             switch (action) {
                 case "submit" -> submit(actor, before, lines, input.workflowAssignees());
                 case "approve", "reject" -> review(actor, before, lines, action, input.reason());
-                case "post" -> { state(before, "approved"); posting.post(actor, before, lines); }
+                case "post" -> { state(before, "approved"); posting.post(actor, before, lines); invoices.changed(actor,TYPE,id,"采购调价已过账，来源额度变化，请重新核对"); }
                 case "void" -> { state(before, "draft", "rejected", "approved"); changeStatus(actor, id, "voided"); }
                 default -> throw invalid("调价操作无效");
             }

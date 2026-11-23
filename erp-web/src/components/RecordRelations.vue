@@ -115,6 +115,7 @@ const policyFields: FormField[] = [
   { key: 'reservationValidDays', label: '预留有效天数', kind: 'number', max: 365 },
   { key: 'reservationGraceDays', label: '交货日后宽限天数', kind: 'number', max: 90 },
   { key: 'overReceiptPct', label: '采购超收容差（百分比）' },
+  { key: 'invoiceMatchTolerance', label: '进项发票核对容差（元）', max: 25 },
   { key: 'separateOrderApprover', label: '订单审批经办复核分离', kind: 'boolean' },
   { key: 'separateReceiptConfirmer', label: '收付款确认经办复核分离', kind: 'boolean' },
   {

@@ -24,6 +24,9 @@ import static cn.erp.receiving.ReceivingQueries.*;
 @Service
 @Transactional
 public class ReceivingService {
+    private cn.erp.shared.InboundInvoiceChangePort invoices;
+    @org.springframework.beans.factory.annotation.Autowired
+    void invoices(cn.erp.shared.InboundInvoiceChangePort invoices) {this.invoices=invoices;}
     private final JdbcTemplate jdbc;
     private final ReceivingQueries queries;
     private final BusinessCommands commands;
@@ -97,9 +100,11 @@ public class ReceivingService {
                     Ids.next(),scope.tenantId(),scope.companyId(),header,++no,input.sourceId(),original.get("sku_id"),input.unitId(),rate,qty,base,inventory.encodeSelection(input.selection()),scope.userId(),scope.userId());
         }
     }
+    @Transactional(isolation=org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public Map<String,Object> command(CompanyAccess scope,boolean returning,long id,String action,String key,Long expectedVersion) {
         queries.header(scope,returning,id,false);
         return execute(scope,returning,action,key,List.of(id,expectedVersion==null?-1:expectedVersion),200,()->{
+            if(returning&&action.equals("post"))invoices.lock(scope);
             var snapshot=queries.header(scope,returning,id,false);
             Long period=Set.of("submit","post").contains(action)?period(scope,date(snapshot,"business_date")):null;
             var before=queries.header(scope,returning,id,true);version(expectedVersion,before);
@@ -107,7 +112,10 @@ public class ReceivingService {
             var lines=lockSources(scope,returning,id);
             if(action.equals("submit")) {submit(scope,returning,before,lines);}
             else if(action.equals("void")) {release(scope,returning,before,lines);}
-            else if(action.equals("post")) {post(scope,returning,before,lines,period);}
+            else if(action.equals("post")) {
+                post(scope,returning,before,lines,period);
+                if(returning)invoices.changed(scope,"purchase_return",id,"采购退货已过账，来源额度变化，请重新核对");
+            }
             else {throw invalid("单据操作无效");}
             var result=safe(scope,returning,id);audit.record(scope,table(returning)+"."+action,table(returning),id,Map.of("status",before.get("status"),"version",before.get("version")),result);return result;
         });

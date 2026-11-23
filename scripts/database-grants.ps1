@@ -32,6 +32,7 @@ try {
     $reportTables=@('shipment','shipment_line','sales_return','sales_return_line','goods_receipt','goods_receipt_line','purchase_return','purchase_return_line','receivable','payable','document_reversal','inventory_balance','inventory_cost','inventory_movement','cost_adjustment','partner_open_item','settlement_allocation','journal','journal_line','warehouse','sku','catalog_brand','business_partner','cash_account','receipt','payment','opening_entry','account_transfer','stock_adjustment','stock_count','stock_transfer','stock_misc_doc','qc_inspection','refund_request','report_snapshot_watermark')
     $reportTables+=@('crm_customer_profile','crm_business','crm_business_stage','crm_business_stage_event','crm_contract','crm_contract_line','crm_receivable','crm_follow_up')
     $reportTables+=@('mfg_work_order','mfg_work_order_material')
+    $reportTables+=@('price_adjustment','price_adjustment_line','price_adjustment_cost','purchase_fee_doc','purchase_fee_doc_line','purchase_fee_allocation','purchase_fee_cost','einv_inbound_match')
     foreach($table in $reportTables){if($table -in $tables){$sql.Add(('GRANT SELECT ON `{0}`.`{1}` TO ''{2}'';' -f $Database,$table,$ReportRole))}}
     $dashboardColumns=@{
         product='`tenant_id`,`id`,`category_id`'

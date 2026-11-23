@@ -339,6 +339,7 @@ final class WorkflowTestData {
         jdbc.update("UPDATE purchase_order_fee SET recognized_receipt_id=NULL WHERE tenant_id=?", tenant);
         for (String table :
                 List.of(
+                        "einv_inbound_match","einv_inbound","inbound_invoice_lock",
                         "sys_login_log",
                         "sys_api_access_log",
                         "sys_api_error_log",
@@ -375,6 +376,7 @@ final class WorkflowTestData {
                         "receivable",
                         "refund_request",
                         "receipt",
+                        "payment",
                         "cash_account",
                         "stock_adjustment_line",
                         "stock_adjustment",

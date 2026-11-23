@@ -84,6 +84,7 @@ class InboundInvoiceAmountsTest {
         assertThat(result.remainingUntaxed()).isEqualByComparingTo("100");
         assertThat(source.getFirst().untaxedAmount()).isEqualByComparingTo("100");
         assertThatThrownBy(() -> result.lines().add(null)).isInstanceOf(UnsupportedOperationException.class);
+        assertThat(InboundInvoiceAmounts.calculate(0, n("100"), n("13"), n("1"), List.of(), List.of()).matchStatus()).isEqualTo("pending");
     }
 
     @Test void decimalPrecisionIsPreservedAndInvalidMoneyNeverReachesRounding() {

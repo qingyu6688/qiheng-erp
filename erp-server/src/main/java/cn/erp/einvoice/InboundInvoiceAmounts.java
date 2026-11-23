@@ -28,8 +28,9 @@ final class InboundInvoiceAmounts {
                             BigDecimal tolerance, List<Available> available, List<Allocation> allocations) {
         requireMoney(invoiceUntaxed); requireMoney(invoiceTax); requireMoney(tolerance);
         requireMoney(invoiceUntaxed.add(invoiceTax));
-        if (supplierId <= 0 || invoiceUntaxed.add(invoiceTax).signum() == 0) throw invalid("发票供应商或金额无效");
+        if (invoiceUntaxed.add(invoiceTax).signum() == 0) throw invalid("发票供应商或金额无效");
         if (allocations == null || allocations.size() > MAX_LINES) throw invalid("一张发票最多核对200笔应付");
+        if (supplierId <= 0 && !allocations.isEmpty()) throw invalid("发票供应商或金额无效");
         var sources = sources(available);
         var used = new java.util.HashSet<Long>();
         var parts = new java.util.ArrayList<Part>();

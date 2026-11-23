@@ -17,10 +17,28 @@ import type { DataRow } from '../types/admin'
 import { useSessionStore } from '../stores/session'
 import { formatDateTime } from '../utils/format'
 import BusinessUserSelect from '../components/BusinessUserSelect.vue'
+import FinancialAmount from '../components/FinancialAmount.vue'
+import StatusTag from '../components/StatusTag.vue'
+const ProcurementSourceDrawer = defineAsyncComponent(
+  () => import('../components/procurement/ProcurementSourceDrawer.vue'),
+)
+const receiptDetailId = ref<string>()
+const mobileColumns = window.matchMedia?.('(max-width: 767px)')
+const compactColumns = ref(mobileColumns?.matches ?? false)
+function resizeColumns(event: MediaQueryListEvent): void {
+  compactColumns.value = event.matches
+}
+mobileColumns?.addEventListener('change', resizeColumns)
+function fixedInvoiceColumn(field: string): 'left' | 'right' | undefined {
+  if (props.type !== 'uninvoiced-receipts' || compactColumns.value) return undefined
+  return field === 'sourceNo' ? 'left' : field === 'uninvoicedAmount' ? 'right' : undefined
+}
 const PurchasePriceAdjustmentDrawer = defineAsyncComponent(
   () => import('../components/procurement/PurchasePriceAdjustmentDrawer.vue'),
 )
-const PurchaseFeeDrawer = defineAsyncComponent(() => import('../components/procurement/PurchaseFeeDrawer.vue'))
+const PurchaseFeeDrawer = defineAsyncComponent(
+  () => import('../components/procurement/PurchaseFeeDrawer.vue'),
+)
 const feeDetailId = ref<string>()
 const priceDetailId = ref<string>()
 const props = defineProps<{ type: string }>(),
@@ -241,7 +259,20 @@ function page(forward: boolean): void {
   void load()
 }
 function link(row: Record<string, unknown>): string | undefined {
-  if (['purchase_fee_doc', 'purchase_fee_doc_line', 'purchase_fee_cost'].includes(String(row.sourceType)) && !feeSourceId(row)) return undefined
+  if (
+    ['goods_receipt', 'goods_receipt_line', 'purchase_order_fee', 'goods_receipt_fee'].includes(
+      String(row.sourceType),
+    ) &&
+    !receiptSourceId(row)
+  )
+    return undefined
+  if (
+    ['purchase_fee_doc', 'purchase_fee_doc_line', 'purchase_fee_cost'].includes(
+      String(row.sourceType),
+    ) &&
+    !feeSourceId(row)
+  )
+    return undefined
   if (
     ['price_adjustment', 'price_adjustment_line', 'price_adjustment_cost'].includes(
       String(row.sourceType),
@@ -257,10 +288,33 @@ function link(row: Record<string, unknown>): string | undefined {
     return row.sourceUrl
   return documentLink(row.sourceType, row.sourceId)
 }
+function receiptSourceId(row: Record<string, unknown>): string | undefined {
+  return session.can('goods_receipt:view') &&
+    ['goods_receipt', 'goods_receipt_line', 'purchase_order_fee', 'goods_receipt_fee'].includes(
+      String(row.sourceType),
+    ) &&
+    typeof row.sourceId === 'string' &&
+    /^[1-9][0-9]*$/.test(row.sourceId)
+    ? row.sourceId
+    : undefined
+}
+function invoiceAmount(field: string): boolean {
+  return props.type === 'uninvoiced-receipts' && field.endsWith('Amount')
+}
+function amountValue(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
+}
 function feeSourceId(row: Record<string, unknown>): string | undefined {
-  return session.can('purchase_fee_doc:view') && session.can('cost:view') && session.can('goods_receipt:view')
-    && ['purchase_fee_doc', 'purchase_fee_doc_line', 'purchase_fee_cost'].includes(String(row.sourceType))
-    && typeof row.sourceId === 'string' && /^[1-9][0-9]*$/.test(row.sourceId) ? row.sourceId : undefined
+  return session.can('purchase_fee_doc:view') &&
+    session.can('cost:view') &&
+    session.can('goods_receipt:view') &&
+    ['purchase_fee_doc', 'purchase_fee_doc_line', 'purchase_fee_cost'].includes(
+      String(row.sourceType),
+    ) &&
+    typeof row.sourceId === 'string' &&
+    /^[1-9][0-9]*$/.test(row.sourceId)
+    ? row.sourceId
+    : undefined
 }
 function priceSourceId(row: Record<string, unknown>): string | undefined {
   if (
@@ -393,6 +447,7 @@ watch(
   { immediate: true },
 )
 onBeforeUnmount(() => {
+  mobileColumns?.removeEventListener('change', resizeColumns)
   revision++
   pageRequests.abort()
   reportRequest?.abort()
@@ -403,6 +458,9 @@ onBeforeUnmount(() => {
     <div>
       <h1>{{ spec.title }}{{ detail ? '明细' : '' }}</h1>
       <p v-if="agingReport">按截止日查看应收或应付未清金额。</p>
+      <p v-else-if="type === 'uninvoiced-receipts'">
+        按来源日期筛选，查看截止日尚未到票的采购额度。
+      </p>
       <p v-else-if="spec.snapshot">按当前数据快照统计。</p>
       <p v-else>按业务日期统计，退货与冲销按实际方向计入。</p>
     </div>
@@ -476,8 +534,9 @@ onBeforeUnmount(() => {
       </div>
       <template v-else-if="!spec.snapshot"
         ><div class="filter-field">
-          <label for="report-date-from">开始日期</label
-          ><input
+          <label for="report-date-from">{{
+            type === 'uninvoiced-receipts' ? '来源开始日期' : '开始日期'
+          }}</label><input
             id="report-date-from"
             v-model="dateFrom"
             class="el-input__inner"
@@ -486,8 +545,9 @@ onBeforeUnmount(() => {
           />
         </div>
         <div class="filter-field">
-          <label for="report-date-to">结束日期</label
-          ><input
+          <label for="report-date-to">{{
+            type === 'uninvoiced-receipts' ? '到票截止日' : '结束日期'
+          }}</label><input
             id="report-date-to"
             v-model="dateTo"
             class="el-input__inner"
@@ -543,14 +603,27 @@ onBeforeUnmount(() => {
       }}<template v-if="result.dataSource === 'replica'"> · 只读备库</template
       ><template v-if="result.statisticDate"> · 统计日 {{ result.statisticDate }}</template>
     </p>
+    <el-alert
+      v-if="typeof result?.summary.invoiceMatchNotice === 'string'"
+      :title="result.summary.invoiceMatchNotice"
+      type="info"
+      :closable="false"
+    />
     <dl v-if="result?.summary" class="report-summary">
       <template v-for="(value, field) in result.summary" :key="field"
         ><template
           v-if="
-            reportLabels[field] && (session.can('cost:view') || !/cost|grossMargin/i.test(field))
+            field !== 'invoiceMatchNotice' &&
+            reportLabels[field] &&
+            (session.can('cost:view') || !/cost|grossMargin/i.test(field))
           "
           ><dt>{{ reportLabels[field] }}</dt>
-          <dd>{{ reportCell(field, value) }}</dd></template
+          <dd>
+            <FinancialAmount v-if="invoiceAmount(field)" :value="amountValue(value)" /><template
+              v-else
+              >{{ reportCell(field, value) }}</template
+            >
+          </dd></template
         ></template
       >
     </dl>
@@ -559,10 +632,36 @@ onBeforeUnmount(() => {
         v-for="field in columns"
         :key="field"
         :label="columnLabel(field)"
-        min-width="140"
+        :fixed="fixedInvoiceColumn(field)"
+        :align="invoiceAmount(field) ? 'right' : undefined"
+        :class-name="
+          type === 'uninvoiced-receipts' && field.startsWith('uninvoiced')
+            ? 'invoice-emphasis'
+            : undefined
+        "
+        :min-width="
+          type === 'uninvoiced-receipts' && field === 'sourceNo'
+            ? compactColumns
+              ? 170
+              : 230
+            : 140
+        "
         ><template #default="{ row }"
           ><button
-            v-if="field === 'sourceNo' && feeSourceId(row)" type="button" class="text-link" @click="feeDetailId = feeSourceId(row)">{{ reportCell(field, row[field]) }}</button><button
+            v-if="field === 'sourceNo' && receiptSourceId(row)"
+            type="button"
+            class="text-link"
+            @click="receiptDetailId = receiptSourceId(row)"
+          >
+            {{ reportCell(field, row[field]) }}</button
+          ><button
+            v-else-if="field === 'sourceNo' && feeSourceId(row)"
+            type="button"
+            class="text-link"
+            @click="feeDetailId = feeSourceId(row)"
+          >
+            {{ reportCell(field, row[field]) }}</button
+          ><button
             v-else-if="field === 'sourceNo' && priceSourceId(row)"
             type="button"
             class="text-link"
@@ -574,10 +673,22 @@ onBeforeUnmount(() => {
             class="text-link"
             :to="link(row)!"
             >{{ reportCell(field, row[field]) }}</router-link
-          ><span v-else>{{ reportCell(field, row[field]) }}</span></template
+          ><FinancialAmount
+            v-else-if="invoiceAmount(field)"
+            :value="amountValue(row[field])"
+          /><StatusTag
+            v-else-if="field === 'invoicingStatus' && row[field]"
+            :label="reportCell(field, row[field])"
+            :tone="
+              row[field] === 'partial' ? 'info' : row[field] === 'invoiced' ? 'success' : 'neutral'
+            "
+          /><span v-else>{{ reportCell(field, row[field]) }}</span></template
         ></el-table-column
       >
-      <el-table-column label="追溯" min-width="100"
+      <el-table-column
+        label="追溯"
+        min-width="100"
+        :fixed="type === 'uninvoiced-receipts' && !compactColumns ? 'right' : undefined"
         ><template #default="{ row }"
           ><el-button
             v-if="(commercialSummary || groupBy === 'business_user') && row.detailUrl"
@@ -596,7 +707,13 @@ onBeforeUnmount(() => {
             @click="flow(row)"
             >库存流水</el-button
           ><el-button
-            v-else-if="feeSourceId(row)" text @click="feeDetailId = feeSourceId(row)">查看原单</el-button><el-button
+            v-else-if="receiptSourceId(row)"
+            text
+            @click="receiptDetailId = receiptSourceId(row)"
+            >查看原单</el-button
+          ><el-button v-else-if="feeSourceId(row)" text @click="feeDetailId = feeSourceId(row)"
+            >查看原单</el-button
+          ><el-button
             v-else-if="priceSourceId(row)"
             text
             @click="priceDetailId = priceSourceId(row)"
@@ -620,7 +737,18 @@ onBeforeUnmount(() => {
       </div>
     </footer>
   </section>
-  <PurchaseFeeDrawer v-if="feeDetailId" :key="String(session.companyId) + '-' + feeDetailId" :id="feeDetailId" @close="feeDetailId = undefined" />
+  <ProcurementSourceDrawer
+    v-if="receiptDetailId"
+    :key="String(session.companyId) + '-' + receiptDetailId"
+    :id="receiptDetailId"
+    @close="receiptDetailId = undefined"
+  />
+  <PurchaseFeeDrawer
+    v-if="feeDetailId"
+    :key="String(session.companyId) + '-' + feeDetailId"
+    :id="feeDetailId"
+    @close="feeDetailId = undefined"
+  />
   <PurchasePriceAdjustmentDrawer
     v-if="priceDetailId"
     :key="String(session.companyId) + '-' + priceDetailId"
@@ -644,5 +772,8 @@ onBeforeUnmount(() => {
 .report-summary dd {
   margin: 0 20px 0 0;
   font-variant-numeric: tabular-nums;
+}
+:deep(.invoice-emphasis) {
+  background: var(--erp-primary-1);
 }
 </style>

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { env } from 'node:process'
 
 interface Document {
@@ -18,6 +19,9 @@ interface Master {
   code: string
   units?: { unitId: string; isBase: boolean }[]
 }
+
+// 历史测试企业共用后台队列，下载验收等待处理结果，不以此作为容量指标。
+const EXPORT_COMPLETION_TIMEOUT_MS = 60_000
 
 async function login(page: Page, user: string): Promise<void> {
   if (!env.ERP_E2E_PASSWORD || !/^E2E-[a-f0-9]{12}$/.test(env.ERP_E2E_TENANT_CODE ?? ''))
@@ -282,6 +286,73 @@ test('真实采购和部分销售后调价，双人审批过账及右侧详情�
     await reportDrawer.getByRole('button', { name: '关闭', exact: true }).click()
     await expect(page).toHaveURL(reportUrl)
     await expect(reportRow).toBeVisible()
+
+    await page.goto(
+      `/reports/uninvoiced-receipts?warehouseId=${warehouse}&partnerId=${supplier}&dateFrom=${day}&dateTo=${day}`,
+    )
+    await expect(page.getByRole('heading', { name: '已收货未到票', exact: true })).toBeVisible()
+    const invoiceReportUrl = page.url()
+    const receiptReportRow = page
+      .locator('.el-table__body-wrapper')
+      .getByRole('row')
+      .filter({ has: page.getByRole('button', { name: receipt.documentNo, exact: true }) })
+    await expect(receiptReportRow.locator('.invoice-emphasis .financial-amount')).toHaveText([
+      '100.00',
+      '0.00',
+      '100.00',
+    ])
+    await receiptReportRow.getByRole('button', { name: '查看原单', exact: true }).click()
+    const receiptDrawer = page.getByRole('dialog', {
+      name: '采购收货 · ' + receipt.documentNo,
+      exact: true,
+    })
+    await expect(receiptDrawer.getByText('已过账', { exact: true })).toBeVisible()
+    await expect(receiptDrawer.getByText('已出库待签收', { exact: true })).toHaveCount(0)
+    await expect(receiptDrawer.getByText('采购调价验收仓', { exact: true })).toBeVisible()
+    await settledDrawer(page, receiptDrawer)
+    await expect(page).toHaveURL(invoiceReportUrl)
+    await page.screenshot({ path: info.outputPath('未到票报表收货原单右侧详情.png') })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await settledDrawer(page, receiptDrawer)
+    await expect
+      .poll(() =>
+        receiptDrawer
+          .locator('.source-detail')
+          .evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+      )
+      .toBe(true)
+    await page.screenshot({ path: info.outputPath('未到票收货原单移动端.png') })
+    await receiptDrawer.getByRole('button', { name: '关闭', exact: true }).click()
+    await expect(page).toHaveURL(invoiceReportUrl)
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await expect(receiptReportRow).toBeVisible()
+    await expect(
+      receiptReportRow.getByRole('button', { name: receipt.documentNo, exact: true }),
+    ).toBeInViewport()
+    await page.screenshot({ path: info.outputPath('未到票报表金额重点列.png'), fullPage: true })
+    const exported = page.waitForResponse(
+      (response) =>
+        response.url().endsWith('/api/v1/export-jobs') && response.request().method() === 'POST',
+    )
+    await page.getByRole('button', { name: '导出报表', exact: true }).click()
+    expect((await exported).status()).toBe(202)
+    const exportedRow = page
+      .locator('.el-table__body-wrapper')
+      .getByRole('row')
+      .filter({ hasText: '已收货未到票' })
+      .first()
+    await expect(exportedRow).toContainText('已完成', { timeout: EXPORT_COMPLETION_TIMEOUT_MS })
+    const downloaded = page.waitForEvent('download')
+    await exportedRow.getByRole('button', { name: '下载文件', exact: true }).click()
+    const download = await downloaded
+    const file = await download.path()
+    if (!file) throw new Error('未到票报表下载未生成文件')
+    const csv = await readFile(file, 'utf8')
+    expect(csv).toContain('未到票合计')
+    expect(csv).toContain(receipt.documentNo)
+    expect(csv).toContain(created.documentNo)
+    expect(csv).toContain('未到票')
+    expect(csv).not.toContain('sourceId')
     expect(errors).toEqual([])
   } finally {
     await reviewContext.close()

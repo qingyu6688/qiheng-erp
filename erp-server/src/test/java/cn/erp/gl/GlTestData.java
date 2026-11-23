@@ -120,6 +120,7 @@ class GlTestData {
         jdbc.update("UPDATE gl_subject SET parent_id=NULL WHERE tenant_id=?", tenant);
         for (String table :
                 List.of(
+                        "einv_inbound_match","einv_inbound","inbound_invoice_lock",
                         "inbox_event",
                         "outbox_event",
                         "idempotency_record",

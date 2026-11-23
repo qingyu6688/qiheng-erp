@@ -6,7 +6,7 @@ import java.util.*;
 
 public enum ReportType {
     INVENTORY_SUMMARY, INVENTORY_FLOW, UNSIGNED_SHIPMENTS, SALES_SUMMARY, PURCHASE_SUMMARY,
-    RECEIVABLE_AGING, PAYABLE_AGING, PARTNER_STATEMENT, CASH_JOURNAL, GROSS_MARGIN;
+    RECEIVABLE_AGING, PAYABLE_AGING, PARTNER_STATEMENT, CASH_JOURNAL, GROSS_MARGIN, UNINVOICED_RECEIPTS;
 
     public String code() { return name().toLowerCase(Locale.ROOT); }
     public String permission() { return "report:"+code(); }

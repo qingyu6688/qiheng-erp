@@ -30,9 +30,11 @@ class EInvoiceController {
     private final EInvoiceInbound inbound;
     private final EInvoiceFiles files;
     private final EInvoiceTaxCodes taxCodes;
+    private final InboundInvoiceMatching inboundMatching;
+    private final InboundInvoiceQueries inboundQueries;
 
     EInvoiceController(AccessService access,EInvoiceService service,EInvoiceSources sources,EInvoiceConfig config,
-                       EInvoiceInbound inbound,EInvoiceFiles files,EInvoiceTaxCodes taxCodes) {
+                       EInvoiceInbound inbound,EInvoiceFiles files,EInvoiceTaxCodes taxCodes,InboundInvoiceMatching inboundMatching,InboundInvoiceQueries inboundQueries) {
         this.access=access;
         this.service=service;
         this.sources=sources;
@@ -40,6 +42,7 @@ class EInvoiceController {
         this.inbound=inbound;
         this.files=files;
         this.taxCodes=taxCodes;
+        this.inboundMatching=inboundMatching;this.inboundQueries=inboundQueries;
     }
 
     @GetMapping("/requests")
@@ -101,8 +104,47 @@ class EInvoiceController {
     }
 
     @GetMapping("/inbound")
-    ApiResponse<?> listInbound(HttpServletRequest request,@RequestParam(required=false) Long cursor,@RequestParam(defaultValue="30") int limit) {
-        return ApiResponse.success(inbound.list(actor(request,"einv:inbound"),cursor,limit));
+    ApiResponse<?> listInbound(HttpServletRequest request,@RequestParam(required=false) Long cursor,@RequestParam(defaultValue="30") int limit,
+            @RequestParam(required=false) String matchStatus,@RequestParam(required=false) String source,@RequestParam(required=false) String keyword) {
+        return ApiResponse.success(inboundQueries.list(actor(request,"einv:inbound"),cursor,limit,matchStatus,source,keyword));
+    }
+
+    @GetMapping("/inbound/{id}")
+    ApiResponse<?> inboundDetail(HttpServletRequest request,@PathVariable long id) {return ApiResponse.success(inboundMatching.detail(actor(request,"einv:inbound"),id));}
+
+    @GetMapping("/inbound/{id}/history")
+    ApiResponse<?> inboundHistory(HttpServletRequest request,@PathVariable long id,@RequestParam(required=false) Long cursor,@RequestParam(defaultValue="50") int limit) {
+        return ApiResponse.success(inboundMatching.history(actor(request,"einv:inbound"),id,cursor,limit));
+    }
+
+    @GetMapping("/inbound/{id}/sources")
+    ApiResponse<?> inboundSources(HttpServletRequest request,@PathVariable long id,@RequestParam(required=false) Long cursor,@RequestParam(defaultValue="50") int limit) {
+        return ApiResponse.success(inboundMatching.candidates(actor(request,"einv:inbound"),id,cursor,limit));
+    }
+
+    @PostMapping("/inbound")
+    ApiResponse<?> registerInbound(HttpServletRequest request,@RequestHeader(value="Idempotency-Key",required=false) String key,@RequestBody @Valid InboundInvoiceMatching.Manual input) {
+        return ApiResponse.success(inboundMatching.register(actor(request,"einv:inbound_register"),key,input));
+    }
+
+    @PutMapping("/inbound/{id}")
+    ApiResponse<?> updateInbound(HttpServletRequest request,@PathVariable long id,@RequestHeader(value="Idempotency-Key",required=false) String key,@RequestBody @Valid InboundInvoiceMatching.Manual input) {
+        return ApiResponse.success(inboundMatching.update(actor(request,"einv:inbound_register"),id,key,input));
+    }
+
+    @PostMapping("/inbound/{id}/void")
+    ApiResponse<?> voidInbound(HttpServletRequest request,@PathVariable long id,@RequestHeader(value="Idempotency-Key",required=false) String key,@RequestBody @Valid InboundInvoiceMatching.Void input) {
+        return ApiResponse.success(inboundMatching.voidManual(actor(request,"einv:inbound_void"),id,key,input));
+    }
+
+    @PostMapping("/inbound/{id}/preview")
+    ApiResponse<?> previewInbound(HttpServletRequest request,@PathVariable long id,@RequestBody @Valid InboundInvoiceMatching.Allocation input) {
+        return ApiResponse.success(inboundMatching.preview(actor(request,"einv:inbound"),id,input));
+    }
+
+    @PostMapping("/inbound/{id}/allocations")
+    ApiResponse<?> allocateInbound(HttpServletRequest request,@PathVariable long id,@RequestHeader(value="Idempotency-Key",required=false) String key,@RequestBody @Valid InboundInvoiceMatching.Allocation input) {
+        return ApiResponse.success(inboundMatching.allocate(actor(request,"einv:inbound"),id,key,input));
     }
 
     @PostMapping("/inbound/sync")

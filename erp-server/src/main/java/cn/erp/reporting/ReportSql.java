@@ -17,6 +17,7 @@ final class ReportSql {
             case PAYABLE_AGING -> aging(false,actor);
             case PARTNER_STATEMENT -> statement(actor);
             case CASH_JOURNAL -> cash(actor);
+            case UNINVOICED_RECEIPTS -> throw new IllegalStateException("未到票报表须使用采购净额度读取器");
         };
     }
     private static String inventorySummary() {

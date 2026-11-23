@@ -134,6 +134,28 @@ export const reportSpecs = [
       'creditAmount',
       'openingBalance',
       'runningBalance',
+      'invoicingStatus',
+    ],
+  },
+  {
+    type: 'uninvoiced-receipts',
+    title: '已收货未到票',
+    fields: [
+      'sourceNo',
+      'partnerName',
+      'originalReceiptNo',
+      'businessDate',
+      'warehouseName',
+      'skuName',
+      'uninvoicedUntaxedAmount',
+      'uninvoicedTaxAmount',
+      'invoicingStatus',
+      'basisUntaxedAmount',
+      'basisTaxAmount',
+      'invoicedUntaxedAmount',
+      'invoicedTaxAmount',
+      'invoiceMatchNotice',
+      'uninvoicedAmount',
     ],
   },
   {
@@ -167,6 +189,17 @@ export const reportSpecs = [
   },
 ]
 export const reportLabels: Record<string, string> = {
+  originalReceiptNo: '原收货单号',
+  basisUntaxedAmount: '净可到票未税额',
+  basisTaxAmount: '净可到票税额',
+  invoicedUntaxedAmount: '已到票未税额',
+  invoicedTaxAmount: '已到票税额',
+  uninvoicedUntaxedAmount: '未到票未税额',
+  uninvoicedTaxAmount: '未到票税额',
+  uninvoicedAmount: '未到票合计',
+  invoicingStatus: '到票状态（截至结束日）',
+  invoiceMatchNotice: '核对提示',
+  invoiceCutoff: '到票截止日',
   businessUserName: '业务员',
   brandName: '品牌',
   warehouseName: '仓库',
@@ -238,6 +271,18 @@ export function reportPermission(type: string, operation = 'report'): string {
 export function reportCell(field: string, value: unknown): string {
   if (value === null || value === undefined || typeof value === 'object') return '—'
   const text = String(value)
+  if (field === 'invoicingStatus')
+    return (
+      (
+        {
+          uninvoiced: '未到票',
+          partial: '部分到票',
+          invoiced: '已到票',
+          not_required: '无待到票额度',
+          source_unavailable: '不适用或来源失效',
+        } as Record<string, string>
+      )[text] ?? text
+    )
   if (field === 'direction')
     return (
       (

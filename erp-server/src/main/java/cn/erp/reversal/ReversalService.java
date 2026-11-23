@@ -13,6 +13,9 @@ import static cn.erp.salesfinance.FinanceSupport.*;
 @Service
 @Transactional
 public class ReversalService {
+    private InboundInvoiceChangePort invoices;
+    @org.springframework.beans.factory.annotation.Autowired
+    void invoices(InboundInvoiceChangePort invoices) {this.invoices=invoices;}
     private cn.erp.shared.WorkflowPort workflow;
     @org.springframework.beans.factory.annotation.Autowired
     void workflow(cn.erp.shared.WorkflowPort workflow) {this.workflow=workflow;}
@@ -52,11 +55,13 @@ public class ReversalService {
         var result=new LinkedHashMap<String,Object>();result.put("createdBy",scope.userId());result.put("ownerDeptId",Objects.toString(source.get("owner_department_id"),"0"));result.put("sourceType",type);result.put("crossPeriod",!businessDate.toString().substring(0,7).equals(source.get("business_date").toString().substring(0,7)));
         result.put("totalAmount","0");for(String key:List.of("total_amount","receivable_amount","payable_amount","amount","total_cost"))if(source.get(key)!=null){result.put("totalAmount",source.get(key));break;}return result;
     }
+    @Transactional(isolation=org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public Map<String,Object> command(CompanyAccess scope,long id,String action,String key,ReversalModels.Version input) {
         var initial=find(scope,id,false);sources.head(scope,initial.get("source_type").toString(),id(initial,"source_id"),false);
         return execute(scope,action,key,List.of(id,input),200,()->{
             workflow.guard(scope,"document_reversal",id,action);
             var snapshot=find(scope,id,false);String type=snapshot.get("source_type").toString();long source=id(snapshot,"source_id");
+            if(action.equals("post")&&Set.of("goods_receipt","purchase_return","price_adjustment","purchase_fee_doc").contains(type))invoices.lock(scope);
             var day=((java.sql.Date)snapshot.get("business_date")).toLocalDate();
             long period=action.equals("post")?finance.period(scope,day):0;
             if(action.equals("post"))sources.prepare(scope,type,source,period,day);
@@ -74,6 +79,7 @@ public class ReversalService {
                 state(before,"approved");sources.posted(head,type);sources.dependencies(scope,type,source);
                 putaway.requireReversible(scope,type,source);
                 posting.post(scope,id,type,source,head,period,((java.sql.Date)before.get("business_date")).toLocalDate());
+                invoices.changed(scope,type,source,"采购来源已冲销，请重新核对");
                 putaway.cancelUntouched(scope,type,source);
                 jdbc.update("UPDATE document_reversal SET status='posted',period_id=?,posted_at=UTC_TIMESTAMP(3),version=version+1 WHERE id=?",period,id);
             } else throw invalid("冲销操作无效");

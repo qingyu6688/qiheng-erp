@@ -57,6 +57,19 @@ class IdentityAdministrationIT {
                 .isInstanceOf(ApiException.class);
     }
 
+    @Test void invoiceToleranceIsValidatedAndAnOldPolicyClientKeepsItsValue() {
+        var created=organization.create(actor,UUID.randomUUID().toString(),new CompanyInput("INV-TOL","发票容差公司",null,null,null,null));
+        long id=Long.parseLong(created.id());
+        assertThat(organization.policy(actor,id).invoiceMatchTolerance()).isEqualTo("1.00");
+        var saved=organization.policy(actor,id,new PolicyInput("general",30,7,"0.00",true,true,0L,"warn",null,true,"amount","0.05"));
+        assertThat(saved.invoiceMatchTolerance()).isEqualTo("0.05");
+        var oldClient=organization.policy(actor,id,new PolicyInput("general",30,7,"0.00",true,true,saved.version()));
+        assertThat(oldClient.invoiceMatchTolerance()).isEqualTo("0.05");
+        for(String invalid:List.of("-1","0.001","10000000000000000000000"))
+            assertThatThrownBy(()->organization.policy(actor,id,new PolicyInput("general",30,7,"0.00",true,true,oldClient.version(),"warn",null,true,"amount",invalid))).isInstanceOf(ApiException.class);
+        assertThat(organization.policy(actor,id).version()).isEqualTo(oldClient.version());
+    }
+
     @Test
     void companyAndPolicyChangesAreVersionedAndAudited() {
         var input=new CompanyInput("N","新公司",null,null,null,null);

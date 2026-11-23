@@ -1,6 +1,7 @@
 package cn.erp.reporting;
 
 import cn.erp.identity.CompanyAccess;
+import cn.erp.einvoice.InboundInvoiceReportData;
 import cn.erp.salesfinance.FinanceSupport;
 import cn.erp.shared.ApiException;
 import java.math.BigDecimal;
@@ -29,7 +30,7 @@ public class ReportService {
         result.put("reportType",type.code());result.put("asOf",snapshot.asOf());
         result.put("dataSource",database.replicaEnabled()?"replica":"primary");
         result.put("visibilityBasis",type==ReportType.INVENTORY_SUMMARY?"共享仓库实物快照，按公司和仓库范围查看":"当前公司、仓库与部门范围内的单据事实");
-        result.put("statisticDate",(query.agingDate()==null?LocalDate.now(ZoneId.of("Asia/Shanghai")):query.agingDate()).toString());
+        result.put("statisticDate",(type==ReportType.UNINVOICED_RECEIPTS?query.normalized().dateTo():query.agingDate()==null?LocalDate.now(ZoneId.of("Asia/Shanghai")):query.agingDate()).toString());
         result.put("items",snapshot.items().subList(offset,Math.min(offset+limit,snapshot.items().size())));
         result.put("nextCursor",offset+limit<snapshot.items().size()?Integer.toString(offset+limit):null);
         result.put("summary",snapshot.summary());result.put("rowCount",snapshot.items().size());return result;
@@ -60,6 +61,7 @@ public class ReportService {
     private Snapshot snapshotInside(CompanyAccess actor,ReportType type,ReportQuery input,boolean customerStatement) {
         type.authorize(actor,false);var query=input.normalized();
         if(query.warehouseId()!=null && !actor.allowsWarehouse(query.warehouseId())) { throw new ApiException(404,"NOT_FOUND","仓库不存在或无权查看"); }
+        if(type==ReportType.UNINVOICED_RECEIPTS)return uninvoiced(actor,query);
         var params=new HashMap<String,Object>();params.put("t",actor.tenantId());params.put("c",actor.companyId());
         var today=LocalDate.now(ZoneId.of("Asia/Shanghai"));
         boolean agingReport=agingReport(type);
@@ -132,6 +134,7 @@ public class ReportService {
         if(raw.size()>MAX_ROWS) { throw invalid("报表超过50000行，请缩小日期或筛选范围后重试"); }
         var asOf=database.asOf();
         if(type==ReportType.PARTNER_STATEMENT || type==ReportType.CASH_JOURNAL) { raw=balances(raw,query,type); }
+        if(type==ReportType.PARTNER_STATEMENT&&!customerStatement)new InboundInvoiceReportData(jdbc).annotateStatement(actor,query.dateTo(),raw);
         names(actor,raw);
         documentNumbers(actor,raw);
         var agingBounds=agingReport?aging.bounds(actor):List.<Integer>of();
@@ -177,6 +180,30 @@ public class ReportService {
             default -> "business_date";
         });
         return new Snapshot(asOf,List.copyOf(items),summary);
+    }
+
+    private Snapshot uninvoiced(CompanyAccess actor,ReportQuery query) {
+        if(query.cashAccountId()!=null||query.businessUserId()!=null||query.agingDate()!=null||"due".equals(query.agingBasis())
+                ||!"standard".equals(query.groupBy())||Boolean.TRUE.equals(query.feesOnly()))
+            throw invalid("未到票报表支持来源日期、供应商、仓库和商品筛选");
+        var rows=new InboundInvoiceReportData(jdbc).sources(actor,query.dateFrom(),query.dateTo(),query.partnerId()).stream().filter(row->{
+            var day=LocalDate.parse(row.get("business_date").toString());
+            return !day.isBefore(query.dateFrom())&&(query.warehouseId()==null||query.warehouseId().toString().equals(Objects.toString(row.get("warehouse_id"))))
+                    &&(query.skuId()==null||query.skuId().toString().equals(Objects.toString(row.get("sku_id"))))
+                    &&(row.get("warehouse_id")==null?actor.allWarehouses():actor.allowsWarehouse(Long.parseLong(row.get("warehouse_id").toString())))
+                    &&((BigDecimal)row.get("uninvoiced_amount")).signum()>0;
+        }).sorted(Comparator.<Map<String,Object>,String>comparing(row->row.get("business_date").toString()).thenComparingLong(row->Long.parseLong(row.get("id").toString()))).toList();
+        names(actor,rows);
+        var totals=new LinkedHashMap<String,BigDecimal>();var items=new ArrayList<Map<String,Object>>();
+        for(var row:rows) {
+            row.forEach((field,value)->{if(value instanceof BigDecimal amount)totals.merge(field,amount,BigDecimal::add);});
+            var item=FinanceSupport.row(row);source(item);items.add(item);
+        }
+        var summary=new LinkedHashMap<String,Object>();totals.forEach((field,value)->summary.put(camel(field),value.toPlainString()));
+        for(String field:List.of("basisUntaxedAmount","basisTaxAmount","invoicedUntaxedAmount","invoicedTaxAmount","uninvoicedUntaxedAmount","uninvoicedTaxAmount","uninvoicedAmount"))summary.putIfAbsent(field,"0.00");
+        summary.put("dateFrom",query.dateFrom().toString());summary.put("dateTo",query.dateTo().toString());summary.put("invoiceCutoff",query.dateTo().toString());summary.put("basis","historical_snapshot");
+        summary.put("invoiceMatchNotice","按采购来源业务日期筛选，并还原截止日的到票额度；资金已结清仍可未到票。旧版迁移关系的核对日期按旧记录更新时间还原。");
+        return new Snapshot(database.asOf(),List.copyOf(items),summary);
     }
 
     private static boolean agingReport(ReportType type) {

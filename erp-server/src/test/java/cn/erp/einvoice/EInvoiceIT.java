@@ -53,6 +53,7 @@ class EInvoiceIT {
     @Autowired EInvoiceWorker worker;
     @Autowired EInvoiceFiles files;
     @Autowired EInvoiceInbound inbound;
+    @Autowired InboundInvoiceMatching matching;
     @Autowired EInvoiceConfig config;
     @Autowired EInvoiceSources sources;
     @Autowired InvoiceService legacy;
@@ -82,6 +83,7 @@ class EInvoiceIT {
         jdbc.update("INSERT INTO warehouse(id,tenant_id,company_id,code,name) VALUES(?,?,?,'A','发票回归仓库'),(?,?,?,'B','其他仓库')",
                 warehouse,tenant,company,otherWarehouse,tenant,company);
         jdbc.update("INSERT INTO business_partner(id,tenant_id,code,name,tax_no) VALUES(?,?,'PARTNER','验收往来单位',?)",partner,tenant,taxNo);
+        jdbc.update("INSERT INTO partner_role(id,tenant_id,partner_id,role) VALUES(?,?,?,'supplier')",Ids.next(),tenant,partner);
         jdbc.update("INSERT INTO unit(id,tenant_id,name) VALUES(?,?,'件')",unit,tenant);
         long category=Ids.next(),product=Ids.next();
         jdbc.update("INSERT INTO product_category(id,tenant_id,code,name,path) VALUES(?,?,'CAT','验收分类',?)",category,tenant,"/"+category+"/");
@@ -95,7 +97,7 @@ class EInvoiceIT {
         seedPayable();
         String hash=passwords.encode(password);
         register(maker,tenant,company,"maker",hash,List.of("einv:view","einv:create","einv:submit"));
-        register(checker,tenant,company,"checker",hash,List.of("einv:view","einv:submit","einv:red_issue","einv:download","einv:manage","einv:inbound","sku:view","sku:update"));
+        register(checker,tenant,company,"checker",hash,List.of("einv:view","einv:submit","einv:red_issue","einv:download","einv:manage","einv:inbound","einv:inbound_register","einv:inbound_void","sku:view","sku:update"));
         register(viewer,tenant,company,"viewer",hash,List.of("einv:view"));
         jdbc.update("INSERT INTO org_user_data_scope(id,tenant_id,user_id,scope_type,company_id) VALUES(?,?,?,'company',?)",Ids.next(),tenant,viewer,otherCompany);
         register(noPermission,tenant,company,"member",hash,List.of());
@@ -109,11 +111,11 @@ class EInvoiceIT {
     void cleanup() {
         logs.flush();
         jdbc.queryForList("SELECT storage_key FROM attachment WHERE tenant_id=?",String.class,tenant).forEach(objects::delete);
-        for(String table:List.of("einv_file_task","einv_file","attachment","einv_inbound","einv_issue_line","einv_issue_request",
+        for(String table:List.of("einv_inbound_match","inbound_invoice_lock","einv_file_task","einv_file","attachment","einv_inbound","einv_issue_line","einv_issue_request",
                 "einv_provider_config","invoice_registration_line","invoice_registration","receivable","payable","goods_receipt","shipment_line","shipment",
                 "sales_order_line","sales_order","unit_conversion","sku","product","product_category","unit","idempotency_record","audit_log",
                 "sys_api_access_log","sys_api_error_log","sys_login_log","org_user_data_scope","sys_user_role","sys_role_permission","sys_role","sys_user",
-                "accounting_period","business_partner","warehouse","company")) {
+                "accounting_period","partner_role","business_partner","warehouse","company_policy","company")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id IN (?,?)",tenant,foreign);
         }
         jdbc.update("DELETE FROM tenant WHERE id IN (?,?)",tenant,foreign);
@@ -237,11 +239,154 @@ class EInvoiceIT {
         var updated=finance.send("GET","/inbound",null,200).get(0);
         assertThat(updated.path("status").asString()).isEqualTo("red_issued");
         assertThat(updated.path("payableId").isNull()).isTrue();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM einv_inbound_match WHERE invoice_id=? AND released_at IS NULL",Integer.class,id)).isZero();
+        long version=updated.path("version").asLong();
+        finance.send("POST","/inbound/sync",Map.of("from",today,"to",today),200);
+        assertThat(finance.send("GET","/inbound/"+id,null,200).path("version").asLong()).isEqualTo(version);
+        when(provider.downloadInbound(any(),eq(today),eq(today))).thenReturn(List.of(inbound("normal")));
+        finance.send("POST","/inbound/sync",Map.of("from",today,"to",today),200);
+        assertThat(finance.send("GET","/inbound/"+id,null,200).path("status").asString()).isEqualTo("red_issued");
         assertThat(jdbc.queryForObject("SELECT invoiced_amount FROM payable WHERE id=?",BigDecimal.class,payable)).isEqualByComparingTo("0");
     }
 
     private EInvoiceProvider.Inbound inbound(String status) {
         return new EInvoiceProvider.Inbound("TESTIN001","验收供应商",taxNo,today,new BigDecimal("113.00"),new BigDecimal("13.00"),status,true);
+    }
+
+    @Test void manualInvoiceAllocatesAcrossPayablesAndRetainsOriginalFacts() throws Exception {
+        var finance=new Browser("checker",tenantCode,company);
+        long second=extraPayable("226.00","200.00","26.00");
+        var originals=jdbc.queryForList("SELECT * FROM payable WHERE tenant_id=? ORDER BY id",tenant);
+        var invoice=finance.send("POST","/inbound",manual("MANUAL-MULTI","339.00","39.00"),200,"manual-create");
+        String id=invoice.path("id").asString();
+        assertThat(invoice.path("source").asString()).isEqualTo("manual");
+        var input=Map.of("version",0,"lines",List.of(allocation(payable,"100","13","100","13"),allocation(second,"200","26","200","26")));
+        var preview=finance.send("POST","/inbound/"+id+"/preview",input,200);
+        assertThat(preview.path("fullyAllocated").asBoolean()).isTrue();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM einv_inbound_match WHERE tenant_id=?",Integer.class,tenant)).isZero();
+        var saved=finance.send("POST","/inbound/"+id+"/allocations",input,200,"many-sources");
+        assertThat(saved.path("matchStatus").asString()).isEqualTo("matched");
+        assertThat(saved.path("payableId").isNull()).isTrue();
+        assertThat(saved.path("allocations").size()).isEqualTo(2);
+        assertThat(finance.send("POST","/inbound/"+id+"/allocations",input,200,"many-sources")).isEqualTo(saved);
+        assertThat(jdbc.queryForList("SELECT * FROM payable WHERE tenant_id=? ORDER BY id",tenant)).isEqualTo(originals);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM einv_inbound_match WHERE tenant_id=? AND released_at IS NULL",Integer.class,tenant)).isEqualTo(2);
+    }
+
+    @Test void severalInvoicesShareAQuotaAndCannotOversubscribeOrBorrowTax() throws Exception {
+        var finance=new Browser("checker",tenantCode,company);
+        String first=finance.send("POST","/inbound",manual("MANUAL-PART-1","56.50","6.50"),200).path("id").asString();
+        String second=finance.send("POST","/inbound",manual("MANUAL-PART-2","56.50","6.50"),200).path("id").asString();
+        var half=Map.of("version",0,"lines",List.of(allocation(payable,"50","6.50","50","6.50")));
+        finance.send("POST","/inbound/"+first+"/allocations",half,200);
+        var candidates=finance.send("GET","/inbound/"+second+"/sources",null,200).path("items");
+        assertThat(candidates.get(0).path("availableUntaxedAmount").asString()).isEqualTo("50.00");
+        assertThat(candidates.get(0).path("availableTaxAmount").asString()).isEqualTo("6.50");
+        finance.send("POST","/inbound/"+second+"/allocations",half,200);
+        String third=finance.send("POST","/inbound",manual("MANUAL-OVER","1.00","0"),200).path("id").asString();
+        finance.send("POST","/inbound/"+third+"/allocations",Map.of("version",0,"lines",List.of(allocation(payable,"1","0","1","0"))),409);
+        assertThat(finance.send("GET","/inbound/"+third+"/sources",null,200).path("items")).isEmpty();
+        var clear=Map.of("version",1,"lines",List.of());
+        finance.send("POST","/inbound/"+first+"/allocations",clear,200);
+        assertThat(finance.send("GET","/inbound/"+first+"/history",null,200).path("items").get(0).path("releasedReason").asString()).contains("解除");
+        var invalidTax=Map.of("version",0,"lines",List.of(allocation(payable,"0.50","0.50","0","1")));
+        finance.send("POST","/inbound/"+third+"/allocations",invalidTax,409);
+    }
+
+    @Test void tailCompletesTheSourceWhileManualCorrectionsAndVoidKeepAuditHistory() throws Exception {
+        var finance=new Browser("checker",tenantCode,company);
+        String id=finance.send("POST","/inbound",manual("MANUAL-TAIL","112.99","13"),200).path("id").asString();
+        var saved=finance.send("POST","/inbound/"+id+"/allocations",Map.of("version",0,"lines",List.of(allocation(payable,"99.99","13","100","13"))),200);
+        assertThat(saved.path("absoluteDifference").asString()).isEqualTo("0.01");
+        assertThat(saved.path("matchStatus").asString()).isEqualTo("difference");
+        assertThat(saved.path("fullyAllocated").asBoolean()).isTrue();
+        var edit=new java.util.LinkedHashMap<>(manual("MANUAL-TAIL","113","13"));edit.put("version",1);
+        finance.send("PUT","/inbound/"+id,edit,422);
+        finance.send("POST","/inbound/"+id+"/allocations",Map.of("version",1,"lines",List.of()),200);
+        edit.put("version",2);finance.send("PUT","/inbound/"+id,edit,200);
+        var voided=finance.send("POST","/inbound/"+id+"/void",Map.of("version",3,"reason","纸质票金额更正后退回"),200);
+        assertThat(voided.path("status").asString()).isEqualTo("voided");
+        assertThat(voided.path("history").path("items")).hasSize(1);
+        finance.send("POST","/inbound/"+id+"/allocations",Map.of("version",4,"lines",List.of()),409);
+        assertThat(jdbc.queryForObject("SELECT amount FROM payable WHERE id=?",BigDecimal.class,payable)).isEqualByComparingTo("113");
+    }
+
+    @Test void excessiveDifferenceAndMissingNewPermissionDoNotWriteRelations() throws Exception {
+        var finance=new Browser("checker",tenantCode,company);
+        String id=finance.send("POST","/inbound",manual("MANUAL-DIFF","114.01","13"),200).path("id").asString();
+        finance.send("POST","/inbound/"+id+"/allocations",Map.of("version",0,"lines",List.of(allocation(payable,"101.01","13","100","13"))),422);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM einv_inbound_match WHERE tenant_id=?",Integer.class,tenant)).isZero();
+        var readOnly=new Browser("viewer",tenantCode,company);
+        readOnly.send("POST","/inbound",manual("NO-AUTH","1","0"),403);
+        var external=new Browser("outsider",foreignCode,foreignCompany);
+        external.send("GET","/inbound/"+id,null,404);
+        finance.send("POST","/inbound",manual("MANUAL-DIFF","114.01","13"),409);
+    }
+
+    private Map<String,Object> manual(String no,String amount,String tax) {
+        return Map.of("supplierId",Long.toString(partner),"invoiceNo",no,"sellerTaxNo",taxNo,"invoiceDate",today,"receivedDate",today,"amount",amount,"taxAmount",tax);
+    }
+
+    @Test void providerInvoiceCannotBindAnExplicitPayableWithMissingSupplierTaxIdentity() throws Exception {
+        var finance=new Browser("checker",tenantCode,company);
+        when(provider.downloadInbound(any(),eq(today),eq(today))).thenReturn(List.of(inbound("normal")));
+        finance.send("POST","/inbound/sync",Map.of("from",today,"to",today),200);
+        String id=finance.send("GET","/inbound",null,200).get(0).path("id").asString();
+        var input=Map.of("version",0,"lines",List.of(allocation(payable,"100","13","100","13")));
+        for(String missingTax:new String[]{null,"","   "}) {
+            jdbc.update("UPDATE business_partner SET tax_no=? WHERE id=?",missingTax,partner);
+            finance.send("POST","/inbound/"+id+"/allocations",input,404);
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM einv_inbound_match WHERE invoice_id=?",Integer.class,id)).isZero();
+        jdbc.update("UPDATE business_partner SET tax_no=? WHERE id=?",taxNo,partner);
+        finance.send("POST","/inbound/"+id+"/allocations",input,200);
+    }
+
+    @Test void companyToleranceControlsRealAllocationAndDuplicateImportNeverOverwritesManualData() throws Exception {
+        var finance=new Browser("checker",tenantCode,company);
+        jdbc.update("INSERT INTO company_policy(id,tenant_id,company_id,invoice_match_tolerance) VALUES(?,?,?,0.01)",Ids.next(),tenant,company);
+        String id=finance.send("POST","/inbound",manual("TESTIN001","112.98","13"),200).path("id").asString();
+        var input=Map.of("version",0,"lines",List.of(allocation(payable,"99.98","13","100","13")));
+        finance.send("POST","/inbound/"+id+"/allocations",input,422);
+        jdbc.update("UPDATE company_policy SET invoice_match_tolerance=0.02 WHERE tenant_id=?",tenant);
+        finance.send("POST","/inbound/"+id+"/allocations",input,200);
+        var before=finance.send("GET","/inbound/"+id,null,200);
+        when(provider.downloadInbound(any(),eq(today),eq(today))).thenReturn(List.of(
+                new EInvoiceProvider.Inbound("AAA-NEW","验收供应商",taxNo,today,new BigDecimal("1.00"),BigDecimal.ZERO,"normal",false),inbound("normal")));
+        finance.send("POST","/inbound/sync",Map.of("from",today,"to",today),409);
+        assertThat(finance.send("GET","/inbound/"+id,null,200)).isEqualTo(before);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM einv_inbound WHERE tenant_id=?",Integer.class,tenant)).isEqualTo(1);
+    }
+
+    @Test void concurrentInvoicesCannotBothConsumeTheSamePayableQuota() throws Exception {
+        var finance=new Browser("checker",tenantCode,company);
+        long first=Long.parseLong(finance.send("POST","/inbound",manual("RACE-1","113","13"),200).path("id").asString());
+        long second=Long.parseLong(finance.send("POST","/inbound",manual("RACE-2","113","13"),200).path("id").asString());
+        var actor=new CompanyAccess(tenant,checker,company,true,Set.of(),Set.of("einv:view","einv:inbound"));
+        var input=new InboundInvoiceMatching.Allocation(0L,List.of(new InboundInvoiceMatching.Line(payable,"100","13","100","13")));
+        var barrier=new java.util.concurrent.CyclicBarrier(2);
+        var pool=java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var futures=List.of(first,second).stream().map(id->pool.submit(()->{
+                barrier.await(5,java.util.concurrent.TimeUnit.SECONDS);
+                try {return matching.allocate(actor,id,UUID.randomUUID().toString(),input).get("matchStatus").toString();}
+                catch(ApiException conflict) {return conflict.getErrorCode();}
+            })).toList();
+            var outcomes=new java.util.ArrayList<String>();
+            for(var future:futures)outcomes.add(future.get(30,java.util.concurrent.TimeUnit.SECONDS));
+            assertThat(outcomes).containsExactlyInAnyOrder("matched","INVOICE_ALLOCATION_CONFLICT");
+            assertThat(jdbc.queryForObject("SELECT SUM(payable_untaxed_amount+payable_tax_amount) FROM einv_inbound_match WHERE tenant_id=? AND released_at IS NULL",BigDecimal.class,tenant)).isEqualByComparingTo("113");
+        } finally {pool.shutdownNow();}
+    }
+    private Map<String,Object> allocation(long payableId,String iu,String it,String pu,String pt) {
+        return Map.of("payableId",Long.toString(payableId),"invoiceUntaxedAmount",iu,"invoiceTaxAmount",it,"payableUntaxedAmount",pu,"payableTaxAmount",pt);
+    }
+    private long extraPayable(String amount,String untaxed,String tax) {
+        long id=Ids.next(),line=Ids.next();
+        long receipt=jdbc.queryForObject("SELECT source_id FROM payable WHERE id=?",Long.class,payable);
+        jdbc.update("INSERT INTO payable(id,tenant_id,company_id,supplier_id,kind,source_type,source_id,source_line_id,amount,untaxed_amount,tax_amount,business_date,period_id) VALUES(?,?,?,?,'charge','goods_receipt_line',?,?,?,?,?,?,?)",
+                id,tenant,company,partner,receipt,line,new BigDecimal(amount),new BigDecimal(untaxed),new BigDecimal(tax),today,period);
+        return id;
     }
 
     private void seedSignedShipment() {
