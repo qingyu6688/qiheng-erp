@@ -57,6 +57,7 @@ class EInvoiceIT {
     @Autowired EInvoiceConfig config;
     @Autowired EInvoiceSources sources;
     @Autowired InvoiceService legacy;
+    @Autowired cn.erp.invoicing.ManualInvoiceRedService manualReds;
     @Autowired ObjectFiles objects;
     @Autowired ApiLogWriter logs;
     @MockitoBean EInvoiceProvider provider;
@@ -112,7 +113,7 @@ class EInvoiceIT {
         logs.flush();
         jdbc.queryForList("SELECT storage_key FROM attachment WHERE tenant_id=?",String.class,tenant).forEach(objects::delete);
         for(String table:List.of("einv_inbound_match","inbound_invoice_lock","einv_file_task","einv_file","attachment","einv_inbound","einv_issue_line","einv_issue_request",
-                "einv_provider_config","invoice_registration_line","invoice_registration","receivable","payable","goods_receipt","shipment_line","shipment",
+                "einv_provider_config","invoice_red_registration","invoice_registration_line","invoice_registration","receivable","payable","goods_receipt","shipment_line","shipment",
                 "sales_order_line","sales_order","unit_conversion","sku","product","product_category","unit","idempotency_record","audit_log",
                 "sys_api_access_log","sys_api_error_log","sys_login_log","org_user_data_scope","sys_user_role","sys_role_permission","sys_role","sys_user",
                 "accounting_period","partner_role","business_partner","warehouse","company_policy","company")) {
@@ -144,6 +145,9 @@ class EInvoiceIT {
         finance.send("POST","/requests/"+id+"/submit",Map.of("version",0),200);
         long registration=jdbc.queryForObject("SELECT invoice_registration_id FROM einv_issue_request WHERE id=?",Long.class,id);
         assertCode(()->legacy.voidInvoice(approver,registration,0,"manual-bypass"),"ELECTRONIC_INVOICE_REQUIRES_RED");
+        var manualActor=new CompanyAccess(tenant,checker,company,true,Set.of(),Set.of("invoice_registration:view","invoice_red:view","invoice_red:create"));
+        assertCode(()->manualReds.create(manualActor,"manual-red-bypass",new cn.erp.invoicing.ManualInvoiceRedService.Input(
+                registration,0L,"MANUAL-RED",today,"113","13","禁止以手工红字释放数电预留")),"MANUAL_INVOICE_REQUIRED");
         assertThat(invoiced()).isEqualByComparingTo("113.00");
         var winner=new EInvoiceProvider.Result(ISSUED,"TESTBLUE001",today);
         when(provider.issue(any(),eq("issue-"+id),argThat(payload->payload.amount().compareTo(new BigDecimal("113"))==0
@@ -454,6 +458,42 @@ class EInvoiceIT {
                 """,payable,tenant,company,partner,receipt,Ids.next(),today,period);
     }
 
+    @Test void manualRedEndpointsValidateAuthenticateAndConfirmTheWholeBlueWithTwoUsers() throws Exception {
+        long registration=Long.parseLong(legacy.create(approver,"manual-blue-http",new InvoiceService.Input("sales",partner,"MANUAL-BLUE-HTTP",today,
+                "113","13",List.of(new InvoiceService.Line(ar,"113")),null)).get("id").toString());
+        for(long user:List.of(maker,checker)) {
+            long role=jdbc.queryForObject("SELECT role_id FROM sys_user_role WHERE tenant_id=? AND user_id=?",Long.class,tenant,user);
+            for(String permission:List.of("invoice_registration:view","invoice_red:view","invoice_red:create","invoice_red:confirm","invoice_red:cancel"))
+                jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) SELECT ?,?,?,id FROM sys_permission WHERE code=?",
+                        Ids.next(),tenant,role,permission);
+        }
+        var author=new Browser("maker",tenantCode,company);
+        var finance=new Browser("checker",tenantCode,company);
+        var readOnly=new Browser("viewer",tenantCode,company);
+        assertThat(readOnly.sendApi("GET","/manual-invoice-reds",null,403,"unused").asString()).isEqualTo("FORBIDDEN");
+        author.sendApi("POST","/manual-invoice-reds",Map.of("invoiceId",Long.toString(registration)),400,"invalid-red");
+        var input=Map.of("invoiceId",Long.toString(registration),"sourceVersion",0,"redInvoiceNo","RED-MANUAL-HTTP",
+                "redInvoiceDate",today.toString(),"amount","113","taxAmount","13","reason","整票红字后按新净额重开");
+        var created=author.sendApi("POST","/manual-invoice-reds",input,201,"manual-red-http");
+        String id=created.path("id").asString();
+        assertThat(author.sendApi("POST","/manual-invoice-reds",input,201,"manual-red-http").path("id").asString()).isEqualTo(id);
+        assertThat(invoiced()).isEqualByComparingTo("113");
+        assertThat(author.sendApi("POST","/manual-invoice-reds/"+id+"/confirm",Map.of("version",0),422,"self-confirm").asString())
+                .isEqualTo("TWO_PERSON_REQUIRED");
+        var confirmed=finance.sendApi("POST","/manual-invoice-reds/"+id+"/confirm",Map.of("version",0),200,"manual-confirm-http");
+        assertThat(confirmed.path("status").asString()).isEqualTo("confirmed");
+        assertThat(finance.sendApi("POST","/manual-invoice-reds/"+id+"/confirm",Map.of("version",0),200,"manual-confirm-http")).isEqualTo(confirmed);
+        assertThat(invoiced()).isZero();
+        assertThat(author.sendApi("GET","/manual-invoice-reds?invoiceId="+registration+"&status=confirmed",null,200,"unused").path("items").size()).isEqualTo(1);
+        assertThat(author.sendApi("GET","/manual-invoice-reds/"+id,null,200,"unused").path("lines").get(0).path("receivableId").asString()).isEqualTo(Long.toString(ar));
+        String replacement=legacy.create(approver,"manual-replacement-http",new InvoiceService.Input("sales",partner,"MANUAL-REPLACEMENT",today,
+                "113","13",List.of(new InvoiceService.Line(ar,"113")),null)).get("id").toString();
+        var duplicateNumber=new java.util.LinkedHashMap<String,Object>(input);
+        duplicateNumber.put("invoiceId",replacement);
+        assertThat(author.sendApi("POST","/manual-invoice-reds",duplicateNumber,409,"duplicate-red-number").asString()).isEqualTo("DUPLICATE");
+        assertThat(invoiced()).isEqualByComparingTo("113");
+    }
+
     private void register(long user,long tenant,long company,String name,String hash,List<String> permissions) {
         long role=Ids.next();
         jdbc.update("INSERT INTO sys_user(id,tenant_id,username,display_name,password_hash) VALUES(?,?,?,?,?)",user,tenant,name,name,hash);
@@ -493,7 +533,11 @@ class EInvoiceIT {
         }
 
         private JsonNode send(String method,String path,Object body,int status,String key) throws Exception {
-            var response=client.send(request(method,path,body,key),HttpResponse.BodyHandlers.ofString());
+            return sendApi(method,"/e-invoices"+path,body,status,key);
+        }
+
+        private JsonNode sendApi(String method,String path,Object body,int status,String key) throws Exception {
+            var response=client.send(requestApi(method,path,body,key),HttpResponse.BodyHandlers.ofString());
             assertThat(response.statusCode()).as("%s %s %s",method,path,response.body()).isEqualTo(status);
             return json.readTree(response.body()).path(status>=400?"errorCode":"data");
         }
@@ -503,7 +547,11 @@ class EInvoiceIT {
         }
 
         private HttpRequest request(String method,String path,Object body,String key) {
-            var builder=HttpRequest.newBuilder(uri("/e-invoices"+path)).header("X-Company-Id",Long.toString(company))
+            return requestApi(method,"/e-invoices"+path,body,key);
+        }
+
+        private HttpRequest requestApi(String method,String path,Object body,String key) {
+            var builder=HttpRequest.newBuilder(uri(path)).header("X-Company-Id",Long.toString(company))
                     .header("Content-Type","application/json")
                     .method(method,body==null?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body)));
             if(!method.equals("GET"))builder.header("Idempotency-Key",key).header("X-XSRF-TOKEN",cookies.getCookieStore().getCookies().stream()

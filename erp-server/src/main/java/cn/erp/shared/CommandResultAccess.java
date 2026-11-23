@@ -19,6 +19,15 @@ public class CommandResultAccess {
             return;
         }
         if(!(actor instanceof WarehouseScope scope) || !(response instanceof Map<?,?> row)) {return;}
+        if(operation.startsWith("invoice_registration.")&&row.get("id")!=null)
+            SalesInvoiceScope.registration(jdbc,actor,Long.parseLong(row.get("id").toString()));
+        if(operation.startsWith("invoice_red.")) {
+            String action=operation.substring(operation.indexOf('.')+1);
+            if(!(actor instanceof PermissionScope permissions)||!permissions.hasPermission("invoice_red:view")
+                    ||!permissions.hasPermission("invoice_registration:view")||!permissions.hasPermission("invoice_red:"+action))
+                throw new ApiException(403,"FORBIDDEN","无权读取当前红字登记操作结果");
+            SalesInvoiceScope.red(jdbc,actor,row.get("id"));return;
+        }
         if(operation.startsWith("einv.inbound_")) {
             String permission=operation.equals("einv.inbound_register")||operation.equals("einv.inbound_update")?"einv:inbound_register":operation.equals("einv.inbound_void")?"einv:inbound_void":"einv:inbound";
             if(!(actor instanceof PermissionScope permissions)||!permissions.hasPermission("einv:view")||!permissions.hasPermission("einv:inbound")||!permissions.hasPermission(permission))throw new ApiException(403,"FORBIDDEN","无权读取当前进项操作结果");

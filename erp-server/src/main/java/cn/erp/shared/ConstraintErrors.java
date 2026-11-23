@@ -14,6 +14,9 @@ final class ConstraintErrors {
         if (!match.find()) { return unexpected(); }
         String name = match.group();
         return switch (name) {
+            case "uk_invoice_red_active" -> new ApiException(409, "INVOICE_RED_EXISTS", "原票已有待确认或已确认红字登记");
+            case "uk_invoice_red_number" -> new ApiException(409, "DUPLICATE", "红字发票号已登记");
+            case "ck_invoice_red_review" -> business("TWO_PERSON_REQUIRED", "红字复核人须与登记人不同");
             case "ck_inventory_balance_available" -> business("INVENTORY_INSUFFICIENT", "可用库存不足");
             case "ck_sales_order_line_progress" -> business("SHIP_QTY_EXCEEDED", "发货数量超过剩余数量");
             case "ck_purchase_order_line_progress" -> business("RECEIVE_QTY_EXCEEDED", "收货数量超过可收上限");
