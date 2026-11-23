@@ -219,7 +219,7 @@ afterEach(() => {
 
 it('手工整票登记在网络未知后冻结原票版本、金额及键，确认前显示占用未释放', async () => {
   vi.mocked(manual.createManualInvoiceRed)
-    .mockRejectedValueOnce(new Error('网络中断'))
+    .mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', '网络中断'))
     .mockResolvedValueOnce(red())
   const wrapper = manualView()
   await flushPromises()
@@ -347,7 +347,7 @@ it('只读上下文保留红字事实但隐藏登记、确认与撤回', async (
 
 it('数电红字未知结果保持原版本与键，普通读取已开具状态不能冒充处理完成', async () => {
   vi.mocked(electronic.invoiceAction)
-    .mockRejectedValueOnce(new Error('响应中断'))
+    .mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', '响应中断'))
     .mockResolvedValueOnce({ id: '900' })
   const wrapper = electronicView()
   await flushPromises()

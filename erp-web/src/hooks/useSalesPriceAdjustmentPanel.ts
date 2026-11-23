@@ -306,7 +306,12 @@ export function useSalesPriceAdjustmentPanel(
     } catch (cause: unknown) {
       if (!isCancelled(cause)) {
         readError(cause)
-        if (cause instanceof ApiError && cause.status < 500 && cause.code !== 'REQUEST_IN_PROGRESS')
+        if (
+          cause instanceof ApiError &&
+          cause.status >= 400 &&
+          cause.status < 500 &&
+          cause.code !== 'REQUEST_IN_PROGRESS'
+        )
           pending.value = undefined
       }
     } finally {

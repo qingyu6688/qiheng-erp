@@ -210,7 +210,7 @@ it('在列表右侧查看与关闭详情，不改变路由、筛选或重新加�
 
 it('网络结果不明时冻结原载荷与幂等键，重试成功后读取已经保存的同一单据', async () => {
   vi.mocked(api.saveSalesPriceAdjustment)
-    .mockRejectedValueOnce(new Error('网络中断'))
+    .mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', '网络中断'))
     .mockResolvedValueOnce(document())
   const receipt = {
     id: '100',

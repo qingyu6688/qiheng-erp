@@ -7,6 +7,7 @@ import PurchasePriceAdjustmentPage from '../src/pages/PurchasePriceAdjustmentPag
 import * as api from '../src/api/price-adjustments'
 import type { PriceAdjustment } from '../src/types/price-adjustments'
 import type { ProcurementDocument } from '../src/types/procurement'
+import { ApiError } from '../src/api/http'
 import { confirmCompanyLeave, hasUnsavedWork } from '../src/utils/unsaved'
 
 vi.mock('../src/api/price-adjustments')
@@ -188,7 +189,7 @@ it('在列表右侧查看与关闭详情，不改变路由、筛选或重新加�
 
 it('网络结果不明时冻结原载荷与幂等键，重试成功后读取已经保存的同一单据', async () => {
   vi.mocked(api.savePriceAdjustment)
-    .mockRejectedValueOnce(new Error('网络中断'))
+    .mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', '网络中断'))
     .mockResolvedValueOnce(document())
   const receipt = {
     id: '100',
