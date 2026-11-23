@@ -263,6 +263,7 @@ onBeforeUnmount(() => {
 
 <template>
   <el-drawer
+    class="sales-invoice-drawer"
     :model-value="true"
     :title="blue ? '原票及红字 · ' + blue.invoiceNo : '原票及红字详情'"
     direction="rtl"
@@ -449,6 +450,13 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+:global(.sales-invoice-drawer .el-drawer__header) {
+  align-items: flex-start;
+}
+:global(.sales-invoice-drawer .el-drawer__title) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .red-summary,
 .red-fields {
   display: grid;

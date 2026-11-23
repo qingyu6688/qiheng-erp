@@ -75,6 +75,7 @@ function reversalSaved(value: StockDocument): void {
 
 <template>
   <el-drawer
+    class="sales-price-adjustment-drawer"
     :model-value="true"
     :title="document ? '销售调价 · ' + document.documentNo : '新建销售调价单'"
     direction="rtl"
@@ -463,6 +464,13 @@ function reversalSaved(value: StockDocument): void {
 </template>
 
 <style scoped>
+:global(.sales-price-adjustment-drawer .el-drawer__header) {
+  align-items: flex-start;
+}
+:global(.sales-price-adjustment-drawer .el-drawer__title) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .price-invoice-list {
   list-style: none;
   margin: 12px 0 0;
