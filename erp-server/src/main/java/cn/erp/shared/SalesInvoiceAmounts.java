@@ -16,6 +16,12 @@ public class SalesInvoiceAmounts {
                            BigDecimal used, BigDecimal groupAmount, BigDecimal groupUsed) {
         public String group() { return shipmentLineId == null ? "receivable:" + receivableId : "shipment:" + shipmentLineId; }
         public BigDecimal available() { return amount.subtract(used).min(groupAmount.subtract(groupUsed)).max(BigDecimal.ZERO); }
+        public BigDecimal availableTax() {
+            BigDecimal remaining = available();
+            if (remaining.signum() == 0 || amount.signum() == 0) return BigDecimal.ZERO.setScale(2);
+            return tax.multiply(used.add(remaining)).divide(amount, 2, java.math.RoundingMode.HALF_UP)
+                    .subtract(tax.multiply(used).divide(amount, 2, java.math.RoundingMode.HALF_UP));
+        }
     }
     private final JdbcTemplate jdbc;
     public SalesInvoiceAmounts(JdbcTemplate jdbc) { this.jdbc = jdbc; }

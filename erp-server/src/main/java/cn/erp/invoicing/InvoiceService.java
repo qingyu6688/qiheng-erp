@@ -29,8 +29,9 @@ public class InvoiceService {
     private final BusinessCommands commands;
     private final SalesInvoiceLock invoiceLock;
     private final SalesInvoiceAmounts invoiceAmounts;
-    public InvoiceService(JdbcTemplate jdbc,AuditService audit,BusinessCommands commands,SalesInvoiceLock invoiceLock,SalesInvoiceAmounts invoiceAmounts) {
-        this.jdbc=jdbc;this.audit=audit;this.commands=commands;this.invoiceLock=invoiceLock;this.invoiceAmounts=invoiceAmounts;
+    private final SalesReceivableLabels receivableLabels;
+    public InvoiceService(JdbcTemplate jdbc,AuditService audit,BusinessCommands commands,SalesInvoiceLock invoiceLock,SalesInvoiceAmounts invoiceAmounts,SalesReceivableLabels receivableLabels) {
+        this.jdbc=jdbc;this.audit=audit;this.commands=commands;this.invoiceLock=invoiceLock;this.invoiceAmounts=invoiceAmounts;this.receivableLabels=receivableLabels;
     }
 
     @Transactional(isolation=Isolation.READ_COMMITTED)
@@ -168,7 +169,13 @@ public class InvoiceService {
         if(rows.isEmpty()) {throw missing();}
         var result=view(rows.getFirst());
         result.put("partnerName",jdbc.queryForObject("SELECT name FROM business_partner WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),rows.getFirst().get("partner_id")));
-        result.put("lines",jdbc.queryForList("SELECT id,receivable_id,amount FROM invoice_registration_line WHERE tenant_id=? AND company_id=? AND invoice_id=? ORDER BY id",scope.tenantId(),scope.companyId(),id).stream().map(InvoiceService::view).toList());
+        var lines=jdbc.queryForList("SELECT id,receivable_id,amount FROM invoice_registration_line WHERE tenant_id=? AND company_id=? AND invoice_id=? ORDER BY id",scope.tenantId(),scope.companyId(),id);
+        var labels=receivableLabels.labels(scope,lines.stream().map(line->line.get("receivable_id")).filter(Objects::nonNull).map(value->((Number)value).longValue()).toList());
+        for(var line:lines) {
+            Object ar=line.get("receivable_id");
+            if(ar!=null) line.putAll(labels.getOrDefault(((Number)ar).longValue(),Map.of()));
+        }
+        result.put("lines",lines.stream().map(InvoiceService::view).toList());
         var red=jdbc.queryForList("SELECT id,status FROM invoice_red_registration WHERE tenant_id=? AND company_id=? AND invoice_id=? AND status IN('pending','confirmed')",
                 scope.tenantId(),scope.companyId(),id);
         result.put("manualRedStatus",red.isEmpty()?null:red.getFirst().get("status"));

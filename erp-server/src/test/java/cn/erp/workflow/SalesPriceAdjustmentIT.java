@@ -39,6 +39,7 @@ import cn.erp.reporting.ReportService;
 import cn.erp.reporting.ReportType;
 import cn.erp.salesfinance.FinanceModels;
 import cn.erp.salesfinance.SalesReturnService;
+import cn.erp.salesfinance.SalesFinanceQueries;
 import cn.erp.salesorder.SalesOrderModels;
 import cn.erp.salesorder.SalesOrderService;
 import cn.erp.shared.ApiException;
@@ -60,6 +61,7 @@ class SalesPriceAdjustmentIT {
     @Autowired ReceivingService receiving;
     @Autowired ShipmentService shipments;
     @Autowired SalesReturnService returns;
+    @Autowired SalesFinanceQueries finance;
     @Autowired SalesPriceAdjustmentService prices;
     @Autowired SalesPriceAdjustmentQueries queries;
     @Autowired PriceAdjustmentQueries purchasePrices;
@@ -156,7 +158,31 @@ class SalesPriceAdjustmentIT {
         long extra=jdbc.queryForObject("SELECT id FROM receivable WHERE source_type='price_adjustment_line' AND source_id=?",Long.class,adjustment);
         var input=new InvoiceService.Input("sales",d.customer,key(),d.day.plusDays(3),"99.44","11.44",
                 List.of(new InvoiceService.Line(ar,"90.40"),new InvoiceService.Line(extra,"9.04")),null);
-        assertThat(invoices.create(actor(d.maker),key(),input)).containsEntry("taxDiffAmount","0.00");zeroDifferences();
+        var before=jdbc.queryForList("SELECT id,amount,tax_amount,invoiced_amount FROM receivable WHERE tenant_id=? ORDER BY id",d.tenant);
+        var candidates=finance.receivables(actor(d.maker),d.customer,false,null,200,true);
+        assertThat(before).isEqualTo(jdbc.queryForList("SELECT id,amount,tax_amount,invoiced_amount FROM receivable WHERE tenant_id=? ORDER BY id",d.tenant));
+        @SuppressWarnings("unchecked") var rows=(List<Map<String,Object>>)candidates.get("items");
+        assertThat(rows).hasSize(2);
+        assertThat(rows.stream().filter(row->row.get("id").equals(""+ar)).findFirst().orElseThrow())
+                .containsEntry("amount","113.00").containsEntry("invoiceAvailableAmount","90.40").containsEntry("invoiceAvailableTaxAmount","10.40");
+        var adjustmentRow=rows.stream().filter(row->row.get("id").equals(""+extra)).findFirst().orElseThrow();
+        assertThat(adjustmentRow).containsEntry("invoiceAvailableAmount","9.04").containsEntry("invoiceAvailableTaxAmount","1.04")
+                .containsEntry("sourceNo",queries.get(actor(d.maker),adjustment).get("documentNo"));
+        assertThat(adjustmentRow.get("skuName")).isNotNull();
+        var first=finance.receivables(actor(d.maker),d.customer,false,null,1,true);
+        assertThat(first.get("nextCursor")).isNotNull();
+        @SuppressWarnings("unchecked") var next=(List<Map<String,Object>>)finance.receivables(actor(d.maker),d.customer,false,Long.parseLong(first.get("nextCursor").toString()),1,true).get("items");
+        assertThat(next).hasSize(1);
+        var blue=invoices.create(actor(d.maker),key(),input);
+        assertThat(blue).containsEntry("taxDiffAmount","0.00");
+        @SuppressWarnings("unchecked") var sources=(List<Map<String,Object>>)blue.get("lines");
+        assertThat(sources).hasSize(2).allSatisfy(row->{assertThat(row.get("sourceNo")).isNotNull();assertThat(row.get("skuName")).isNotNull();assertThat(row).doesNotContainKeys("costAmount","signedCostAmount");});
+        assertThat(sources.stream().map(row->row.get("id"))).doesNotContain(""+ar,""+extra);
+        @SuppressWarnings("unchecked") var used=(List<Map<String,Object>>)finance.receivables(actor(d.maker),d.customer,false,null,200,true).get("items");
+        assertThat(used).allSatisfy(row->assertThat(new BigDecimal(row.get("invoiceAvailableAmount").toString())).isZero());
+        var restricted=new CompanyAccess(d.tenant,d.maker,d.company,false,Set.of(Ids.next()),actor(d.maker).permissions());
+        assertThat((List<?>)finance.receivables(restricted,d.customer,false,null,200,true).get("items")).isEmpty();
+        zeroDifferences();
     }
 
     @Test void differentReviewerClosedPeriodAndChangedSourceAreEnforced() {

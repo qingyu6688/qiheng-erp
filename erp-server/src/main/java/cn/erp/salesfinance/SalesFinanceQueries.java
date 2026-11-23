@@ -21,27 +21,42 @@ public class SalesFinanceQueries {
     private final AuditService audit;
     private final SalesOrderQueries orders;
     private final PurchaseOrderQueries purchaseOrders;
-    public SalesFinanceQueries(JdbcTemplate jdbc,FinanceSupport support,SettlementService settlement,BusinessCommands commands,AuditService audit,SalesOrderQueries orders,PurchaseOrderQueries purchaseOrders) {
-        this.jdbc=jdbc;this.support=support;this.settlement=settlement;this.commands=commands;this.audit=audit;this.orders=orders;this.purchaseOrders=purchaseOrders;
+    private final SalesInvoiceAmounts invoiceAmounts;
+    private final SalesReceivableLabels receivableLabels;
+    public SalesFinanceQueries(JdbcTemplate jdbc,FinanceSupport support,SettlementService settlement,BusinessCommands commands,AuditService audit,SalesOrderQueries orders,PurchaseOrderQueries purchaseOrders,SalesInvoiceAmounts invoiceAmounts,SalesReceivableLabels receivableLabels) {
+        this.jdbc=jdbc;this.support=support;this.settlement=settlement;this.commands=commands;this.audit=audit;this.orders=orders;this.purchaseOrders=purchaseOrders;this.invoiceAmounts=invoiceAmounts;this.receivableLabels=receivableLabels;
     }
 
     public Map<String,Object> receivables(CompanyAccess scope,Long customer,boolean openOnly,Long cursor,int limit) {
+        return receivables(scope,customer,openOnly,cursor,limit,false);
+    }
+
+    public Map<String,Object> receivables(CompanyAccess scope,Long customer,boolean openOnly,Long cursor,int limit,boolean invoiceable) {
         long before=cursor(cursor,limit);
-        return page(jdbc.queryForList("""
+        var rows=jdbc.queryForList("""
                 SELECT r.id,r.customer_id,r.kind,r.amount,r.tax_amount,r.untaxed_amount,r.business_date,
-                r.source_type,r.source_id,r.source_line_id,r.invoiced_amount,
-                CASE WHEN r.source_type='sales_return_line' THEN sr.return_no ELSE sh.shipment_no END source_no,s.name sku_name
+                r.source_type,r.source_id,r.source_line_id,r.invoiced_amount
                 FROM receivable r LEFT JOIN partner_open_item i ON i.tenant_id=r.tenant_id AND i.company_id=r.company_id
                     AND i.item_type='receivable' AND i.source_id=r.id
-                LEFT JOIN shipment sh ON sh.tenant_id=r.tenant_id AND sh.company_id=r.company_id AND r.source_type IN('shipment_line','sales_order_fee') AND sh.id=r.source_id
-                LEFT JOIN shipment_line sl ON sl.tenant_id=r.tenant_id AND sl.company_id=r.company_id AND r.source_type='shipment_line' AND sl.id=r.source_line_id
-                LEFT JOIN sales_return sr ON sr.tenant_id=r.tenant_id AND sr.company_id=r.company_id AND r.source_type='sales_return_line' AND sr.id=r.source_id
-                LEFT JOIN sales_return_line rl ON rl.tenant_id=r.tenant_id AND rl.company_id=r.company_id AND r.source_type='sales_return_line' AND rl.id=r.source_line_id
-                LEFT JOIN sku s ON s.tenant_id=r.tenant_id AND s.id=COALESCE(sl.sku_id,rl.sku_id)
                 WHERE r.tenant_id=? AND r.company_id=? AND r.id<? AND (? IS NULL OR r.customer_id=?)
                     AND r.posting_action='post' AND r.source_type<>'document_reversal' AND NOT EXISTS(SELECT 1 FROM receivable reversed WHERE reversed.tenant_id=r.tenant_id AND reversed.company_id=r.company_id AND reversed.reverses_receivable_id=r.id)
-                    AND (?=0 OR i.open_amount>0) AND %s ORDER BY r.id DESC LIMIT ?
-                """.formatted(cn.erp.shared.OrgOwnership.sourceCondition(scope,"r.source_type","r.source_id")),scope.tenantId(),scope.companyId(),before,customer,customer,openOnly,limit+1),limit);
+                    AND (?=0 OR i.open_amount>0) AND (?=0 OR r.kind='charge') AND %s ORDER BY r.id DESC LIMIT ?
+                """.formatted(SalesInvoiceScope.receivableCondition(scope,"r")),scope.tenantId(),scope.companyId(),before,customer,customer,openOnly,invoiceable,limit+1);
+        var visible=rows.stream().limit(limit).toList();
+        var ids=visible.stream().map(row->((Number)row.get("id")).longValue()).toList();
+        var labels=receivableLabels.labels(scope,ids);
+        var capacities=invoiceable?invoiceAmounts.capacities(scope,ids):Map.<Long,SalesInvoiceAmounts.Capacity>of();
+        for(var row:visible) {
+            long id=((Number)row.get("id")).longValue();
+            row.putAll(labels.getOrDefault(id,Map.of()));
+            var capacity=capacities.get(id);
+            if(capacity!=null) {
+                row.put("invoice_quota_amount",capacity.amount());
+                row.put("invoice_available_amount",capacity.available());
+                row.put("invoice_available_tax_amount",capacity.availableTax());
+            }
+        }
+        return page(rows,limit);
     }
 
     public Map<String,Object> payables(CompanyAccess scope,Long supplier,boolean openOnly,Long cursor,int limit) {

@@ -2,6 +2,10 @@ export interface InvoiceRegistrationLine {
   id: string
   receivableId: string
   amount: string
+  sourceNo?: string | null
+  sourceType?: string | null
+  sourceId?: string | null
+  skuName?: string | null
 }
 
 export interface InvoiceRegistration {

@@ -121,6 +121,94 @@ it('发货来源保留字符串ID和单位，切换客户清除旧来源', async
   wrapper.unmount()
 })
 
+it('手工开票突出净额度，零额度首页仍能加载后续来源', async () => {
+  vi.mocked(api.candidates)
+    .mockResolvedValueOnce({
+      items: [{ id: '90', kind: 'charge', invoiceAvailableAmount: '0.00' }],
+      nextCursor: '90',
+    })
+    .mockResolvedValueOnce({
+      items: [
+        {
+          id: '89',
+          kind: 'charge',
+          sourceNo: 'SPA-1',
+          skuName: '调价商品',
+          amount: '999999999999999999.99',
+          invoiceAvailableAmount: '13.56',
+          invoiceAvailableTaxAmount: '1.56',
+        },
+      ],
+      nextCursor: null,
+    })
+  const wrapper = mount(DocumentEditor, {
+    props: { kind: 'invoice-registrations' },
+    global: { stubs },
+  })
+  await flushPromises()
+  await wrapper.get('#doc-customer').setValue('20')
+  await flushPromises()
+  expect(api.candidates).toHaveBeenCalledWith(
+    'receivables',
+    expect.objectContaining({ customerId: '20', invoiceable: true }),
+  )
+  expect(wrapper.get('select[aria-label="来源行1"]').text()).not.toContain('90')
+  await click(wrapper, '更多来源')
+  expect(api.candidates).toHaveBeenLastCalledWith(
+    'receivables',
+    expect.objectContaining({ cursor: '90', invoiceable: true }),
+  )
+  expect(wrapper.get('select[aria-label="来源行1"]').text()).toContain(
+    'SPA-1 · 调价商品 · 原金额 999999999999999999.99 · 可开票 13.56 · 可开税额 1.56',
+  )
+  expect(wrapper.findAll('button').some((button) => button.text() === '更多来源')).toBe(false)
+  wrapper.unmount()
+})
+
+it('切客户拒绝迟到的开票下一页，翻页撤权清除已有来源', async () => {
+  let complete: ((result: Awaited<ReturnType<typeof api.candidates>>) => void) | undefined
+  vi.mocked(api.candidates)
+    .mockResolvedValueOnce({
+      items: [
+        { id: '90', kind: 'charge', sourceNo: '旧客户来源', invoiceAvailableAmount: '10.00' },
+      ],
+      nextCursor: '90',
+    })
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve
+        }),
+    )
+    .mockResolvedValueOnce({
+      items: [{ id: '80', kind: 'charge', sourceNo: '新客户来源', invoiceAvailableAmount: '0.01' }],
+      nextCursor: '80',
+    })
+    .mockRejectedValueOnce(new ApiError(403, 'FORBIDDEN', '权限已变更'))
+  const wrapper = mount(DocumentEditor, {
+    props: { kind: 'invoice-registrations' },
+    global: { stubs },
+  })
+  await flushPromises()
+  await wrapper.get('#doc-customer').setValue('20')
+  await flushPromises()
+  await click(wrapper, '更多来源')
+  await wrapper.get('#doc-customer').setValue('21')
+  await flushPromises()
+  complete?.({
+    items: [{ id: '89', kind: 'charge', sourceNo: '迟到来源', invoiceAvailableAmount: '5.00' }],
+    nextCursor: null,
+  })
+  await flushPromises()
+  expect(wrapper.text()).not.toContain('迟到来源')
+  expect(wrapper.text()).not.toContain('旧客户来源')
+  expect(wrapper.text()).toContain('新客户来源')
+  await click(wrapper, '更多来源')
+  expect(wrapper.text()).not.toContain('新客户来源')
+  expect(wrapper.text()).toContain('权限已变更')
+  wrapper.unmount()
+})
+
 it('收款无订单和收入目录权限时不请求无权目录', async () => {
   blocked.add('sales_order:view')
   blocked.add('income_expense_item:view')

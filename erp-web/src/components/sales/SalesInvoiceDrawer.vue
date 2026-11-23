@@ -320,7 +320,12 @@ onBeforeUnmount(() => {
       <h3>原票全部来源</h3>
       <p class="red-help">整票红字涉及以下全部应收来源，确认前请逐项核对。</p>
       <el-table :data="blue.lines" row-key="id" empty-text="暂无来源明细" max-height="360">
-        <el-table-column prop="receivableId" label="应收来源编号" min-width="220" />
+        <el-table-column label="原单 / 商品" min-width="260">
+          <template #default="{ row }">
+            <strong>{{ row.skuName ?? '应收来源' }}</strong>
+            <div class="red-help">{{ row.sourceNo ?? row.receivableId ?? '历史来源' }}</div>
+          </template>
+        </el-table-column>
         <el-table-column label="票面分配金额（元）" min-width="180" align="right"
           ><template #default="{ row }"><FinancialAmount :value="row.amount" /></template
         ></el-table-column>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onScopeDispose, reactive, ref, watch } from 'vue'
 import { allRecords } from '../../api/admin'
 import { candidates, commandResult, saveDocument } from '../../api/sales'
 import { ApiError, isCancelled, messageOf, newIdempotencyKey } from '../../api/http'
@@ -10,6 +10,7 @@ import { useSessionStore } from '../../stores/session'
 import BusinessUserSelect from '../BusinessUserSelect.vue'
 import StockSelectionFields from '../stock-operations/StockSelectionFields.vue'
 import type { StockSelection } from '../../types/inventory-tracking'
+import FinancialAmount from '../FinancialAmount.vue'
 
 const props = defineProps<{ kind: Exclude<SalesKind, 'sales-orders'>; original?: SalesDocument }>()
 const emit = defineEmits<{ close: []; saved: [SalesDocument] }>()
@@ -61,6 +62,7 @@ const partners = ref<DataRow[]>([]),
   receipts = ref<DataRow[]>([]),
   income = ref<DataRow[]>([])
 const sources = ref<Record<string, unknown>[]>([])
+const sourceCursor = ref<string | null>(null)
 const busy = ref(false),
   loading = ref(true),
   loadingSources = ref(false),
@@ -80,10 +82,12 @@ function sourceName(row: Record<string, unknown>): string {
   if (props.kind === 'invoice-registrations')
     return (
       source +
-      ' · 金额 ' +
+      ' · 原金额 ' +
       String(row.amount ?? '') +
-      ' · 已开票 ' +
-      String(row.invoicedAmount ?? '0.00')
+      ' · 可开票 ' +
+      String(row.invoiceAvailableAmount ?? '待刷新') +
+      ' · 可开税额 ' +
+      String(row.invoiceAvailableTaxAmount ?? '待刷新')
     )
   return (
     source +
@@ -102,14 +106,18 @@ function chooseSource(line: InputLine): void {
   if (!line.qty) line.qty = '1'
 }
 let revision = 0
-async function loadSources(): Promise<void> {
+async function loadSources(more = false): Promise<void> {
   const current = ++revision
-  sources.value = []
+  if (!more) {
+    sources.value = []
+    sourceCursor.value = null
+  }
   if (!form.customerId) {
     loadingSources.value = false
     return
   }
   loadingSources.value = true
+  error.value = ''
   try {
     const path =
       props.kind === 'shipments'
@@ -122,18 +130,42 @@ async function loadSources(): Promise<void> {
       warehouseId: form.warehouseId || undefined,
       shippable: props.kind === 'shipments',
       returnable: props.kind === 'sales-returns',
+      ...(props.kind === 'invoice-registrations' ? { invoiceable: true } : {}),
+      ...(more && sourceCursor.value ? { cursor: sourceCursor.value } : {}),
     })
-    if (current === revision)
-      sources.value =
+    if (current === revision) {
+      const items =
         props.kind === 'invoice-registrations'
-          ? result.items.filter((row) => row.kind === 'charge')
+          ? result.items.filter(
+              (row) =>
+                row.kind === 'charge' &&
+                (row.invoiceAvailableAmount === undefined ||
+                  /^(?:0*[1-9][0-9]*(?:\.[0-9]+)?|0+\.0*[1-9][0-9]*)$/.test(
+                    String(row.invoiceAvailableAmount),
+                  )),
+            )
           : result.items
+      sources.value = [
+        ...new Map([...sources.value, ...items].map((row) => [String(row.id), row])).values(),
+      ]
+      sourceCursor.value = result.nextCursor
+    }
   } catch (cause: unknown) {
-    if (current === revision && !isCancelled(cause)) error.value = messageOf(cause)
+    if (current === revision && !isCancelled(cause)) {
+      if (cause instanceof ApiError && [403, 404].includes(cause.status)) {
+        sources.value = []
+        sourceCursor.value = null
+        lines.value = []
+      }
+      error.value = messageOf(cause)
+    }
   } finally {
     if (current === revision) loadingSources.value = false
   }
 }
+onScopeDispose(() => {
+  revision++
+})
 watch(
   () => [form.customerId, form.warehouseId],
   () => {
@@ -182,7 +214,14 @@ onMounted(async () => {
   }
 })
 function addLine(): void {
-  lines.value.push({ sourceId: '', skuId: '', unitId: '', qty: '1', qualityResult: 'pending', amount: '' })
+  lines.value.push({
+    sourceId: '',
+    skuId: '',
+    unitId: '',
+    qty: '1',
+    qualityResult: 'pending',
+    amount: '',
+  })
 }
 function body(): Record<string, unknown> {
   const version = props.original?.version
@@ -195,7 +234,12 @@ function body(): Record<string, unknown> {
       businessDate: form.businessDate,
       deliveryMethod: form.deliveryMethod,
       remark: form.remark,
-      lines: lines.value.map((l) => ({ orderLineId: l.sourceId, unitId: l.unitId, qty: l.qty, stockSelection: l.stockSelection ?? undefined })),
+      lines: lines.value.map((l) => ({
+        orderLineId: l.sourceId,
+        unitId: l.unitId,
+        qty: l.qty,
+        stockSelection: l.stockSelection ?? undefined,
+      })),
     }
   if (props.kind === 'sales-returns')
     return {
@@ -425,7 +469,20 @@ async function verify(): Promise<void> {
               :key="String(s.id)"
               :value="String(s.id)"
               :label="sourceName(s)"
-          /></el-select>
+              :style="
+                kind === 'invoice-registrations' ? { height: 'auto', minHeight: '54px' } : undefined
+              "
+            >
+              <div v-if="kind === 'invoice-registrations'" class="invoice-candidate">
+                <span>{{ s.sourceNo ?? s.id }} · {{ s.skuName ?? '应收' }}</span>
+                <span
+                  >可开票
+                    <FinancialAmount :value="String(s.invoiceAvailableAmount ?? '')" /> 元
+                  <small> · 税额 {{ s.invoiceAvailableTaxAmount ?? '待刷新' }} 元</small></span
+                >
+              </div>
+            </el-option>
+          </el-select>
           <el-input
             v-if="kind === 'invoice-registrations'"
             v-model="line.amount"
@@ -456,6 +513,12 @@ async function verify(): Promise<void> {
           />
         </div>
         <el-button @click="addLine">添加来源行</el-button>
+        <el-button v-if="sourceCursor" :loading="loadingSources" @click="loadSources(true)"
+          >更多来源</el-button
+        >
+        <p v-if="kind === 'invoice-registrations'" class="invoice-candidate-help">
+          可开票金额已扣除退货、折让和已有开票；同一发货行共用净额度，保存时会再次核对。
+        </p>
       </section>
     </fieldset>
     <el-alert v-if="error" type="error" :title="error" :closable="false" />
@@ -474,3 +537,22 @@ async function verify(): Promise<void> {
     >
   </el-dialog>
 </template>
+
+<style scoped>
+.invoice-candidate {
+  display: grid;
+  gap: 2px;
+  padding-block: 5px;
+  line-height: 20px;
+}
+.invoice-candidate > span:first-child,
+.invoice-candidate small,
+.invoice-candidate-help {
+  color: var(--erp-text-2);
+  font-size: 12px;
+  font-weight: 400;
+}
+.invoice-candidate-help {
+  line-height: 1.6;
+}
+</style>

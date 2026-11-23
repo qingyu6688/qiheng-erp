@@ -111,7 +111,7 @@ public class SalesPriceAdjustmentService implements WorkflowBusiness {
         require(actor, TYPE + ":view");
         var head = queries.head(actor, id, false);
         state(head, "draft", "rejected", "pending", "approved");
-        return Map.of("items", posting.preview(actor, head, queries.lines(actor, id)), "notice", "预览按当前已签收未退货金额计算，正式过账持锁重算；已开票折让须先完成原票红字");
+        return Map.of("items", posting.preview(actor, head, queries.lines(actor, id)), "notice", "预览按当前已签收未退货金额计算，过账前会重新核对数量和金额；已开票折让须先完成原票红字");
     }
 
     private void submit(CompanyAccess actor, Map<String, Object> header, List<Map<String, Object>> lines, Map<String,List<Long>> selections) {

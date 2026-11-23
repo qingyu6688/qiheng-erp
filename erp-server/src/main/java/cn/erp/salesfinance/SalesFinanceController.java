@@ -44,8 +44,8 @@ class SalesFinanceController {
         return ApiResponse.success(refunds.command(access.requireCompany(req,"refund_request:"+action),id,action,key,input));
     }
     @PostMapping("/refund-requests/{id}/register-paid") ApiResponse<?> paid(HttpServletRequest req,@PathVariable long id,@RequestHeader(value="Idempotency-Key",required=false) String key,@Valid @RequestBody FinanceModels.Paid input) {return ApiResponse.success(refunds.paid(access.requireCompany(req,"refund_request:register_paid"),id,key,input));}
-    @GetMapping("/receivables") ApiResponse<?> receivables(HttpServletRequest req,@RequestParam(required=false) Long customerId,@RequestParam(defaultValue="false") boolean openOnly,@RequestParam(required=false) Long cursor,@RequestParam(defaultValue="20") int limit) {
-        return ApiResponse.success(queries.receivables(access.requireCompany(req,"invoice_registration:view"),customerId,openOnly,cursor,limit));
+    @GetMapping("/receivables") ApiResponse<?> receivables(HttpServletRequest req,@RequestParam(required=false) Long customerId,@RequestParam(defaultValue="false") boolean openOnly,@RequestParam(defaultValue="false") boolean invoiceable,@RequestParam(required=false) Long cursor,@RequestParam(defaultValue="20") int limit) {
+        return ApiResponse.success(queries.receivables(access.requireCompany(req,"invoice_registration:view"),customerId,openOnly,cursor,limit,invoiceable));
     }
     @GetMapping("/payables") ApiResponse<?> payables(HttpServletRequest req,@RequestParam(required=false) Long supplierId,@RequestParam(defaultValue="false") boolean openOnly,@RequestParam(required=false) Long cursor,@RequestParam(defaultValue="20") int limit) {
         return ApiResponse.success(queries.payables(access.requireCompany(req,"settlement:view"),supplierId,openOnly,cursor,limit));

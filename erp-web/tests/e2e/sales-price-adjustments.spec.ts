@@ -15,6 +15,7 @@ interface Document {
 interface Master {
   id: string
   code: string
+  name: string
   units?: { unitId: string; isBase: boolean }[]
 }
 interface Receivable {
@@ -22,6 +23,22 @@ interface Receivable {
   sourceId: string
   sourceType: string
   amount: string
+  sourceNo?: string
+  skuName?: string
+  invoiceAvailableAmount?: string
+  invoiceAvailableTaxAmount?: string
+}
+
+async function choose(page: Page, combobox: Locator, option: string | RegExp): Promise<void> {
+  await expect(combobox).toBeEnabled()
+  await page.locator('.el-select').filter({ has: combobox }).click()
+  await expect(combobox).toHaveAttribute('aria-expanded', 'true')
+  const controlled = await combobox.getAttribute('aria-controls')
+  if (!controlled) throw new Error('来源下拉框缺少候选列表关联')
+  await page
+    .locator('#' + controlled)
+    .getByRole('option', { name: option, exact: typeof option === 'string' })
+    .click()
 }
 
 async function login(page: Page, username: string): Promise<void> {
@@ -232,6 +249,10 @@ test('无成本角色调价、原键恢复、整票红字和右侧报表形成�
     await expect(panel.getByText('待审批', { exact: true }).first()).toBeVisible()
     await approve(reviewer, adjustment)
     await panel.getByRole('button', { name: '刷新单据', exact: true }).click()
+    await panel.getByRole('button', { name: '预览过账金额', exact: true }).click()
+    await expect(panel.locator('.price-preview').getByText('+13.56', { exact: true })).toBeVisible()
+    await expect(panel.locator('.price-preview').getByText('+1.56', { exact: true })).toBeVisible()
+    await expect(panel.locator('.price-preview')).toContainText(shipment.documentNo)
     await panel.getByRole('button', { name: '过账', exact: true }).click()
     await confirm(page, '过账')
     await expect(panel.getByText('已过账', { exact: true }).first()).toBeVisible()
@@ -281,6 +302,10 @@ test('无成本角色调价、原键恢复、整票红字和右侧报表形成�
       name: '销售调价 · ' + discount.documentNo,
       exact: true,
     })
+    await discountPanel.getByRole('button', { name: '预览过账金额', exact: true }).click()
+    await expect(
+      discountPanel.locator('.price-preview').getByText('须先完成红字', { exact: true }),
+    ).toBeVisible()
     await discountPanel.getByRole('button', { name: '过账', exact: true }).click()
     await confirm(page, '过账')
     await expect(discountPanel.getByText('该发货行已经开票', { exact: false })).toBeVisible()
@@ -290,6 +315,12 @@ test('无成本角色调价、原键恢复、整票红字和右侧报表形成�
       exact: true,
     })
     await expect(invoicePanel.getByRole('row')).toHaveCount(3)
+    await expect(
+      invoicePanel.getByRole('row').filter({ hasText: shipment.documentNo }),
+    ).toHaveCount(1)
+    await expect(
+      invoicePanel.getByRole('row').filter({ hasText: adjustment.documentNo }),
+    ).toHaveCount(1)
     await invoicePanel.getByRole('button', { name: '登记实际红字', exact: true }).click()
     const redNo = 'RED-' + randomUUID().replaceAll('-', '')
     await invoicePanel.getByRole('textbox', { name: '手工红字发票号', exact: true }).fill(redNo)
@@ -375,6 +406,66 @@ test('无成本角色调价、原键恢复、整票红字和右侧报表形成�
       .getByRole('button', { name: '关闭', exact: true })
       .click()
     expect(page.url()).toBe(reportUrl)
+    const available = (
+      await api<{ items: Receivable[] }>(
+        page,
+        company,
+        `/receivables?customerId=${customer}&invoiceable=true&limit=200`,
+      )
+    ).items
+    expect(available.find((row) => row.id === original.id)).toMatchObject({
+      amount: '135.60',
+      invoiceAvailableAmount: '122.04',
+      invoiceAvailableTaxAmount: '14.04',
+      sourceNo: shipment.documentNo,
+    })
+    expect(available.find((row) => row.id === extra.id)).toMatchObject({
+      invoiceAvailableAmount: '13.56',
+      invoiceAvailableTaxAmount: '1.56',
+      sourceNo: adjustment.documentNo,
+    })
+    await page.goto('/invoice-registrations')
+    await page.getByRole('button', { name: '新建开票登记', exact: true }).click()
+    await choose(
+      page,
+      page.locator('#doc-customer'),
+      partners.find((item) => item.id === customer)!.name,
+    )
+    const replacementNo = 'REPLACE-' + randomUUID().replaceAll('-', '')
+    await page.locator('#doc-invoice').fill(replacementNo)
+    await page.locator('#doc-amount').fill('135.60')
+    await page.locator('#doc-tax').fill('15.60')
+    const firstSource = page.getByRole('combobox', { name: '来源行1', exact: true })
+    await page.locator('.el-select').filter({ has: firstSource }).click()
+    const originalOption = page
+      .getByRole('listbox', { name: '来源行1', exact: true })
+      .getByRole('option')
+      .filter({ hasText: shipment.documentNo })
+    await expect(originalOption.locator('.financial-amount')).toHaveText('122.04')
+    await page.screenshot({
+      path: info.outputPath('手工开票净额度候选.png'),
+      animations: 'disabled',
+    })
+    await originalOption.click()
+    await page.getByRole('textbox', { name: '开票金额1', exact: true }).fill('122.04')
+    await page.getByRole('button', { name: '添加来源行', exact: true }).click()
+    await choose(
+      page,
+      page.getByRole('combobox', { name: '来源行2', exact: true }),
+      new RegExp(adjustment.documentNo),
+    )
+    await page.getByRole('textbox', { name: '开票金额2', exact: true }).fill('13.56')
+    await page.getByRole('button', { name: '保存单据', exact: true }).click()
+    await expect(page).toHaveURL(/\/invoice-registrations\/[0-9]+$/)
+    const replacementId = new URL(page.url()).pathname.split('/').at(-1)!
+    const replacement = await api<Document & { taxDiffAmount: string }>(
+      page,
+      company,
+      '/invoice-registrations/' + replacementId,
+    )
+    expect(replacement.amount).toBe('135.60')
+    expect(replacement.taxDiffAmount).toBe('0.00')
+    await page.screenshot({ path: info.outputPath('手工净额登记结果.png'), fullPage: true })
     await changeUser(page, 'admin')
     const finalShipment = await api<Document>(page, company, '/shipments/' + shipment.id)
     expect(finalShipment.lines[0]!.costAmount).toBe('60.00')
@@ -392,6 +483,8 @@ test('无成本角色调价、原键恢复、整票红字和右侧报表形成�
           twoSources: true,
           sameNetworkKey: keys[0] === keys[1],
           noCostActors: true,
+          manualInvoiceUi: true,
+          replacementInvoiceId: replacementId,
           finalCost: finalShipment.lines[0]!.costAmount,
           pageErrors: errors,
         },

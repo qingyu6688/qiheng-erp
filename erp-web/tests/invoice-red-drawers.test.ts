@@ -217,6 +217,29 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+it('原票来源优先显示单号和商品，历史无名称来源仍可核对', async () => {
+  vi.mocked(manual.invoiceRegistration).mockResolvedValue(
+    blue({
+      lines: [
+        {
+          id: '701',
+          receivableId: '90071992547409931',
+          amount: '70.00',
+          sourceNo: 'SPA-可读原单',
+          skuName: '结算调价商品',
+        },
+        { id: '702', receivableId: '90071992547409932', amount: '43.00' },
+      ],
+    }),
+  )
+  const wrapper = manualView()
+  await flushPromises()
+  expect(wrapper.text()).toContain('SPA-可读原单')
+  expect(wrapper.text()).toContain('结算调价商品')
+  expect(wrapper.text()).not.toContain('90071992547409931')
+  expect(wrapper.text()).toContain('90071992547409932')
+})
+
 it('手工整票登记在网络未知后冻结原票版本、金额及键，确认前显示占用未释放', async () => {
   vi.mocked(manual.createManualInvoiceRed)
     .mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', '网络中断'))

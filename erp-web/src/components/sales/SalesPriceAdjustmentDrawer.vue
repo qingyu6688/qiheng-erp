@@ -348,7 +348,14 @@ function reversalSaved(value: StockDocument): void {
             <h3>过账预览</h3>
             <p class="price-help">{{ preview.notice }}</p>
             <el-table :data="preview.items" row-key="lineId" empty-text="暂无预览明细">
-              <el-table-column prop="shipmentLineId" label="原发货行" min-width="190" />
+              <el-table-column label="原发货 / 商品" min-width="240">
+                <template #default="{ row }">
+                  {{
+                    document.lines.find((line) => line.id === row.lineId)?.shipmentNo ?? '原发货'
+                  }}
+                  · {{ document.lines.find((line) => line.id === row.lineId)?.skuName ?? '商品' }}
+                </template>
+              </el-table-column>
               <el-table-column label="可调基本数量" min-width="140" align="right"
                 ><template #default="{ row }">{{
                   formatQuantity(row.remainingQuantity)

@@ -53,5 +53,21 @@ public final class SalesInvoiceScope {
         return "(" + alias + ".invoice_type<>'sales' OR " + sources + ")";
     }
 
+    public static String receivableCondition(ActorScope actor, String alias) {
+        if (!(actor instanceof WarehouseScope warehouses)) return "1=0";
+        String visible = OrgOwnership.sourceCondition(actor, alias + ".source_type", alias + ".source_id");
+        if (warehouses.allWarehouses()) return visible;
+        if (warehouses.warehouseIds().isEmpty()) return "1=0";
+        String ids = warehouses.warehouseIds().stream().sorted().map(Object::toString)
+                .collect(java.util.stream.Collectors.joining(","));
+        return visible + " AND (" + alias + ".source_type NOT IN('shipment_line','sales_order_fee','sales_return_line')"
+                + " OR (" + alias + ".source_type IN('shipment_line','sales_order_fee') AND EXISTS(SELECT 1 FROM shipment candidate_sh"
+                + " WHERE candidate_sh.tenant_id=" + alias + ".tenant_id AND candidate_sh.company_id=" + alias + ".company_id"
+                + " AND candidate_sh.id=" + alias + ".source_id AND candidate_sh.warehouse_id IN(" + ids + ")))"
+                + " OR (" + alias + ".source_type='sales_return_line' AND EXISTS(SELECT 1 FROM sales_return candidate_sr"
+                + " WHERE candidate_sr.tenant_id=" + alias + ".tenant_id AND candidate_sr.company_id=" + alias + ".company_id"
+                + " AND candidate_sr.id=" + alias + ".source_id AND candidate_sr.warehouse_id IN(" + ids + "))))";
+    }
+
     private static ApiException missing() { return new ApiException(404, "NOT_FOUND", "发票或关联来源不存在或无权访问"); }
 }
