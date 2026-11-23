@@ -5262,5 +5262,207 @@
         "不能关闭或切换公司"
       ]
     ]
+  },
+  {
+    "id": "m13-297",
+    "category": "knowledge",
+    "question": "销售调价的来源和金额怎样填写，能直接改原订单吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "已签收未退货"
+      ],
+      [
+        "二选一"
+      ],
+      [
+        "补收为正"
+      ],
+      [
+        "折让为负"
+      ],
+      [
+        "原订单"
+      ]
+    ]
+  },
+  {
+    "id": "m13-298",
+    "category": "knowledge",
+    "question": "销售调价审批和过账是否需要成本权限，能自己复核吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "另一人复核"
+      ],
+      [
+        "完整仓库、部门范围"
+      ],
+      [
+        "不要求成本查看权限"
+      ],
+      [
+        "审批不自动过账"
+      ]
+    ]
+  },
+  {
+    "id": "m13-299",
+    "category": "knowledge",
+    "question": "销售补收和折让怎样影响往来、到期日、库存成本和销售毛利报表？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "不自动核销"
+      ],
+      [
+        "继承原应收到期日"
+      ],
+      [
+        "不改变库存和原销售成本"
+      ],
+      [
+        "数量和成本为零"
+      ]
+    ]
+  },
+  {
+    "id": "m13-300",
+    "category": "knowledge",
+    "question": "销售调价后再退货，货款税额、尾差和退货成本按哪个基准？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "累计舍入"
+      ],
+      [
+        "末次退货补足尾差"
+      ],
+      [
+        "已退金额不重算"
+      ],
+      [
+        "退货成本仍按原签收成本计算"
+      ],
+      [
+        "计价基准日期"
+      ]
+    ]
+  },
+  {
+    "id": "m13-301",
+    "category": "knowledge",
+    "question": "已开票销售折让可只冲红调价行吗，数电红字处理中或普通作废能继续过账吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "原票整票红字"
+      ],
+      [
+        "全部来源"
+      ],
+      [
+        "结果未知"
+      ],
+      [
+        "都不算已完成红字"
+      ],
+      [
+        "真实服务商沙箱尚未验收"
+      ]
+    ]
+  },
+  {
+    "id": "m13-302",
+    "category": "knowledge",
+    "question": "手工整票红字登记能由登记人自己确认吗，旧作废票能再次释放额度吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "等于整张原蓝票"
+      ],
+      [
+        "登记后仍保留蓝字占用"
+      ],
+      [
+        "另一人财务确认"
+      ],
+      [
+        "仅释放一次"
+      ],
+      [
+        "不能重复释放"
+      ]
+    ]
+  },
+  {
+    "id": "m13-303",
+    "category": "knowledge",
+    "question": "退货和折让后的净开票额度怎样分配，付款结清或候选可开金额是否等于已预留？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "每笔和整组共同限额"
+      ],
+      [
+        "付款结清不影响可开票额度"
+      ],
+      [
+        "未税额和税额分别"
+      ],
+      [
+        "更多来源分页"
+      ],
+      [
+        "候选不是额度预留"
+      ]
+    ]
+  },
+  {
+    "id": "m13-304",
+    "category": "knowledge",
+    "question": "销售调价冲销前要处理哪些下游，右侧详情提交超时可以换键或关窗吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "后续退货及后续调价"
+      ],
+      [
+        "恢复上一计价基准"
+      ],
+      [
+        "右侧抽屉"
+      ],
+      [
+        "原载荷、版本及幂等键"
+      ],
+      [
+        "不能关闭或切换公司"
+      ]
+    ]
   }
 ]
