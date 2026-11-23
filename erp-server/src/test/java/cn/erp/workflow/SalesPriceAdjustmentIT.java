@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import tools.jackson.databind.ObjectMapper;
 
 import cn.erp.ErpApplication;
 import cn.erp.adjustment.*;
@@ -73,6 +74,7 @@ class SalesPriceAdjustmentIT {
     @Autowired WorkflowTasks tasks;
     @Autowired CommandResults results;
     @Autowired ReportService reports;
+    @Autowired ObjectMapper json;
     private WorkflowTestData d;
     private long period;
 
@@ -339,6 +341,84 @@ class SalesPriceAdjustmentIT {
         }
         zeroDifferences();
     }
+
+    @Test
+    @org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(named="ERP_SALES_B02_CAPACITY",matches="true")
+    @SuppressWarnings("unchecked")
+    void hundredSourcesWithReleasedInvoiceHistoryKeepNetAmountsAndCostsExact() throws Exception {
+        final int sourceCount=100,historyCount=20_000;
+        var report=java.nio.file.Path.of(System.getenv("ERP_TEST_ROOT")).toRealPath().resolve("B02-销售调价容量.json");
+        assertThat(java.nio.file.Files.exists(report)).as("容量证据不可覆盖").isFalse();
+        assertThat(Runtime.getRuntime().maxMemory()).as("容量验收Java堆上限").isLessThanOrEqualTo(1024L*1024*1024);
+        var sources=new java.util.ArrayList<Long>();
+        for(int index=0;index<sourceCount;index++) {
+            sources.add(ship("1","10","0",null));
+            if((index+1)%25==0) capacityStage("已完成真实销售签收来源 "+(index+1));
+        }
+        var originalCosts=jdbc.queryForList("SELECT id,cost_amount,signed_cost_amount,receivable_amount,tax_amount FROM shipment_line WHERE tenant_id=? ORDER BY id",d.tenant);
+        var originalArs=sources.stream().map(this::originalAr).toList();
+        seedReleasedSalesInvoiceHistory(originalArs,historyCount);
+        capacityStage("已准备两万张整票红字确认后的历史蓝票");
+        long started=System.nanoTime();
+        var created=prices.create(actor(d.maker),key(),new SalesPriceAdjustmentModels.Input(null,d.customer,d.warehouse,d.day.plusDays(2),"百行历史红字折让容量",
+                sources.stream().map(source->new SalesPriceAdjustmentModels.LineInput(source,null,"-1")).toList()));
+        long adjustment=id(created);double createdMs=elapsedMs(started);
+        capacityStage("百行折让草稿已保存，毫秒 "+createdMs);
+        var previewMs=new java.util.ArrayList<Double>();
+        for(int round=0;round<3;round++) {
+            started=System.nanoTime();
+            var preview=prices.preview(actor(d.maker),adjustment);
+            var previewRows=(List<Map<String,Object>>)preview.get("items");
+            assertThat(previewRows).hasSize(sourceCount).allSatisfy(row->assertThat(row).containsEntry("needsRed",false));
+            previewMs.add(elapsedMs(started));
+        }
+        started=System.nanoTime();assertThat(post(adjustment)).containsEntry("amount","-100.00");double postedMs=elapsedMs(started);
+        capacityStage("百行折让已提交、批准并过账，毫秒 "+postedMs);
+        started=System.nanoTime();var candidates=allInvoiceCandidates();double candidatesMs=elapsedMs(started);
+        assertThat(candidates).hasSize(sourceCount).allSatisfy(row->assertThat(row).containsEntry("amount","10.00").containsEntry("invoiceAvailableAmount","9.00").containsEntry("invoiceAvailableTaxAmount","0.00"));
+        started=System.nanoTime();var blue=invoices.create(actor(d.maker),key(),new InvoiceService.Input("sales",d.customer,key(),d.day.plusDays(3),"900","0",
+                originalArs.stream().map(ar->new InvoiceService.Line(ar,"9")).toList(),null));double invoiceMs=elapsedMs(started);
+        assertThat(blue).containsEntry("amount","900.00").containsEntry("taxDiffAmount","0.00");
+        assertThat((List<?>)blue.get("lines")).hasSize(sourceCount);
+        assertThat(jdbc.queryForList("SELECT id,cost_amount,signed_cost_amount,receivable_amount,tax_amount FROM shipment_line WHERE tenant_id=? ORDER BY id",d.tenant)).isEqualTo(originalCosts);
+        assertThat(value("SELECT SUM(amount) FROM receivable WHERE tenant_id=? AND source_type='shipment_line'",d.tenant)).isEqualByComparingTo("1000");
+        zeroDifferences();
+        var metrics=new java.util.LinkedHashMap<String,Object>();
+        metrics.put("sourceLines",sourceCount);metrics.put("releasedInvoices",historyCount);metrics.put("maxHeapBytes",Runtime.getRuntime().maxMemory());
+        metrics.put("createMs",createdMs);metrics.put("previewMs",previewMs);metrics.put("submitApprovePostMs",postedMs);metrics.put("candidatePaginationMs",candidatesMs);metrics.put("netInvoiceSaveMs",invoiceMs);
+        metrics.put("netInvoiceAmount",blue.get("amount"));metrics.put("originalCostUnchanged",true);metrics.put("reconciliationDifferences",0);
+        java.nio.file.Files.writeString(report,json.writeValueAsString(metrics),java.nio.file.StandardOpenOption.CREATE_NEW);
+    }
+
+    private void seedReleasedSalesInvoiceHistory(List<Long> originalArs,int historyCount) {
+        var heads=new java.util.ArrayList<Object[]>();var lines=new java.util.ArrayList<Object[]>();var reds=new java.util.ArrayList<Object[]>();
+        for(int index=0;index<historyCount;index++) {
+            long invoice=Ids.next();
+            heads.add(new Object[]{invoice,d.tenant,d.company,d.customer,"CAP-BLUE-"+index,d.day,d.maker,d.manager,d.maker,d.department});
+            lines.add(new Object[]{Ids.next(),d.tenant,d.company,invoice,originalArs.get(index%originalArs.size()),d.maker});
+            reds.add(new Object[]{Ids.next(),d.tenant,d.company,invoice,"CAP-RED-"+index,d.day,d.maker,d.manager,d.manager});
+        }
+        // 历史规模通过SQL准备已释放且经双人确认的票据元数据；真实购销及本次开票仍走业务命令。
+        jdbc.batchUpdate("INSERT INTO invoice_registration(id,tenant_id,company_id,invoice_type,partner_id,invoice_no,invoice_date,amount,tax_amount,status,version,created_by,updated_by,owner_user_id,owner_department_id)"
+                +" VALUES(?,?,?,'sales',?,?,?,'0.01',0,'voided',1,?,?,?,?)",heads);
+        jdbc.batchUpdate("INSERT INTO invoice_registration_line(id,tenant_id,company_id,invoice_id,receivable_id,amount,created_by) VALUES(?,?,?,?,?,'0.01',?)",lines);
+        jdbc.batchUpdate("INSERT INTO invoice_red_registration(id,tenant_id,company_id,invoice_id,red_invoice_no,red_invoice_date,amount,tax_amount,reason,status,source_version,created_by,confirmed_by,confirmed_at,updated_by)"
+                +" VALUES(?,?,?,?,?,?,'0.01',0,'容量历史整票红字','confirmed',0,?,?,UTC_TIMESTAMP(3),?)",reds);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String,Object>> allInvoiceCandidates() {
+        var rows=new java.util.ArrayList<Map<String,Object>>();Long cursor=null;
+        do {
+            var page=finance.receivables(actor(d.maker),d.customer,false,cursor,37,true);
+            rows.addAll((List<Map<String,Object>>)page.get("items"));
+            cursor=page.get("nextCursor")==null?null:Long.valueOf(page.get("nextCursor").toString());
+        } while(cursor!=null);
+        assertThat(rows.stream().map(row->row.get("id"))).doesNotHaveDuplicates();return rows;
+    }
+
+    private static void capacityStage(String stage) {org.slf4j.LoggerFactory.getLogger(SalesPriceAdjustmentIT.class).info("销售专项容量：{}",stage);}
+    private static double elapsedMs(long started) {return (System.nanoTime()-started)/1e6;}
 
     private static String attempt(Supplier<Map<String,Object>> work) {
         try {work.get();return "ok";}
