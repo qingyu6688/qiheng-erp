@@ -35,6 +35,10 @@ class SourcelessReturnCostPlans {
     }
 
     Plan build(CompanyAccess actor,Map<String,Object> header,List<Map<String,Object>> lines,boolean lock) {
+        return build(actor,header,lines,lock,false);
+    }
+
+    private Plan build(CompanyAccess actor,Map<String,Object> header,List<Map<String,Object>> lines,boolean lock,boolean renewal) {
         long warehouse=id(header,"warehouse_id");
         var groups=new LinkedHashMap<Long,List<Map<String,Object>>>();
         lines.stream().sorted(Comparator.comparingLong(line->id(line,"line_no")))
@@ -54,7 +58,9 @@ class SourcelessReturnCostPlans {
             for(var line:group) if(!Objects.equals(line.get("manual_unit_cost"),first.get("manual_unit_cost"))
                     || !Objects.equals(line.get("manual_cost_reason"),first.get("manual_cost_reason")))
                 throw invalid("同一商品的手填单位成本及依据须一致，请统一核对或拆单");
-            var basis=costs.choose(state,decimal(first,"manual_unit_cost"),(String)first.get("manual_cost_reason"));
+            // 重新送审才能替换已批准的旧手填值；草稿输入与直接过账仍按严格规则复核。
+            boolean automatic=renewal&&"approved".equals(header.get("status"))&&(state.quantity().signum()>0||state.lastUnitCost()!=null);
+            var basis=costs.choose(state,automatic?null:decimal(first,"manual_unit_cost"),automatic?null:(String)first.get("manual_cost_reason"));
             var amounts=costs.allocate(basis,group.stream().map(line->decimal(line,"base_qty")).toList());
             for(int index=0;index<group.size();index++) {
                 var line=group.get(index);BigDecimal amount=amounts.get(index);total=total.add(amount);
@@ -66,9 +72,9 @@ class SourcelessReturnCostPlans {
     }
 
     void freeze(CompanyAccess actor,Map<String,Object> header,List<Map<String,Object>> lines) {
-        var plan=build(actor,header,lines,true);
-        for(var line:plan.items()) jdbc.update("UPDATE sales_return_line SET cost_basis=?,unit_cost=?,cost_amount=?,version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?",
-                json.writeValueAsString(view(line.snapshot())),line.snapshot().unitCost(),line.snapshot().costAmount(),actor.userId(),actor.tenantId(),actor.companyId(),line.lineId());
+        var plan=build(actor,header,lines,true,true);
+        for(var line:plan.items()) jdbc.update("UPDATE sales_return_line SET cost_basis=?,unit_cost=?,cost_amount=?,manual_unit_cost=IF(?='manual',manual_unit_cost,NULL),manual_cost_reason=IF(?='manual',manual_cost_reason,NULL),version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?",
+                json.writeValueAsString(view(line.snapshot())),line.snapshot().unitCost(),line.snapshot().costAmount(),line.snapshot().source(),line.snapshot().source(),actor.userId(),actor.tenantId(),actor.companyId(),line.lineId());
         jdbc.update("UPDATE sales_return SET cost_amount=? WHERE tenant_id=? AND company_id=? AND id=?",plan.amount(),actor.tenantId(),actor.companyId(),header.get("id"));
     }
 
@@ -96,9 +102,9 @@ class SourcelessReturnCostPlans {
 
     Map<String,Object> preview(CompanyAccess actor,Map<String,Object> header,List<Map<String,Object>> lines) {
         if(!actor.hasPermission("cost:view")) throw new ApiException(403,"FORBIDDEN","查看退货成本预览需要成本权限");
-        var plan=build(actor,header,lines,false);
+        var plan=build(actor,header,lines,false,true);
         return Map.of("items",plan.items().stream().map(item->{var result=view(item.snapshot());result.put("lineId",Long.toString(item.lineId()));return result;}).toList(),
-                "totalCost",plan.amount().toPlainString(),"notice","预览按当前仓库成本计算；提交冻结依据，审批和过账重新核对，成本变化须重新提交审批");
+                "totalCost",plan.amount().toPlainString(),"notice","预览按当前仓库成本计算；提交冻结依据，审批和过账重新核对，成本变化须重新提交审批。已批准单据重审时优先采用新增自动来源，原手填依据保留在审计历史");
     }
 
     Map<String,Object> view(Object raw) {return raw==null?null:view(read(raw));}

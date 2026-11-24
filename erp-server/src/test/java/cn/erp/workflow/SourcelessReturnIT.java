@@ -9,6 +9,8 @@ import org.flowable.engine.ProcessEngine;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -287,6 +289,37 @@ class SourcelessReturnIT {
     private long posted(List<FinanceModels.ReturnLine> lines) {
         long id=create(input(lines,null));submit(d.actor(d.maker),id);approve(id,d.financeA);
         returns.command(d.actor(d.maker),id,"post",key(),command(id));return id;
+    }
+
+    @ParameterizedTest @CsvSource({"7,28,98,average","0,0,0,average","7,28,28,last_in"})
+    void approvedManualCostCanBeSubmittedAgainUsingNewAutomaticCost(String unitCost,String returnCost,String stockCost,String source) {
+        long id=create(input(List.of(line("4","10","0","passed","5","历史成本依据")),null));
+        submit(d.actor(d.maker),id);approve(id,d.financeA);
+        receive("10",unitCost);
+        if(source.equals("last_in"))stockAction("loss","10",null);
+        code(()->returns.command(d.actor(d.maker),id,"post",key(),command(id)),"RETURN_COST_CHANGED");
+        assertThat(returns.costPreview(d.actor(d.maker),id)).containsEntry("totalCost",new BigDecimal(returnCost).setScale(2).toPlainString());
+        assertThat(submit(d.actor(d.maker),id)).containsEntry("status","pending");
+        assertThat(jdbc.queryForMap("SELECT manual_unit_cost,manual_cost_reason FROM sales_return_line WHERE return_id=?",id))
+                .containsEntry("manual_unit_cost",null).containsEntry("manual_cost_reason",null);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM receivable WHERE tenant_id=? AND source_id=?",Integer.class,d.tenant,id)).isZero();
+        assertThat(jdbc.queryForObject("SELECT JSON_UNQUOTE(JSON_EXTRACT(before_data,'$.lines[0].costBasis.source')) FROM audit_log WHERE tenant_id=? AND object_id=? AND action='sales_return.submit' ORDER BY id DESC LIMIT 1",String.class,d.tenant,id)).isEqualTo("manual");
+        assertThat(jdbc.queryForObject("SELECT JSON_UNQUOTE(JSON_EXTRACT(after_data,'$.lines[0].costBasis.source')) FROM audit_log WHERE tenant_id=? AND object_id=? AND action='sales_return.submit' ORDER BY id DESC LIMIT 1",String.class,d.tenant,id)).isEqualTo(source);
+        approve(id,d.financeB);
+        returns.command(d.actor(d.maker),id,"post",key(),command(id));
+        assertThat(value("SELECT cost_amount FROM sales_return WHERE id=?",id)).isEqualByComparingTo(returnCost);
+        assertThat(value("SELECT total_cost FROM inventory_cost WHERE tenant_id=?",d.tenant)).isEqualByComparingTo(stockCost);
+        zeroDifferences();
+    }
+
+    @Test void draftManualInputCannotOverrideAnAvailableAutomaticCost() {
+        receive("10","7");
+        long id=create(input(List.of(line("4","10","0","passed","5","待核对的手填成本")),null));
+        code(()->returns.costPreview(d.actor(d.maker),id),"RETURN_COST_SOURCE_CHANGED");
+        code(()->submit(d.actor(d.maker),id),"RETURN_COST_SOURCE_CHANGED");
+        assertThat(returns.get(d.actor(d.maker),id)).containsEntry("status","draft");
+        assertThat(value("SELECT manual_unit_cost FROM sales_return_line WHERE return_id=?",id)).isEqualByComparingTo("5");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM receivable WHERE tenant_id=? AND source_id=?",Integer.class,d.tenant,id)).isZero();
     }
 
     @Test void reportsIdentifySourcelessReturnAndFrozenAverageCostBeforeAndAfterReversal() {
