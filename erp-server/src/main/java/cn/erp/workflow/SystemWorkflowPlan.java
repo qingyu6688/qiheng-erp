@@ -10,7 +10,7 @@ public final class SystemWorkflowPlan {
     static final int PRIORITY = -1001;
     public static final Map<String, String> LABELS = Map.ofEntries(
             Map.entry("sales_order", "销售订单"), Map.entry("purchase_order", "采购订单"),
-            Map.entry("refund_request", "退款申请"), Map.entry("document_reversal", "冲销申请"),
+            Map.entry("refund_request", "退款申请"), Map.entry("sales_return", "无原单销售退货"), Map.entry("document_reversal", "冲销申请"),
             Map.entry("stock_adjustment", "库存调整"), Map.entry("credit_increase", "信用提额"),
             Map.entry("crm_contract", "客户合同"), Map.entry("mfg_issue_doc", "生产领退料"),
             Map.entry("purchase_requisition", "请购单"), Map.entry("stock_count", "库存盘点"),

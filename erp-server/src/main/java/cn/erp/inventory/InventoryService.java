@@ -17,6 +17,8 @@ public class InventoryService {
     private static final Set<String> INBOUND=Set.of("opening_in","purchase_in","sales_return_in","sales_reject_in","transfer_in","count_gain","adjust_in","stock_misc_in","stock_misc_return_in","mfg_return_in","mfg_receipt_in");
     private static final Set<String> OUTBOUND=Set.of("sales_out","transfer_out","count_loss","adjust_out","scrap","purchase_return_out","stock_misc_out","mfg_issue_out");
     private static final Set<String> DOCUMENT_LINES=Set.of("shipment_line","goods_receipt_line","purchase_return_line","sales_return_line","stock_misc_line","mfg_issue_line","mfg_receipt_line");
+    private static final int MAX_INBOUND_LINES=500;
+    private record InboundTotal(BigDecimal quantity,BigDecimal cost) {}
     private final InventoryStore store;
     private final JdbcTemplate jdbc;
     private final ReservationService reservations;
@@ -38,6 +40,30 @@ public class InventoryService {
 
     public CostResult receive(CompanyAccess scope,Posting posting,BigDecimal quantity,BigDecimal cost) {
         return receive(scope,posting,quantity,cost,null,null,null);
+    }
+
+    /** 同一单据的多行分币入库，最近入库成本按同仓SKU整组计算；每行仍执行完整追溯及冻结校验。 */
+    public List<CostResult> receiveBatch(CompanyAccess scope,List<Inbound> lines) {
+        if(lines==null || lines.isEmpty() || lines.size()>MAX_INBOUND_LINES
+                || lines.stream().anyMatch(line->line==null || line.posting()==null || line.posting().key()==null || line.posting().source()==null))
+            throw invalid("批量入库明细须在1到500行之间");
+        var first=lines.getFirst().posting();
+        for(var line:lines) {
+            var posting=line.posting();InventoryNumbers.quantity(line.quantity());InventoryNumbers.money(line.cost());
+            if(!Objects.equals(posting.source().type(),first.source().type()) || posting.source().id()!=first.source().id()
+                    || !Objects.equals(posting.businessDate(),first.businessDate()) || posting.periodId()!=first.periodId())
+                throw invalid("批量入库必须属于同一单据、业务日期和期间");
+        }
+        lockKeys(scope,lines.stream().map(line->line.posting().key()).toList());
+        var totals=new LinkedHashMap<Key,InboundTotal>();var result=new ArrayList<CostResult>();
+        for(var line:lines) {
+            result.add(receive(scope,line.posting(),line.quantity(),line.cost(),line.selection(),line.blockingReason()));
+            totals.merge(line.posting().key(),new InboundTotal(line.quantity(),line.cost()),
+                    (before,added)->new InboundTotal(before.quantity().add(added.quantity()),before.cost().add(added.cost())));
+        }
+        for(var entry:totals.entrySet()) jdbc.update("UPDATE inventory_cost SET last_in_unit_cost=?,version=version+1 WHERE tenant_id=? AND company_id=? AND warehouse_id=? AND sku_id=?",
+                InventoryNumbers.average(entry.getValue().quantity(),entry.getValue().cost()),scope.tenantId(),scope.companyId(),entry.getKey().warehouseId(),entry.getKey().skuId());
+        return List.copyOf(result);
     }
 
     public CostResult receive(CompanyAccess scope,Posting posting,BigDecimal quantity,BigDecimal cost,StockSelection selection,String blockingReason) {

@@ -33,6 +33,8 @@ public class WorkflowAccess {
                             + ".business_id"
                             + OrgOwnership.filter(actor, "h");
             if(type.equals("sales_price_adjustment") && review && (!actor.allWarehouses()||!actor.orgScope().allDepartments())) continue;
+            if(type.equals("sales_return") && review && !actor.hasPermission("cost:view")) continue;
+            if(type.equals("sales_return")) where += " AND h.return_mode='sourceless'";
             if(type.equals("sales_price_adjustment")) where += " AND h.kind='sales' AND " + cn.erp.shared.PriceAdjustmentScope.condition(actor,"h");
             if(type.equals("purchase_fee_doc")) where += " AND " + cn.erp.shared.PurchaseFeeScope.condition(actor,"h");
             if(type.equals("price_adjustment")) where += " AND h.kind='purchase' AND " + cn.erp.shared.PriceAdjustmentScope.condition(actor,"h");
@@ -63,7 +65,7 @@ public class WorkflowAccess {
                 where += " AND " + maker + "<>" + actor.userId();
             }
             if (type.equals("gl_voucher")) where += " AND h.is_deleted=0";
-            if (Set.of("stock_adjustment", "stock_count", "stock_misc_doc", "qc_inspection").contains(type) && !actor.allWarehouses())
+            if (Set.of("stock_adjustment", "stock_count", "stock_misc_doc", "qc_inspection", "sales_return").contains(type) && !actor.allWarehouses())
                 where += " AND NOT (" + outside(actor, "h.warehouse_id") + ")";
             if (type.equals("mfg_bom") && !actor.allWarehouses())
                 where += " AND NOT EXISTS(SELECT 1 FROM mfg_bom_line l WHERE l.tenant_id=h.tenant_id"

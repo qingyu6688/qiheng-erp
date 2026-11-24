@@ -19,6 +19,19 @@ public class CommandResultAccess {
             return;
         }
         if(!(actor instanceof WarehouseScope scope) || !(response instanceof Map<?,?> row)) {return;}
+        if(operation.startsWith("sales_return.") && row.get("id")!=null) {
+            var modes=jdbc.queryForList("SELECT return_mode FROM sales_return WHERE tenant_id=? AND company_id=? AND id=?",String.class,
+                    actor.tenantId(),actor.companyId(),row.get("id"));
+            if(modes.isEmpty()) throw missing();
+            if(modes.getFirst().equals("sourceless")) {
+                String action=operation.substring(operation.indexOf('.')+1);
+                boolean review=java.util.Set.of("approve","reject").contains(action);
+                if(!(actor instanceof PermissionScope permissions) || !permissions.hasPermission("sales_return:view")
+                        || !permissions.hasPermission("sales_return:"+(review?"approve":action))
+                        || !permissions.hasPermission(review?"cost:view":"sales_return:sourceless"))
+                    throw new ApiException(403,"FORBIDDEN","没有读取当前无原单退货操作结果的权限");
+            }
+        }
         if(operation.startsWith("sales_price_adjustment.")&&row.get("id")!=null) {
             if(!(actor instanceof PermissionScope permissions)||!permissions.hasPermission("sales_price_adjustment:view"))throw new ApiException(403,"FORBIDDEN","无权查看销售调价结果");
             var headers=jdbc.queryForList("SELECT * FROM price_adjustment WHERE tenant_id=? AND company_id=? AND id=? AND kind='sales'",actor.tenantId(),actor.companyId(),row.get("id"));

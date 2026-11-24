@@ -22,6 +22,12 @@ class SourcelessReturnCosts {
 
     SourcelessReturnCosts(PricingEngine pricing) { this.pricing=pricing; }
 
+    static BigDecimal manualCost(String value) {
+        if(value==null) return null;
+        if(value.length()>128 || !value.matches("[0-9]+(?:\\.[0-9]+)?")) throw invalid("手填成本须使用非负十进制数");
+        return number(new BigDecimal(value),UNIT_COST_SCALE,false);
+    }
+
     Basis choose(Stock stock,BigDecimal manual,String reason) {
         if(stock==null || stock.version()<0) throw invalid("库存成本依据不完整，请刷新后重试");
         BigDecimal quantity=number(stock.quantity(),QUANTITY_SCALE,false);

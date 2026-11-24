@@ -56,7 +56,7 @@ public class WorkflowRuntime implements WorkflowPort {
         boolean needsCredit=Boolean.TRUE.equals(creditInfo.get("overCreditLimit"))&&"approval".equals(creditInfo.get("creditPolicy"));
         if (!SimpleModel.TYPES.contains(type)) throw SimpleModel.invalid("工作流业务类型无效");
         boolean generic = type.equals("wf_generic_request");
-        boolean required = legacy || !generic && upgrade.active();
+        boolean required = legacy || !generic && (upgrade.active() || type.equals("sales_return"));
         boolean unbound = !generic && state.jdbc.queryForObject(
                         "SELECT COUNT(*) FROM wf_business_binding WHERE tenant_id=? AND company_id"
                             + " IN(0,?) AND business_type=? AND enabled=1",

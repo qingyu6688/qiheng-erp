@@ -65,6 +65,7 @@ public class WorkflowDocuments {
         try {
             if (review && Set.of("price_adjustment","purchase_fee_doc").contains(type)) FinancialScope.require(actor, type+":approve");
             if (review && type.equals("sales_price_adjustment") && (!actor.allWarehouses()||!actor.orgScope().allDepartments())) return null;
+            if (review && type.equals("sales_return") && !actor.hasPermission("cost:view")) return null;
             var source = snapshot(actor, type, id);
             if (review
                     && separate(tenant, company, type)

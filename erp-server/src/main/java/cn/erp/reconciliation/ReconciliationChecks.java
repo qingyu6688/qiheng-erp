@@ -253,6 +253,7 @@ public class ReconciliationChecks {
             String status=switch(table) {
                 case "stock_transfer" -> "IN ('submitted','shipped','received_with_diff')";
                 case "stock_count" -> "IN ('counting','submitted','approved')";
+                case "sales_return" -> "IN ('submitted','pending','approved')";
                 case "stock_adjustment","stock_misc_doc","document_reversal","price_adjustment","purchase_fee_doc" -> "IN ('pending','approved')";
                 default -> "IN ('submitted')";
             };
