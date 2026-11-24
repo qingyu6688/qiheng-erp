@@ -48,6 +48,7 @@ class SourcelessReturnIT {
     @Autowired ObjectMapper json;
     @Autowired cn.erp.period.PeriodService periods;
     @Autowired cn.erp.shared.CommandResults commandResults;
+    @Autowired cn.erp.reversal.ReversalService reversals;
     private WorkflowTestData d;
     private long period;
 
@@ -61,6 +62,10 @@ class SourcelessReturnIT {
 
     @AfterEach void cleanup() {
         if(d==null)return;
+        for(String fact:List.of("receivable","inventory_movement","journal")) {
+            if(fact.equals("journal")) jdbc.update("DELETE FROM journal_line WHERE tenant_id=?",d.tenant);
+            jdbc.update("DELETE FROM "+fact+" WHERE tenant_id=? AND posting_action='reverse'",d.tenant);
+        }
         for(String table:List.of("sales_return_line","sales_return")) jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",d.tenant);
         d.cleanup(engine);
     }
@@ -181,6 +186,60 @@ class SourcelessReturnIT {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM receivable WHERE source_id=?",Integer.class,id)).isZero();
     }
 
+    @Test void reversalUsesFrozenCostAfterLaterPurchasesWithoutChangingSalesProgress() {
+        receive("100","5");long id=posted(List.of(line("4","11.30","0.13","passed",null,null)));
+        receive("100","7");
+        var orders=jdbc.queryForList("SELECT * FROM sales_order_line WHERE tenant_id=?",d.tenant);
+        var shipments=jdbc.queryForList("SELECT * FROM shipment_line WHERE tenant_id=?",d.tenant);
+        long reversal=applyReversal("sales_return",id);
+        approveReversal(reversal);postReversal(reversal);
+        assertThat(returns.get(d.actor(d.maker),id)).containsEntry("status","reversed");
+        assertThat(value("SELECT total_cost FROM inventory_cost WHERE tenant_id=?",d.tenant)).isEqualByComparingTo("1200");
+        assertThat(value("SELECT qty FROM inventory_cost WHERE tenant_id=?",d.tenant)).isEqualByComparingTo("200");
+        assertThat(value("SELECT cost_delta FROM inventory_movement WHERE tenant_id=? AND posting_action='reverse'",d.tenant)).isEqualByComparingTo("-20");
+        assertThat(jdbc.queryForList("SELECT * FROM sales_order_line WHERE tenant_id=?",d.tenant)).isEqualTo(orders);
+        assertThat(jdbc.queryForList("SELECT * FROM shipment_line WHERE tenant_id=?",d.tenant)).isEqualTo(shipments);
+        assertThat(value("SELECT SUM(open_amount) FROM partner_open_item WHERE tenant_id=? AND item_type='receivable'",d.tenant)).isEqualByComparingTo("0");
+        zeroDifferences();
+    }
+
+    @Test void downstreamReservationBlocksReversalAndLeavesAllFactsIntact() {
+        receive("100","5");long id=posted(List.of(line("4","10","0","passed",null,null)));
+        long reversal=applyReversal("sales_return",id);approveReversal(reversal);
+        long order=d.order("104","10");
+        var submitted=sales.command(d.actor(d.maker),order,"submit",key(),new cn.erp.salesorder.SalesOrderModels.Command(0L,null,null));
+        sales.command(d.actor(d.manager),order,"approve",key(),new cn.erp.salesorder.SalesOrderModels.Command(((Number)submitted.get("version")).longValue(),null,null));
+        assertThat(value("SELECT reserved_qty FROM inventory_balance WHERE tenant_id=? AND location_key='' AND lot_key=''",d.tenant)).isEqualByComparingTo("104");
+        code(()->postReversal(reversal),"INVENTORY_REVERSAL_NOT_ALLOWED");
+        assertThat(returns.get(d.actor(d.maker),id)).containsEntry("status","posted");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM inventory_movement WHERE tenant_id=? AND posting_action='reverse'",Integer.class,d.tenant)).isZero();
+        assertThat(value("SELECT total_cost FROM inventory_cost WHERE tenant_id=?",d.tenant)).isEqualByComparingTo("520");
+    }
+
+    @Test void reversingALaterReceiptRestoresTheWholeGroupLastCostRatherThanItsZeroTail() {
+        receive("3","0.00333333");
+        posted(List.of(line("1","1","0","passed",null,null),line("1","1","0","passed",null,null),line("1","1","0","passed",null,null)));
+        long receipt=receive("3","1");long reversal=applyReversal("goods_receipt",receipt);
+        approveReversal(reversal);postReversal(reversal);
+        assertThat(value("SELECT last_in_unit_cost FROM inventory_cost WHERE tenant_id=?",d.tenant)).isEqualByComparingTo("0.00333333");
+        assertThat(value("SELECT total_cost FROM inventory_cost WHERE tenant_id=?",d.tenant)).isEqualByComparingTo("0.02");
+        zeroDifferences();
+    }
+
+    private long posted(List<FinanceModels.ReturnLine> lines) {
+        long id=create(input(lines,null));submit(d.actor(d.maker),id);approve(id,d.financeA);
+        returns.command(d.actor(d.maker),id,"post",key(),command(id));return id;
+    }
+    private long applyReversal(String type,long id) {
+        models.installDefault(d.tenant,d.company,"document_reversal");
+        return id(reversals.create(d.actor(d.maker),key(),new cn.erp.reversal.ReversalModels.Input(type,id,d.day,"核对后冲回原事实")));
+    }
+    private void approveReversal(long id) {reviewBusiness("document_reversal",id,d.manager);}
+    private void postReversal(long id) {
+        long version=jdbc.queryForObject("SELECT version FROM document_reversal WHERE id=?",Long.class,id);
+        reversals.command(d.actor(d.maker),id,"post",key(),new cn.erp.reversal.ReversalModels.Version(version,null));
+    }
+
     private record LegacyLine(Long shipmentLineId,Long unitId,String qty,String qualityResult,StockSelection stockSelection) {}
     private record LegacyInput(Long customerId,Long warehouseId,java.time.LocalDate businessDate,String reason,List<LegacyLine> lines,Long version,Long salesUserId) {}
 
@@ -190,7 +249,7 @@ class SourcelessReturnIT {
         assertThat(json.writeValueAsString(after)).isEqualTo(json.writeValueAsString(before));
     }
 
-    private void receive(String qty,String price) {
+    private long receive(String qty,String price) {
         var input=new PurchaseOrderModels.Input(""+d.customer,d.day,null,true,"0",List.of(new PurchaseOrderModels.Line(null,null,""+d.sku,""+d.warehouse,""+d.unit,qty,price,null,null,null,"0")),List.of(),null,null,null);
         long order=id(purchases.create(d.actor(d.maker),key(),input));
         var submitted=purchases.command(d.actor(d.maker),order,"submit",key(),new PurchaseOrderModels.Command(0L,null,null));
@@ -198,6 +257,7 @@ class SourcelessReturnIT {
         long source=jdbc.queryForObject("SELECT id FROM purchase_order_line WHERE order_id=?",Long.class,order);
         long receipt=id(receiving.createReceipt(d.actor(d.maker),key(),new ReceivingModels.ReceiptInput(d.customer,d.warehouse,d.day,null,List.of(new ReceivingModels.ReceiptLine(source,d.unit,qty)),null)));
         receiving.command(d.actor(d.maker),false,receipt,"submit",key(),0L);receiving.command(d.actor(d.maker),false,receipt,"post",key(),1L);
+        return receipt;
     }
 
     private FinanceModels.ReturnInput input(List<FinanceModels.ReturnLine> lines,Long version) {
@@ -211,9 +271,12 @@ class SourcelessReturnIT {
     private FinanceModels.Version command(long id) {return new FinanceModels.Version(version(id),null,null);}
     private long version(long id) {return jdbc.queryForObject("SELECT version FROM sales_return WHERE id=?",Long.class,id);}
     private void approve(long id,long user) {
-        var task=jdbc.queryForMap("SELECT t.id,t.version FROM wf_task_ext t JOIN wf_instance i ON i.tenant_id=t.tenant_id AND i.id=t.instance_id WHERE i.tenant_id=? AND i.business_type='sales_return' AND i.business_id=? AND t.status='pending' AND t.assignee_id=?",d.tenant,id,user);
-        tasks.decide(d.actor(user),((Number)task.get("id")).longValue(),"approve",key(),new WorkflowTasks.Decision(((Number)task.get("version")).longValue(),"核对成本及退货依据",null,null,null,null,null));
+        reviewBusiness("sales_return",id,user);
         assertThat(returns.get(d.actor(user),id)).containsEntry("status","approved");
+    }
+    private void reviewBusiness(String type,long id,long user) {
+        var task=jdbc.queryForMap("SELECT t.id,t.version FROM wf_task_ext t JOIN wf_instance i ON i.tenant_id=t.tenant_id AND i.id=t.instance_id WHERE i.tenant_id=? AND i.business_type=? AND i.business_id=? AND t.status='pending' AND t.assignee_id=?",d.tenant,type,id,user);
+        tasks.decide(d.actor(user),((Number)task.get("id")).longValue(),"approve",key(),new WorkflowTasks.Decision(((Number)task.get("version")).longValue(),"核对成本及原始依据",null,null,null,null,null));
     }
     private CompanyAccess without(long user,String... removed) {
         var actor=d.actor(user);var permissions=new HashSet<>(actor.permissions());permissions.removeAll(Set.of(removed));

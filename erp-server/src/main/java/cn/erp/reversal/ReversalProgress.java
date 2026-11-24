@@ -23,7 +23,7 @@ class ReversalProgress {
     private List<Map<String,Object>> lines(CompanyAccess scope,String type,long source,boolean current) {
         String from=switch(type) {
             case "shipment" -> "shipment_line l JOIN sales_order_line o ON o.id=l.order_line_id AND o.tenant_id=l.tenant_id AND o.company_id=l.company_id";
-            case "sales_return" -> "sales_return_line l JOIN shipment_line s ON s.id=l.shipment_line_id AND s.tenant_id=l.tenant_id AND s.company_id=l.company_id JOIN sales_order_line o ON o.id=s.order_line_id AND o.tenant_id=l.tenant_id AND o.company_id=l.company_id";
+            case "sales_return" -> "sales_return_line l LEFT JOIN shipment_line s ON s.id=l.shipment_line_id AND s.tenant_id=l.tenant_id AND s.company_id=l.company_id LEFT JOIN sales_order_line o ON o.id=s.order_line_id AND o.tenant_id=l.tenant_id AND o.company_id=l.company_id";
             case "goods_receipt" -> "goods_receipt_line l JOIN purchase_order_line o ON o.id=l.order_line_id AND o.tenant_id=l.tenant_id AND o.company_id=l.company_id";
             case "purchase_return" -> "purchase_return_line l JOIN goods_receipt_line s ON s.id=l.receipt_line_id AND s.tenant_id=l.tenant_id AND s.company_id=l.company_id JOIN purchase_order_line o ON o.id=s.order_line_id AND o.tenant_id=l.tenant_id AND o.company_id=l.company_id";
             default -> null;
@@ -38,7 +38,7 @@ class ReversalProgress {
         if(Set.of("sales_return","purchase_return").contains(type)) {
             String line=salesType?"shipment_line":"goods_receipt_line",head=salesType?"shipment":"goods_receipt",key=salesType?"shipment_id":"receipt_id",ref=salesType?"shipment_line_id":"receipt_line_id";
             var heads=new TreeSet<Long>();
-            for(var row:rows)heads.add(jdbc.queryForObject("SELECT "+key+" FROM "+line+" WHERE tenant_id=? AND company_id=? AND id=?",Long.class,scope.tenantId(),scope.companyId(),row.get(ref)));
+            for(var row:rows)if(row.get(ref)!=null)heads.add(jdbc.queryForObject("SELECT "+key+" FROM "+line+" WHERE tenant_id=? AND company_id=? AND id=?",Long.class,scope.tenantId(),scope.companyId(),row.get(ref)));
             lockRows(scope,head,heads);
         }
         lockRows(scope,salesType?"sales_order":"purchase_order",ids(rows,"order_id"));
@@ -50,6 +50,8 @@ class ReversalProgress {
     void reverse(CompanyAccess scope,String type,long source,Map<String,Object> head) {
         var rows=lines(scope,type,source);
         for(var row:rows) {
+            // 无源退货没有原发货及订单进度，库存和信用额由各自的原始事实反向。
+            if(type.equals("sales_return") && "sourceless".equals(row.get("return_mode")))continue;
             long orderLine=id(row,"source_order_line_id");BigDecimal qty=decimal(row,"base_qty");
             switch(type) {
                 case "shipment" -> {
@@ -98,6 +100,6 @@ class ReversalProgress {
         }
     }
     private void lockRows(CompanyAccess scope,String table,Set<Long> ids) {for(long id:ids)jdbc.queryForObject("SELECT id FROM "+table+" WHERE tenant_id=? AND company_id=? AND id=? FOR UPDATE",Long.class,scope.tenantId(),scope.companyId(),id);}
-    private static Set<Long> ids(List<Map<String,Object>> rows,String key){var result=new TreeSet<Long>();for(var row:rows)result.add(id(row,key));return result;}
+    private static Set<Long> ids(List<Map<String,Object>> rows,String key){var result=new TreeSet<Long>();for(var row:rows)if(row.get(key)!=null)result.add(id(row,key));return result;}
     private static BigDecimal zero(Map<String,Object> row,String key){return row.get(key)==null?BigDecimal.ZERO:(BigDecimal)row.get(key);}
 }

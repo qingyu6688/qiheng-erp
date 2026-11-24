@@ -73,12 +73,22 @@ public class InventoryReversalService {
         }
         for(Key key:changes.keySet()) {
             var inbound=jdbc.queryForList("""
-                SELECT m.unit_cost FROM inventory_movement m WHERE m.tenant_id=? AND m.company_id=? AND m.warehouse_id=? AND m.sku_id=?
+                SELECT m.unit_cost,m.source_type,m.source_id FROM inventory_movement m WHERE m.tenant_id=? AND m.company_id=? AND m.warehouse_id=? AND m.sku_id=?
                 AND m.posting_action='post' AND m.on_hand_delta>0 AND m.unit_cost IS NOT NULL
                 AND NOT EXISTS(SELECT 1 FROM inventory_movement r WHERE r.reverses_movement_id=m.id)
                 ORDER BY m.posted_at DESC,m.id DESC LIMIT 1
-                """,BigDecimal.class,scope.tenantId(),scope.companyId(),key.warehouseId(),key.skuId());
-            jdbc.update("UPDATE inventory_cost SET last_in_unit_cost=? WHERE tenant_id=? AND company_id=? AND warehouse_id=? AND sku_id=?",inbound.isEmpty()?null:inbound.getFirst(),scope.tenantId(),scope.companyId(),key.warehouseId(),key.skuId());
+                """,scope.tenantId(),scope.companyId(),key.warehouseId(),key.skuId());
+            BigDecimal last=inbound.isEmpty()?null:number(inbound.getFirst(),"unit_cost");
+            if(!inbound.isEmpty() && "sales_return_line".equals(inbound.getFirst().get("source_type"))
+                    && jdbc.queryForObject("SELECT COUNT(*) FROM sales_return WHERE tenant_id=? AND company_id=? AND id=? AND return_mode='sourceless'",Long.class,
+                            scope.tenantId(),scope.companyId(),inbound.getFirst().get("source_id"))==1) {
+                // 无源退货按整组分币，最后一行可能为零，不能用该行金额倒推出最近单价。
+                var group=jdbc.queryForMap("SELECT SUM(on_hand_delta) qty,SUM(cost_delta) amount FROM inventory_movement m WHERE tenant_id=? AND company_id=? AND warehouse_id=? AND sku_id=?"
+                        +" AND source_type='sales_return_line' AND source_id=? AND posting_action='post' AND on_hand_delta>0 AND NOT EXISTS(SELECT 1 FROM inventory_movement r WHERE r.reverses_movement_id=m.id)",
+                        scope.tenantId(),scope.companyId(),key.warehouseId(),key.skuId(),inbound.getFirst().get("source_id"));
+                last=InventoryNumbers.average(number(group,"qty"),number(group,"amount"));
+            }
+            jdbc.update("UPDATE inventory_cost SET last_in_unit_cost=? WHERE tenant_id=? AND company_id=? AND warehouse_id=? AND sku_id=?",last,scope.tenantId(),scope.companyId(),key.warehouseId(),key.skuId());
         }
         inventory.changed(scope,new ArrayList<>(changes.keySet()));
     }
