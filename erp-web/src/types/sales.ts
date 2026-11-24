@@ -1,3 +1,5 @@
+import type { RefundMode, ReturnCostBasis, SalesReturnMode } from './sourceless-returns'
+
 export type SalesKind =
   | 'sales-orders'
   | 'shipments'
@@ -53,6 +55,10 @@ export interface SalesLine {
   receivableAmount?: string
   taxAmount?: string
   costAmount?: string
+  unitCost?: string
+  manualUnitCost?: string | null
+  manualCostReason?: string | null
+  costBasis?: ReturnCostBasis | null
   signedQty?: string
   diffQty?: string
   diffDisposition?: string
@@ -71,6 +77,11 @@ export interface SalesLine {
   [key: string]: unknown
 }
 export interface SalesDocument {
+  returnMode?: SalesReturnMode
+  refundMode?: RefundMode
+  legacyReference?: string | null
+  costAmount?: string
+  wfInstanceId?: string
   termType?: 'days' | 'monthly' | null
   termValue?: number | null
   termOverride?: boolean | number
