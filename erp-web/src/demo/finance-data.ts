@@ -36,12 +36,15 @@ export const demoVouchers: GlVoucher[] = [voucher(0, '2025-12-01', [
   line('4001', 'C', money(100000 + openingInventory), '演示期初投入'),
 ], 'opening')]
 
-for (const doc of documents.filter((row) => ['receipts', 'payments', 'shipments', 'goods-receipts'].includes(row.kind)).sort((a, b) => a.businessDate.localeCompare(b.businessDate) || a.id.localeCompare(b.id))) {
+for (const doc of documents.filter((row) => ['receipts', 'payments', 'shipments', 'goods-receipts', 'sales-returns', 'refund-requests'].includes(row.kind)).sort((a, b) => a.businessDate.localeCompare(b.businessDate) || a.id.localeCompare(b.id))) {
   const digest = doc.documentNo + ' · ' + doc.partnerName
   let lines: GlLine[]
   if (doc.kind === 'receipts') lines = [line('1002', 'D', doc.totalAmount, digest), line('1122', 'C', doc.totalAmount, digest)]
   else if (doc.kind === 'payments') lines = [line('2202', 'D', doc.totalAmount, digest), line('1002', 'C', doc.totalAmount, digest)]
+  else if (doc.kind === 'refund-requests') lines = [line('1122', 'D', doc.totalAmount, digest), line('1002', 'C', doc.totalAmount, digest)]
   else if (doc.kind === 'goods-receipts') lines = [line('1405', 'D', doc.totalAmount, digest), line('2202', 'C', doc.totalAmount, digest)]
+  else if (doc.kind === 'sales-returns') lines = [line('6001', 'D', String(doc.untaxedAmount), digest), line('2221', 'D', String(doc.taxAmount), digest),
+    line('1122', 'C', doc.totalAmount, digest), line('1405', 'D', String(doc.costAmount), digest), line('6401', 'C', String(doc.costAmount), digest)]
   else {
     const cost = money(doc.quantity * products.find((product) => product.id === doc.productId)!.cost)
     lines = [line('1122', 'D', doc.totalAmount, digest), line('6001', 'C', String(doc.untaxedAmount), digest),

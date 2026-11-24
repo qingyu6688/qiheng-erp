@@ -46,7 +46,13 @@ function inventory(params: Params): Row {
 
 function lineReport(row: DemoDocument): Row {
   const product = products.find((item) => item.id === row.productId)!
-  return { ...row, skuId: product.id, skuCode: product.code, skuName: product.name, qty: String(row.quantity), amount: row.totalAmount, costAmount: money(row.quantity * product.cost), sourceNo: row.documentNo, sourceType: row.kind === 'shipments' ? 'shipment' : 'goods_receipt', sourceId: row.id, sourceCount: '1', brandName: '柒衡办公（示例）' }
+  const returning = row.kind === 'sales-returns', sign = returning ? -1 : 1
+  return { ...row, skuId: product.id, skuCode: product.code, skuName: product.name,
+    qty: String(sign * row.quantity), amount: money(sign * Number(row.totalAmount)),
+    untaxedAmount: money(sign * Number(row.untaxedAmount)), taxAmount: money(sign * Number(row.taxAmount)),
+    costAmount: money(sign * Number(row.costAmount ?? money(row.quantity * product.cost))),
+    returnCostSource: returning ? row.lines?.[0]?.costBasis?.source : undefined,
+    sourceNo: row.documentNo, sourceType: returning ? 'sales_return_line' : row.kind === 'shipments' ? 'shipment' : 'goods_receipt', sourceId: row.id, sourceCount: '1', brandName: '柒衡办公（示例）' }
 }
 
 function grouped(rows: Row[], by: string): Row[] {
@@ -65,48 +71,52 @@ function grouped(rows: Row[], by: string): Row[] {
 }
 
 function agingRows(kind: 'shipments' | 'goods-receipts', params: Params): Row[] {
-  return documents.filter((row) => row.kind === kind && row.businessDate <= String(params.agingDate || snapshotDate)).map((row) => {
-    const order = documents.find((order) => order.id === row.relatedOrderId)!
-    const open = Number(row.totalAmount) - Number(order.allocatedAmount)
+  const cutoff = String(params.agingDate || snapshotDate)
+  return documents.filter((row) => (row.kind === kind || (kind === 'shipments' && row.kind === 'sales-returns')) && row.businessDate <= cutoff).map((row) => {
+    const returning = row.kind === 'sales-returns'
+    const allocated = returning
+      ? documents.filter((refund) => refund.kind === 'refund-requests' && refund.businessDate <= cutoff && refund.creditSources?.some((source) => source.sourceId === row.id)).reduce((sum, refund) => sum + Number(refund.totalAmount), 0)
+      : Number(documents.find((order) => order.id === row.relatedOrderId)!.allocatedAmount)
+    const open = (returning ? -1 : 1) * (Number(row.totalAmount) - allocated)
     const days = Math.max(0, Math.floor((Date.parse(String(params.agingDate || snapshotDate)) - Date.parse(row.businessDate)) / 86400000))
-    return { ...lineReport(row), agingDate: row.businessDate, direction: kind === 'shipments' ? 'D' : 'C', openAmount: money(open), ageDays: days,
+    return { ...lineReport(row), agingDate: row.businessDate, direction: returning ? 'C' : kind === 'shipments' ? 'D' : 'C', openAmount: money(open), ageDays: days,
       age030: days <= 30 ? money(open) : '0.00', age3160: days > 30 && days <= 60 ? money(open) : '0.00', age6190: days > 60 && days <= 90 ? money(open) : '0.00', age91180: days > 90 && days <= 180 ? money(open) : '0.00', ageOver180: days > 180 ? money(open) : '0.00' }
-  }).filter((row) => Number(row.openAmount) > 0).map((row) => ({ ...row, aging0: row.age030, aging1: row.age3160, aging2: row.age6190, aging3: row.age91180, aging4: row.ageOver180 }))
+  }).filter((row) => Number(row.openAmount) !== 0).map((row) => ({ ...row, aging0: row.age030, aging1: row.age3160, aging2: row.age6190, aging3: row.age91180, aging4: row.ageOver180 }))
 }
 
 function inventoryFlow(params: Params): Row[] {
-  const movements = documents.filter((row) => ['goods-receipts', 'shipments'].includes(row.kind))
+  const movements = documents.filter((row) => ['goods-receipts', 'shipments', 'sales-returns'].includes(row.kind))
   if (params.detail) return filterRows(movements.map((row) => {
-    const incoming = row.kind === 'goods-receipts'
+    const incoming = row.kind !== 'shipments'
     const line = lineReport(row)
-    return { ...line, direction: incoming ? 'in' : 'out', postingAction: 'post', qty: String((incoming ? 1 : -1) * row.quantity), costAmount: money((incoming ? 1 : -1) * Number(line.costAmount)), blockedQty: '0', inQty: incoming ? String(row.quantity) : '0', outQty: incoming ? '0' : String(row.quantity), baseQty: String(row.quantity) }
+    return { ...line, direction: incoming ? 'in' : 'out', postingAction: 'post', qty: String((incoming ? 1 : -1) * row.quantity), costAmount: money((incoming ? 1 : -1) * Math.abs(Number(line.costAmount))), blockedQty: '0', inQty: incoming ? String(row.quantity) : '0', outQty: incoming ? '0' : String(row.quantity), baseQty: String(row.quantity) }
   }), params)
   return products.map((product) => {
     const rows = movements.filter((row) => row.productId === product.id)
     const before = rows.filter((row) => params.dateFrom && row.businessDate < String(params.dateFrom))
     const selected = filterRows(rows, { dateFrom: params.dateFrom, dateTo: params.dateTo })
     const quantity = (items: DemoDocument[], kind: string): number => items.filter((row) => row.kind === kind).reduce((value, row) => value + row.quantity, 0)
-    const opening = 100 + quantity(before, 'goods-receipts') - quantity(before, 'shipments')
-    const incoming = quantity(selected, 'goods-receipts'), outgoing = quantity(selected, 'shipments')
+    const opening = 100 + quantity(before, 'goods-receipts') + quantity(before, 'sales-returns') - quantity(before, 'shipments')
+    const incoming = quantity(selected, 'goods-receipts') + quantity(selected, 'sales-returns'), outgoing = quantity(selected, 'shipments')
     return { warehouseId: '101', warehouseName: warehouses[0]!.name, skuId: product.id, skuCode: product.code, skuName: product.name, openingQty: String(opening), inQty: String(incoming), outQty: String(outgoing), closingQty: String(opening + incoming - outgoing), openingCost: money(opening * product.cost), inCost: money(incoming * product.cost), outCost: money(outgoing * product.cost), closingCost: money((opening + incoming - outgoing) * product.cost) }
   })
 }
 
 function cashRows(): Row[] {
   let balance = 100000
-  return documents.filter((row) => ['receipts', 'payments'].includes(row.kind)).sort((a, b) => a.businessDate.localeCompare(b.businessDate) || a.id.localeCompare(b.id)).map((row) => {
+  return documents.filter((row) => ['receipts', 'payments', 'refund-requests'].includes(row.kind)).sort((a, b) => a.businessDate.localeCompare(b.businessDate) || a.id.localeCompare(b.id)).map((row) => {
     const opening = balance
     const receipt = row.kind === 'receipts' ? Number(row.totalAmount) : 0
-    const payment = row.kind === 'payments' ? Number(row.totalAmount) : 0
+    const payment = row.kind === 'receipts' ? 0 : Number(row.totalAmount)
     balance += receipt - payment
-    return { ...row, sourceNo: row.documentNo, sourceType: row.kind === 'receipts' ? 'receipt' : 'payment', sourceId: row.id, openingBalance: money(opening), runningBalance: money(balance), receiptAmount: money(receipt), paymentAmount: money(payment) }
+    return { ...row, sourceNo: row.documentNo, sourceType: row.kind === 'receipts' ? 'receipt' : row.kind === 'refund-requests' ? 'refund_request' : 'payment', sourceId: row.id, openingBalance: money(opening), runningBalance: money(balance), receiptAmount: money(receipt), paymentAmount: money(payment) }
   })
 }
 
 function report(type: string, params: Params): ReportResult | undefined {
   if (!demoReports.some((item) => item.type === type)) return undefined
   let rows: Row[]
-  if (type === 'sales-summary' || type === 'purchase-summary') rows = documents.filter((row) => row.kind === (type === 'sales-summary' ? 'shipments' : 'goods-receipts')).map(lineReport)
+  if (type === 'sales-summary' || type === 'purchase-summary') rows = documents.filter((row) => type === 'sales-summary' ? ['shipments', 'sales-returns'].includes(row.kind) : row.kind === 'goods-receipts').map(lineReport)
   else if (type === 'inventory-summary') rows = inventoryRows().map((row) => ({ ...row, brandName: '柒衡办公（示例）' }))
   else if (type === 'inventory-flow') rows = inventoryFlow(params)
   else if (type === 'receivable-aging' || type === 'payable-aging') rows = agingRows(type === 'receivable-aging' ? 'shipments' : 'goods-receipts', params)
@@ -132,7 +142,7 @@ function report(type: string, params: Params): ReportResult | undefined {
 }
 
 function tradeSummary(): Row {
-  const aggregate = (kind: string, prefix: string): string => money(documents.filter((row) => row.kind === kind && row.businessDate.startsWith(prefix)).reduce((value, row) => value + Number(row.totalAmount), 0))
+  const aggregate = (kind: string, prefix: string): string => money(documents.filter((row) => (row.kind === kind || (kind === 'shipments' && row.kind === 'sales-returns')) && row.businessDate.startsWith(prefix)).reduce((value, row) => value + (row.kind === 'sales-returns' ? -1 : 1) * Number(row.totalAmount), 0))
   const amounts = (kind: string): Row => ({ today: aggregate(kind, snapshotDate), yesterday: aggregate(kind, '2026-11-19'), month: aggregate(kind, '2026-11'), year: aggregate(kind, '2026') })
   const trend = Array.from({ length: 12 }, (_, index) => {
     const month = new Date(Date.UTC(2025, 11 + index, 1)).toISOString().slice(0, 7)
@@ -157,6 +167,14 @@ function readEndpoint(path: string, params: Params): unknown {
   // 演示公司资料齐全，不显示上线清单
   if (path === '/workbench/setup') return { completed: true, steps: [] }
   if (path === '/inventory-balances') return inventory(params)
+  if (path === '/workflow/progress') {
+    const kind = params.businessType === 'sales_return' ? 'sales-returns' : params.businessType === 'refund_request' ? 'refund-requests' : undefined
+    const row = documents.find((doc) => kind && doc.kind === kind && doc.id === params.businessId)
+    if (!row?.wfInstanceId) return undefined
+    return { canOpen: false, instances: [{ id: row.wfInstanceId, status: 'completed', modelVersion: 1, startedAt: row.submittedAt, endedAt: row.approvedAt }],
+      tasks: [{ id: row.id + '1', nodeKey: 'review', nodeName: kind === 'sales-returns' ? '退货成本复核' : '退款复核', nodeKind: 'approver',
+        assigneeId: '302', assigneeName: people[1]!.name, status: 'approved', comment: '已核对资料（虚构审批样例）', createdAt: row.submittedAt, endedAt: row.approvedAt }] }
+  }
   if (path.startsWith('/custom-fields/')) return []
   if (path === '/attachments') return []
   const lists: Record<string, Row[]> = { '/warehouses': warehouses.map((row) => ({ ...row, status: 'active' })), '/partners': partners, '/cash-accounts': accounts, '/org/business-users': people, '/skus': [...products, ...manufacturingProducts].map((row) => ({ ...row, status: 'active', skuCode: row.code, skuName: row.name })) }

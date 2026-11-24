@@ -60,7 +60,7 @@ function createDocument(kind: string, id: number, date: string, productIndex: nu
   const partner = partners[partnerIndex]!
   const amount = qty * price
   const untaxed = Math.round(amount / 1.13 * 100) / 100
-  const prefixes: Record<string, string> = { 'sales-orders': 'XS', shipments: 'FH', receipts: 'SK', 'purchase-orders': 'CG', 'goods-receipts': 'SH', payments: 'FK' }
+  const prefixes: Record<string, string> = { 'sales-orders': 'XS', shipments: 'FH', receipts: 'SK', 'sales-returns': 'TH', 'refund-requests': 'TK', 'purchase-orders': 'CG', 'goods-receipts': 'SH', payments: 'FK' }
   const line: SalesLine = {
     id: String(id * 10), lineNo: 1, skuId: product.id, skuName: product.name,
     sku: { id: product.id, code: product.code, name: product.name }, warehouseId: '101', warehouse: { id: '101', name: warehouses[0]!.name },
@@ -138,13 +138,46 @@ for (let monthIndex = 0; monthIndex < 12; monthIndex++) {
   }
 }
 
+// 历史销售退回不虚构原订单或收款；退款、库存及账簿共同使用这两张样例。
+const returned = createDocument('sales-returns', 70001, '2026-11-19', 0, 2, products[0]!.price, 0, 'posted')
+const previousStock = inventoryRows().find((row) => row.skuId === returned.productId)!
+returned.returnMode = 'sourceless'
+returned.reason = '旧系统销售退回，外包装完整，验收合格'
+returned.legacyReference = '历史销售台账 LS-2025-018（虚构样例）'
+returned.creditAmount = returned.totalAmount
+returned.costAmount = money(returned.quantity * products[0]!.cost)
+returned.allocatedAmount = '100.00'
+returned.wfInstanceId = '97001'
+Object.assign(returned.lines![0]!, {
+  qualityResult: 'passed', creditAmount: returned.totalAmount,
+  costBasis: { source: 'average', warehouseId: '101', skuId: returned.productId,
+    stockQuantity: previousStock.onHandQty, stockAmount: previousStock.costAmount,
+    unitCost: money(products[0]!.cost), version: '1', baseQuantity: '2', costAmount: returned.costAmount },
+})
+const refunded = createDocument('refund-requests', 71001, snapshotDate, 0, 0, 0, 0, 'refunded')
+Object.assign(refunded, {
+  refundMode: 'sourceless_credit', originalReceiptId: null, reason: '按历史退货信用额办理部分退款',
+  warehouseId: '', warehouseName: '', warehouse: undefined,
+  totalAmount: '100.00', amount: '100.00', untaxedAmount: '100.00', taxAmount: '0.00', lines: [],
+  wfInstanceId: '97101', bankSerialNo: 'DEMO-BANK-20261120-01', paidDate: snapshotDate,
+  createdAt: snapshotDate + 'T07:00:00+08:00', submittedAt: snapshotDate + 'T07:10:00+08:00',
+  approvedAt: snapshotDate + 'T08:00:00+08:00', updatedAt: snapshotDate + 'T08:45:00+08:00',
+  creditItemIds: ['97011'], creditSources: [{ id: '97011', partnerId: returned.partnerId,
+    sourceId: returned.id, sourceLineId: returned.lines![0]!.id, sourceNo: returned.documentNo!,
+    returnMode: 'sourceless', sourceStatus: 'posted', warehouseId: returned.warehouseId,
+    warehouseName: returned.warehouseName, skuName: products[0]!.name, businessDate: returned.businessDate,
+    amount: returned.totalAmount, openAmount: money(Number(returned.totalAmount) - Number(returned.allocatedAmount)) }],
+})
+documents.push(returned, refunded)
+
 export function inventoryRows(): InventoryBalance[] {
   return products.map((product) => {
     const rows = documents.filter((document) => document.productId === product.id)
     const received = rows.filter((document) => document.kind === 'goods-receipts').reduce((sum, row) => sum + row.quantity, 0)
     const shipped = rows.filter((document) => document.kind === 'shipments').reduce((sum, row) => sum + row.quantity, 0)
     const reserved = rows.filter((row) => row.kind === 'sales-orders' && row.status === 'approved').reduce((sum, row) => sum + row.quantity - Number(row.lines?.[0]?.progress?.shippedQty ?? 0), 0)
-    const onHand = 100 + received - shipped
+    const returned = rows.filter((document) => document.kind === 'sales-returns').reduce((sum, row) => sum + row.quantity, 0)
+    const onHand = 100 + received + returned - shipped
     const pending = rows.filter((row) => row.kind === 'sales-orders' && row.status === 'pending').reduce((sum, row) => sum + row.quantity, 0)
     return { warehouseId: '101', warehouseName: warehouses[0]!.name, skuId: product.id, skuCode: product.code, skuName: product.name, onHandQty: String(onHand), reservedQty: String(reserved), blockedQty: '0', availableQty: String(onHand - reserved), pendingDemandQty: String(pending), unitCost: money(product.cost), costAmount: money(onHand * product.cost) }
   })

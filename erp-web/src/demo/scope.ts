@@ -1,7 +1,9 @@
 export const demoSalesKinds = [
   { path: 'sales-orders', title: '销售订单', permission: 'sales_order' },
   { path: 'shipments', title: '发货与签收', permission: 'shipment' },
+  { path: 'sales-returns', title: '销售退货', permission: 'sales_return' },
   { path: 'receipts', title: '收款登记', permission: 'receipt' },
+  { path: 'refund-requests', title: '退款申请', permission: 'refund_request' },
 ] as const
 export const demoPurchaseKinds = [
   { path: 'purchase-orders', title: '采购订单', permission: 'purchase_order' },

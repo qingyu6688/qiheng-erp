@@ -19,7 +19,7 @@ describe('演示新侧栏', () => {
   it('收起和展开保持所有开放模块入口，顶栏不重复页面标题', async () => {
     const wrapper = shell()
     const links = wrapper.findAll('nav a').map((link) => link.attributes('href'))
-    expect(links).toEqual(expect.arrayContaining(['/crm/customers', '/warehouse-locations', '/mfg/boms', '/mfg/work-orders', '/gl/vouchers', '/gl/ledgers', '/ai/wiki', '/ai/knowledge', '/ai/answers']))
+    expect(links).toEqual(expect.arrayContaining(['/sales-returns', '/refund-requests', '/crm/customers', '/warehouse-locations', '/mfg/boms', '/mfg/work-orders', '/gl/vouchers', '/gl/ledgers', '/ai/wiki', '/ai/knowledge', '/ai/answers']))
     await wrapper.get('button[aria-label="收起侧栏"]').trigger('click')
     expect(wrapper.classes()).toContain('sidebar-collapsed')
     expect(wrapper.get('button[aria-label="展开侧栏"]').attributes('aria-expanded')).toBe('false')

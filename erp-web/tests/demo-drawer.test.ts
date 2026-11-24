@@ -37,7 +37,7 @@ describe('演示单据右侧抽屉', () => {
     expect(router.currentRoute.value.path).toBe(list)
     expect(previewRoute.value?.path).toBe(path)
   })
-  it.each(['/mfg/work-orders/74001', '/gl/vouchers/80001'])('新增详情 %s 保留列表筛选并支持直接访问', async (path) => {
+  it.each(['/mfg/work-orders/74001', '/gl/vouchers/80001', '/sales-returns/70001', '/refund-requests/71001'])('新增详情 %s 保留列表筛选并支持直接访问', async (path) => {
     const router = createDemoRouter(createMemoryHistory())
     const list = path.slice(0, path.lastIndexOf('/'))
     await router.push(list + '?status=posted')

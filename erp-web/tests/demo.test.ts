@@ -35,10 +35,10 @@ describe('只读演示', () => {
     expect((await read<{ total: number }>('/document-browser/sales-orders', { keyword: '不存在的客户' })).total).toBe(0)
   })
 
-  it('库存满足期初加收货减出库，可用量扣除预留', () => {
+  it('库存满足期初加收货及退货减出库，可用量扣除预留', () => {
     for (const row of inventoryRows()) {
       const quantity = (kind: string): number => documents.filter((doc) => doc.kind === kind && doc.productId === row.skuId).reduce((value, doc) => value + doc.quantity, 0)
-      expect(Number(row.onHandQty)).toBe(100 + quantity('goods-receipts') - quantity('shipments'))
+      expect(Number(row.onHandQty)).toBe(100 + quantity('goods-receipts') + quantity('sales-returns') - quantity('shipments'))
       expect(Number(row.availableQty)).toBe(Number(row.onHandQty) - Number(row.reservedQty))
       expect(Number(row.pendingDemandQty)).toBe(documents.filter((doc) => doc.kind === 'sales-orders' && doc.status === 'pending' && doc.productId === row.skuId).reduce((value, doc) => value + doc.quantity, 0))
     }
@@ -66,7 +66,7 @@ describe('只读演示', () => {
 
   it('部分收款在订单、应收账龄和收款关联中保持一致', async () => {
     const summary = await read<{ openAmount: string; allocatedCashAmount: string }>('/sales-orders/10112/settlement-summary')
-    const aging = await read<{ summary: { openAmount: string }; items: { aging0: string; aging1: string }[] }>('/reports/receivable-aging', { agingDate: '2026-11-20' })
+    const aging = await read<{ summary: { openAmount: string }; items: { aging0: string; aging1: string }[] }>('/reports/receivable-aging', { agingDate: '2026-11-20', partnerId: '503' })
     const related = await read<{ items: { amount: string; documentId: string }[] }>('/sales-orders/10112/related/receipts')
     const reservations = await read<{ items: { remainingQty: string }[] }>('/sales-orders/10112/reservations')
     expect(reservations.items[0]?.remainingQty).toBe('37')
