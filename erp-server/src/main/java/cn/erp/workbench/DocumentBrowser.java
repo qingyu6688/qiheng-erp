@@ -4,6 +4,7 @@ import cn.erp.customfield.CustomFields;
 import cn.erp.documents.DocumentAccess;
 import cn.erp.identity.CompanyAccess;
 import cn.erp.shared.ApiException;
+import cn.erp.shared.SourcelessRefundCredits;
 import java.time.LocalDate;
 import java.util.*;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -171,7 +172,7 @@ public class DocumentBrowser {
     }
     private boolean order(Spec spec) {return List.of("sales_order","purchase_order").contains(spec.type());}
     // 列表只读取表头白名单，避免逐单加载明细、预留和历史变更；操作许可仍在详情及命令检查。
-    private static final Set<String> LIST_FIELDS=Set.of("id","version","status","business_date","invoice_date","fulfillment_status","settlement_status","sign_date","snapshot_at","total_amount","receivable_amount","payable_amount","credit_amount","debit_amount","amount","created_at","receipt_type","payment_type","entry_type","adjust_type");
+    private static final Set<String> LIST_FIELDS=Set.of("id","version","status","business_date","invoice_date","fulfillment_status","settlement_status","sign_date","snapshot_at","total_amount","receivable_amount","payable_amount","credit_amount","debit_amount","amount","created_at","receipt_type","payment_type","entry_type","adjust_type","return_mode","refund_mode");
     private static final Map<String,String> REFERENCES=Map.ofEntries(Map.entry("customer_id","business_partner"),Map.entry("supplier_id","business_partner"),Map.entry("partner_id","business_partner"),Map.entry("warehouse_id","warehouse"),Map.entry("from_warehouse_id","warehouse"),Map.entry("to_warehouse_id","warehouse"),Map.entry("cash_account_id","cash_account"),Map.entry("from_account_id","cash_account"),Map.entry("to_account_id","cash_account"),Map.entry("requester_id","sys_user"));
     private Map<String,Map<String,String>> referenceNames(CompanyAccess actor,List<Map<String,Object>> rows) {
         var ids=new HashMap<String,Set<Object>>();
@@ -223,6 +224,7 @@ public class DocumentBrowser {
         return sql;
     }
     private String scope(CompanyAccess actor,Spec spec,Map<String,Object> params) {
+        if(spec.type().equals("refund_request"))return " AND "+SourcelessRefundCredits.condition(actor,"h");
         if("reversal".equals(spec.warehouse())) {
             var parts=new ArrayList<String>();
             for(String type:List.of("shipment","sales_return","goods_receipt","purchase_return","receipt","payment","account_transfer","stock_adjustment")) {
@@ -231,7 +233,7 @@ public class DocumentBrowser {
                 if(!actor.allWarehouses()&&!Set.of("receipt","payment","account_transfer").contains(type))condition+=" AND EXISTS(SELECT 1 FROM "+type+" source WHERE source.tenant_id=h.tenant_id AND source.company_id=h.company_id AND source.id=h.source_id AND source.warehouse_id IN (:warehouses))";
                 parts.add("("+condition+")");
             }
-            return " AND ("+(parts.isEmpty()?"1=0":String.join(" OR ",parts))+")";
+            return " AND ("+(parts.isEmpty()?"1=0":String.join(" OR ",parts))+") AND "+SourcelessRefundCredits.sourceCondition(actor,"h.source_type","h.source_id");
         }
         if(actor.allWarehouses()||spec.warehouse()==null)return "";
         return switch(spec.warehouse()) {

@@ -60,6 +60,7 @@ class SourcelessReturnIT {
     @Autowired cn.erp.fulfillment.ShipmentService shipments;
     @Autowired ReportService reports;
     @Autowired cn.erp.inventory.InventoryTraceQueries trace;
+    @Autowired cn.erp.workbench.DocumentBrowser browser;
     private WorkflowTestData d;
     private long period;
 
@@ -289,6 +290,48 @@ class SourcelessReturnIT {
     private long posted(List<FinanceModels.ReturnLine> lines) {
         long id=create(input(lines,null));submit(d.actor(d.maker),id);approve(id,d.financeA);
         returns.command(d.actor(d.maker),id,"post",key(),command(id));return id;
+    }
+
+    @SuppressWarnings("unchecked") @Test void genericBrowserShowsReturnModeToViewersWithoutGrantingSourcelessActions() {
+        long id=create(input(List.of(line("1","10","0","passed","5","历史成本")),null));
+        var viewer=without(d.maker,"sales_return:sourceless","sales_return:create","sales_return:update");
+        var page=browser.page(viewer,"sales-returns",cn.erp.workbench.DocumentBrowser.Filter.empty(),null,20,true);
+        var items=(List<Map<String,Object>>)page.get("items");
+        assertThat(items).singleElement().satisfies(item->assertThat(item).containsEntry("returnMode","sourceless").doesNotContainKeys("costAmount","manualUnitCost","costBasis"));
+        assertThat(page.get("total")).isEqualTo(1L);
+        assertThat(returns.get(viewer,id)).containsEntry("returnMode","sourceless");
+        code(()->submit(viewer,id),"FORBIDDEN");
+    }
+
+    @Test void genericRefundBrowserAppliesSourceVisibilityBeforeItemsCountsAndNumberLookup() {
+        receive("10","5");long source=posted(List.of(line("4","10","0","passed",null,null)));
+        long refund=createRefund(cash(),"40",List.of(credit(source)));
+        var maker=d.actor(d.maker);
+        var visible=new CompanyAccess(d.tenant,d.maker,d.company,false,Set.of(d.warehouse),maker.permissions(),maker.orgScope());
+        assertThat(browser.page(visible,"refund-requests",cn.erp.workbench.DocumentBrowser.Filter.empty(),null,20,true).get("items")).asList().hasSize(1);
+        var noWarehouse=new CompanyAccess(d.tenant,d.maker,d.company,false,Set.of(),maker.permissions(),maker.orgScope());
+        for(var denied:List.of(noWarehouse,without(d.maker,"sales_return:view")))assertBrowserHidden(denied,"refund-requests",refund);
+        jdbc.update("UPDATE sales_return SET owner_department_id=? WHERE id=?",d.parentDepartment,source);
+        var child=new CompanyAccess(d.tenant,d.maker,d.company,true,Set.of(),maker.permissions(),OrgScope.restricted(Set.of(d.department),Set.of(),d.department));
+        assertBrowserHidden(child,"refund-requests",refund);
+    }
+
+    @Test void genericReversalBrowserUsesTheCurrentSourcelessReturnDepartment() {
+        long source=posted(List.of(line("1","10","0","passed","5","历史成本")));
+        long reversal=applyReversal("sales_return",source);
+        assertThat(browser.page(d.actor(d.maker),"document-reversals",cn.erp.workbench.DocumentBrowser.Filter.empty(),null,20,true).get("items")).asList().hasSize(1);
+        jdbc.update("UPDATE sales_return SET owner_department_id=? WHERE id=?",d.parentDepartment,source);
+        var maker=d.actor(d.maker);
+        var child=new CompanyAccess(d.tenant,d.maker,d.company,true,Set.of(),maker.permissions(),OrgScope.restricted(Set.of(d.department),Set.of(),d.department));
+        assertBrowserHidden(child,"document-reversals",reversal);
+    }
+
+    private void assertBrowserHidden(CompanyAccess actor,String kind,long id) {
+        var filter=cn.erp.workbench.DocumentBrowser.Filter.empty();
+        var page=browser.page(actor,kind,filter,null,20,true);
+        assertThat(page.get("items")).asList().isEmpty();assertThat(page.get("total")).isEqualTo(0L);
+        assertThat(browser.statusCounts(actor,kind,filter)).isEmpty();
+        assertThat(browser.visibleNumber(actor,kind,id)).isEmpty();
     }
 
     @ParameterizedTest @CsvSource({"7,28,98,average","0,0,0,average","7,28,28,last_in"})
