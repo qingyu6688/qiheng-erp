@@ -30,6 +30,10 @@ class SalesPriceAdjustmentController {
     @GetMapping("/metadata") ApiResponse<?> metadata(HttpServletRequest request) {
         return ApiResponse.success(queries.metadata(access.requireCompany(request,"sales_price_adjustment:view")));
     }
+    @GetMapping("/{id}/red-invoices") ApiResponse<?> redInvoices(HttpServletRequest request,@PathVariable long id,
+            @RequestParam(required=false) Long lineId,@RequestParam(required=false) Long cursor,@RequestParam(defaultValue="20") int limit) {
+        return ApiResponse.success(queries.redInvoices(access.requireCompany(request,"sales_price_adjustment:view"),id,lineId,cursor,limit));
+    }
     @PostMapping ResponseEntity<?> create(HttpServletRequest request, @RequestHeader(value = "Idempotency-Key", required = false) String key,
             @Valid @RequestBody SalesPriceAdjustmentModels.Input input) {
         return ResponseEntity.status(201).body(ApiResponse.created(service.create(access.requireCompany(request, "sales_price_adjustment:create"), key, input)));

@@ -32,14 +32,15 @@ class SalesPriceAdjustmentPosting {
     }
     List<Map<String,Object>> preview(CompanyAccess actor,Map<String,Object> header,List<Map<String,Object>> lines) {
         writer.revalidate(actor,header,lines);
+        var incomplete=invoices.incompleteRedSources(actor,lines.stream().filter(line->amount(line,"amount").signum()<0).map(line->number(line,"shipment_line_id")).toList());
         return lines.stream().map(line->Map.<String,Object>of("lineId",line.get("id").toString(),"shipmentLineId",line.get("shipment_line_id").toString(),
                 "amount",line.get("amount").toString(),"taxAmount",line.get("tax_amount").toString(),"remainingQuantity",line.get("source_base_qty").toString(),
-                "needsRed",amount(line,"amount").signum()<0&&invoices.redRequirements(actor,number(line,"shipment_line_id")).stream().anyMatch(red->!flag(red.get("redComplete"))))).toList();
+                "needsRed",incomplete.contains(number(line,"shipment_line_id")))).toList();
     }
     void post(CompanyAccess actor,Map<String,Object> header,List<Map<String,Object>> lines) {
         requireFinancial(actor,TYPE+":post");LocalDate day=date(header,"business_date");long period=period(actor,day);ledger.lockOpenPeriod(actor,period,day);
         var sources=writer.revalidate(actor,header,lines);
-        for(var line:lines)if(amount(line,"amount").signum()<0)invoices.requireRed(actor,number(line,"shipment_line_id"));
+        invoices.requireRed(actor,lines.stream().filter(line->amount(line,"amount").signum()<0).map(line->number(line,"shipment_line_id")).toList());
         var entries=new ArrayList<LedgerService.Line>();
         for(var line:lines) {
             receivable(actor,header,line,sources.get(number(line,"id")),period,day);

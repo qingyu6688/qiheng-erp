@@ -75,6 +75,7 @@ class SalesPriceAdjustmentIT {
     @Autowired CommandResults results;
     @Autowired ReportService reports;
     @Autowired ObjectMapper json;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
     private WorkflowTestData d;
     private long period;
 
@@ -343,10 +344,36 @@ class SalesPriceAdjustmentIT {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void redInvoicePagesKeepAnOlderHiddenBlockerAndRecheckWholeInvoiceRights() {
+        long source=ship("1","10","0",null);seedReleasedSalesInvoiceHistory(List.of(originalAr(source)),25);
+        long oldest=jdbc.queryForObject("SELECT MIN(invoice_id) FROM invoice_red_registration WHERE tenant_id=?",Long.class,d.tenant);
+        jdbc.update("UPDATE invoice_red_registration SET status='cancelled',confirmed_by=NULL,confirmed_at=NULL WHERE tenant_id=? AND invoice_id=?",d.tenant,oldest);
+        long adjustment=adjust(source,null,"-1");var detail=queries.get(actor(d.maker),adjustment);
+        var first=(List<Map<String,Object>>)detail.get("redInvoices");
+        assertThat(first).hasSize(20).allSatisfy(row->assertThat(row.get("redComplete")).isIn(true,1L,1));
+        assertThat((List<Map<String,Object>>)detail.get("lines")).allSatisfy(row->assertThat(row).containsEntry("needsRed",true));
+        var next=queries.redInvoices(actor(d.maker),adjustment,null,Long.valueOf(detail.get("redInvoiceCursor").toString()),20);
+        assertThat((List<?>)next.get("items")).hasSize(5);assertThat(next.get("nextCursor")).isNull();
+        assertThat((List<Map<String,Object>>)next.get("items")).anySatisfy(row->assertThat(row).containsEntry("invoiceId",""+oldest));
+        var wrongWarehouse=new CompanyAccess(d.tenant,d.maker,d.company,false,Set.of(Ids.next()),actor(d.maker).permissions());
+        code(()->queries.redInvoices(wrongWarehouse,adjustment,null,null,20),"NOT_FOUND");
+        var permissions=new HashSet<>(actor(d.maker).permissions());permissions.remove("invoice_registration:view");
+        var noInvoiceView=new CompanyAccess(d.tenant,d.maker,d.company,true,Set.of(),permissions);
+        code(()->queries.redInvoices(noInvoiceView,adjustment,null,null,20),"FORBIDDEN");
+        assertThat((List<?>)queries.get(noInvoiceView,adjustment).get("redInvoices")).isEmpty();
+        code(()->queries.redInvoices(actor(d.maker),adjustment,Ids.next(),null,20),"NOT_FOUND");
+        approve(adjustment);code(()->command(adjustment,"post",d.maker),"SALES_RED_REQUIRED");
+        jdbc.update("UPDATE invoice_red_registration SET status='confirmed',confirmed_by=?,confirmed_at=UTC_TIMESTAMP(3) WHERE tenant_id=? AND invoice_id=?",d.manager,d.tenant,oldest);
+        assertThat(command(adjustment,"post",d.maker)).containsEntry("amount","-1.00");zeroDifferences();
+    }
+
+    @Test
     @org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(named="ERP_SALES_B02_CAPACITY",matches="true")
     @SuppressWarnings("unchecked")
     void hundredSourcesWithReleasedInvoiceHistoryKeepNetAmountsAndCostsExact() throws Exception {
         final int sourceCount=100,historyCount=20_000;
+        final double maxBatchMilliseconds=5_000;
         var report=java.nio.file.Path.of(System.getenv("ERP_TEST_ROOT")).toRealPath().resolve("B02-销售调价容量.json");
         assertThat(java.nio.file.Files.exists(report)).as("容量证据不可覆盖").isFalse();
         assertThat(Runtime.getRuntime().maxMemory()).as("容量验收Java堆上限").isLessThanOrEqualTo(1024L*1024*1024);
@@ -363,6 +390,10 @@ class SalesPriceAdjustmentIT {
         var created=prices.create(actor(d.maker),key(),new SalesPriceAdjustmentModels.Input(null,d.customer,d.warehouse,d.day.plusDays(2),"百行历史红字折让容量",
                 sources.stream().map(source->new SalesPriceAdjustmentModels.LineInput(source,null,"-1")).toList()));
         long adjustment=id(created);double createdMs=elapsedMs(started);
+        assertThat(createdMs).as("本机百行草稿耗时").isLessThan(maxBatchMilliseconds);
+        int responseBytes=json.writeValueAsBytes(created).length;
+        assertThat(responseBytes).as("百行首屏不得携带全部历史票据").isLessThan(256*1024);
+        assertThat((List<?>)created.get("redInvoices")).hasSize(20);
         capacityStage("百行折让草稿已保存，毫秒 "+createdMs);
         var previewMs=new java.util.ArrayList<Double>();
         for(int round=0;round<3;round++) {
@@ -374,10 +405,14 @@ class SalesPriceAdjustmentIT {
         }
         started=System.nanoTime();assertThat(post(adjustment)).containsEntry("amount","-100.00");double postedMs=elapsedMs(started);
         capacityStage("百行折让已提交、批准并过账，毫秒 "+postedMs);
+        started=System.nanoTime();int visitedInvoices=visitRedInvoicePages(adjustment,created);double redPagesMs=elapsedMs(started);
+        assertThat(visitedInvoices).isEqualTo(historyCount);
         started=System.nanoTime();var candidates=allInvoiceCandidates();double candidatesMs=elapsedMs(started);
+        assertThat(candidatesMs).as("本机百行净额度候选耗时").isLessThan(maxBatchMilliseconds);
         assertThat(candidates).hasSize(sourceCount).allSatisfy(row->assertThat(row).containsEntry("amount","10.00").containsEntry("invoiceAvailableAmount","9.00").containsEntry("invoiceAvailableTaxAmount","0.00"));
         started=System.nanoTime();var blue=invoices.create(actor(d.maker),key(),new InvoiceService.Input("sales",d.customer,key(),d.day.plusDays(3),"900","0",
                 originalArs.stream().map(ar->new InvoiceService.Line(ar,"9")).toList(),null));double invoiceMs=elapsedMs(started);
+        assertThat(invoiceMs).as("本机百行净额开票耗时").isLessThan(maxBatchMilliseconds);
         assertThat(blue).containsEntry("amount","900.00").containsEntry("taxDiffAmount","0.00");
         assertThat((List<?>)blue.get("lines")).hasSize(sourceCount);
         assertThat(jdbc.queryForList("SELECT id,cost_amount,signed_cost_amount,receivable_amount,tax_amount FROM shipment_line WHERE tenant_id=? ORDER BY id",d.tenant)).isEqualTo(originalCosts);
@@ -385,6 +420,7 @@ class SalesPriceAdjustmentIT {
         zeroDifferences();
         var metrics=new java.util.LinkedHashMap<String,Object>();
         metrics.put("sourceLines",sourceCount);metrics.put("releasedInvoices",historyCount);metrics.put("maxHeapBytes",Runtime.getRuntime().maxMemory());
+        metrics.put("initialResponseBytes",responseBytes);metrics.put("visitedRedInvoices",visitedInvoices);metrics.put("redInvoicePaginationMs",redPagesMs);
         metrics.put("createMs",createdMs);metrics.put("previewMs",previewMs);metrics.put("submitApprovePostMs",postedMs);metrics.put("candidatePaginationMs",candidatesMs);metrics.put("netInvoiceSaveMs",invoiceMs);
         metrics.put("netInvoiceAmount",blue.get("amount"));metrics.put("originalCostUnchanged",true);metrics.put("reconciliationDifferences",0);
         java.nio.file.Files.writeString(report,json.writeValueAsString(metrics),java.nio.file.StandardOpenOption.CREATE_NEW);
@@ -399,11 +435,25 @@ class SalesPriceAdjustmentIT {
             reds.add(new Object[]{Ids.next(),d.tenant,d.company,invoice,"CAP-RED-"+index,d.day,d.maker,d.manager,d.manager});
         }
         // 历史规模通过SQL准备已释放且经双人确认的票据元数据；真实购销及本次开票仍走业务命令。
+        new org.springframework.transaction.support.TransactionTemplate(transactions).executeWithoutResult(status->{
         jdbc.batchUpdate("INSERT INTO invoice_registration(id,tenant_id,company_id,invoice_type,partner_id,invoice_no,invoice_date,amount,tax_amount,status,version,created_by,updated_by,owner_user_id,owner_department_id)"
                 +" VALUES(?,?,?,'sales',?,?,?,'0.01',0,'voided',1,?,?,?,?)",heads);
         jdbc.batchUpdate("INSERT INTO invoice_registration_line(id,tenant_id,company_id,invoice_id,receivable_id,amount,created_by) VALUES(?,?,?,?,?,'0.01',?)",lines);
         jdbc.batchUpdate("INSERT INTO invoice_red_registration(id,tenant_id,company_id,invoice_id,red_invoice_no,red_invoice_date,amount,tax_amount,reason,status,source_version,created_by,confirmed_by,confirmed_at,updated_by)"
                 +" VALUES(?,?,?,?,?,?,'0.01',0,'容量历史整票红字','confirmed',0,?,?,UTC_TIMESTAMP(3),?)",reds);
+        });
+    }
+
+    @SuppressWarnings("unchecked")
+    private int visitRedInvoicePages(long adjustment,Map<String,Object> first) {
+        var visited=new HashSet<String>();var page=first;
+        while(true) {
+            var items=(List<Map<String,Object>>)page.get(page.containsKey("redInvoices")?"redInvoices":"items");
+            for(var item:items)assertThat(visited.add(item.get("invoiceId").toString())).as("原票分页不能重复").isTrue();
+            Object cursor=page.get(page.containsKey("redInvoiceCursor")?"redInvoiceCursor":"nextCursor");
+            if(cursor==null)return visited.size();
+            page=queries.redInvoices(actor(d.maker),adjustment,null,Long.valueOf(cursor.toString()),200);
+        }
     }
 
     @SuppressWarnings("unchecked")

@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, inject, ref } from 'vue'
+import { computed, inject, onScopeDispose, ref, watch } from 'vue'
+import { salesPriceRedInvoices } from '../../api/sales-price-adjustments'
+import { ApiError, isCancelled, messageOf } from '../../api/http'
 import { useSalesPriceAdjustmentPanel } from '../../hooks/useSalesPriceAdjustmentPanel'
 import type { SalesDocument } from '../../types/sales'
 import type { SalesRedInvoice } from '../../types/sales-price-adjustments'
@@ -56,14 +58,81 @@ const {
 )
 
 const invoiceId = ref<string>()
+const additionalInvoices = ref<SalesRedInvoice[]>([])
+const redCursor = ref<string | null>(null),
+  redLoading = ref(false),
+  redError = ref('')
+let redRevision = 0
+let redController: AbortController | undefined
 const redInvoices = computed<SalesRedInvoice[]>(() => [
   ...new Map(
-    (document.value?.lines ?? [])
-      .flatMap((line) => line.redInvoices ?? [])
-      .map((invoice) => [invoice.invoiceId, invoice]),
+    [
+      ...(document.value?.redInvoices ??
+        (document.value?.lines ?? []).flatMap((line) => line.redInvoices ?? [])),
+      ...additionalInvoices.value,
+    ].map((invoice) => [invoice.invoiceId, invoice]),
   ).values(),
 ])
 const needsRed = computed(() => document.value?.lines.some((line) => line.needsRed) ?? false)
+watch(
+  document,
+  (current) => {
+    redRevision++
+    redController?.abort()
+    additionalInvoices.value = []
+    redCursor.value = current?.redInvoiceCursor ?? null
+    redLoading.value = false
+    redError.value = ''
+  },
+  { immediate: true },
+)
+watch([document, loading], ([current, reading]) => {
+  if (!current && !reading) invoiceId.value = undefined
+})
+onScopeDispose(() => {
+  redRevision++
+  redController?.abort()
+})
+watch(
+  () => session.companyId,
+  () => {
+    redRevision++
+    redController?.abort()
+    additionalInvoices.value = []
+    redCursor.value = null
+    document.value = undefined
+    preview.value = undefined
+    invoiceId.value = undefined
+  },
+  { flush: 'sync' },
+)
+async function loadMoreInvoices(): Promise<void> {
+  const current = document.value
+  if (!current || !redCursor.value || redLoading.value || locked.value) return
+  const revision = ++redRevision
+  redController = new AbortController()
+  redLoading.value = true
+  redError.value = ''
+  try {
+    const page = await salesPriceRedInvoices(
+      current.id,
+      { cursor: redCursor.value, limit: 20 },
+      redController.signal,
+    )
+    if (revision !== redRevision) return
+    additionalInvoices.value.push(...page.items)
+    redCursor.value = page.nextCursor
+  } catch (cause: unknown) {
+    if (revision !== redRevision || isCancelled(cause)) return
+    if (cause instanceof ApiError && [403, 404].includes(cause.status)) {
+      document.value = undefined
+      preview.value = undefined
+      error.value = messageOf(cause)
+    } else redError.value = messageOf(cause)
+  } finally {
+    if (revision === redRevision) redLoading.value = false
+  }
+}
 function invoiceChanged(): void {
   void load()
 }
@@ -343,6 +412,20 @@ function reversalSaved(value: StockDocument): void {
                 >
               </li>
             </ul>
+            <el-alert
+              v-if="redError"
+              :title="redError"
+              type="error"
+              :closable="false"
+              role="alert"
+            />
+            <el-button
+              v-if="redCursor"
+              :loading="redLoading"
+              :disabled="locked"
+              @click="loadMoreInvoices"
+              >更多原票</el-button
+            >
           </section>
           <section v-if="preview" class="price-preview">
             <h3>过账预览</h3>

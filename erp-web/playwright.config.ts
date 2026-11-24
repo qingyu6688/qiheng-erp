@@ -32,7 +32,7 @@ export default defineConfig({
     {
       command: 'pwsh -NoProfile -File ../scripts/project.ps1 e2e-web',
       url: 'http://127.0.0.1:15173',
-      timeout: 120_000,
+      timeout: 180_000,
       reuseExistingServer: false,
     },
   ],

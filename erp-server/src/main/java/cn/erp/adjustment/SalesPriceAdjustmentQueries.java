@@ -16,7 +16,6 @@ import cn.erp.shared.ApiException;
 import cn.erp.shared.ApiRows;
 import cn.erp.shared.OrgOwnership;
 import cn.erp.shared.SalesInvoiceAmounts;
-import cn.erp.shared.SalesInvoiceScope;
 
 @Component
 @Transactional(readOnly=true)
@@ -45,27 +44,47 @@ public class SalesPriceAdjustmentQueries {
                 +" JOIN shipment h ON h.tenant_id=sl.tenant_id AND h.company_id=sl.company_id AND h.id=sl.shipment_id"
                 +" WHERE l.tenant_id=? AND l.company_id=? AND l.adjustment_id=? ORDER BY l.line_no",actor.tenantId(),actor.companyId(),id);
     }
+    @SuppressWarnings("unchecked")
     public Map<String,Object> get(CompanyAccess actor,long id) {
         require(actor,TYPE+":view");var header=head(actor,id,false);var result=ApiRows.row(header);
         result.remove("stockCost");result.remove("issuedCost");
         result.put("documentNo",header.get("adjust_no"));
         result.put("partnerName",jdbc.queryForObject("SELECT name FROM business_partner WHERE tenant_id=? AND id=?",String.class,actor.tenantId(),header.get("partner_id")));
         result.put("warehouseName",jdbc.queryForObject("SELECT name FROM warehouse WHERE tenant_id=? AND company_id=? AND id=?",String.class,actor.tenantId(),actor.companyId(),header.get("warehouse_id")));
-        result.put("lines",lines(actor,id).stream().map(raw->{
+        var sourceLines=lines(actor,id);
+        var negativeSources=negativeSources(sourceLines);
+        var incomplete=invoices.incompleteRedSources(actor,negativeSources);
+        var redPage=actor.hasPermission("invoice_registration:view")?invoices.redInvoicePage(actor,negativeSources,null,20):Map.<String,Object>of("items",List.of());
+        var redItems=(List<Map<String,Object>>)redPage.get("items");
+        result.put("redInvoices",redItems);result.put("redInvoiceCursor",redPage.get("nextCursor"));
+        result.put("lines",sourceLines.stream().map(raw->{
             var line=ApiRows.row(raw);
             for(String field:List.of("stockCost","issuedCost","costTaxInclusive","priorReturnBasis"))line.remove(field);
             if(amount(raw,"amount").signum()<0) {
-                var reds=invoices.redRequirements(actor,number(raw,"shipment_line_id"));
-                line.put("needsRed",reds.stream().anyMatch(row->!flag(row.get("redComplete"))));
-                if(actor.hasPermission("invoice_registration:view"))line.put("redInvoices",reds.stream().filter(row->visibleInvoice(actor,row.get("invoiceId"))).toList());
+                line.put("needsRed",incomplete.contains(number(raw,"shipment_line_id")));
+                if(actor.hasPermission("invoice_registration:view")) {
+                    line.put("redInvoices",redItems.stream().filter(row->((List<?>)row.get("shipmentLineIds")).contains(raw.get("shipment_line_id").toString())).map(row->{
+                        var summary=new LinkedHashMap<>(row);summary.remove("shipmentLineIds");return summary;
+                    }).toList());
+                    line.put("redInvoiceCursor",redPage.get("nextCursor"));
+                }
             } else line.put("needsRed",false);
             return line;
         }).toList());
         result.put("allowedActions",actions(actor,header));return result;
     }
-    private boolean visibleInvoice(CompanyAccess actor,Object id) {
-        return !jdbc.queryForList("SELECT b.id FROM invoice_registration b WHERE b.tenant_id=? AND b.company_id=? AND b.id=?"
-                +OrgOwnership.filter(actor,"b")+" AND "+SalesInvoiceScope.registrationCondition(actor,"b"),actor.tenantId(),actor.companyId(),id).isEmpty();
+    public Map<String,Object> redInvoices(CompanyAccess actor,long id,Long lineId,Long cursor,int limit) {
+        require(actor,TYPE+":view");require(actor,"invoice_registration:view");head(actor,id,false);
+        var selected=lines(actor,id).stream().filter(line->amount(line,"amount").signum()<0).toList();
+        if(lineId!=null) {
+            selected=selected.stream().filter(line->number(line,"id")==lineId).toList();
+            if(selected.isEmpty())throw missing();
+        }
+        return invoices.redInvoicePage(actor,negativeSources(selected),cursor,limit);
+    }
+
+    private static List<Long> negativeSources(List<Map<String,Object>> lines) {
+        return lines.stream().filter(line->amount(line,"amount").signum()<0).map(line->number(line,"shipment_line_id")).distinct().toList();
     }
     public Map<String,Object> list(CompanyAccess actor,String status,Long partner,Long cursor,int limit) {
         require(actor,TYPE+":view");page(cursor,limit);
@@ -135,7 +154,6 @@ public class SalesPriceAdjustmentQueries {
     static BigDecimal remaining(Map<String,Object> row){return amount(row,"signed_base_qty").subtract(amount(row,"returned_base_qty"));}
     static BigDecimal gross(Map<String,Object> row){return amount(row,"receivable_amount").add(amount(row,"price_adjusted_amount")).subtract(amount(row,"credited_amount"));}
     static BigDecimal tax(Map<String,Object> row){return amount(row,"tax_amount").add(amount(row,"price_adjusted_tax")).subtract(amount(row,"credited_tax"));}
-    static boolean flag(Object value){return value instanceof Boolean flag?flag:value instanceof Number number&&number.intValue()!=0;}
     static long number(Map<String,Object> row,String field){return ((Number)row.get(field)).longValue();}
     static BigDecimal amount(Map<String,Object> row,String field){return (BigDecimal)row.get(field);}
     static LocalDate date(Map<String,Object> row,String field){return ((java.sql.Date)row.get(field)).toLocalDate();}

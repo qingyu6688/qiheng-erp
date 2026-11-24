@@ -44,7 +44,8 @@ public final class SalesInvoiceScope {
         if (!warehouses.allWarehouses()) shipment += warehouses.warehouseIds().isEmpty() ? " AND 1=0"
                 : " AND invoice_shipment.warehouse_id IN(" + warehouses.warehouseIds().stream().sorted()
                     .map(Object::toString).collect(java.util.stream.Collectors.joining(",")) + ")";
-        String sources = "NOT EXISTS(SELECT 1 FROM invoice_registration_line invoice_line LEFT JOIN receivable invoice_ar"
+        // 固定按整张发票定位来源，避免历史批量导入后沿应收索引扫描整家公司。
+        String sources = "NOT EXISTS(SELECT 1 FROM invoice_registration_line invoice_line FORCE INDEX(idx_invoice_registration_line_invoice) LEFT JOIN receivable invoice_ar"
                 + " ON invoice_ar.tenant_id=invoice_line.tenant_id AND invoice_ar.company_id=invoice_line.company_id AND invoice_ar.id=invoice_line.receivable_id"
                 + " WHERE invoice_line.tenant_id=" + alias + ".tenant_id AND invoice_line.company_id=" + alias + ".company_id AND invoice_line.invoice_id=" + alias + ".id"
                 + " AND (invoice_ar.id IS NULL OR NOT COALESCE((" + visible + "),FALSE)"

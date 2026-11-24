@@ -8,6 +8,7 @@ export interface SalesRedInvoice {
   electronicStatus: string | null
   redInvoiceNo: string | null
   redComplete: boolean | number
+  shipmentLineIds?: string[]
 }
 
 export interface SalesPriceAdjustmentLine extends Omit<
@@ -20,6 +21,7 @@ export interface SalesPriceAdjustmentLine extends Omit<
   oldTax: string
   needsRed: boolean
   redInvoices?: SalesRedInvoice[]
+  redInvoiceCursor?: string | null
 }
 
 export interface SalesPriceAdjustment extends Omit<
@@ -28,6 +30,8 @@ export interface SalesPriceAdjustment extends Omit<
 > {
   kind: 'sales'
   lines: SalesPriceAdjustmentLine[]
+  redInvoices?: SalesRedInvoice[]
+  redInvoiceCursor?: string | null
 }
 
 export interface SalesPriceAdjustmentInput {

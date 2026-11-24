@@ -7,9 +7,18 @@ import type {
   SalesPriceMetadata,
   SalesPricePreview,
   SalesPriceSource,
+  SalesRedInvoice,
 } from '../types/sales-price-adjustments'
 
 const resource = '/sales-price-adjustments'
+
+export function salesPriceRedInvoices(
+  id: string,
+  params: { cursor?: string; lineId?: string; limit?: number } = {},
+  signal?: AbortSignal,
+): Promise<PageResult<SalesRedInvoice>> {
+  return request({ method: 'GET', url: `${resource}/${id}/red-invoices`, params, signal }, true)
+}
 
 export function salesPriceAdjustments(
   params: { status?: string; partnerId?: string; cursor?: string; limit?: number },

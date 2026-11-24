@@ -275,6 +275,35 @@ test('无成本角色调价、原键恢复、整票红字和右侧报表形成�
     const extra = receivables.find(
       (item) => item.sourceType === 'price_adjustment_line' && item.sourceId === adjustment.id,
     )!
+    for (let index = 0; index < 25; index++) {
+      const suffix = randomUUID().replaceAll('-', '')
+      const historical = await api<Document>(page, company, '/invoice-registrations', {
+        invoiceType: 'sales',
+        partnerId: customer,
+        invoiceNo: 'HIST-' + suffix,
+        invoiceDate: day,
+        amount: '0.01',
+        taxAmount: '0',
+        lines: [{ receivableId: original.id, amount: '0.01' }],
+      })
+      const red = await api<{ id: string; version: number }>(
+        page,
+        company,
+        '/manual-invoice-reds',
+        {
+          invoiceId: historical.id,
+          sourceVersion: historical.version,
+          redInvoiceNo: 'HIST-RED-' + suffix,
+          redInvoiceDate: day,
+          amount: '0.01',
+          taxAmount: '0',
+          reason: '浏览器原票分页的已完成历史',
+        },
+      )
+      await api(reviewer, company, `/manual-invoice-reds/${red.id}/confirm`, {
+        version: red.version,
+      })
+    }
     const invoiceNo = 'B' + randomUUID().replaceAll('-', '') + 'X'.repeat(31)
     const blue = await api<Document>(page, company, '/invoice-registrations', {
       invoiceType: 'sales',
@@ -309,7 +338,21 @@ test('无成本角色调价、原键恢复、整票红字和右侧报表形成�
     await discountPanel.getByRole('button', { name: '过账', exact: true }).click()
     await confirm(page, '过账')
     await expect(discountPanel.getByText('该发货行已经开票', { exact: false })).toBeVisible()
-    await discountPanel.getByRole('button', { name: '查看原票及红字', exact: true }).click()
+    await expect(discountPanel.locator('.price-invoice-list li')).toHaveCount(20)
+    await discountPanel.getByRole('button', { name: '更多原票', exact: true }).click()
+    await expect(discountPanel.locator('.price-invoice-list li')).toHaveCount(26)
+    await expect(discountPanel.getByRole('button', { name: '更多原票', exact: true })).toHaveCount(
+      0,
+    )
+    const currentBlueRow = discountPanel
+      .locator('.price-invoice-list li')
+      .filter({ hasText: invoiceNo })
+    await currentBlueRow.scrollIntoViewIfNeeded()
+    await page.screenshot({
+      path: info.outputPath('原票分页和红字要求.png'),
+      animations: 'disabled',
+    })
+    await currentBlueRow.getByRole('button', { name: '查看原票及红字', exact: true }).click()
     const invoicePanel = page.getByRole('dialog', {
       name: '原票及红字 · ' + invoiceNo,
       exact: true,
@@ -484,6 +527,8 @@ test('无成本角色调价、原键恢复、整票红字和右侧报表形成�
           sameNetworkKey: keys[0] === keys[1],
           noCostActors: true,
           manualInvoiceUi: true,
+          completedHistoricalInvoices: 25,
+          pagedRelatedInvoices: 26,
           replacementInvoiceId: replacementId,
           finalCost: finalShipment.lines[0]!.costAmount,
           pageErrors: errors,

@@ -5,7 +5,7 @@ import type { ComputedRef, PropType } from 'vue'
 import SalesPriceAdjustmentDrawer from '../src/components/sales/SalesPriceAdjustmentDrawer.vue'
 import SalesPriceAdjustmentPage from '../src/pages/SalesPriceAdjustmentPage.vue'
 import * as api from '../src/api/sales-price-adjustments'
-import type { SalesPriceAdjustment } from '../src/types/sales-price-adjustments'
+import type { SalesPriceAdjustment, SalesRedInvoice } from '../src/types/sales-price-adjustments'
 import type { SalesDocument } from '../src/types/sales'
 import { ApiError } from '../src/api/http'
 import { confirmCompanyLeave, hasUnsavedWork } from '../src/utils/unsaved'
@@ -326,6 +326,122 @@ it('无成本权限仍可查看销售价格及原票红字，且不显示成本�
     .trigger('click')
   expect(wrapper.findComponent({ name: 'SalesInvoiceDrawer' }).attributes('id')).toBe('800')
   wrapper.unmount()
+})
+
+function redInvoice(id: string): SalesRedInvoice {
+  return {
+    invoiceId: id,
+    invoiceNo: 'BLUE-' + id,
+    status: 'voided',
+    einvoiceRequestId: null,
+    electronicStatus: null,
+    redInvoiceNo: 'RED-' + id,
+    redComplete: true,
+  }
+}
+
+it('原票分页去重并保留右侧查看，刷新后重置旧游标', async () => {
+  const value = document({ redInvoices: [redInvoice('800')], redInvoiceCursor: '800' })
+  vi.mocked(api.salesPriceAdjustment).mockResolvedValue(value)
+  vi.mocked(api.salesPriceRedInvoices).mockResolvedValue({
+    items: [redInvoice('800'), redInvoice('700')],
+    nextCursor: null,
+  })
+  const wrapper = mount(SalesPriceAdjustmentDrawer, { props: { id: value.id }, global: { stubs } })
+  await flushPromises()
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '更多原票')!
+    .trigger('click')
+  await flushPromises()
+  expect(api.salesPriceRedInvoices).toHaveBeenCalledWith(
+    value.id,
+    { cursor: '800', limit: 20 },
+    expect.any(AbortSignal),
+  )
+  expect(wrapper.findAll('.price-invoice-list li')).toHaveLength(2)
+  expect(wrapper.text()).toContain('BLUE-700')
+  await wrapper.findAll('.price-invoice-list li')[1]!.get('button').trigger('click')
+  expect(wrapper.findComponent({ name: 'SalesInvoiceDrawer' }).attributes('id')).toBe('700')
+  expect(navigation.push).not.toHaveBeenCalled()
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '刷新单据')!
+    .trigger('click')
+  await flushPromises()
+  expect(wrapper.text()).not.toContain('BLUE-700')
+  expect(wrapper.findAll('button').some((button) => button.text() === '更多原票')).toBe(true)
+  wrapper.unmount()
+})
+
+it('登记红字触发父单刷新时保留原票抽屉，刷新撤权才关闭', async () => {
+  const value = document({ redInvoices: [redInvoice('800')] })
+  vi.mocked(api.salesPriceAdjustment).mockResolvedValue(value)
+  const wrapper = mount(SalesPriceAdjustmentDrawer, { props: { id: value.id }, global: { stubs } })
+  await flushPromises()
+  await wrapper.findAll('.price-invoice-list li')[0]!.get('button').trigger('click')
+  let finish: ((value: SalesPriceAdjustment) => void) | undefined
+  vi.mocked(api.salesPriceAdjustment).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  wrapper.findComponent({ name: 'SalesInvoiceDrawer' }).vm.$emit('changed')
+  await flushPromises()
+  expect(wrapper.findComponent({ name: 'SalesInvoiceDrawer' }).attributes('id')).toBe('800')
+  finish?.(value)
+  await flushPromises()
+  expect(wrapper.findComponent({ name: 'SalesInvoiceDrawer' }).attributes('id')).toBe('800')
+  vi.mocked(api.salesPriceAdjustment).mockRejectedValueOnce(
+    new ApiError(403, 'FORBIDDEN', '查看权限已变更'),
+  )
+  wrapper.findComponent({ name: 'SalesInvoiceDrawer' }).vm.$emit('changed')
+  await flushPromises()
+  expect(wrapper.findComponent({ name: 'SalesInvoiceDrawer' }).exists()).toBe(false)
+  expect(wrapper.text()).not.toContain('测试客户')
+  wrapper.unmount()
+})
+
+it('原票翻页撤权清空详情，切公司后的迟到页不能恢复旧资料', async () => {
+  const value = document({ redInvoices: [redInvoice('800')], redInvoiceCursor: '800' })
+  vi.mocked(api.salesPriceAdjustment).mockResolvedValue(value)
+  vi.mocked(api.salesPriceRedInvoices).mockRejectedValueOnce(
+    new ApiError(403, 'FORBIDDEN', '原票权限已变更'),
+  )
+  const denied = mount(SalesPriceAdjustmentDrawer, { props: { id: value.id }, global: { stubs } })
+  await flushPromises()
+  await denied
+    .findAll('button')
+    .find((button) => button.text() === '更多原票')!
+    .trigger('click')
+  await flushPromises()
+  expect(denied.text()).not.toContain('BLUE-800')
+  expect(denied.text()).not.toContain('测试客户')
+  expect(denied.text()).toContain('原票权限已变更')
+  denied.unmount()
+  let finish: ((value: Awaited<ReturnType<typeof api.salesPriceRedInvoices>>) => void) | undefined
+  vi.mocked(api.salesPriceRedInvoices).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  const changed = mount(SalesPriceAdjustmentDrawer, { props: { id: value.id }, global: { stubs } })
+  await flushPromises()
+  await changed
+    .findAll('button')
+    .find((button) => button.text() === '更多原票')!
+    .trigger('click')
+  session.companyId = '2'
+  await flushPromises()
+  finish?.({ items: [redInvoice('700')], nextCursor: '700' })
+  await flushPromises()
+  expect(changed.emitted('close')).toHaveLength(1)
+  expect(changed.text()).not.toContain('测试客户')
+  expect(changed.text()).not.toContain('BLUE-700')
+  expect(changed.text()).not.toContain('BLUE-800')
+  changed.unmount()
 })
 
 it('刷新时权限被收窄后清空旧单据和原票摘要', async () => {

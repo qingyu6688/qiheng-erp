@@ -24,7 +24,8 @@ public class SalesInvoiceAmounts {
         }
     }
     private final JdbcTemplate jdbc;
-    public SalesInvoiceAmounts(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    private final SalesInvoiceRedQueries reds;
+    public SalesInvoiceAmounts(JdbcTemplate jdbc) { this.jdbc = jdbc; this.reds = new SalesInvoiceRedQueries(jdbc); }
 
     public Map<Long, Capacity> capacities(ActorScope actor, Collection<Long> ids) {
         var groups = new HashMap<Long, SalesInvoiceAllocation.Result>();
@@ -60,7 +61,7 @@ public class SalesInvoiceAmounts {
     private SalesInvoiceAllocation.Result group(ActorScope actor, long shipment) {
         var rows = jdbc.queryForList("""
                 SELECT a.id,a.kind,a.untaxed_amount,a.tax_amount,
-                  COALESCE((SELECT SUM(l.amount) FROM invoice_registration_line l JOIN invoice_registration i
+                  COALESCE((SELECT SUM(l.amount) FROM invoice_registration_line l FORCE INDEX(idx_invoice_line_receivable) STRAIGHT_JOIN invoice_registration i
                     ON i.tenant_id=l.tenant_id AND i.company_id=l.company_id AND i.id=l.invoice_id
                     WHERE l.tenant_id=a.tenant_id AND l.company_id=a.company_id AND l.receivable_id=a.id AND i.status='registered'),0) used
                 FROM receivable a
@@ -84,36 +85,27 @@ public class SalesInvoiceAmounts {
     }
 
     public List<Map<String, Object>> redRequirements(ActorScope actor, long shipment) {
-        return jdbc.queryForList("""
-                SELECT DISTINCT i.id invoice_id,i.invoice_no,i.status,i.einvoice_request_id,
-                  e.status electronic_status,e.red_invoice_no,
-                  CASE WHEN i.einvoice_request_id IS NULL THEN EXISTS(SELECT 1 FROM invoice_red_registration red
-                    WHERE red.tenant_id=i.tenant_id AND red.company_id=i.company_id AND red.invoice_id=i.id AND red.status='confirmed')
-                    ELSE (e.status='red_issued' OR e.status='failed') END red_complete
-                FROM invoice_registration i JOIN invoice_registration_line il
-                  ON il.tenant_id=i.tenant_id AND il.company_id=i.company_id AND il.invoice_id=i.id
-                JOIN receivable a ON a.tenant_id=il.tenant_id AND a.company_id=il.company_id AND a.id=il.receivable_id
-                LEFT JOIN price_adjustment_line p ON p.tenant_id=a.tenant_id AND p.company_id=a.company_id
-                  AND p.id=a.source_line_id AND a.source_type='price_adjustment_line'
-                LEFT JOIN einv_issue_request e ON e.tenant_id=i.tenant_id AND e.company_id=i.company_id AND e.id=i.einvoice_request_id
-                WHERE i.tenant_id=? AND i.company_id=? AND i.invoice_type='sales'
-                  AND ((a.source_type='shipment_line' AND a.source_line_id=?) OR p.shipment_line_id=?)
-                ORDER BY i.id
-                """, actor.tenantId(), actor.companyId(), shipment, shipment).stream().map(ApiRows::row).toList();
+        return reds.all(actor, List.of(shipment));
     }
 
+    public java.util.Set<Long> incompleteRedSources(ActorScope actor, Collection<Long> sources) { return reds.incomplete(actor, sources); }
+    public Map<String, Object> redInvoicePage(ActorScope actor, Collection<Long> sources, Long cursor, int limit) { return reds.page(actor, sources, cursor, limit); }
+
     public void requireRed(ActorScope actor, long shipment) {
-        if (redRequirements(actor, shipment).stream().anyMatch(row -> !flag(row.get("redComplete"))))
+        requireRed(actor, List.of(shipment));
+    }
+    public void requireRed(ActorScope actor, Collection<Long> sources) {
+        if (!incompleteRedSources(actor, sources).isEmpty())
             throw new ApiException(422, "SALES_RED_REQUIRED", "该发货行已经开票，请先完成原票整票红字；待确认、处理中或仅作废登记不能作为已完成红字");
     }
 
     private BigDecimal used(ActorScope actor, long id) {
-        return jdbc.queryForObject("SELECT COALESCE(SUM(l.amount),0) FROM invoice_registration_line l JOIN invoice_registration h"
+        // 新导入历史票据时统计信息可能滞后，先按应收索引缩小范围，避免从整家公司历史票据开始扫描。
+        return jdbc.queryForObject("SELECT COALESCE(SUM(l.amount),0) FROM invoice_registration_line l FORCE INDEX(idx_invoice_line_receivable) STRAIGHT_JOIN invoice_registration h"
                 + " ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.invoice_id"
                 + " WHERE l.tenant_id=? AND l.company_id=? AND l.receivable_id=? AND h.status='registered'", BigDecimal.class,
                 actor.tenantId(), actor.companyId(), id);
     }
-    private static boolean flag(Object value) { return value instanceof Boolean flag ? flag : value instanceof Number number && number.intValue() != 0; }
     private static long number(Map<String, Object> row, String key) { return ((Number) row.get(key)).longValue(); }
     private static BigDecimal money(Map<String, Object> row, String key) { return (BigDecimal) row.get(key); }
     private static ApiException changed() { return new ApiException(409, "INVOICE_CAPACITY_CHANGED", "应收来源或净开票额度已变化，请刷新后重新选择"); }

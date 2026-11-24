@@ -87,7 +87,7 @@ public class InvoiceService {
             }
             if(((Number)ar.get("customer_id")).longValue()!=input.partnerId() || !"charge".equals(ar.get("kind"))) {throw invalid("只能关联当前客户的正向应收");}
             var used=jdbc.queryForList("""
-                    SELECT l.amount FROM invoice_registration_line l JOIN invoice_registration h
+                    SELECT l.amount FROM invoice_registration_line l FORCE INDEX(idx_invoice_line_receivable) STRAIGHT_JOIN invoice_registration h
                     ON h.id=l.invoice_id AND h.tenant_id=l.tenant_id AND h.company_id=l.company_id
                     WHERE l.tenant_id=? AND l.company_id=? AND l.receivable_id=? AND h.status='registered' FOR SHARE
                     """,BigDecimal.class,scope.tenantId(),scope.companyId(),line.receivableId()).stream().reduce(BigDecimal.ZERO,BigDecimal::add);

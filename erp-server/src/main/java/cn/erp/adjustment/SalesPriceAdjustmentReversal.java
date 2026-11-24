@@ -23,7 +23,8 @@ class SalesPriceAdjustmentReversal implements SalesPriceAdjustmentReversalPort {
     }
     @Override public void dependencies(ActorScope scope,long id) {
         var actor=actor(scope);var header=queries.head(actor,id,false);
-        for(var line:sorted(actor,id)) {
+        var lines=sorted(actor,id);
+        for(var line:lines) {
             long sourceId=number(line,"shipment_line_id");var source=queries.source(actor,sourceId,true);
             if(amount(source,"returned_base_qty").compareTo(amount(line,"source_returned_qty"))!=0||amount(source,"pending_return_base_qty").signum()!=0)
                 throw dependency("调价后已经退货或有待处理退货，请先处理后续退货");
@@ -31,8 +32,8 @@ class SalesPriceAdjustmentReversal implements SalesPriceAdjustmentReversalPort {
                     +" WHERE h.tenant_id=? AND h.company_id=? AND l.shipment_line_id=? AND h.id<>? AND h.status NOT IN('voided','reversed','rejected')"
                     +" AND (h.id>? OR h.posted_at>?) LIMIT 1",actor.tenantId(),actor.companyId(),sourceId,id,id,header.get("posted_at")).isEmpty())
                 throw dependency("原发货行已有后续调价，请先处理后续调整单");
-            if(amount(line,"amount").signum()>0)invoices.requireRed(actor,sourceId);
         }
+        invoices.requireRed(actor,lines.stream().filter(line->amount(line,"amount").signum()>0).map(line->number(line,"shipment_line_id")).toList());
     }
     @Override public void restore(ActorScope scope,long id) {
         var actor=actor(scope);
