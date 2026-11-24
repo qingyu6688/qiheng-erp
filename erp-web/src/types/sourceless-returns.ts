@@ -63,6 +63,7 @@ export interface RefundCreditItem {
   sourceLineId: Id
   sourceNo: string
   returnMode: 'sourceless'
+  sourceStatus?: string
   warehouseId: Id
   warehouseName: string
   skuName: string

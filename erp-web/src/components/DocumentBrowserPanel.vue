@@ -23,6 +23,7 @@ import QueryForm from './QueryForm.vue'
 import DocumentBatchBar from './DocumentBatchBar.vue'
 import StatusTag from './StatusTag.vue'
 import TableToolbar from './TableToolbar.vue'
+import FinancialAmount from './FinancialAmount.vue'
 
 const props = defineProps<{ kind: string }>()
 const readOnlyPreview = inject('erp.readOnlyPreview', false)
@@ -103,7 +104,9 @@ const rows = ref<SalesDocument[]>([]),
 const batchKind = computed(() => {
   if (readOnlyPreview) return undefined
   const kind = props.kind
-  return kind === 'sales-orders' || kind === 'purchase-orders' || kind === 'receipts' ? kind : undefined
+  return kind === 'sales-orders' || kind === 'purchase-orders' || kind === 'receipts'
+    ? kind
+    : undefined
 })
 const selected = ref<SalesDocument[]>([])
 const selectedIds = computed(() => new Set(selected.value.map((row) => row.id)))
@@ -116,9 +119,12 @@ function clearSelection(): void {
   selectionTable.value?.clearSelection?.()
   selected.value = []
 }
-const canApproveSelection = computed(() =>
-  session.can(spec.value.permission + (props.kind === 'receipts' ? ':confirm' : ':approve')) &&
-  selected.value.some((row) => row.status === (props.kind === 'receipts' ? 'pending_confirm' : 'pending')),
+const canApproveSelection = computed(
+  () =>
+    session.can(spec.value.permission + (props.kind === 'receipts' ? ':confirm' : ':approve')) &&
+    selected.value.some(
+      (row) => row.status === (props.kind === 'receipts' ? 'pending_confirm' : 'pending'),
+    ),
 )
 const cursors = ref<string[]>([''])
 const defaultPageSize = 20
@@ -165,7 +171,9 @@ function resizeColumns(event: MediaQueryListEvent): void {
 }
 mobileViewport?.addEventListener('change', resizeColumns)
 const visibleColumns = computed(() => {
-  const columns = arrangedColumns.value.filter((column) => column.required || !hidden.value.includes(column.key))
+  const columns = arrangedColumns.value.filter(
+    (column) => column.required || !hidden.value.includes(column.key),
+  )
   if (!compactColumns.value) return columns
   // 手机上仅固定勾选、单号和操作，为横向浏览其他列留出空间。
   return columns.map((column) => {
@@ -439,6 +447,7 @@ onBeforeUnmount(() => {
   revision++
   controller.abort()
 })
+defineExpose({ refresh: load })
 </script>
 <template>
   <section class="panel table-panel document-browser" :aria-busy="loading">
@@ -651,17 +660,24 @@ onBeforeUnmount(() => {
         :class-name="column.key === 'actions' ? 'document-actions-column' : undefined"
         :label="column.label"
         :min-width="column.minWidth"
-        :width="column.key === 'actions' || (compactColumns && column.key === 'documentNo') ? column.minWidth : undefined"
+        :width="
+          column.key === 'actions' || (compactColumns && column.key === 'documentNo')
+            ? column.minWidth
+            : undefined
+        "
         :fixed="column.fixed"
         :align="column.key === 'amount' ? 'right' : 'left'"
         :show-overflow-tooltip="column.key === 'party' || Boolean(column.field)"
       >
         <template #default="{ row }">
-          <router-link
+          <slot
             v-if="column.key === 'documentNo'"
-            class="text-link"
-            :to="'/' + kind + '/' + row.id"
-            >{{ row.documentNo ?? row.invoiceNo }}</router-link
+            name="open"
+            :row="row"
+            :label="row.documentNo ?? row.invoiceNo"
+            ><router-link class="text-link" :to="'/' + kind + '/' + row.id">{{
+              row.documentNo ?? row.invoiceNo
+            }}</router-link></slot
           >
           <template v-else-if="column.key === 'party'">{{
             row.fromWarehouseName ? row.fromWarehouseName + ' → ' + row.toWarehouseName : name(row)
@@ -691,15 +707,17 @@ onBeforeUnmount(() => {
           <template v-else-if="column.key === 'snapshot'">{{
             formatDateTime(String(row.snapshotAt ?? ''))
           }}</template>
-          <template v-else-if="column.key === 'amount'">{{ amount(row) }}</template>
+          <template v-else-if="column.key === 'amount'"
+            ><FinancialAmount
+              v-if="kind === 'sales-returns' || kind === 'refund-requests'"
+              :value="String(row.creditAmount ?? row.amount ?? '')"
+            /><template v-else>{{ amount(row) }}</template></template
+          >
           <template v-else-if="column.field">{{
             formatField(row.extJson?.[column.field.fieldKey])
           }}</template>
-          <router-link
-            v-else-if="column.key === 'actions'"
-            class="text-link"
-            :to="'/' + kind + '/' + row.id"
-            >查看</router-link
+          <slot v-else-if="column.key === 'actions'" name="open" :row="row" label="查看"
+            ><router-link class="text-link" :to="'/' + kind + '/' + row.id">查看</router-link></slot
           >
         </template>
       </el-table-column>

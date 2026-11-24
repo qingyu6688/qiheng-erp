@@ -251,6 +251,23 @@ class WorkflowBusinessIT {
     }
 
     @Test
+    void unboundReceiptRefundKeepsExistingSingleApproval() {
+        long id = refund();
+        refunds.command(
+                d.actor(d.maker), id, "submit", key(), new FinanceModels.Version(0L, null, null));
+        assertThat(instance("refund_request", id)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM wf_business_binding WHERE tenant_id=? AND business_type='refund_request'",
+                Long.class, d.tenant)).isZero();
+        refunds.command(
+                d.actor(d.manager), id, "approve", key(), new FinanceModels.Version(1L, null, null));
+        assertThat(status("refund_request", id)).isEqualTo("pending_payment");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM journal WHERE tenant_id=? AND source_type='refund_request'",
+                Long.class, d.tenant)).isZero();
+    }
+
+    @Test
     void refundRetainsCreditReservationAndWaitsForPaymentAfterApproval() {
         d.bind(root(approve("review", List.of(d.manager), "and", null)), "refund_request");
         long id = refund();

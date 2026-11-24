@@ -1,5 +1,6 @@
 export type WorkflowBusinessType =
   | 'sales_order'
+  | 'sales_return'
   | 'purchase_order'
   | 'refund_request'
   | 'document_reversal'
@@ -292,6 +293,7 @@ export interface StartOptions {
 }
 export type WorkflowSelections = Record<string, string[]>
 export const businessLabels: Record<WorkflowBusinessType, string> = {
+  sales_return: '无原单销售退货',
   sales_order: '销售订单',
   purchase_order: '采购订单',
   refund_request: '退款申请',
@@ -385,6 +387,7 @@ export const fieldLabels: Record<string, string> = {
   createdBy: '创建人',
 }
 export const businessRoutes: Partial<Record<WorkflowBusinessType, string>> = {
+  sales_return: 'sales-returns',
   sales_order: 'sales-orders',
   purchase_order: 'purchase-orders',
   refund_request: 'refund-requests',

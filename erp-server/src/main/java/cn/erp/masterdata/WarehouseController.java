@@ -121,6 +121,7 @@ class WarehouseController {
                 case "org_post.update", "org_post.enable", "org_post.disable" -> "org_post:update";
                 case "user.assign_organization" -> "user:update";
                 case "receipt.withdraw" -> "receipt:return";
+                case "sales_return.reject" -> "sales_return:approve";
                 case "purchase_requisition.create", "purchase_requisition.submit", "purchase_requisition.withdraw", "purchase_requisition.approve", "purchase_requisition.reject", "purchase_requisition.close", "purchase_requisition.cancel",
                      "purchase_order.create", "purchase_order.submit", "purchase_order.withdraw", "purchase_order.approve", "purchase_order.reject", "purchase_order.revoke_approval", "purchase_order.close_lines", "purchase_order.cancel", "purchase_order.change", "purchase_order.change_approve", "purchase_order.change_reject",
                      "goods_receipt.create", "goods_receipt.submit", "goods_receipt.void", "goods_receipt.post", "purchase_return.create", "purchase_return.submit", "purchase_return.void", "purchase_return.post",
@@ -133,8 +134,8 @@ class WarehouseController {
                      "sales_order.change", "sales_order.change_approve", "sales_order.change_reject" -> operation.replace('.', ':');
                 case "shipment.create", "shipment.submit", "shipment.void", "shipment.post", "shipment.sign", "shipment.resolve_diff",
                      "receipt.create", "receipt.submit", "receipt.return", "receipt.confirm",
-                     "sales_return.create", "sales_return.submit", "sales_return.void", "sales_return.post",
-                     "refund_request.create", "refund_request.submit", "refund_request.approve", "refund_request.reject",
+                     "sales_return.create", "sales_return.update", "sales_return.submit", "sales_return.approve", "sales_return.void", "sales_return.post",
+                     "refund_request.create", "refund_request.update", "refund_request.submit", "refund_request.approve", "refund_request.reject",
                      "refund_request.cancel", "refund_request.register_paid", "settlement.allocate", "settlement.revoke",
                      "invoice_registration.create", "invoice_registration.void" -> operation.replace('.', ':');
                 default -> throw new ApiException(404, "NOT_FOUND", "未找到该操作结果");

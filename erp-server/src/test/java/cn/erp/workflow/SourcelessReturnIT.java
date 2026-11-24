@@ -292,6 +292,34 @@ class SourcelessReturnIT {
         returns.command(d.actor(d.maker),id,"post",key(),command(id));return id;
     }
 
+    @Test void creditRefundInstallsItsDefaultHumanWorkflowWithoutAPriorBinding() {
+        long source=posted(List.of(line("2","10","0","passed","5","历史成本")));
+        long refund=id(refundApplications.create(d.actor(d.maker),key(),refundInput(cash(),"10",List.of(credit(source)),null)));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM wf_business_binding WHERE tenant_id=? AND business_type='refund_request'",Integer.class,d.tenant)).isZero();
+        refundCommand(refund,"submit");
+        var pending=refundApplications.get(d.actor(d.maker),refund);
+        assertThat(pending).containsEntry("status","pending_review");
+        assertThat(Long.parseLong(pending.get("wfInstanceId").toString())).isPositive();
+        code(()->refundApplications.command(d.actor(d.financeA),refund,"approve",key(),new FinanceModels.Version(refundVersion(refund),null,null)),"WORKFLOW_IN_PROGRESS");
+        reviewBusiness("refund_request",refund,d.financeA);
+        assertThat(refundApplications.get(d.actor(d.maker),refund)).containsEntry("status","pending_payment");
+        refundCommand(refund,"cancel");
+        zeroDifferences();
+    }
+
+    @SuppressWarnings("unchecked") @Test void refundDetailsIncludeOnlySelectedSourcesOutsideTheFirstCandidatePageWithoutCosts() {
+        receive("10","5");
+        long first=posted(List.of(line("1","10","0","passed",null,null))),second=posted(List.of(line("1","10","0","passed",null,null)));
+        long other=posted(List.of(line("1","10","0","passed",null,null)));
+        long refund=createRefund(cash(),"20",List.of(credit(first),credit(second)));
+        var firstPage=(List<Map<String,Object>>)refundApplications.creditItems(d.actor(d.maker),d.customer,null,1).get("items");
+        assertThat(firstPage).hasSize(1).allSatisfy(row->assertThat(row).containsEntry("sourceId",Long.toString(other)));
+        var sources=(List<Map<String,Object>>)refundApplications.get(without(d.maker,"cost:view"),refund).get("creditSources");
+        assertThat(sources).hasSize(2).allSatisfy(row->assertThat(row).containsEntry("returnMode","sourceless").containsEntry("openAmount","10.00").doesNotContainKeys("costAmount","unitCost","manualUnitCost","costBasis"));
+        assertThat(sources.stream().map(row->row.get("sourceId")).toList()).containsExactlyInAnyOrder(Long.toString(first),Long.toString(second));
+        code(()->refundApplications.get(without(d.maker,"sales_return:view"),refund),"FORBIDDEN");
+    }
+
     @SuppressWarnings("unchecked") @Test void genericBrowserShowsReturnModeToViewersWithoutGrantingSourcelessActions() {
         long id=create(input(List.of(line("1","10","0","passed","5","历史成本")),null));
         var viewer=without(d.maker,"sales_return:sourceless","sales_return:create","sales_return:update");

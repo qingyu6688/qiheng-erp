@@ -56,6 +56,7 @@ public class RefundApplicationService {
         SourcelessRefundCredits.requireRequest(jdbc,scope,raw,false,false);
         var result=row(raw);result.remove("creditItemIds");
         result.put("creditItemIds",readIds(raw.get("credit_item_ids")).stream().map(String::valueOf).toList());
+        if(SourcelessRefundCredits.usesCredit(raw))result.put("creditSources",selectedCreditSources(scope,raw));
         result.put("documentNo",raw.get("refund_no"));
         result.put("customerName",jdbc.queryForObject("SELECT name FROM business_partner WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),raw.get("customer_id")));
         result.put("cashAccountName",jdbc.queryForObject("SELECT name FROM cash_account WHERE tenant_id=? AND company_id=? AND id=?",String.class,scope.tenantId(),scope.companyId(),raw.get("cash_account_id")));
@@ -81,6 +82,25 @@ public class RefundApplicationService {
                 WHERE i.tenant_id=? AND i.company_id=? AND i.id<? AND i.partner_id=? AND r.customer_id=? AND h.customer_id=? AND i.open_amount>0 AND %s
                 ORDER BY i.id DESC LIMIT ?
                 """.formatted(SalesInvoiceScope.receivableCondition(scope,"r")),scope.tenantId(),scope.companyId(),before,customer,customer,customer,limit+1),limit);
+    }
+
+    private List<Map<String,Object>> selectedCreditSources(CompanyAccess actor,Map<String,Object> header) {
+        var selected=readIds(header.get("credit_item_ids"));
+        if(selected.isEmpty())return List.of();
+        var args=new ArrayList<Object>(List.of(actor.tenantId(),actor.companyId(),header.get("customer_id")));args.addAll(selected);
+        // get已逐项校验当前来源可见性；此处只读至多200条原选项，不扫描全部候选分页。
+        return jdbc.queryForList("""
+                SELECT i.id,i.partner_id,r.amount,i.open_amount,r.business_date,h.id source_id,h.return_no source_no,
+                  h.return_mode,h.status source_status,h.warehouse_id,w.name warehouse_name,l.id source_line_id,s.name sku_name
+                FROM partner_open_item i
+                JOIN receivable r ON r.tenant_id=i.tenant_id AND r.company_id=i.company_id AND r.id=i.source_id
+                  AND i.item_type='receivable' AND r.kind='credit' AND r.posting_action='post' AND r.source_type='sales_return_line'
+                JOIN sales_return h ON h.tenant_id=r.tenant_id AND h.company_id=r.company_id AND h.id=r.source_id AND h.return_mode='sourceless'
+                JOIN sales_return_line l ON l.tenant_id=h.tenant_id AND l.company_id=h.company_id AND l.return_id=h.id AND l.id=r.source_line_id
+                JOIN sku s ON s.tenant_id=l.tenant_id AND s.id=l.sku_id
+                JOIN warehouse w ON w.tenant_id=h.tenant_id AND w.company_id=h.company_id AND w.id=h.warehouse_id
+                WHERE i.tenant_id=? AND i.company_id=? AND i.partner_id=? AND i.id IN (
+                """+String.join(",",Collections.nCopies(selected.size(),"?"))+") ORDER BY i.id DESC",args.toArray()).stream().map(FinanceSupport::row).toList();
     }
 
     private List<String> actions(CompanyAccess scope,Map<String,Object> raw) {
