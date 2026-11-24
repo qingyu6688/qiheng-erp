@@ -133,6 +133,52 @@ class SourcelessReturnIT {
         zeroDifferences();
     }
 
+    @Test void customAllReviewRechecksTheCostPermissionOfAnAlreadyApprovedReviewer() {
+        receive("10","5");bindTwoReviews();
+        long id=create(input(List.of(line("1","10","0","passed",null,null)),null));submit(d.actor(d.maker),id);
+        reviewBusiness("sales_return",id,d.financeA);
+        assertThat(returns.get(d.actor(d.maker),id)).containsEntry("status","pending");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM receivable WHERE source_id=?",Integer.class,id)).isZero();
+        long role=jdbc.queryForObject("SELECT role_id FROM sys_user_role WHERE tenant_id=? AND user_id=?",Long.class,d.tenant,d.financeA);
+        long permission=jdbc.queryForObject("SELECT id FROM sys_permission WHERE code='cost:view'",Long.class);
+        jdbc.update("DELETE FROM sys_role_permission WHERE tenant_id=? AND role_id=? AND permission_id=?",d.tenant,role,permission);
+        code(()->reviewBusiness("sales_return",id,d.financeB),"WORKFLOW_REVIEW_INVALID");
+        assertThat(returns.get(d.actor(d.maker),id)).containsEntry("status","pending").containsEntry("approvedBy",null);
+        jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) VALUES(?,?,?,?)",Ids.next(),d.tenant,role,permission);
+        reviewBusiness("sales_return",id,d.financeB);
+        assertThat(returns.get(d.actor(d.maker),id)).containsEntry("status","approved");
+        returns.command(d.actor(d.maker),id,"post",key(),command(id));
+        assertThat(value("SELECT total_cost FROM inventory_cost WHERE tenant_id=?",d.tenant)).isEqualByComparingTo("55");
+        zeroDifferences();
+    }
+
+    @Test void customReviewCannotFinishAfterCostChangesAndCanBeCancelledForAFreshReview() {
+        receive("10","5");bindTwoReviews();
+        long id=create(input(List.of(line("1","10","0","passed",null,null)),null));submit(d.actor(d.maker),id);
+        reviewBusiness("sales_return",id,d.financeA);receive("10","7");
+        code(()->reviewBusiness("sales_return",id,d.financeB),"RETURN_COST_CHANGED");
+        assertThat(returns.get(d.actor(d.maker),id)).containsEntry("status","pending").containsEntry("costAmount","5.00");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM receivable WHERE source_id=?",Integer.class,id)).isZero();
+        var instance=jdbc.queryForMap("SELECT i.id,i.version FROM wf_instance i WHERE i.tenant_id=? AND i.business_type='sales_return' AND i.business_id=? AND i.status='running'",d.tenant,id);
+        tasks.end(d.actor(d.maker),((Number)instance.get("id")).longValue(),"cancel",key(),((Number)instance.get("version")).longValue(),"成本改变，撤回重新核对");
+        assertThat(returns.get(d.actor(d.maker),id)).containsEntry("status","rejected");
+        submit(d.actor(d.maker),id);reviewBusiness("sales_return",id,d.financeA);reviewBusiness("sales_return",id,d.financeB);
+        assertThat(returns.get(d.actor(d.maker),id)).containsEntry("status","approved").containsEntry("costAmount","6.00");
+        returns.command(d.actor(d.maker),id,"post",key(),command(id));
+        assertThat(value("SELECT total_cost FROM inventory_cost WHERE tenant_id=?",d.tenant)).isEqualByComparingTo("126");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM receivable WHERE source_id=?",Integer.class,id)).isEqualTo(1);
+        zeroDifferences();
+    }
+
+    @Test void sourcelessReturnWorkflowCannotOmitHumanReview() {
+        code(()->d.bind(WorkflowTestData.root(null),"sales_return"),"WORKFLOW_MODEL_INVALID");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sales_return WHERE tenant_id=?",Integer.class,d.tenant)).isZero();
+    }
+
+    private void bindTwoReviews() {
+        d.bind(WorkflowTestData.root(WorkflowTestData.approve("cost",List.of(d.financeA,d.financeB),"and",null)),"sales_return");
+    }
+
     @Test void frozenDecimalStringsSurviveMysqlJsonAndWorkflowReviewExactly() {
         long id=create(input(List.of(line("1","10","0","passed","9007199254740991.12345678","历史成本原件")),null));
         submit(d.actor(d.maker),id);approve(id,d.financeA);
