@@ -153,7 +153,7 @@ public class InventoryService {
         if(hold==null&&scrap)hold=expired(scope,posting.key(),selection)?"expired":"ordinary";
         var allocated=posting.movementType().equals("sales_out")?shipmentPick(scope,posting.source().lineId()):null;
         var pick=dimensions.outgoing(scope,posting,quantity,allocated==null?selection:allocated,hold,allocated!=null);
-        var changes=consumeBlocked?dimensions.consumeHold(scope,posting.key(),pick.at(),"ordinary".equals(hold)?null:hold,held,quantity):
+        var changes=consumeBlocked?dimensions.consumeSelectedHolds(scope,posting.key(),pick,"ordinary".equals(hold)?null:hold,held,quantity):
                 List.<InventoryDimensions.HoldChange>of();
         int changed=jdbc.update("""
                 UPDATE inventory_balance SET on_hand_qty=on_hand_qty-?,reserved_qty=reserved_qty-?,
@@ -371,8 +371,9 @@ public class InventoryService {
         var at=dimensions.explicit(scope,posting.key(),selection);
         if(frozen)dimensions.requireUnpicked(scope,posting.key(),at,quantity);
         String hold=reason==null?"manual":reason;
+        var selected=frozen?List.<String>of():dimensions.serials(dimensions.config(scope,posting.key()),selection,quantity,false);
         var changes=frozen?List.of(new InventoryDimensions.HoldChange(hold,posting.source(),quantity)):
-                dimensions.consumeHold(scope,posting.key(),at,reason,exact,quantity);
+                dimensions.consumeSelectedHolds(scope,posting.key(),new InventoryDimensions.Pick(at,selected),reason,exact,quantity);
         BigDecimal delta=frozen?quantity:quantity.negate();
         int changed=jdbc.update("""
                 UPDATE inventory_balance SET blocked_qty=blocked_qty+?,version=version+1
@@ -384,8 +385,10 @@ public class InventoryService {
         if(frozen)dimensions.addHold(scope,posting.key(),at,hold,posting.source(),quantity);
         long movement=movement(scope,posting,at,BigDecimal.ZERO,delta,null,BigDecimal.ZERO);
         dimensions.recordHolds(scope,movement,changes);
-        writePostedSelection(scope,posting,new InventoryDimensions.Pick(at,List.of()));
-        if(!frozen&&exact!=null&&"quality_hold".equals(reason))dimensions.releaseSerials(scope,posting,exact,quantity,movement);
+        var released=new ArrayList<String>();
+        if(!frozen) for(var change:changes) if(Set.of("quality_hold","sales_reject").contains(change.reason()))
+            released.addAll(dimensions.releaseSerials(scope,posting,change.source(),change.reason(),change.delta().abs(),movement,selected));
+        writePostedSelection(scope,posting,new InventoryDimensions.Pick(at,released));
     }
 
     @Transactional(readOnly=true)

@@ -52,6 +52,7 @@ class SourcelessReturnIT {
     @Autowired cn.erp.salesfinance.RefundApplicationService refundApplications;
     @Autowired cn.erp.opening.OpeningService opening;
     @Autowired cn.erp.salesfinance.SalesFinanceQueries financeQueries;
+    @Autowired cn.erp.fulfillment.ShipmentService shipments;
     private WorkflowTestData d;
     private long period;
 
@@ -65,6 +66,8 @@ class SourcelessReturnIT {
 
     @AfterEach void cleanup() {
         if(d==null)return;
+        for(String table:List.of("inv_shipment_pick","doc_line_serial","inv_movement_serial","inv_serial")) jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",d.tenant);
+        jdbc.update("DELETE FROM inv_movement_hold WHERE tenant_id=?",d.tenant);
         for(String fact:List.of("receivable","inventory_movement","journal")) {
             if(fact.equals("journal")) jdbc.update("DELETE FROM journal_line WHERE tenant_id=?",d.tenant);
             jdbc.update("DELETE FROM "+fact+" WHERE tenant_id=? AND posting_action='reverse'",d.tenant);
@@ -233,6 +236,73 @@ class SourcelessReturnIT {
     private long posted(List<FinanceModels.ReturnLine> lines) {
         long id=create(input(lines,null));submit(d.actor(d.maker),id);approve(id,d.financeA);
         returns.command(d.actor(d.maker),id,"post",key(),command(id));return id;
+    }
+
+    @Test void rejectedSerialCannotBeShippedWhileAnotherReturnedSerialIsAvailable() {
+        jdbc.update("UPDATE sku SET serial_managed=1 WHERE tenant_id=? AND id=?",d.tenant,d.sku);
+        posted(List.of(tracked("1","passed",List.of("SN-OK"),"5"),tracked("1","failed",List.of("SN-BAD"),"5")));
+        assertThat(value("SELECT blocked_qty FROM inventory_balance WHERE tenant_id=? AND location_key='' AND lot_key=''",d.tenant)).isEqualByComparingTo("1");
+        long order=approvedOrder("1");
+        code(()->ship(order,"SN-BAD"),"PICK_UNAVAILABLE");
+        ship(order,"SN-OK");
+        assertThat(jdbc.queryForObject("SELECT status FROM inv_serial WHERE tenant_id=? AND serial_no='SN-BAD'",String.class,d.tenant)).isEqualTo("quality_hold");
+        assertThat(jdbc.queryForObject("SELECT status FROM inv_serial WHERE tenant_id=? AND serial_no='SN-OK'",String.class,d.tenant)).isEqualTo("shipped");
+        stockAction("unblock","1",List.of("SN-BAD"));
+        assertThat(jdbc.queryForObject("SELECT status FROM inv_serial WHERE tenant_id=? AND serial_no='SN-BAD'",String.class,d.tenant)).isEqualTo("in_stock");
+        ship(approvedOrder("1"),"SN-BAD");
+        zeroDifferences();
+    }
+
+    @Test void scrappingARejectedSerialConsumesItsOwnHoldAndReversalRestoresIt() {
+        jdbc.update("UPDATE sku SET serial_managed=1 WHERE tenant_id=? AND id=?",d.tenant,d.sku);
+        long source=posted(List.of(tracked("1","failed",List.of("SN-A"),"5"),tracked("1","failed",List.of("SN-B"),"5")));
+        var rows=jdbc.queryForList("SELECT id FROM sales_return_line WHERE return_id=? ORDER BY line_no",Long.class,source);
+        long adjustment=stockAction("scrap","1",List.of("SN-B"));
+        assertThat(held(rows.getFirst())).isEqualByComparingTo("1");assertThat(held(rows.getLast())).isEqualByComparingTo("0");
+        assertThat(serialStatus("SN-A")).isEqualTo("quality_hold");assertThat(serialStatus("SN-B")).isEqualTo("scrapped");
+        long reversal=applyReversal("stock_adjustment",adjustment);approveReversal(reversal);postReversal(reversal);
+        assertThat(serialStatus("SN-B")).isEqualTo("quality_hold");assertThat(held(rows.getLast())).isEqualByComparingTo("1");
+        stockAction("unblock","1",List.of("SN-B"));
+        assertThat(held(rows.getFirst())).isEqualByComparingTo("1");assertThat(held(rows.getLast())).isEqualByComparingTo("0");
+        assertThat(serialStatus("SN-A")).isEqualTo("quality_hold");assertThat(serialStatus("SN-B")).isEqualTo("in_stock");
+        zeroDifferences();
+    }
+
+    @Test void anOldPartialHoldCannotReleaseASerialThatWasReturnedAgainUnderAnotherSource() {
+        jdbc.update("UPDATE sku SET serial_managed=1 WHERE tenant_id=? AND id=?",d.tenant,d.sku);
+        long first=posted(List.of(tracked("2","failed",List.of("SN-01","SN-02"),"5")));
+        stockAction("unblock","1",List.of("SN-01"));ship(approvedOrder("1"),"SN-01");
+        long second=posted(List.of(tracked("1","failed",List.of("SN-01"),null)));
+        // 沿原调整入口自动释放旧来源的剩余一件，不能放走已属于新退货的SN-01。
+        stockAction("unblock","1",List.of());
+        assertThat(serialStatus("SN-01")).isEqualTo("quality_hold");assertThat(serialStatus("SN-02")).isEqualTo("in_stock");
+        long firstLine=jdbc.queryForObject("SELECT id FROM sales_return_line WHERE return_id=?",Long.class,first);
+        long secondLine=jdbc.queryForObject("SELECT id FROM sales_return_line WHERE return_id=?",Long.class,second);
+        assertThat(held(firstLine)).isEqualByComparingTo("0");assertThat(held(secondLine)).isEqualByComparingTo("1");
+        zeroDifferences();
+    }
+    private String serialStatus(String serial) {return jdbc.queryForObject("SELECT status FROM inv_serial WHERE tenant_id=? AND serial_no=?",String.class,d.tenant,serial);}
+    private BigDecimal held(long line) {return value("SELECT COALESCE(SUM(qty),0) FROM inv_block_detail WHERE source_type='sales_return_line' AND source_line_id=?",line);}
+    private long stockAction(String type,String qty,List<String> serials) {
+        long id=id(opening.createStock(d.actor(d.maker),key(),new cn.erp.opening.OpeningService.Stock(type,d.warehouse,d.day,"复核后处置退回商品",
+                List.of(new cn.erp.opening.OpeningService.StockLine(d.sku,d.unit,qty,null,new StockSelection(null,null,null,null,null,serials))),null)));
+        opening.command(d.actor(d.maker),true,id,"submit",key(),new cn.erp.opening.OpeningService.Version(0L,null));
+        opening.command(d.actor(d.manager),true,id,"approve",key(),new cn.erp.opening.OpeningService.Version(1L,null));
+        opening.command(d.actor(d.maker),true,id,"post",key(),new cn.erp.opening.OpeningService.Version(2L,null));return id;
+    }
+    private FinanceModels.ReturnLine tracked(String qty,String quality,List<String> serials,String manual) {
+        return new FinanceModels.ReturnLine(null,d.unit,qty,quality,new StockSelection(null,null,null,null,null,serials),d.sku,"10","0",manual,manual==null?null:"历史成本凭据");
+    }
+    private long approvedOrder(String qty) {
+        long order=d.order(qty,"10");
+        var submitted=sales.command(d.actor(d.maker),order,"submit",key(),new cn.erp.salesorder.SalesOrderModels.Command(0L,null,null));
+        sales.command(d.actor(d.manager),order,"approve",key(),new cn.erp.salesorder.SalesOrderModels.Command(((Number)submitted.get("version")).longValue(),null,null));return order;
+    }
+    private void ship(long order,String serial) {
+        long source=jdbc.queryForObject("SELECT id FROM sales_order_line WHERE order_id=?",Long.class,order);
+        long id=id(shipments.create(d.actor(d.maker),key(),new cn.erp.fulfillment.ShipmentModels.Input(d.customer,d.warehouse,d.day,"delivery",null,
+                List.of(new cn.erp.fulfillment.ShipmentModels.InputLine(source,d.unit,"1",new StockSelection(null,null,null,null,null,List.of(serial)))),null)));
+        shipments.submit(d.actor(d.maker),id,key(),0L);shipments.post(d.actor(d.maker),id,key(),1L);
     }
 
     @Test void sourcelessCreditRefundPaysFromARealAccountWithoutAnOriginalReceipt() {
