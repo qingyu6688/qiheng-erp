@@ -44,7 +44,7 @@ public final class OrgOwnership {
         result.put("sales_price_adjustment","price_adjustment");result.put("purchase_fee_cost","purchase_fee_doc");result.put("goods_receipt_fee","goods_receipt");result.put("price_adjustment_cost","price_adjustment");result.put("shipment_diff","shipment");result.put("stock_transfer_event","stock_transfer");return Map.copyOf(result);
     }
     public static String sourceCondition(ActorScope actor,String type,String id) {
-        if(scope(actor).allDepartments()) return PriceAdjustmentScope.sourceCondition(actor,type,id)+" AND "+PurchaseFeeScope.sourceCondition(actor,type,id);
+        if(scope(actor).allDepartments()) return PriceAdjustmentScope.sourceCondition(actor,type,id)+" AND "+PurchaseFeeScope.sourceCondition(actor,type,id)+" AND "+SourcelessRefundCredits.sourceCondition(actor,type,id);
         var parts=new ArrayList<String>();
         for(String table:TABLES.stream().sorted().toList()) {
             String kinds=SOURCE_TABLES.entrySet().stream().filter(entry->entry.getValue().equals(table)).map(entry->"'"+entry.getKey()+"'").sorted().reduce((a,b)->a+","+b).orElseThrow();
@@ -53,7 +53,7 @@ public final class OrgOwnership {
             if(table.equals("price_adjustment")) scope+=" AND "+PriceAdjustmentScope.condition(actor,"od");
             parts.add("("+type+" IN ("+kinds+") AND EXISTS(SELECT 1 FROM "+table+" od WHERE od.tenant_id="+actor.tenantId()+" AND od.company_id="+actor.companyId()+" AND od.id="+id+scope+"))");
         }
-        return "("+String.join(" OR ",parts)+") AND "+PriceAdjustmentScope.sourceCondition(actor,type,id)+" AND "+PurchaseFeeScope.sourceCondition(actor,type,id);
+        return "("+String.join(" OR ",parts)+") AND "+PriceAdjustmentScope.sourceCondition(actor,type,id)+" AND "+PurchaseFeeScope.sourceCondition(actor,type,id)+" AND "+SourcelessRefundCredits.sourceCondition(actor,type,id);
     }
     public static String itemCondition(ActorScope actor,String alias) {
         if(scope(actor).allDepartments() && priceUnrestricted(actor)) return "1=1";
@@ -63,6 +63,7 @@ public final class OrgOwnership {
         return "("+String.join(" OR ",parts)+")";
     }
     public static void requireSource(JdbcTemplate jdbc,ActorScope actor,String type,Object id) {
+        SourcelessRefundCredits.requireSource(jdbc,actor,type,id);
         if(scope(actor).allDepartments() && priceUnrestricted(actor)) return;
         if(type.equals("receivable")||type.equals("payable")) {
             var facts=jdbc.queryForList("SELECT source_type,source_id FROM "+type+" WHERE tenant_id=? AND company_id=? AND id=?",actor.tenantId(),actor.companyId(),id);
@@ -87,7 +88,7 @@ public final class OrgOwnership {
         if(scope(actor).allDepartments()) return;
         if(table==null) throw missing();require(jdbc,actor,table,id);
     }
-    private static boolean priceUnrestricted(ActorScope actor) { return PriceAdjustmentScope.condition(actor,"od").equals("1=1") && PurchaseFeeScope.condition(actor,"od").equals("1=1"); }
+    private static boolean priceUnrestricted(ActorScope actor) { return PriceAdjustmentScope.condition(actor,"od").equals("1=1") && PurchaseFeeScope.condition(actor,"od").equals("1=1") && SourcelessRefundCredits.unrestricted(actor); }
     private static long number(Object value) { return value==null?0:Long.parseLong(value.toString()); }
     private static ApiException missing() { return new ApiException(404,"NOT_FOUND","单据不存在或无权查看"); }
 }

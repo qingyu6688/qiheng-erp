@@ -35,6 +35,7 @@ public class WorkflowAccess {
             if(type.equals("sales_price_adjustment") && review && (!actor.allWarehouses()||!actor.orgScope().allDepartments())) continue;
             if(type.equals("sales_return") && review && !actor.hasPermission("cost:view")) continue;
             if(type.equals("sales_return")) where += " AND h.return_mode='sourceless'";
+            if(type.equals("refund_request")) where += " AND " + cn.erp.shared.SourcelessRefundCredits.condition(actor,"h");
             if(type.equals("sales_price_adjustment")) where += " AND h.kind='sales' AND " + cn.erp.shared.PriceAdjustmentScope.condition(actor,"h");
             if(type.equals("purchase_fee_doc")) where += " AND " + cn.erp.shared.PurchaseFeeScope.condition(actor,"h");
             if(type.equals("price_adjustment")) where += " AND h.kind='purchase' AND " + cn.erp.shared.PriceAdjustmentScope.condition(actor,"h");

@@ -19,6 +19,16 @@ public class CommandResultAccess {
             return;
         }
         if(!(actor instanceof WarehouseScope scope) || !(response instanceof Map<?,?> row)) {return;}
+        if(operation.startsWith("refund_request.") && row.get("id")!=null) {
+            var requests=jdbc.queryForList("SELECT * FROM refund_request WHERE tenant_id=? AND company_id=? AND id=?",actor.tenantId(),actor.companyId(),row.get("id"));
+            if(requests.isEmpty()) throw missing();
+            if(SourcelessRefundCredits.usesCredit(requests.getFirst())) {
+                if(!(actor instanceof PermissionScope permission) || !permission.hasPermission("refund_request:view")
+                        || !permission.hasPermission("refund_request:"+operation.substring(operation.indexOf('.')+1)))
+                    throw new ApiException(403,"FORBIDDEN","没有读取当前信用额退款操作结果的权限");
+                SourcelessRefundCredits.requireRequest(jdbc,actor,requests.getFirst(),false,false);
+            }
+        }
         if(operation.startsWith("sales_return.") && row.get("id")!=null) {
             var modes=jdbc.queryForList("SELECT return_mode FROM sales_return WHERE tenant_id=? AND company_id=? AND id=?",String.class,
                     actor.tenantId(),actor.companyId(),row.get("id"));

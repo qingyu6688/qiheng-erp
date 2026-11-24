@@ -49,6 +49,9 @@ class SourcelessReturnIT {
     @Autowired cn.erp.period.PeriodService periods;
     @Autowired cn.erp.shared.CommandResults commandResults;
     @Autowired cn.erp.reversal.ReversalService reversals;
+    @Autowired cn.erp.salesfinance.RefundApplicationService refundApplications;
+    @Autowired cn.erp.opening.OpeningService opening;
+    @Autowired cn.erp.salesfinance.SalesFinanceQueries financeQueries;
     private WorkflowTestData d;
     private long period;
 
@@ -67,6 +70,7 @@ class SourcelessReturnIT {
             jdbc.update("DELETE FROM "+fact+" WHERE tenant_id=? AND posting_action='reverse'",d.tenant);
         }
         for(String table:List.of("sales_return_line","sales_return")) jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",d.tenant);
+        jdbc.update("DELETE FROM opening_entry WHERE tenant_id=?",d.tenant);
         d.cleanup(engine);
     }
 
@@ -230,6 +234,204 @@ class SourcelessReturnIT {
         long id=create(input(lines,null));submit(d.actor(d.maker),id);approve(id,d.financeA);
         returns.command(d.actor(d.maker),id,"post",key(),command(id));return id;
     }
+
+    @Test void sourcelessCreditRefundPaysFromARealAccountWithoutAnOriginalReceipt() {
+        receive("10","5");long source=posted(List.of(line("4","10","0","passed",null,null)));
+        long account=cash();long credit=credit(source);long refund=createRefund(account,"40",List.of(credit));
+        assertThat(refundApplications.get(d.actor(d.maker),refund)).containsEntry("refundMode","sourceless_credit").containsEntry("originalReceiptId",null);
+        refundCommand(refund,"submit");
+        assertThat(value("SELECT open_amount FROM partner_open_item WHERE id=?",credit)).isEqualByComparingTo("0");
+        code(()->applyReversal("sales_return",source),"DEPENDENCY_EXISTS");
+        code(()->refundCommand(refund,"approve"),"WORKFLOW_IN_PROGRESS");
+        reviewBusiness("refund_request",refund,d.financeB);
+        String paidKey=key();var paid=new FinanceModels.Paid(refundVersion(refund),d.day,"实际银行流水-01");
+        assertThat(refundApplications.paid(d.actor(d.maker),refund,paidKey,paid)).containsEntry("status","refunded");
+        refundApplications.paid(d.actor(d.maker),refund,paidKey,paid);
+        assertThat(value("SELECT balance FROM cash_account_balance WHERE cash_account_id=?",account)).isEqualByComparingTo("960");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM receipt WHERE tenant_id=?",Integer.class,d.tenant)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM journal WHERE tenant_id=? AND source_type='refund_request' AND source_id=?",Integer.class,d.tenant,refund)).isEqualTo(1);
+        code(()->applyReversal("sales_return",source),"DEPENDENCY_EXISTS");
+        code(()->commandResults.get(without(d.maker,"refund_request:register_paid"),"refund_request.register_paid",paidKey),"FORBIDDEN");
+        zeroDifferences();
+    }
+
+    @Test void rejectedAndCancelledRefundsReleaseCreditAndAllowTheReturnToBeReversed() {
+        receive("10","5");long source=posted(List.of(line("4","10","0","passed",null,null)));
+        long credit=credit(source),account=cash(),refund=createRefund(account,"40",List.of(credit));
+        refundCommand(refund,"submit");
+        decideBusiness("refund_request",refund,d.financeA,"reject","金额需重新核对");
+        assertThat(refundApplications.get(d.actor(d.maker),refund)).containsEntry("status","draft");
+        assertThat(value("SELECT open_amount FROM partner_open_item WHERE id=?",credit)).isEqualByComparingTo("40");
+        refundCommand(refund,"submit");reviewBusiness("refund_request",refund,d.financeB);refundCommand(refund,"cancel");
+        assertThat(refundApplications.get(d.actor(d.maker),refund)).containsEntry("status","cancelled");
+        assertThat(value("SELECT open_amount FROM partner_open_item WHERE id=?",credit)).isEqualByComparingTo("40");
+        long reversal=applyReversal("sales_return",source);approveReversal(reversal);postReversal(reversal);
+        assertThat(refundApplications.get(d.actor(d.maker),refund)).containsEntry("status","cancelled");
+        zeroDifferences();
+    }
+
+    @Test void refundScopeIsRecheckedInListsWorkflowsAndHistoricalResults() {
+        receive("10","5");long source=posted(List.of(line("4","10","0","passed",null,null)));
+        long account=cash();String createKey=key();
+        long refund=id(refundApplications.create(d.actor(d.maker),createKey,refundInput(account,"40",List.of(credit(source)),null)));
+        var maker=d.actor(d.maker);var finance=d.actor(d.financeA);
+        var noWarehouse=new CompanyAccess(d.tenant,d.maker,d.company,false,Set.of(),maker.permissions(),maker.orgScope());
+        var noDept=new CompanyAccess(d.tenant,d.maker,d.company,true,Set.of(),maker.permissions(),OrgScope.restricted(Set.of(),Set.of(),0));
+        long otherWarehouse=Ids.next();jdbc.update("INSERT INTO warehouse(id,tenant_id,company_id,code,name) VALUES(?,?,?,'OTHER','另一仓库')",otherWarehouse,d.tenant,d.company);
+        var wrongWarehouse=new CompanyAccess(d.tenant,d.maker,d.company,false,Set.of(otherWarehouse),maker.permissions(),maker.orgScope());
+        var visibleWarehouse=new CompanyAccess(d.tenant,d.maker,d.company,false,Set.of(d.warehouse),maker.permissions(),maker.orgScope());
+        assertThat(refundApplications.get(visibleWarehouse,refund)).containsEntry("id",""+refund);
+        assertThat(refundApplications.creditItems(visibleWarehouse,d.customer,null,20).get("items")).asList().hasSize(1);
+        for(var denied:List.of(noWarehouse,noDept,wrongWarehouse)) {
+            assertThat(refundApplications.list(denied,null,null,null,20).get("items")).asList().isEmpty();
+            code(()->refundApplications.get(denied,refund),"NOT_FOUND");
+            code(()->commandResults.get(denied,"refund_request.create",createKey),"NOT_FOUND");
+        }
+        code(()->refundApplications.get(without(d.maker,"sales_return:view"),refund),"FORBIDDEN");
+        models.installDefault(d.tenant,d.company,"refund_request");refundCommand(refund,"submit");
+        for(var denied:List.of(noWarehouse,noDept,wrongWarehouse)) {
+            assertThat(financeQueries.openItems(denied,null,"ar",false,null,20).get("items")).asList().isEmpty();
+            assertThat(financeQueries.allocations(denied,null,null,20).get("items")).asList().isEmpty();
+        }
+        var deniedReviewer=new CompanyAccess(d.tenant,d.financeA,d.company,false,Set.of(otherWarehouse),finance.permissions(),finance.orgScope());
+        var visibility=new WorkflowAccess();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM wf_instance i WHERE i.tenant_id=? AND i.business_type='refund_request' AND "+visibility.business(deniedReviewer,"i",true),Integer.class,d.tenant)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM wf_instance i WHERE i.tenant_id=? AND i.business_type='refund_request' AND "+visibility.business(finance,"i",true),Integer.class,d.tenant)).isEqualTo(1);
+    }
+
+    @Test void refundSelectionRejectsMissingWrongAndReversedSourcesAndRollsBackAnOverrun() {
+        receive("10","5");long source=posted(List.of(line("4","10","0","passed",null,null)));
+        long account=cash(),credit=credit(source);
+        long other=Ids.next();jdbc.update("INSERT INTO business_partner(id,tenant_id,code,name) VALUES(?,?,'OTHER','另一客户')",other,d.tenant);
+        jdbc.update("INSERT INTO partner_role(id,tenant_id,partner_id,role) VALUES(?,?,?,'customer')",Ids.next(),d.tenant,other);
+        var otherCustomer=new FinanceModels.Refund(other,null,account,"1",d.day,"不能混用客户信用额",List.of(credit),null,"sourceless_credit");
+        code(()->refundApplications.create(d.actor(d.maker),key(),otherCustomer),"REFUND_CREDIT_SOURCE_INVALID");
+        code(()->createRefund(account,"1",List.of()),"VALIDATION_FAILED");
+        code(()->createRefund(account,"1",List.of(credit,credit)),"VALIDATION_FAILED");
+        code(()->createRefund(account,"1",List.of(Ids.next())),"REFUND_CREDIT_SOURCE_INVALID");
+        long entry=id(opening.createEntry(d.actor(d.maker),key(),new cn.erp.opening.OpeningService.Entry("receivable",d.customer,null,"C","10",d.day,"旧信用余额",null)));
+        opening.command(d.actor(d.manager),false,entry,"approve",key(),new cn.erp.opening.OpeningService.Version(0L,null));
+        opening.command(d.actor(d.maker),false,entry,"post",key(),new cn.erp.opening.OpeningService.Version(1L,null));
+        long unrelated=jdbc.queryForObject("SELECT i.id FROM partner_open_item i JOIN receivable r ON r.id=i.source_id AND r.tenant_id=i.tenant_id AND i.item_type='receivable' WHERE r.source_type='opening_entry' AND r.source_id=?",Long.class,entry);
+        code(()->createRefund(account,"1",List.of(unrelated)),"REFUND_CREDIT_SOURCE_INVALID");
+        var mixed=new FinanceModels.Refund(d.customer,Ids.next(),account,"1",d.day,"不合法混用",List.of(credit),null,"sourceless_credit");
+        code(()->refundApplications.create(d.actor(d.maker),key(),mixed),"VALIDATION_FAILED");
+        code(()->refundApplications.create(d.actor(d.maker),key(),new FinanceModels.Refund(d.customer,null,account,"1",d.day,"缺少原收款",List.of(credit),null)),"VALIDATION_FAILED");
+        long tooMuch=createRefund(account,"41",List.of(credit));
+        code(()->refundCommand(tooMuch,"submit"),"REFUND_AMOUNT_EXCEEDED");
+        assertThat(value("SELECT open_amount FROM partner_open_item WHERE id=?",credit)).isEqualByComparingTo("40");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM partner_open_item WHERE tenant_id=? AND item_type='refund_request' AND source_id=?",Integer.class,d.tenant,tooMuch)).isZero();
+        long reversal=applyReversal("sales_return",source);approveReversal(reversal);postReversal(reversal);
+        code(()->createRefund(account,"1",List.of(credit)),"REFUND_CREDIT_SOURCE_CHANGED");
+        code(()->refundCommand(tooMuch,"submit"),"REFUND_CREDIT_SOURCE_CHANGED");
+        zeroDifferences();
+    }
+
+    @Test void refundEditRecoversWithTheOriginalKeyAndCannotSwitchModes() {
+        receive("10","5");long source=posted(List.of(line("4","10","0","passed",null,null)));
+        long account=cash(),credit=credit(source),refund=createRefund(account,"40",List.of(credit));
+        var edit=refundInput(account,"30",List.of(credit),refundVersion(refund));String editKey=key();
+        code(()->refundApplications.update(d.actor(d.maker),refund,edit),"IDEMPOTENCY_KEY_REQUIRED");
+        var saved=refundApplications.update(d.actor(d.maker),refund,editKey,edit);
+        assertThat(saved).containsEntry("amount","30.00");
+        var replayed=refundApplications.update(d.actor(d.maker),refund,editKey,edit);
+        // 比较接口值，忽略MySQL JSON的键序和JDBC/Jackson内部整数类型差异。
+        assertThat(json.readValue(json.writeValueAsString(replayed),Object.class))
+                .isEqualTo(json.readValue(json.writeValueAsString(saved),Object.class));
+        assertThat(commandResults.get(d.actor(d.maker),"refund_request.update",editKey)).containsEntry("status","succeeded");
+        code(()->refundApplications.update(d.actor(d.maker),refund,editKey,refundInput(account,"31",List.of(credit),edit.version())),"IDEMPOTENCY_KEY_REUSED");
+        var wrongMode=new FinanceModels.Refund(d.customer,null,account,"30",d.day,"不能改模式",List.of(credit),refundVersion(refund));
+        code(()->refundApplications.update(d.actor(d.maker),refund,key(),wrongMode),"VALIDATION_FAILED");
+        assertThat(value("SELECT open_amount FROM partner_open_item WHERE id=?",credit)).isEqualByComparingTo("40");
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test void creditCandidatesPageWholeVisibleSourcesAndExcludeReservedAmounts() {
+        receive("10","5");long first=posted(List.of(line("1","10","0","passed",null,null)));
+        long second=posted(List.of(line("2","10","0","passed",null,null)));
+        var page=refundApplications.creditItems(d.actor(d.maker),d.customer,null,1);
+        var items=(List<Map<String,Object>>)page.get("items");assertThat(items).hasSize(1);
+        assertThat(items.getFirst()).containsEntry("id",""+credit(second)).containsEntry("sourceId",""+second).containsEntry("openAmount","20.00");
+        assertThat(json.writeValueAsString(page)).doesNotContain("cost","Cost");
+        long cursor=Long.parseLong(page.get("nextCursor").toString());
+        assertThat((List<Map<String,Object>>)refundApplications.creditItems(d.actor(d.maker),d.customer,cursor,1).get("items"))
+                .singleElement().satisfies(item->assertThat(item).containsEntry("id",""+credit(first)));
+        long account=cash(),refund=createRefund(account,"25",List.of(credit(second),credit(first)));refundCommand(refund,"submit");
+        assertThat(value("SELECT amount FROM settlement_allocation WHERE credit_item_id=? AND status='reserved'",credit(second))).isEqualByComparingTo("20");
+        assertThat(value("SELECT amount FROM settlement_allocation WHERE credit_item_id=? AND status='reserved'",credit(first))).isEqualByComparingTo("5");
+        assertThat((List<Map<String,Object>>)refundApplications.creditItems(d.actor(d.maker),d.customer,null,20).get("items"))
+                .singleElement().satisfies(item->assertThat(item).containsEntry("id",""+credit(first)).containsEntry("openAmount","5.00"));
+        var maker=d.actor(d.maker);var noWarehouse=new CompanyAccess(d.tenant,d.maker,d.company,false,Set.of(),maker.permissions(),maker.orgScope());
+        assertThat(refundApplications.creditItems(noWarehouse,d.customer,null,20).get("items")).asList().isEmpty();
+    }
+
+    @Test void concurrentRefundApplicationsCannotReserveTheSameCreditTwice() throws Exception {
+        receive("10","5");long source=posted(List.of(line("4","10","0","passed",null,null)));
+        long account=cash(),credit=credit(source),first=createRefund(account,"30",List.of(credit)),second=createRefund(account,"30",List.of(credit));
+        var gate=new java.util.concurrent.CyclicBarrier(2);
+        try(var pool=java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            var one=pool.submit(()->competeRefund(gate,first));var two=pool.submit(()->competeRefund(gate,second));
+            assertThat(List.of(one.get(30,java.util.concurrent.TimeUnit.SECONDS),two.get(30,java.util.concurrent.TimeUnit.SECONDS))).containsExactlyInAnyOrder(true,false);
+        }
+        assertThat(value("SELECT open_amount FROM partner_open_item WHERE id=?",credit)).isEqualByComparingTo("10");
+        assertThat(value("SELECT SUM(amount) FROM settlement_allocation WHERE tenant_id=? AND status='reserved'",d.tenant)).isEqualByComparingTo("30");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM refund_request WHERE tenant_id=? AND status='pending_review'",Integer.class,d.tenant)).isEqualTo(1);
+        assertThat(value("SELECT balance FROM cash_account_balance WHERE cash_account_id=?",account)).isEqualByComparingTo("1000");
+    }
+    private boolean competeRefund(java.util.concurrent.CyclicBarrier gate,long id) throws Exception {
+        gate.await(10,java.util.concurrent.TimeUnit.SECONDS);
+        try {refundCommand(id,"submit");return true;}
+        catch(ApiException error) {assertThat(error.getErrorCode()).isEqualTo("REFUND_AMOUNT_EXCEEDED");return false;}
+    }
+
+    @Test void refundReservationAndReturnReversalCannotBothCommit() throws Exception {
+        receive("10","5");long source=posted(List.of(line("4","10","0","passed",null,null)));
+        long account=cash(),refund=createRefund(account,"40",List.of(credit(source)));
+        long reversal=applyReversal("sales_return",source);approveReversal(reversal);
+        var gate=new java.util.concurrent.CyclicBarrier(2);
+        try(var pool=java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            var one=pool.submit(()->race(gate,()->refundCommand(refund,"submit"),"REFUND_CREDIT_SOURCE_CHANGED"));
+            var two=pool.submit(()->race(gate,()->postReversal(reversal),"DEPENDENCY_EXISTS"));
+            boolean reserved=one.get(30,java.util.concurrent.TimeUnit.SECONDS),reversed=two.get(30,java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(List.of(reserved,reversed)).containsExactlyInAnyOrder(true,false);
+            assertThat(returns.get(d.actor(d.maker),source)).containsEntry("status",reserved?"posted":"reversed");
+            assertThat(refundApplications.get(d.actor(d.maker),refund)).containsEntry("status",reserved?"pending_review":"draft");
+        }
+        assertThat(value("SELECT balance FROM cash_account_balance WHERE cash_account_id=?",account)).isEqualByComparingTo("1000");
+        for(String type:List.of("inventory_balance","inventory_cost","open_item","journal_balance","ledger_inventory"))
+            assertThat(checks.check(d.actor(d.maker),type,null)).as(type).isEmpty();
+    }
+    private boolean race(java.util.concurrent.CyclicBarrier gate,Runnable action,String expected) throws Exception {
+        gate.await(10,java.util.concurrent.TimeUnit.SECONDS);
+        try {action.run();return true;}
+        catch(ApiException error) {assertThat(error.getErrorCode()).isEqualTo(expected);return false;}
+    }
+
+    private record LegacyRefund(Long customerId,Long originalReceiptId,Long cashAccountId,String amount,java.time.LocalDate businessDate,String reason,List<Long> creditItemIds,Long version) {}
+    @Test void originalRefundSerializationKeepsThePreUpgradeRequestShape() {
+        var before=new LegacyRefund(d.customer,41L,42L,"10",d.day,"原收款退款",List.of(43L),null);
+        var after=new FinanceModels.Refund(d.customer,41L,42L,"10",d.day,"原收款退款",List.of(43L),null);
+        assertThat(json.writeValueAsString(after)).isEqualTo(json.writeValueAsString(before));
+    }
+
+    private long cash() {
+        long account=Ids.next();
+        jdbc.update("INSERT INTO cash_account(id,tenant_id,company_id,code,name,account_type) VALUES(?,?,?,'BANK','退款银行','bank')",account,d.tenant,d.company);
+        jdbc.update("INSERT INTO cash_account_balance(id,tenant_id,company_id,cash_account_id) VALUES(?,?,?,?)",Ids.next(),d.tenant,d.company,account);
+        long entry=id(opening.createEntry(d.actor(d.maker),key(),new cn.erp.opening.OpeningService.Entry("cash",null,account,"D","1000",d.day,"真实期初资金",null)));
+        opening.command(d.actor(d.manager),false,entry,"approve",key(),new cn.erp.opening.OpeningService.Version(0L,null));
+        opening.command(d.actor(d.maker),false,entry,"post",key(),new cn.erp.opening.OpeningService.Version(1L,null));return account;
+    }
+    private long credit(long source) {return jdbc.queryForObject("SELECT i.id FROM partner_open_item i JOIN receivable r ON r.tenant_id=i.tenant_id AND r.company_id=i.company_id AND r.id=i.source_id AND i.item_type='receivable' WHERE i.tenant_id=? AND r.source_id=? AND r.posting_action='post'",Long.class,d.tenant,source);}
+    private FinanceModels.Refund refundInput(long account,String amount,List<Long> credits,Long version) {
+        return new FinanceModels.Refund(d.customer,null,account,amount,d.day,"历史销售退回退款",credits,version,"sourceless_credit");
+    }
+    private long createRefund(long account,String amount,List<Long> credits) {
+        models.installDefault(d.tenant,d.company,"refund_request");
+        return id(refundApplications.create(d.actor(d.maker),key(),refundInput(account,amount,credits,null)));
+    }
+    private long refundVersion(long id) {return jdbc.queryForObject("SELECT version FROM refund_request WHERE id=?",Long.class,id);}
+    private Map<String,Object> refundCommand(long id,String action) {return refundApplications.command(d.actor(d.maker),id,action,key(),new FinanceModels.Version(refundVersion(id),null,null));}
     private long applyReversal(String type,long id) {
         models.installDefault(d.tenant,d.company,"document_reversal");
         return id(reversals.create(d.actor(d.maker),key(),new cn.erp.reversal.ReversalModels.Input(type,id,d.day,"核对后冲回原事实")));
@@ -275,8 +477,11 @@ class SourcelessReturnIT {
         assertThat(returns.get(d.actor(user),id)).containsEntry("status","approved");
     }
     private void reviewBusiness(String type,long id,long user) {
+        decideBusiness(type,id,user,"approve","核对成本及原始依据");
+    }
+    private void decideBusiness(String type,long id,long user,String action,String reason) {
         var task=jdbc.queryForMap("SELECT t.id,t.version FROM wf_task_ext t JOIN wf_instance i ON i.tenant_id=t.tenant_id AND i.id=t.instance_id WHERE i.tenant_id=? AND i.business_type=? AND i.business_id=? AND t.status='pending' AND t.assignee_id=?",d.tenant,type,id,user);
-        tasks.decide(d.actor(user),((Number)task.get("id")).longValue(),"approve",key(),new WorkflowTasks.Decision(((Number)task.get("version")).longValue(),"核对成本及原始依据",null,null,null,null,null));
+        tasks.decide(d.actor(user),((Number)task.get("id")).longValue(),action,key(),new WorkflowTasks.Decision(((Number)task.get("version")).longValue(),reason,null,null,null,null,null));
     }
     private CompanyAccess without(long user,String... removed) {
         var actor=d.actor(user);var permissions=new HashSet<>(actor.permissions());permissions.removeAll(Set.of(removed));

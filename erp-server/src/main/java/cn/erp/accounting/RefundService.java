@@ -2,6 +2,7 @@ package cn.erp.accounting;
 
 import cn.erp.shared.ActorScope;
 import cn.erp.shared.ApiException;
+import cn.erp.shared.SourcelessRefundCredits;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.*;
@@ -21,17 +22,16 @@ public class RefundService {
         this.jdbc=jdbc;this.settlement=settlement;this.ledger=ledger;
     }
 
-    /** 草稿退款提交时同时锁定原收款路径和客户贷方额度。 */
+    /** 草稿退款先锁原收款或所选退货，再预占客户贷方额度。 */
     public long reserve(ActorScope scope,long refundId,List<Long> creditItemIds) {
         var refund=request(scope,refundId);
         if(!"draft".equals(refund.get("status"))) {throw AccountingAmounts.conflict("退款申请当前状态不能提交");}
         if(creditItemIds==null || creditItemIds.isEmpty() || creditItemIds.size()>200 || new HashSet<>(creditItemIds).size()!=creditItemIds.size()) {throw AccountingAmounts.invalid("请选择不重复的退款可用额度");}
         BigDecimal amount=AccountingAmounts.money((BigDecimal)refund.get("amount"));
-        var receipts=jdbc.queryForList("SELECT * FROM receipt WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"receipt")+" AND id=? AND partner_id=? AND receipt_type='customer' AND status='confirmed' FOR UPDATE",
-                scope.tenantId(),scope.companyId(),refund.get("original_receipt_id"),refund.get("customer_id"));
-        if(receipts.isEmpty()) {throw AccountingAmounts.missing();}
-        if(jdbc.update("UPDATE receipt SET refund_pending_amount=refund_pending_amount+?,version=version+1 WHERE tenant_id=? AND company_id=? AND id=? AND amount-refunded_amount-refund_pending_amount>=?",
-                amount,scope.tenantId(),scope.companyId(),refund.get("original_receipt_id"),amount)!=1) {throw new ApiException(422,"REFUND_AMOUNT_EXCEEDED","退款超过原收款的可退金额");}
+        if(SourcelessRefundCredits.usesCredit(refund)) {
+            if(!creditItemIds.equals(SourcelessRefundCredits.selected(jdbc,scope,refundId))) throw AccountingAmounts.conflict("额度来源与已保存申请不一致");
+            SourcelessRefundCredits.requireRequest(jdbc,scope,refund,true,true);
+        } else reserveReceipt(scope,refund,amount);
         LocalDate date=((java.sql.Date)refund.get("business_date")).toLocalDate();
         long debit=settlement.open(scope,new SettlementService.OpenItem("refund_request",refundId,((Number)refund.get("customer_id")).longValue(),"D",amount,date));
         var ids=new ArrayList<>(creditItemIds);ids.add(debit);
@@ -49,10 +49,19 @@ public class RefundService {
         return debit;
     }
 
+    private void reserveReceipt(ActorScope scope,Map<String,Object> refund,BigDecimal amount) {
+        var receipts=jdbc.queryForList("SELECT * FROM receipt WHERE tenant_id=? AND company_id=?"+cn.erp.shared.OrgOwnership.filter(scope,"receipt")+" AND id=? AND partner_id=? AND receipt_type='customer' AND status='confirmed' FOR UPDATE",
+                scope.tenantId(),scope.companyId(),refund.get("original_receipt_id"),refund.get("customer_id"));
+        if(receipts.isEmpty()) {throw AccountingAmounts.missing();}
+        if(jdbc.update("UPDATE receipt SET refund_pending_amount=refund_pending_amount+?,version=version+1 WHERE tenant_id=? AND company_id=? AND id=? AND amount-refunded_amount-refund_pending_amount>=?",
+                amount,scope.tenantId(),scope.companyId(),refund.get("original_receipt_id"),amount)!=1) {throw new ApiException(422,"REFUND_AMOUNT_EXCEEDED","退款超过原收款的可退金额");}
+    }
+
     public void approve(ActorScope scope,long refundId) {
         var refund=request(scope,refundId);
         if(!"pending_review".equals(refund.get("status"))) {throw AccountingAmounts.conflict("退款申请当前状态不能审核");}
         if(refund.get("created_by")!=null && ((Number)refund.get("created_by")).longValue()==scope.userId()) {throw new ApiException(422,"SAME_OPERATOR_NOT_ALLOWED","经办人不能审核自己的退款申请");}
+        SourcelessRefundCredits.requireRequest(jdbc,scope,refund,true,true);
         jdbc.update("UPDATE refund_request SET status='pending_payment',reviewed_by=?,reviewed_at=UTC_TIMESTAMP(3),version=version+1,updated_by=? WHERE id=?",
                 scope.userId(),scope.userId(),refundId);
     }
@@ -61,13 +70,16 @@ public class RefundService {
         var refund=request(scope,refundId);
         if("cancelled".equals(refund.get("status"))) {return;}
         if(!Set.of("pending_review","pending_payment").contains(refund.get("status"))) {throw AccountingAmounts.conflict("退款申请当前状态不能释放占用");}
-        lockReceipt(scope,refund.get("original_receipt_id"));
+        if(SourcelessRefundCredits.usesCredit(refund)) SourcelessRefundCredits.requireRequest(jdbc,scope,refund,true,true);
+        else lockReceipt(scope,refund.get("original_receipt_id"));
         lockAllocationItems(scope,refundId);
         var allocations=allocations(scope,refundId);
         for(long allocation:allocations) {settlement.release(scope,allocation);}
-        int updated=jdbc.update("UPDATE receipt SET refund_pending_amount=refund_pending_amount-?,version=version+1 WHERE tenant_id=? AND company_id=? AND id=? AND refund_pending_amount>=?",
+        if(!SourcelessRefundCredits.usesCredit(refund)) {
+            int updated=jdbc.update("UPDATE receipt SET refund_pending_amount=refund_pending_amount-?,version=version+1 WHERE tenant_id=? AND company_id=? AND id=? AND refund_pending_amount>=?",
                 refund.get("amount"),scope.tenantId(),scope.companyId(),refund.get("original_receipt_id"),refund.get("amount"));
-        if(updated!=1) {throw AccountingAmounts.conflict("原收款的退款占用不一致，请先对账");}
+            if(updated!=1) {throw AccountingAmounts.conflict("原收款的退款占用不一致，请先对账");}
+        }
         jdbc.update("UPDATE refund_request SET status='cancelled',version=version+1,updated_by=? WHERE id=?",scope.userId(),refundId);
     }
 
@@ -76,12 +88,13 @@ public class RefundService {
         ledger.lockOpenPeriod(scope,periodId,date);
         if(bankSerial==null || bankSerial.isBlank() || bankSerial.length()>64) {throw AccountingAmounts.invalid("请填写64字以内的银行流水号");}
         var refund=request(scope,refundId);
+        SourcelessRefundCredits.requireRequest(jdbc,scope,refund,true,true);
         if("refunded".equals(refund.get("status"))) {
             if(!bankSerial.equals(refund.get("bank_serial_no")) || ((Number)refund.get("period_id")).longValue()!=periodId || !((java.sql.Date)refund.get("business_date")).toLocalDate().equals(date)) {throw new ApiException(409,"IDEMPOTENCY_KEY_REUSED","已登记退款的内容不一致");}
             return jdbc.queryForObject("SELECT id FROM journal WHERE tenant_id=? AND company_id=? AND source_type='refund_request' AND source_id=? AND posting_action='post' AND source_revision=0",Long.class,scope.tenantId(),scope.companyId(),refundId);
         }
         if(!"pending_payment".equals(refund.get("status"))) {throw AccountingAmounts.conflict("退款须先审核通过");}
-        lockReceipt(scope,refund.get("original_receipt_id"));
+        if(!SourcelessRefundCredits.usesCredit(refund)) lockReceipt(scope,refund.get("original_receipt_id"));
         lockAllocationItems(scope,refundId);
         var allocationIds=allocations(scope,refundId);
         BigDecimal reserved=jdbc.queryForObject("SELECT COALESCE(SUM(amount),0) FROM settlement_allocation WHERE tenant_id=? AND company_id=? AND trigger_type='refund_request' AND trigger_id=? AND status='reserved'",BigDecimal.class,scope.tenantId(),scope.companyId(),refundId);
@@ -91,9 +104,11 @@ public class RefundService {
         long journal=ledger.post(scope,new LedgerService.Posting("refund_request",refundId,0,periodId,date,List.of(
                 new LedgerService.Line("AR","D",amount,partner,null,null,null,null,"客户退款"),
                 new LedgerService.Line("FUNDS","C",amount,null,account,null,null,null,"客户退款"))));
-        int updated=jdbc.update("UPDATE receipt SET refund_pending_amount=refund_pending_amount-?,refunded_amount=refunded_amount+?,version=version+1 WHERE tenant_id=? AND company_id=? AND id=? AND refund_pending_amount>=?",
+        if(!SourcelessRefundCredits.usesCredit(refund)) {
+            int updated=jdbc.update("UPDATE receipt SET refund_pending_amount=refund_pending_amount-?,refunded_amount=refunded_amount+?,version=version+1 WHERE tenant_id=? AND company_id=? AND id=? AND refund_pending_amount>=?",
                 amount,amount,scope.tenantId(),scope.companyId(),refund.get("original_receipt_id"),amount);
-        if(updated!=1) {throw AccountingAmounts.conflict("原收款的退款占用不一致，请先对账");}
+            if(updated!=1) {throw AccountingAmounts.conflict("原收款的退款占用不一致，请先对账");}
+        }
         for(long allocation:allocationIds) {jdbc.update("UPDATE settlement_allocation SET status='active',version=version+1 WHERE id=? AND status='reserved'",allocation);}
         jdbc.update("""
                 UPDATE refund_request SET status='refunded',paid_registered_by=?,paid_at=UTC_TIMESTAMP(3),period_id=?,

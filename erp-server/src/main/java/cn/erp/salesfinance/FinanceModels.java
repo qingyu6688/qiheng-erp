@@ -45,11 +45,16 @@ public final class FinanceModels {
         public ReturnLine(Long shipmentLineId,Long unitId,String qty,String qualityResult){this(shipmentLineId,unitId,qty,qualityResult,null);}
     }
     public record Refund(
-        @NotNull(message="请选择客户") Long customerId,@NotNull(message="请选择原收款") Long originalReceiptId,
+        @NotNull(message="请选择客户") Long customerId,Long originalReceiptId,
         @NotNull(message="请选择退款账户") Long cashAccountId,@NotBlank(message="请输入退款金额") String amount,
         @NotNull(message="请选择业务日期") LocalDate businessDate,
         @NotBlank(message="请填写退款原因") @Size(max=200,message="原因最多200字") String reason,
-        @Size(max=200,message="额度来源最多200项") List<Long> creditItemIds,Long version) {}
+        @Size(max=200,message="额度来源最多200项") List<Long> creditItemIds,Long version,
+        @JsonInclude(JsonInclude.Include.NON_NULL) @Pattern(regexp="receipt|sourceless_credit",message="退款模式无效") String refundMode) {
+        public Refund(Long customerId,Long originalReceiptId,Long cashAccountId,String amount,LocalDate businessDate,String reason,List<Long> creditItemIds,Long version) {
+            this(customerId,originalReceiptId,cashAccountId,amount,businessDate,reason,creditItemIds,version,null);
+        }
+    }
     public record Paid(@NotNull(message="请提供版本号") Long version,@NotNull(message="请选择退款日期") LocalDate paidDate,
                        @NotBlank(message="请填写银行流水号") @Size(max=64,message="银行流水号最多64字") String bankSerialNo) {}
     public record Allocation(@NotNull(message="请选择借方未清项") Long debitItemId,
