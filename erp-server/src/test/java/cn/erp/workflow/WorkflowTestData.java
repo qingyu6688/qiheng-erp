@@ -9,12 +9,12 @@ import cn.erp.identity.*;
 import cn.erp.salesorder.*;
 import cn.erp.shared.*;
 
-final class WorkflowTestData {
+public final class WorkflowTestData {
     final JdbcTemplate jdbc;
     final AccessService access;
     final SalesOrderService sales;
     final WorkflowModels models;
-    final long tenant = Ids.next(),
+    public final long tenant = Ids.next(),
             company = Ids.next(),
             warehouse = Ids.next(),
             customer = Ids.next(),
@@ -23,13 +23,13 @@ final class WorkflowTestData {
             department = Ids.next(),
             parentDepartment = Ids.next(),
             post = Ids.next();
-    final long maker = Ids.next(),
+    public final long maker = Ids.next(),
             manager = Ids.next(),
             financeA = Ids.next(),
             financeB = Ids.next();
-    final LocalDate day = LocalDate.of(2026, 11, 15);
+    public final LocalDate day = LocalDate.of(2026, 11, 15);
 
-    WorkflowTestData(
+    public WorkflowTestData(
             JdbcTemplate jdbc,
             AccessService access,
             SalesOrderService sales,
@@ -202,7 +202,7 @@ final class WorkflowTestData {
                 sku);
     }
 
-    CompanyAccess actor(long user) {
+    public CompanyAccess actor(long user) {
         return access.forUser(tenant, user, company);
     }
 
@@ -321,7 +321,7 @@ final class WorkflowTestData {
                 false);
     }
 
-    void cleanup(org.flowable.engine.ProcessEngine engine) {
+    public void cleanup(org.flowable.engine.ProcessEngine engine) {
         for (var deployment :
                 engine.getRepositoryService()
                         .createDeploymentQuery()
