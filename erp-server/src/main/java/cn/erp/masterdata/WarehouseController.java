@@ -72,6 +72,11 @@ class WarehouseController {
             @RequestParam String operation, @RequestParam String key) {
         if (!operation.startsWith("warehouse.")) {
             String permission = switch (operation) {
+                case "sales_quote.create", "sales_quote.update", "sales_quote.submit", "sales_quote.approve", "sales_quote.convert", "sales_quote.void" -> operation.replace('.', ':');
+                case "sales_quote.reject" -> "sales_quote:approve";
+                case "cost_revaluation.create", "cost_revaluation.submit", "cost_revaluation.approve", "cost_revaluation.post", "cost_revaluation.void" -> operation.replace('.', ':');
+                case "cost_revaluation.refresh" -> "cost_revaluation:submit";
+                case "cost_revaluation.reject" -> "cost_revaluation:approve";
                 case "gl_config.create", "gl_config.save" -> "gl_config:edit";
                 case "gl_config.confirm" -> "gl_config:confirm";
                 case "gl_opening.save" -> "gl_opening:edit";
@@ -140,7 +145,7 @@ class WarehouseController {
                      "invoice_registration.create", "invoice_registration.void" -> operation.replace('.', ':');
                 default -> throw new ApiException(404, "NOT_FOUND", "未找到该操作结果");
             };
-            var scope = operation.matches("(?:gl_config|gl_opening|gl_voucher|gl_sync|credit_limit|credit_increase|bad_debt|aging_config|collection)\\..+") || operation.startsWith("cash_account.") || operation.startsWith("period.") || operation.equals("reconciliation.run")
+            var scope = operation.startsWith("sales_quote.") || operation.startsWith("cost_revaluation.") || operation.matches("(?:gl_config|gl_opening|gl_voucher|gl_sync|credit_limit|credit_increase|bad_debt|aging_config|collection)\\..+") || operation.startsWith("cash_account.") || operation.startsWith("period.") || operation.equals("reconciliation.run")
                     || operation.equals("outbox.replay") || operation.startsWith("org_department.") || operation.equals("user.assign_organization") || operation.equals("role.assign_data_scope")
                     || operation.matches("(?:sales_order|shipment|receipt|sales_return|refund_request|settlement|invoice_registration)\\..+")
                     || operation.matches("(?:purchase_requisition|purchase_order|goods_receipt|purchase_return|payment|account_transfer|stock_adjustment|opening_entry|stock_transfer|stock_count|reversal)\\..+")

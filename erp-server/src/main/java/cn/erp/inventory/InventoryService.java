@@ -505,6 +505,29 @@ public class InventoryService {
         if(issued.signum()!=0) adjustment(scope,posting,type+"_issued",issued);
     }
 
+    public record RevaluationChange(long lineId,BigDecimal amount) {}
+
+    /** 整笔应用净差额，逐行保留成本归属，避免零库存的正负抵消过程产生临时非法余额。 */
+    @Transactional(propagation=org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void revalueCost(CompanyAccess scope,Posting posting,List<RevaluationChange> changes) {
+        cn.erp.shared.FinancialScope.require(scope,"cost_revaluation:post");
+        if (!"cost_revaluation".equals(posting.source().type()) || changes==null || changes.isEmpty()
+                || changes.stream().anyMatch(change->change==null || change.lineId()<=0 || change.amount()==null || change.amount().signum()==0))
+            throw invalid("成本重估来源或差额无效");
+        store.lockPeriod(scope,posting);
+        lockKeys(scope,List.of(posting.key()));
+        var current=store.lockCost(scope,posting.key());
+        BigDecimal delta=changes.stream().map(RevaluationChange::amount).reduce(BigDecimal.ZERO,BigDecimal::add);
+        BigDecimal next=decimal(current,"total_cost").add(delta);
+        if (next.signum()<0 || decimal(current,"qty").signum()==0 && next.signum()!=0)
+            throw new ApiException(409,"COST_REPLAY_MISMATCH","重估后库存成本无效，请重新检查差异");
+        InventoryNumbers.money(next);
+        jdbc.update("UPDATE inventory_cost SET total_cost=?,version=version+1 WHERE id=?",next,current.get("id"));
+        for(var change:changes) adjustment(scope,new Posting(posting.key(),new Source("cost_revaluation",posting.source().id(),change.lineId()),
+                posting.businessDate(),posting.periodId(),posting.movementType()),"revaluation",change.amount());
+        changed(scope,List.of(posting.key()));
+    }
+
     private void adjustment(CompanyAccess scope,Posting p,String type,BigDecimal amount) {
         jdbc.update("""
                 INSERT INTO cost_adjustment(id,tenant_id,company_id,warehouse_id,sku_id,adjust_type,amount,source_type,

@@ -12,6 +12,8 @@ import cn.erp.shared.OrgOwnership;
 /** 消息计数及流程列表在分页前使用同一公司、仓库、部门与操作权限交集。 */
 @Component
 public class WorkflowAccess {
+    private org.springframework.beans.factory.ObjectProvider<cn.erp.shared.QuotationScopePort> quotations;
+    @org.springframework.beans.factory.annotation.Autowired void quotations(org.springframework.beans.factory.ObjectProvider<cn.erp.shared.QuotationScopePort> quotations) {this.quotations=quotations;}
     public String business(CompanyAccess actor, String instance, boolean review) {
         var parts = new ArrayList<String>();
         for (String type : SimpleModel.TYPES.stream().sorted().toList()) {
@@ -19,7 +21,7 @@ public class WorkflowAccess {
                     || review
                             && !actor.hasPermission(WorkflowDocuments.permission(type, "approve")))
                 continue;
-            if(Set.of("credit_increase", "gl_voucher", "ar_bad_debt").contains(type)
+            if(Set.of("credit_increase", "gl_voucher", "ar_bad_debt", "cost_revaluation").contains(type)
                     && (!actor.allWarehouses() || !actor.orgScope().allDepartments() || !actor.hasPermission("cost:view"))) continue;
             if(Set.of("price_adjustment","purchase_fee_doc").contains(type) && (!actor.hasPermission("cost:view")
                     || review && (!actor.allWarehouses() || !actor.orgScope().allDepartments()))) continue;
@@ -35,6 +37,11 @@ public class WorkflowAccess {
             if(type.equals("sales_price_adjustment") && review && (!actor.allWarehouses()||!actor.orgScope().allDepartments())) continue;
             if(type.equals("sales_return") && review && !actor.hasPermission("cost:view")) continue;
             if(type.equals("sales_return")) where += " AND h.return_mode='sourceless'";
+            if(type.equals("sales_quote")) {
+                var quotationScope=quotations==null?null:quotations.getIfAvailable();
+                if(quotationScope==null)continue;
+                where+=quotationScope.condition(actor,"h");
+            }
             if(type.equals("refund_request")) where += " AND " + cn.erp.shared.SourcelessRefundCredits.condition(actor,"h");
             if(type.equals("sales_price_adjustment")) where += " AND h.kind='sales' AND " + cn.erp.shared.PriceAdjustmentScope.condition(actor,"h");
             if(type.equals("purchase_fee_doc")) where += " AND " + cn.erp.shared.PurchaseFeeScope.condition(actor,"h");

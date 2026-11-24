@@ -31,11 +31,31 @@ class ReversalPosting {
         String journals=type.equals("shipment")?"'shipment_post','shipment_sign','shipment_diff'":"'"+type+"'";
         // 原单已被排他锁定，凭证只需读取当前已提交的事实。
         for(long journal:jdbc.queryForList("SELECT id FROM journal WHERE tenant_id=? AND company_id=? AND source_id=? AND source_type IN("+journals+") AND posting_action='post' ORDER BY id FOR SHARE",Long.class,scope.tenantId(),scope.companyId(),source))ledger.reverse(scope,journal,"document_reversal",reversal,revision++,period,day);
+        reverseRevaluations(scope,reversal,revision,period,day);
         progress.reverse(scope,type,source,head);
         sources.restoreProgress(scope,type,head);
         String table=type.equals("sales_price_adjustment")?"price_adjustment":type;
         jdbc.update("UPDATE "+table+" SET status='reversed',version=version+1,updated_by=? WHERE tenant_id=? AND company_id=? AND id=?",scope.userId(),scope.tenantId(),scope.companyId(),source);
         progress.refresh(scope,type,source,head);
+    }
+    private void reverseRevaluations(CompanyAccess scope,long reversal,int revision,long period,LocalDate day) {
+        var lines=new ArrayList<LedgerService.Line>();
+        for(var row:jdbc.queryForList("SELECT a.warehouse_id,a.sku_id,SUM(a.amount) amount FROM cost_adjustment a"
+                +" JOIN cost_adjustment original ON original.tenant_id=a.tenant_id AND original.company_id=a.company_id"
+                +" AND original.id=a.source_line_id AND original.source_type='cost_revaluation'"
+                +" WHERE a.tenant_id=? AND a.company_id=? AND a.source_type='document_reversal' AND a.source_id=?"
+                +" AND a.adjust_type='revaluation' GROUP BY a.warehouse_id,a.sku_id ORDER BY a.warehouse_id,a.sku_id",
+                scope.tenantId(),scope.companyId(),reversal)) {
+            BigDecimal amount=decimal(row,"amount");
+            if(amount.signum()==0)continue;
+            lines.add(new LedgerService.Line("INVENTORY",amount.signum()>0?"D":"C",amount.abs(),null,null,id(row,"warehouse_id"),id(row,"sku_id"),reversal,"冲回原单成本重估差额"));
+            lines.add(new LedgerService.Line("COST_VARIANCE",amount.signum()>0?"C":"D",amount.abs(),null,null,id(row,"warehouse_id"),id(row,"sku_id"),reversal,"冲回原单成本重估差额"));
+            if(lines.size()==1000) {
+                ledger.post(scope,new LedgerService.Posting("document_reversal",reversal,revision++,period,day,List.copyOf(lines)));
+                lines.clear();
+            }
+        }
+        if(!lines.isEmpty())ledger.post(scope,new LedgerService.Posting("document_reversal",reversal,revision,period,day,List.copyOf(lines)));
     }
     private void reverseFact(CompanyAccess scope,String fact,Map<String,Object> original,long reversal,long period,LocalDate day) {
         boolean ar=fact.equals("receivable");String party=ar?"customer_id":"supplier_id",reverse=ar?"reverses_receivable_id":"reverses_payable_id";

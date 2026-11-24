@@ -16,6 +16,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
@@ -489,6 +491,110 @@ class EInvoiceIT {
         assertThat(new BigDecimal(line.get("quantity").toString())).isEqualByComparingTo("1");
         assertThat(new BigDecimal(line.get("untaxedAmount").toString())).isEqualByComparingTo("10");
         assertThat(new BigDecimal(line.get("taxAmount").toString())).isEqualByComparingTo("1.30");
+    }
+
+    @Test void simulatedSupplementWholeRedAndDiscountReissueKeepActualHttpReservationsConsistent() throws Exception {
+        grantPriceAdjustmentAccess();
+        var author=new Browser("maker",tenantCode,company);
+        var finance=new Browser("checker",tenantCode,company);
+        long source=jdbc.queryForObject("SELECT source_line_id FROM receivable WHERE id=?",Long.class,ar);
+        var originalLine=jdbc.queryForMap("SELECT qty,base_qty,signed_base_qty,signed_cost_amount,receivable_amount FROM shipment_line WHERE id=?",source);
+        String original=create(author,"sim-original");
+        submitSimulatedBlue(finance,original,"SIMBLUE001","113.00","13.00");
+
+        String supplement=approvedPriceAdjustment(author,finance,source,"124.30","sim-supplement");
+        assertThat(author.sendApi("POST","/sales-price-adjustments/"+supplement+"/post",Map.of("version",2),200,"sim-supplement-post")
+                .path("amount").asString()).isEqualTo("11.30");
+        long extra=jdbc.queryForObject("SELECT id FROM receivable WHERE tenant_id=? AND source_type='price_adjustment_line' AND source_id=?",Long.class,tenant,supplement);
+        String additional=author.send("POST","/requests",Map.of("partnerId",Long.toString(partner),"invoiceKind","normal",
+                "receivableIds",List.of(Long.toString(extra))),200,"sim-additional").path("id").asString();
+        submitSimulatedBlue(finance,additional,"SIMBLUE002","11.30","1.30");
+        assertThat(totalInvoiced()).isEqualByComparingTo("124.30");
+
+        String discount=approvedPriceAdjustment(author,finance,source,"101.70","sim-discount");
+        assertDiscountNeedsRed(author,discount,"sim-discount-before-red");
+        String originalRed=submitSimulatedRed(finance,original,"sim-red-original");
+        when(provider.redIssue(any(),eq(originalRed),any())).thenThrow(new ApiException(503,"EINV_PROVIDER_UNAVAILABLE","模拟红字结果丢失"));
+        assertThat(worker.runOne(tenant)).isTrue();
+        assertThat(status(original)).isEqualTo("red_submitted");
+        assertThat(totalInvoiced()).isEqualByComparingTo("124.30");
+        assertDiscountNeedsRed(author,discount,"sim-discount-unknown-red");
+        due(original);
+        when(provider.query(any(),eq(originalRed))).thenReturn(new EInvoiceProvider.Result(ISSUED,"SIMRED001",today));
+        assertThat(worker.runOne(tenant)).isTrue();
+        assertThat(status(original)).isEqualTo("red_issued");
+        assertThat(totalInvoiced()).isEqualByComparingTo("11.30");
+        verify(provider,times(1)).redIssue(any(),eq(originalRed),any());
+        assertDiscountNeedsRed(author,discount,"sim-discount-one-red");
+
+        String extraRed=submitSimulatedRed(finance,additional,"sim-red-additional");
+        when(provider.redIssue(any(),eq(extraRed),any())).thenReturn(new EInvoiceProvider.Result(PENDING,null,null));
+        assertThat(worker.runOne(tenant)).isTrue();
+        assertThat(totalInvoiced()).isEqualByComparingTo("11.30");
+        assertDiscountNeedsRed(author,discount,"sim-discount-pending-red");
+        due(additional);
+        when(provider.query(any(),eq(extraRed))).thenReturn(new EInvoiceProvider.Result(ISSUED,"SIMRED002",today));
+        assertThat(worker.runOne(tenant)).isTrue();
+        assertThat(totalInvoiced()).isZero();
+        verify(provider,times(1)).redIssue(any(),eq(extraRed),any());
+
+        assertThat(author.sendApi("POST","/sales-price-adjustments/"+discount+"/post",Map.of("version",2),200,"sim-discount-post")
+                .path("amount").asString()).isEqualTo("-22.60");
+        String replacement=author.send("POST","/requests",Map.of("partnerId",Long.toString(partner),"invoiceKind","normal",
+                "receivableIds",List.of(Long.toString(ar),Long.toString(extra))),200,"sim-net-replacement").path("id").asString();
+        submitSimulatedBlue(finance,replacement,"SIMBLUE003","101.70","11.70");
+        assertThat(totalInvoiced()).isEqualByComparingTo("101.70");
+        assertThat(worker.runOne(tenant)).isFalse();
+        assertThat(jdbc.queryForMap("SELECT qty,base_qty,signed_base_qty,signed_cost_amount,receivable_amount FROM shipment_line WHERE id=?",source)).isEqualTo(originalLine);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM invoice_registration WHERE tenant_id=? AND einvoice_request_id IS NOT NULL",Long.class,tenant)).isEqualTo(3);
+        var report=Map.of("mode","受控模拟数据，真实HTTP与MySQL，不连接第三方服务商","originalAmount","113.00","supplementAmount","11.30",
+                "discountAmount","-22.60","replacementAmount","101.70","replacementTax","11.70","wholeRedCount",2,
+                "unknownAndPendingKeepQuota",true,"sourceQuantityAndCostUnchanged",true);
+        Path output=Path.of(System.getenv().getOrDefault("ERP_TEST_ROOT",System.getProperty("java.io.tmpdir")),"erp-server","数电模拟调价联动.json");
+        Files.createDirectories(output.getParent());Files.writeString(output,json.writeValueAsString(report));
+    }
+
+    private void grantPriceAdjustmentAccess() {
+        jdbc.update("INSERT INTO partner_role(id,tenant_id,partner_id,role) VALUES(?,?,?,'customer')",Ids.next(),tenant,partner);
+        for(long user:List.of(maker,checker)) {
+            long role=jdbc.queryForObject("SELECT role_id FROM sys_user_role WHERE tenant_id=? AND user_id=?",Long.class,tenant,user);
+            for(long permission:jdbc.queryForList("SELECT id FROM sys_permission WHERE code LIKE 'sales_price_adjustment:%' OR code IN('shipment:view','invoice_registration:view')",Long.class))
+                jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) VALUES(?,?,?,?)",Ids.next(),tenant,role,permission);
+        }
+    }
+
+    private String approvedPriceAdjustment(Browser author,Browser finance,long source,String unitPrice,String key) throws Exception {
+        var input=Map.of("partnerId",Long.toString(partner),"warehouseId",Long.toString(warehouse),"businessDate",today.toString(),"reason","模拟验收结算调价",
+                "lines",List.of(Map.of("shipmentLineId",Long.toString(source),"newUnitPrice",unitPrice)));
+        String id=author.sendApi("POST","/sales-price-adjustments",input,201,key).path("id").asString();
+        author.sendApi("POST","/sales-price-adjustments/"+id+"/submit",Map.of("version",0),200,key+"-submit");
+        finance.sendApi("POST","/sales-price-adjustments/"+id+"/approve",Map.of("version",1),200,key+"-approve");
+        return id;
+    }
+
+    private void submitSimulatedBlue(Browser finance,String id,String invoiceNo,String amount,String tax) throws Exception {
+        finance.send("POST","/requests/"+id+"/submit",Map.of("version",0),200,"sim-submit-"+id);
+        when(provider.issue(any(),eq("issue-"+id),argThat(payload->payload.amount().compareTo(new BigDecimal(amount))==0
+                &&payload.taxAmount().compareTo(new BigDecimal(tax))==0)))
+                .thenReturn(new EInvoiceProvider.Result(ISSUED,invoiceNo,today));
+        assertThat(worker.runOne(tenant)).isTrue();assertThat(status(id)).isEqualTo("issued");
+        finance.send("POST","/requests/"+id+"/submit",Map.of("version",0),200,"sim-submit-"+id);
+        verify(provider,times(1)).issue(any(),eq("issue-"+id),any());
+    }
+
+    private String submitSimulatedRed(Browser finance,String id,String key) throws Exception {
+        long version=finance.send("GET","/requests/"+id,null,200).path("version").asLong();
+        finance.send("POST","/requests/"+id+"/red-issue",Map.of("version",version,"reason","模拟结算折让整票红字"),200,key);
+        finance.send("POST","/requests/"+id+"/red-issue",Map.of("version",version,"reason","模拟结算折让整票红字"),200,key);
+        return "red-"+id+"-"+(version+1);
+    }
+
+    private void assertDiscountNeedsRed(Browser author,String id,String key) throws Exception {
+        assertThat(author.sendApi("POST","/sales-price-adjustments/"+id+"/post",Map.of("version",2),422,key).asString()).isEqualTo("SALES_RED_REQUIRED");
+    }
+
+    private BigDecimal totalInvoiced() {
+        return jdbc.queryForObject("SELECT SUM(invoiced_amount) FROM receivable WHERE tenant_id=? AND company_id=?",BigDecimal.class,tenant,company);
     }
 
     @Test void manualRedEndpointsValidateAuthenticateAndConfirmTheWholeBlueWithTwoUsers() throws Exception {

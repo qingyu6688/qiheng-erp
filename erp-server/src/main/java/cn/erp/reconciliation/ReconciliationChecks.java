@@ -77,6 +77,15 @@ public class ReconciliationChecks {
                     ON a.tenant_id=x.tenant_id AND a.company_id=x.company_id AND a.source_type='purchase_fee_cost'
                     AND a.source_line_id=x.id AND a.adjust_type='purchase_fee_issued'
                   WHERE x.tenant_id=:t AND x.company_id=:c AND x.issued_amount<>COALESCE(a.amount,0)
+                UNION ALL SELECT CONCAT(l.id,'/重估成本差额'),l.cost_delta,COALESCE(a.amount,0)
+                  FROM cost_revaluation_line l JOIN cost_revaluation h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.revaluation_id
+                  LEFT JOIN cost_adjustment a ON a.tenant_id=l.tenant_id AND a.company_id=l.company_id AND a.source_type='cost_revaluation'
+                    AND a.source_id=h.id AND a.source_line_id=l.id AND a.adjust_type='revaluation'
+                  WHERE h.tenant_id=:t AND h.company_id=:c AND h.status='posted' AND l.cost_delta<>COALESCE(a.amount,0)
+                UNION ALL SELECT CONCAT(h.id,'/重估任务差额'),h.stock_delta,COALESCE(l.amount,0)
+                  FROM cost_revaluation h LEFT JOIN(SELECT tenant_id,company_id,revaluation_id,SUM(cost_delta) amount FROM cost_revaluation_line GROUP BY tenant_id,company_id,revaluation_id) l
+                    ON l.tenant_id=h.tenant_id AND l.company_id=h.company_id AND l.revaluation_id=h.id
+                  WHERE h.tenant_id=:t AND h.company_id=:c AND h.status='posted' AND h.stock_delta<>COALESCE(l.amount,0)
                 UNION ALL SELECT CONCAT(h.id,'/采购费用分摊成本'),IF(h.cost_tax_inclusive=1,h.amount,h.untaxed_amount),COALESCE(a.cost,0)
                   FROM purchase_fee_doc h LEFT JOIN(SELECT tenant_id,company_id,document_id,SUM(cost_amount) cost FROM purchase_fee_allocation GROUP BY tenant_id,company_id,document_id) a
                     ON a.tenant_id=h.tenant_id AND a.company_id=h.company_id AND a.document_id=h.id

@@ -7,6 +7,8 @@ import type { GenericWorkflowRequest, WorkflowInstance, WorkflowTask } from '../
 import { actionLabels, businessLabels, businessRoutes, workflowStatus } from '../../types/workflow'
 import { formatDateTime, formatMoney, formatQuantity } from '../../utils/format'
 import DocumentFilesPanel from '../DocumentFilesPanel.vue'
+import CostRevaluationDrawer from '../stock-operations/CostRevaluationDrawer.vue'
+import SalesQuoteDrawer from '../sales/SalesQuoteDrawer.vue'
 
 const props = defineProps<{
   detail?: WorkflowInstance
@@ -19,6 +21,8 @@ const props = defineProps<{
 const emit = defineEmits<{ choose: [action: string, task?: WorkflowTask] }>()
 
 const source = ref<Record<string, unknown>>()
+const showRevaluation = ref(false)
+const showQuotation = ref(false)
 const sourceLoading = ref(false)
 const sourceError = ref('')
 watch(
@@ -27,6 +31,8 @@ watch(
     const abort = new AbortController()
     onCleanup(() => abort.abort())
     source.value = undefined
+    showRevaluation.value = false
+    showQuotation.value = false
     sourceError.value = ''
     sourceLoading.value = false
     if (!detail || detail.businessType === 'wf_generic_request') return
@@ -72,6 +78,11 @@ const summary = computed(() => {
     ['销售员', value(row?.salesUserName)],
     ['采购员', value(row?.buyerUserName)],
     ['仓库', name(row?.warehouse) ?? value(row?.warehouseName)],
+    ['商品', value(row?.skuName)],
+    ['起算日', value(row?.startDate)],
+    ['重估前库存成本', value(row?.beforeCost) && formatMoney(value(row?.beforeCost))],
+    ['重估后库存成本', value(row?.afterCost) && formatMoney(value(row?.afterCost))],
+    ['库存成本调整', value(row?.stockDelta) && formatMoney(value(row?.stockDelta))],
     ['金额', amount && formatMoney(amount)],
     [
       '信用占用',
@@ -108,10 +119,11 @@ const lines = computed(() => {
       name(row.account) ??
       value(row.accountName) ??
       value(row.summary)
-    const qty = value(row.qty ?? row.countedQty ?? row.receivedQty ?? row.baseQty)
+      ?? value(row.movementId)
+    const qty = value(row.qty ?? row.countedQty ?? row.receivedQty ?? row.baseQty ?? row.onHandDelta)
     const price = value(row.unitPrice)
     const amount = value(
-      row.receivableAmount ?? row.payableAmount ?? row.totalAmount ?? row.lineAmount,
+      row.receivableAmount ?? row.payableAmount ?? row.totalAmount ?? row.lineAmount ?? row.amount ?? row.costDelta,
     )
     const debit = value(row.debitAmount ?? row.debit)
     const credit = value(row.creditAmount ?? row.credit)
@@ -184,8 +196,10 @@ function moreActions(task: WorkflowTask): { value: string; label: string }[] {
         <el-tag size="small" :type="detail.status === 'approved' ? 'success' : 'info'">
           {{ workflowStatus[detail.status] ?? detail.status }}
         </el-tag>
+        <el-button v-if="detail.businessType === 'cost_revaluation'" link type="primary" @click="showRevaluation = true">查看重估差异</el-button>
+        <el-button v-else-if="detail.businessType === 'sales_quote'" link type="primary" @click="showQuotation = true">查看报价详情</el-button>
         <router-link
-          v-if="businessRoutes[detail.businessType]"
+          v-else-if="businessRoutes[detail.businessType]"
           class="text-link source-link"
           :to="'/' + businessRoutes[detail.businessType] + '/' + detail.businessId"
           >查看来源单据</router-link
@@ -210,6 +224,7 @@ function moreActions(task: WorkflowTask): { value: string; label: string }[] {
           :closable="false"
           title="本单触发信用超额或超期规则。"
         />
+        <el-alert v-if="detail.summary.purchasePriceApprovalRequired" type="warning" :closable="false" title="采购单价高于供应商协议价，需要另一名具有成本查看权限的采购审批人复核。" />
         <p
           v-if="visibleTasks.some((task) => task.canHandle === false)"
           class="preview-note"
@@ -386,6 +401,8 @@ function moreActions(task: WorkflowTask): { value: string; label: string }[] {
       </footer>
     </template>
   </section>
+  <CostRevaluationDrawer v-if="showRevaluation && detail?.businessType === 'cost_revaluation'" :id="detail.businessId" read-only @close="showRevaluation = false" />
+  <SalesQuoteDrawer v-if="showQuotation && detail?.businessType === 'sales_quote'" :id="detail.businessId" read-only @close="showQuotation = false" />
 </template>
 
 <style scoped>

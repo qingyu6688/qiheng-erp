@@ -62,6 +62,12 @@ public class SalesOrderService {
         return createDraft(scope,input,"crm_contract",contractId);
     }
 
+    public Map<String,Object> createFromQuotation(CompanyAccess scope,long quotationId,SalesOrderModels.Input input) {
+        if(!scope.hasPermission("sales_order:create") || !scope.hasPermission("sales_quote:convert") || quotationId<=0)
+            throw new ApiException(403,"FORBIDDEN","没有从报价创建销售订单的权限");
+        return createDraft(scope,input,"sales_quote",quotationId);
+    }
+
     private Map<String,Object> createDraft(CompanyAccess scope,SalesOrderModels.Input input,String sourceType,long sourceId) {
         var preview=writer.price(scope,input,sourceId>0);
         long id=Ids.next();String no=numbers.next(scope,"SO",input.businessDate());

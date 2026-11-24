@@ -25,6 +25,7 @@ import { ORDER_LINE_LIMIT } from '../../utils/order-line-paste'
 import type { PastedOrderLine } from '../../utils/order-line-paste'
 
 import PaymentTermsField from '../PaymentTermsField.vue'
+import PurchasePriceSource from './PurchasePriceSource.vue'
 import { readPaymentTerm } from '../../utils/payment-terms'
 import type { PaymentTerm } from '../../types/payment-terms'
 
@@ -875,8 +876,9 @@ async function verify(): Promise<void> {
                 <el-input
                   v-model="line.unitPrice"
                   :aria-label="'采购单价' + (index + 1)"
-                  placeholder="参考价"
+                  placeholder="留空使用默认价格"
                 />
+                <PurchasePriceSource v-if="session.can('cost:view')" :source="preview?.priceSources?.[index]" />
               </td>
               <td>
                 <el-input

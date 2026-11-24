@@ -90,6 +90,7 @@ public final class SimpleModel {
                     Map.entry("customerId", "id"),
                     Map.entry("supplierId", "id"),
                     Map.entry("requisitionApproved", "boolean"),
+                    Map.entry("abovePriceList", "boolean"), Map.entry("purchasePriceApprovalRequired", "boolean"),
                     Map.entry("refundMethod", "string"),
                     Map.entry("sourceType", "string"),
                     Map.entry("crossPeriod", "boolean"),
@@ -106,8 +107,8 @@ public final class SimpleModel {
         walk(root, nodes, 0);
         for (var node : nodes.values())
             if (Boolean.TRUE.equals(node.priceApproval())
-                    && (!businessType.equals("sales_order") || !node.type().equals("approver")))
-                throw invalid("人工价格审批只适用于销售订单的审批节点");
+                    && (!Set.of("sales_order","sales_quote").contains(businessType) || !node.type().equals("approver")))
+                throw invalid("人工价格审批只适用于销售订单或报价的审批节点");
         for (var node : nodes.values()) {
             if (node.fieldAccess() != null && (!businessType.equals("wf_generic_request")
                     || !Set.of("approver", "handler").contains(node.type())
@@ -291,12 +292,13 @@ public final class SimpleModel {
                     case "sales_order" ->
                             Set.of("discountRate", "belowMinPrice", "customerId", "salesUserId",
                                     "priceApprovalRequired", "creditApprovalRequired");
+                    case "sales_quote" -> Set.of("belowMinPrice","customerId","priceApprovalRequired");
                     case "purchase_order" ->
                             Set.of(
                                     "discountRate",
                                     "supplierId",
                                     "buyerUserId",
-                                    "requisitionApproved");
+                                    "requisitionApproved", "abovePriceList", "purchasePriceApprovalRequired");
                     case "refund_request" -> Set.of("customerId", "refundMethod");
                     case "document_reversal" -> Set.of("sourceType", "crossPeriod");
                     case "stock_adjustment" -> Set.of("adjustType");

@@ -13,7 +13,7 @@ import cn.erp.ai.assistant.AssistantRuntime;
 class EvaluationSetTest {
     @Test void seedResourcesDescribeCurrentCapabilitiesAndExcludeCompletedBacklog() throws Exception {
         String rules = seedText("业务规则");
-        assertThat(rules).contains("文档版本：1.10.1", "批次、序列号、保质期和库位已支持", "真实服务商仍待配置和对接验收",
+        assertThat(rules).contains("文档版本：1.11.0", "CR01", "PP01", "SQ01", "批次、序列号、保质期和库位已支持", "真实服务商仍待配置和对接验收",
                 "资产负债表、利润表、现金流量表", "历史空到期日不自动回填", "采购费用分摊", "随单费用只读", "进项发票核对与未到票", "I08", "付款结清不等于已到票",
                 "SP08", "已签收未退货", "整票红字", "每笔和整组共同限额", "退货成本仍按原签收成本计算")
                 .doesNotContain("批次、序列号、保质期、库位不做", "只做运营资金账本，不出法定财务报表", "首期不做信用额度控制", "销售侧待后续批次", "销售已发部分的调价待后续批次");
@@ -30,7 +30,7 @@ class EvaluationSetTest {
 
     @Test void corpusHasDistinctQuestionsAcrossAllHandbooksAndSecurityCases() throws Exception {
         var cases=new EvaluationSet(JsonMapper.builder().build()).cases();
-        assertThat(cases).hasSize(304).extracting(EvaluationSet.Case::question).doesNotHaveDuplicates();
+        assertThat(cases).hasSize(320).extracting(EvaluationSet.Case::question).doesNotHaveDuplicates();
         assertThat(cases.stream().flatMap(c -> c.expectedDocuments().stream()).distinct().toList())
                 .containsExactlyInAnyOrder("用户使用手册","运维手册","业务规则","优化文档");
         assertThat(cases.stream().filter(c -> c.category().equals("security")).count()).isGreaterThanOrEqualTo(20L);

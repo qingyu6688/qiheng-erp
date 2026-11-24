@@ -1,6 +1,7 @@
 import type { SalesDocument, SalesLine, SalesOrderChange } from './sales'
 export type ProcurementKind = 'purchase-requisitions'|'purchase-orders'|'goods-receipts'|'purchase-returns'|'payments'|'account-transfers'|'stock-adjustments'|'opening-entries'
 export interface ProcurementLine extends SalesLine {
+  priceSourceSnapshot?:import('./purchase-pricing').PurchasePriceSource
   goodsCostAmount?:string; purchaseFeeCost?:string; landedCostAmount?:string
   returnedBaseQty?:string; pendingReturnBaseQty?:string
   requisitionLineId?:string; receiptLineId?:string; inputTotalCost?:string; needDate?:string; payableNet?:string; receiveLimitBaseQty?:string

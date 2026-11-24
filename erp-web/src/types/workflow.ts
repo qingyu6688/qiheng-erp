@@ -1,4 +1,6 @@
 export type WorkflowBusinessType =
+  | 'sales_quote'
+  | 'cost_revaluation'
   | 'sales_order'
   | 'sales_return'
   | 'purchase_order'
@@ -293,6 +295,8 @@ export interface StartOptions {
 }
 export type WorkflowSelections = Record<string, string[]>
 export const businessLabels: Record<WorkflowBusinessType, string> = {
+  sales_quote: '销售报价',
+  cost_revaluation: '成本重估',
   sales_return: '无原单销售退货',
   sales_order: '销售订单',
   purchase_order: '采购订单',
@@ -366,6 +370,7 @@ export const nodeLabels: Record<NodeType, string> = {
   trigger: '触发事件',
 }
 export const fieldLabels: Record<string, string> = {
+  abovePriceList: '采购是否高于协议价', purchasePriceApprovalRequired: '采购是否需要超价审批',
   totalAmount: '单据金额',
   discountRate: '折后比例（%，100为原价）',
   belowMinPrice: '是否低于最低售价',
@@ -387,6 +392,8 @@ export const fieldLabels: Record<string, string> = {
   createdBy: '创建人',
 }
 export const businessRoutes: Partial<Record<WorkflowBusinessType, string>> = {
+  sales_quote: 'sales-quotes',
+  cost_revaluation: 'cost-revaluations',
   sales_return: 'sales-returns',
   sales_order: 'sales-orders',
   purchase_order: 'purchase-orders',

@@ -17,6 +17,8 @@ class PurchaseOrderWriter {
     private final PricingService pricing;
     private final RequisitionLinks links;
     private final CustomFields customFields;
+    private PurchasePriceSnapshots priceSources;
+    @org.springframework.beans.factory.annotation.Autowired void priceSources(PurchasePriceSnapshots priceSources) {this.priceSources=priceSources;}
     PurchaseOrderWriter(JdbcTemplate jdbc,PricingService pricing,RequisitionLinks links,CustomFields customFields) {this.jdbc=jdbc;this.pricing=pricing;this.links=links;this.customFields=customFields;}
 
     PricingModels.Preview price(CompanyAccess scope,PurchaseOrderModels.Input input) {
@@ -27,7 +29,7 @@ class PurchaseOrderWriter {
         // 订单修改权限包含对已有订单重算价格，接口入口仍校验实际操作权限。
         var permissions=new HashSet<>(scope.permissions());permissions.add("purchase_order:create");
         var pricingScope=new CompanyAccess(scope.tenantId(),scope.userId(),scope.companyId(),scope.allWarehouses(),scope.warehouseIds(),permissions,scope.orgScope());
-        return pricing.preview(pricingScope,new PricingModels.PreviewRequest("purchase_order",null,input.supplierId(),input.priceTaxInclusive(),input.orderDiscountAmount(),lines,fees));
+        return pricing.purchaseDocumentPreview(pricingScope,new PricingModels.PreviewRequest("purchase_order",null,input.supplierId(),input.priceTaxInclusive(),input.orderDiscountAmount(),lines,fees,input.businessDate()));
     }
 
     void write(CompanyAccess scope,long orderId,PurchaseOrderModels.Input input,PricingModels.Preview preview) {
@@ -85,11 +87,13 @@ class PurchaseOrderWriter {
                     line.amount(),line.lineDiscountAmount(),line.lineNet(),line.orderDiscountAlloc(),line.receivableNet(),line.taxRate(),line.untaxedAmount(),line.taxAmount(),
                     scope.userId(),scope.tenantId(),scope.companyId(),orderId,id);
             }
+            if(preview.priceSources().size()==preview.lines().size())priceSources.line(scope,id,preview.priceSources().get(i));
         }
         for(var row:old) {if(!kept.contains(number(row,"id"))) {
             if(decimal(row,"received_base_qty").signum()>0 || decimal(row,"pending_receive_base_qty").signum()>0) {throw new ApiException(422,"CHANGE_NOT_ALLOWED","已收或待收的订单行不能删除");}
             jdbc.update("UPDATE purchase_order_line SET is_deleted=1,version=version+1 WHERE id=?",number(row,"id"));
         }}
+        if(preview.priceSources().size()==preview.lines().size())priceSources.header(scope,orderId,preview.priceSources());
         writeFees(scope,orderId,input,preview,newOrder);
     }
 

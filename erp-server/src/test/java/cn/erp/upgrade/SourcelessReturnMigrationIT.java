@@ -88,7 +88,7 @@ class SourcelessReturnMigrationIT {
         rejects(()->jdbc.update("INSERT INTO refund_request(id,tenant_id,company_id,refund_no,customer_id,original_receipt_id,cash_account_id,amount,business_date,request_key,reason) VALUES(2,1,2,'FOREIGN-RECEIPT',1,1,2,1,'2026-11-24','foreign-receipt','验证原收款范围')"),1452);
     }
 
-    private static void legacy(JdbcTemplate jdbc) {
+    static void legacy(JdbcTemplate jdbc) {
         jdbc.update("INSERT INTO tenant(id,code,name) VALUES(1,'UPGRADE-SOURCELESS','无源退货升级'),(2,'UPGRADE-SOURCELESS-LIMITED','受限授权升级')");
         jdbc.update("INSERT INTO sys_role(id,tenant_id,code,name) VALUES(1,1,'SYSTEM_ADMIN','完整管理员'),(2,2,'SYSTEM_ADMIN','受限管理员')");
         jdbc.update("INSERT INTO sys_role_permission(id,tenant_id,role_id,permission_id) SELECT 1,1,1,id FROM sys_permission WHERE code='role:assign_permission'");

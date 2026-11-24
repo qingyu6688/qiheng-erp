@@ -9,7 +9,7 @@ public final class SystemWorkflowPlan {
     static final String CODE_PREFIX = "system20_";
     static final int PRIORITY = -1001;
     public static final Map<String, String> LABELS = Map.ofEntries(
-            Map.entry("sales_order", "销售订单"), Map.entry("purchase_order", "采购订单"),
+            Map.entry("sales_order", "销售订单"), Map.entry("sales_quote", "销售报价"), Map.entry("purchase_order", "采购订单"), Map.entry("cost_revaluation", "成本重估"),
             Map.entry("refund_request", "退款申请"), Map.entry("sales_return", "无原单销售退货"), Map.entry("document_reversal", "冲销申请"),
             Map.entry("stock_adjustment", "库存调整"), Map.entry("credit_increase", "信用提额"),
             Map.entry("crm_contract", "客户合同"), Map.entry("mfg_issue_doc", "生产领退料"),
@@ -46,7 +46,9 @@ public final class SystemWorkflowPlan {
 
     static SimpleModel.Node tree(String type) {
         SimpleModel.Node next = review("review", "业务审批", false, false);
-        if (type.equals("sales_order")) {
+        if (type.equals("sales_quote")) {
+            next=review("price","报价价格审批",true,false);
+        } else if (type.equals("sales_order")) {
             var price = new SimpleModel.Condition("priceApprovalRequired", "==", "true", null, null);
             var credit = new SimpleModel.Condition("creditApprovalRequired", "==", "true", null, null);
             var both = new SimpleModel.Condition(null, null, null, List.of(price, credit), null);

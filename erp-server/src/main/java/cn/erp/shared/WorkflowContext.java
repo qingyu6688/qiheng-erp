@@ -42,8 +42,12 @@ public final class WorkflowContext implements AutoCloseable {
     }
 
     public static boolean priceApproved(ActorScope actor, long id, String fingerprint) {
+        return priceApproved(actor,"sales_order",id,fingerprint);
+    }
+
+    public static boolean priceApproved(ActorScope actor,String type,long id,String fingerprint) {
         return fingerprint != null
-                && allows(actor, "sales_order", id)
+                && allows(actor, type, id)
                 && fingerprint.equals(CURRENT.get().priceFingerprint());
     }
 

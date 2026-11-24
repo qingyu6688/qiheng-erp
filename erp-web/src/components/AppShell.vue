@@ -112,6 +112,7 @@ const navigation = [
         title: '销售单据',
         items: [
           { path: 'sales-orders', title: '销售订单', permission: 'sales_order:view' },
+          { path: 'sales-quotes', title: '销售报价', permission: 'sales_quote:view' },
           { path: 'shipments', title: '发货与签收', permission: 'shipment:view' },
           { path: 'sales-returns', title: '销售退货', permission: 'sales_return:view' },
           { path: 'sales-price-adjustments', title: '销售调价', permission: 'sales_price_adjustment:view' },
@@ -142,6 +143,7 @@ const navigation = [
           { path: 'goods-receipts', title: '采购收货', permission: 'goods_receipt:view' },
           { path: 'purchase-returns', title: '采购退货', permission: 'purchase_return:view' },
           { path: 'purchase-price-adjustments', title: '采购调价', permission: 'price_adjustment:view', all: ['cost:view', 'goods_receipt:view'] },
+          { path: 'purchase-price-lists', title: '采购价格表', permission: 'purchase_price_list:view', all: ['cost:view'] },
           { path: 'purchase-fee-documents', title: '采购费用', permission: 'purchase_fee_doc:view', all: ['cost:view', 'goods_receipt:view'] },
         ],
       },
@@ -164,6 +166,7 @@ const navigation = [
           { path: 'stock-transfers', title: '库存调拨', permission: 'stock_transfer:view' },
           { path: 'stock-counts', title: '库存盘点', permission: 'stock_count:view' },
           { path: 'stock-adjustments', title: '库存调整', permission: 'stock_adjustment:view' },
+          { path: 'cost-revaluations', title: '成本重估', permission: 'cost_revaluation:view', all: ['cost:view'] },
           { path: 'stock-misc-in', title: '其他入库', permission: 'stock_misc_doc:view' },
           { path: 'stock-misc-out', title: '其他出库', permission: 'stock_misc_doc:view' },
         ],

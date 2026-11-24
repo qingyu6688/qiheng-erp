@@ -46,6 +46,20 @@ export const router = createRouter({
       component: () => import('../components/AppShell.vue'),
       children: [
         {
+          path: 'sales-quotes/:id?', name: 'sales-quotes', component: () => import('../pages/SalesQuotePage.vue'),
+          meta: { company: true, title: '销售报价', permission: 'sales_quote:view' },
+        },
+        {
+          path: 'purchase-price-lists', name: 'purchase-price-lists', component: () => import('../pages/crm/PriceListsPage.vue'),
+          props: { purchase: true }, meta: { company: true, title: '采购价格表', permission: 'purchase_price_list:view', allPermissions: ['cost:view'] },
+        },
+        {
+          path: 'cost-revaluations/:id?',
+          name: 'cost-revaluations',
+          component: () => import('../pages/CostRevaluationPage.vue'),
+          meta: { company: true, title: '成本重估', permission: 'cost_revaluation:view', allPermissions: ['cost:view'] },
+        },
+        {
           path: 'purchase-fee-documents/:id?',
           name: 'purchase-fee-documents',
           component: () => import('../pages/PurchaseFeePage.vue'),

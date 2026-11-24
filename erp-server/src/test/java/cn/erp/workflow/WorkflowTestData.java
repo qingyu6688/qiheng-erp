@@ -339,6 +339,7 @@ public final class WorkflowTestData {
         jdbc.update("UPDATE purchase_order_fee SET recognized_receipt_id=NULL WHERE tenant_id=?", tenant);
         for (String table :
                 List.of(
+                        "cost_revaluation_line", "cost_revaluation", "sales_quote_line", "sales_quote",
                         "einv_inbound_match","einv_inbound","inbound_invoice_lock",
                         "sys_login_log",
                         "sys_api_access_log",
@@ -396,6 +397,7 @@ public final class WorkflowTestData {
                         "sales_order_line",
                         "sales_order",
                         "document_sequence",
+                        "price_list_item", "price_list_target", "price_list",
                         "unit_conversion",
                         "sku",
                         "product",
@@ -423,6 +425,7 @@ public final class WorkflowTestData {
                         "company"))
         {
             if(table.equals("payable")) jdbc.update("DELETE FROM payable WHERE tenant_id=? AND posting_action='reverse'",tenant);
+            if(table.equals("receivable")) jdbc.update("DELETE FROM receivable WHERE tenant_id=? AND posting_action='reverse'",tenant);
             if(table.equals("journal")) jdbc.update("DELETE FROM journal WHERE tenant_id=? AND posting_action='reverse'",tenant);
             if(table.equals("inventory_movement")) jdbc.update("DELETE FROM inventory_movement WHERE tenant_id=? AND posting_action='reverse'",tenant);
             jdbc.update("DELETE FROM " + table + " WHERE tenant_id=?", tenant);

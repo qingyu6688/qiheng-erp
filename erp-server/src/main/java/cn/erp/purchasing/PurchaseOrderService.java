@@ -30,6 +30,8 @@ public class PurchaseOrderService {
     private final ReferenceAvailability partners;
     private final AuditService audit;
     private final ObjectMapper json;
+    private PurchasePriceSnapshots priceSources;
+    @org.springframework.beans.factory.annotation.Autowired void priceSources(PurchasePriceSnapshots priceSources) {this.priceSources=priceSources;}
 
     public PurchaseOrderService(JdbcTemplate jdbc,PurchaseOrderQueries queries,PurchaseOrderWriter writer,BusinessCommands commands,
             DocumentNumbers numbers,CatalogAvailability catalog,ReferenceAvailability partners,AuditService audit,ObjectMapper json,RequisitionLinks links) {
@@ -78,11 +80,11 @@ public class PurchaseOrderService {
         return execute(scope,action,key,List.of(id,input),200,()->{
             var before=queries.header(scope,id,true);version(input.version(),before);workflow.guard(scope,"purchase_order",id,action);var rows=queries.lines(scope,id,true);
             switch(action) {
-                case "submit" -> {state(before,"draft");active(scope,before,rows,false);changeState(scope,id,"pending");workflow.start(scope,"purchase_order",id,input.workflowAssignees());}
+                case "submit" -> {state(before,"draft");active(scope,before,rows,false);priceSources.validate(scope,before,rows,false);changeState(scope,id,"pending");workflow.start(scope,"purchase_order",id,input.workflowAssignees());}
                 case "withdraw" -> {state(before,"pending");changeState(scope,id,"draft");}
                 case "reject" -> {state(before,"pending");reason(input.comment());changeState(scope,id,"draft");}
                 case "approve" -> {
-                    state(before,"pending");separateApprover(scope,before);active(scope,before,rows,true);
+                    state(before,"pending");separateApprover(scope,before);active(scope,before,rows,true);priceSources.validate(scope,before,rows,true);
                     var policy=jdbc.queryForList("SELECT over_receipt_pct FROM company_policy WHERE tenant_id=? AND company_id=?",BigDecimal.class,scope.tenantId(),scope.companyId());
                     freeze(scope,id,policy.isEmpty()?BigDecimal.ZERO:policy.getFirst());
                     PaymentTerms.snapshot(jdbc,scope,"purchase_order",id,number(before,"supplier_id"),"supplier");
@@ -154,6 +156,8 @@ public class PurchaseOrderService {
                 var applicant=new LinkedHashMap<>(before);applicant.put("created_by",change.get("created_by"));separateApprover(scope,applicant);
                 var after=json.readValue(change.get("after_snapshot").toString(),PurchaseOrderModels.Input.class);
                 var preview=writer.price(scope,after);var lines=queries.lines(scope,id,true);
+                if(priceSources.required(scope,preview) && (!scope.hasPermission("cost:view") || number(change,"created_by")==scope.userId()))
+                    throw new ApiException(422,"PURCHASE_PRICE_REVIEW_REQUIRED","超协议价变更须由另一名具有成本查看权限的采购审批人复核");
                 requiresApproval(scope,before,lines,after,preview);
                 active(scope,before,lines,false);applyChange(scope,id,before,lines,after,preview,changeId);
             } else {reason(input.comment());changeState(scope,id,"approved");queries.refreshProgress(scope,id);}
@@ -181,7 +185,7 @@ public class PurchaseOrderService {
     }
 
     private boolean requiresApproval(CompanyAccess scope,Map<String,Object> before,List<Map<String,Object>> rows,PurchaseOrderModels.Input input,PricingModels.Preview preview) {
-        boolean approval=decimal(before,"order_discount_amount").compareTo(new BigDecimal(preview.orderDiscountAmount()))!=0;
+        boolean approval=priceSources.required(scope,preview) || decimal(before,"order_discount_amount").compareTo(new BigDecimal(preview.orderDiscountAmount()))!=0;
         Set<Long> used=new HashSet<>();
         for(int i=0;i<preview.lines().size();i++) {
             var source=input.lines().get(i);var current=preview.lines().get(i);

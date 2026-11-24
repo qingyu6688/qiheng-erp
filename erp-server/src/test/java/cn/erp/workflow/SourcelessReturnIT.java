@@ -1,6 +1,7 @@
 package cn.erp.workflow;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -791,6 +792,46 @@ class SourcelessReturnIT {
         var before=new LegacyInput(d.customer,d.warehouse,d.day,"原单退货",List.of(new LegacyLine(41L,d.unit,"1","passed",null)),null,null);
         var after=new FinanceModels.ReturnInput(d.customer,d.warehouse,d.day,"原单退货",List.of(new FinanceModels.ReturnLine(41L,d.unit,"1","passed")),null);
         assertThat(json.writeValueAsString(after)).isEqualTo(json.writeValueAsString(before));
+    }
+
+    @Test
+    @org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(named="ERP_B05_CAPACITY",matches="true")
+    void fiveHundredReturnLinesKeepGroupCostAndTaxWithTwentyThousandHistoryMovements() throws Exception {
+        receive("100","5");
+        var history=new ArrayList<Object[]>();
+        for(int index=0;index<10_000;index++) {
+            long movement=Ids.next(),inverse=Ids.next(),source=Ids.next();
+            history.add(new Object[]{movement,d.tenant,d.company,d.warehouse,d.sku,"post",source,source,-1,-5,null,d.day,period,d.maker});
+            history.add(new Object[]{inverse,d.tenant,d.company,d.warehouse,d.sku,"reverse",source,source,1,5,movement,d.day,period,d.maker});
+        }
+        jdbc.batchUpdate("INSERT INTO inventory_movement(id,tenant_id,company_id,warehouse_id,sku_id,movement_type,posting_action,source_type,source_id,source_line_id,"
+                +"on_hand_delta,cost_delta,reverses_movement_id,business_date,period_id,posted_at,created_by)"
+                +" VALUES(?,?,?,?,?,'sales_out',?,'capacity_history',?,?,?,?,?,?,?,UTC_TIMESTAMP(3),?)",history);
+        var lines=java.util.stream.IntStream.range(0,500).mapToObj(index->line("1.000001","11.30","0.13","passed",null,null)).toList();
+        long started=System.nanoTime(),id=create(input(lines,null));
+        double createMs=(System.nanoTime()-started)/1e6;
+        started=System.nanoTime();
+        assertThat(returns.costPreview(d.actor(d.maker),id)).containsEntry("totalCost","2500.00");
+        double previewMs=(System.nanoTime()-started)/1e6;
+        started=System.nanoTime();
+        submit(d.actor(d.maker),id);approve(id,d.manager);
+        var result=returns.command(d.actor(d.maker),id,"post",key(),command(id));
+        double postingMs=(System.nanoTime()-started)/1e6;
+        assertThat(result).containsEntry("status","posted").containsEntry("creditAmount","5650.00").containsEntry("taxAmount","650.00");
+        assertThat(returns.get(d.actor(d.maker),id)).containsEntry("costAmount","2500.00");
+        assertThat(value("SELECT cost_amount FROM sales_return WHERE id=?",id)).isEqualByComparingTo("2500");
+        assertThat(value("SELECT total_cost FROM inventory_cost WHERE tenant_id=?",d.tenant)).isEqualByComparingTo("3000");
+        assertThat(value("SELECT qty FROM inventory_cost WHERE tenant_id=?",d.tenant)).isEqualByComparingTo("600.0005");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM shipment WHERE tenant_id=?",Long.class,d.tenant)).isZero();
+        zeroDifferences();
+        assertThat(Runtime.getRuntime().maxMemory()).isLessThanOrEqualTo(1_073_741_824L);
+        var root=java.nio.file.Path.of(System.getenv("ERP_TEST_ROOT")).toRealPath();
+        var evidence=java.nio.file.Path.of(System.getenv("ERP_CAPACITY_EVIDENCE_DIR")).toRealPath();
+        if(!evidence.startsWith(root))throw new IllegalStateException("容量证据目录必须位于隔离测试根目录");
+        java.nio.file.Files.writeString(evidence.resolve("无原单退货容量.json"),json.writeValueAsString(Map.of(
+                "returnLines",500,"historyMovements",20_000,"createMs",createMs,"previewMs",previewMs,"submitApprovePostMs",postingMs,
+                "maxHeapBytes",Runtime.getRuntime().maxMemory(),"creditAmount","5650.00","taxAmount","650.00","costAmount","2500.00","reconciliationDifferences",0)),
+                java.nio.file.StandardOpenOption.CREATE_NEW);
     }
 
     private long receive(String qty,String price) {

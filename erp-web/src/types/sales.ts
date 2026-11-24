@@ -82,6 +82,7 @@ export interface SalesLine {
   [key: string]: unknown
 }
 export interface SalesDocument {
+  priceSources?: import('./purchase-pricing').PurchasePriceSource[]
   creditItemIds?: string[]
   creditSources?: RefundCreditItem[]
   returnMode?: SalesReturnMode

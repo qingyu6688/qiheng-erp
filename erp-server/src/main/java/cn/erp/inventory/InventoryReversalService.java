@@ -55,6 +55,19 @@ public class InventoryReversalService {
             var amounts=changes.computeIfAbsent(key(row),ignored->zeros());amounts[2]=amounts[2].subtract(number(row,"amount"));
         }
         inventory.lockKeys(scope,new ArrayList<>(changes.keySet()));
+        // 成本重估与冲销共用成本锁，持锁后才读取追加差额，防止等待期间漏掉新过账重估。
+        var revaluations=jdbc.queryForList("SELECT a.* FROM cost_adjustment a JOIN cost_revaluation_line l"
+                +" ON l.tenant_id=a.tenant_id AND l.company_id=a.company_id AND l.id=a.source_line_id"
+                +" JOIN inventory_movement m ON m.tenant_id=l.tenant_id AND m.company_id=l.company_id AND m.id=l.movement_id"
+                +" WHERE a.tenant_id=? AND a.company_id=? AND a.source_type='cost_revaluation' AND a.adjust_type='revaluation'"
+                +" AND m.source_id=? AND m.source_type IN("+types+") AND m.posting_action='post' ORDER BY a.warehouse_id,a.sku_id,a.id",
+                scope.tenantId(),scope.companyId(),source);
+        for(var row:revaluations) {
+            var amounts=changes.get(key(row));
+            if(amounts==null)throw new ApiException(409,"COST_REPLAY_MISMATCH","重估差额与原库存流水范围不一致");
+            amounts[2]=amounts[2].subtract(number(row,"amount"));
+        }
+        adjustments.addAll(revaluations);
         for(var entry:changes.entrySet())apply(scope,entry.getKey(),entry.getValue());
         for(var row:movements.reversed()){
             var key=key(row);

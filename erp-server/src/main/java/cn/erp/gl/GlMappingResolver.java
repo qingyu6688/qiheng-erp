@@ -22,6 +22,7 @@ class GlMappingResolver {
                     "shipment_diff",
                     "sales_return",
                     "sales_price_adjustment",
+                    "cost_revaluation",
                     "goods_receipt",
                     "purchase_return",
                     "receipt",

@@ -5464,5 +5464,337 @@
         "不能关闭或切换公司"
       ]
     ]
+  },
+  {
+    "id": "m13-305",
+    "category": "knowledge",
+    "question": "无原单退货缺少历史发货单时如何录入，批准后是否已经入库或开具红字？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "用户使用手册"
+    ],
+    "answerAnchors": [
+      [
+        "无原单退货"
+      ],
+      [
+        "历史依据和原因"
+      ],
+      [
+        "批准不等于过账"
+      ],
+      [
+        "不表示已开具红字发票"
+      ]
+    ]
+  },
+  {
+    "id": "m13-306",
+    "category": "knowledge",
+    "question": "无原单退货的成本来源怎样选择，人工零成本及审批后的来源变化怎样处理？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "用户使用手册"
+    ],
+    "answerAnchors": [
+      [
+        "加权平均成本"
+      ],
+      [
+        "最近入库成本"
+      ],
+      [
+        "零成本也须说明"
+      ],
+      [
+        "重新提交审批"
+      ]
+    ]
+  },
+  {
+    "id": "m13-307",
+    "category": "knowledge",
+    "question": "退货信用额退款怎样选择来源，部分退款和实际付款何时登记？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "用户使用手册"
+    ],
+    "answerAnchors": [
+      [
+        "退货信用额退款"
+      ],
+      [
+        "每页20项"
+      ],
+      [
+        "银行实际完成付款"
+      ],
+      [
+        "登记已退款"
+      ]
+    ]
+  },
+  {
+    "id": "m13-308",
+    "category": "knowledge",
+    "question": "无原单退货提交网络中断后查结果404，能否换键重建或切换公司？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "用户使用手册"
+    ],
+    "answerAnchors": [
+      [
+        "确认原请求结果"
+      ],
+      [
+        "原请求重试"
+      ],
+      [
+        "不能修改请求或切换公司"
+      ],
+      [
+        "不能因一次查询404就重新建单"
+      ]
+    ]
+  },
+  {
+    "id": "m13-309",
+    "category": "knowledge",
+    "question": "CR01受控成本重估按照业务日期还是实际过账时间重放，补填旧日期会改变以前成本吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "实际过账时间、ID"
+      ],
+      [
+        "补填历史业务日期不改变过账顺序"
+      ],
+      [
+        "不回写原出库快照"
+      ]
+    ]
+  },
+  {
+    "id": "m13-310",
+    "category": "knowledge",
+    "question": "成本重估提交和执行之间库存变化怎么办，需要谁复核？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "用户使用手册"
+    ],
+    "answerAnchors": [
+      [
+        "另一人"
+      ],
+      [
+        "重新生成预览"
+      ],
+      [
+        "再提交审批"
+      ]
+    ]
+  },
+  {
+    "id": "m13-311",
+    "category": "knowledge",
+    "question": "CR01成本重估影响哪些期间和库存记录，冲销原单时如何处理重估差额？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "参与期间及调整入账期间须开放"
+      ],
+      [
+        "只追加库存调整及成本差异"
+      ],
+      [
+        "原单冲销同步追加此前重估差额"
+      ]
+    ]
+  },
+  {
+    "id": "m13-312",
+    "category": "knowledge",
+    "question": "在库存成本重估中如何选择范围，没有差异能否提交，访问需要什么范围？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "用户使用手册"
+    ],
+    "answerAnchors": [
+      [
+        "一个仓库和商品"
+      ],
+      [
+        "无差异无需提交"
+      ],
+      [
+        "完整数据范围"
+      ],
+      [
+        "成本查看"
+      ]
+    ]
+  },
+  {
+    "id": "m13-313",
+    "category": "knowledge",
+    "question": "PP01采购默认价格优先级怎样排列，协议价换算需要注意什么？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "供应商有效协议"
+      ],
+      [
+        "最近已批准采购"
+      ],
+      [
+        "SKU参考价"
+      ],
+      [
+        "明确单位和税口径"
+      ]
+    ]
+  },
+  {
+    "id": "m13-314",
+    "category": "knowledge",
+    "question": "采购价格表可以配置客户通用目标或代替销售价格表吗，为什么看不到采购价格？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "用户使用手册"
+    ],
+    "answerAnchors": [
+      [
+        "供应商"
+      ],
+      [
+        "成本查看权限"
+      ],
+      [
+        "销售价格表继续独立维护客户规则"
+      ]
+    ]
+  },
+  {
+    "id": "m13-315",
+    "category": "knowledge",
+    "question": "采购单价高于供应商协议价是提示还是需要批准，审批人需要什么权限？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "高于协议默认提示"
+      ],
+      [
+        "另一名有成本权限"
+      ],
+      [
+        "采购审批人复核"
+      ]
+    ]
+  },
+  {
+    "id": "m13-316",
+    "category": "knowledge",
+    "question": "PP01采购协议版本变化后旧订单能否继续审批，后来批准的历史采购会让手填价失效吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "协议变更需重新保存"
+      ],
+      [
+        "历史建议价不因新增其他采购单自动失效"
+      ]
+    ]
+  },
+  {
+    "id": "m13-317",
+    "category": "knowledge",
+    "question": "销售报价确认生效会预留库存或产生应收吗，转成订单后还需要哪些步骤？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "用户使用手册"
+    ],
+    "answerAnchors": [
+      [
+        "不预留库存、不产生应收"
+      ],
+      [
+        "销售订单草稿"
+      ],
+      [
+        "后续库存、信用及订单审批仍须办理"
+      ]
+    ]
+  },
+  {
+    "id": "m13-318",
+    "category": "knowledge",
+    "question": "SQ01低于最低售价的报价适用哪些策略，需要价格审批时保留什么依据？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "提示、审批或禁止"
+      ],
+      [
+        "有效人工价格复核指纹"
+      ]
+    ]
+  },
+  {
+    "id": "m13-319",
+    "category": "knowledge",
+    "question": "销售报价的商机关联和右侧订单预览怎样使用，允许重复转单吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "用户使用手册"
+    ],
+    "answerAnchors": [
+      [
+        "当前有权查看的客户商机"
+      ],
+      [
+        "不能重复转单"
+      ],
+      [
+        "订单可在报价右侧预览"
+      ]
+    ]
+  },
+  {
+    "id": "m13-320",
+    "category": "knowledge",
+    "question": "SQ01过期报价及正在审批的报价由谁处理，过期后原记录是否删除？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "到期自动失效"
+      ],
+      [
+        "结束在途审批"
+      ],
+      [
+        "原记录保留"
+      ]
+    ]
   }
 ]

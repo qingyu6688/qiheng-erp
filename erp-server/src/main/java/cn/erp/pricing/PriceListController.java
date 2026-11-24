@@ -6,7 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/v1/price-lists")
+@RequestMapping({"/api/v1/price-lists","/api/v1/purchase-price-lists"})
 class PriceListController {
     private final AccessService access;
     private final PriceListService prices;
@@ -19,22 +19,24 @@ class PriceListController {
     @GetMapping
     ApiResponse<PriceListService.Page> page(HttpServletRequest request, @RequestParam(required = false) String cursor,
                                                @RequestParam(defaultValue = "50") int limit) {
-        return ApiResponse.success(prices.list(access.requireCompany(request, "price_list:view"), cursor, limit));
+        return ApiResponse.success(prices.list(access.requireCompany(request, permission(request,"view")), cursor, limit,purchase(request)));
     }
 
     @GetMapping("/{id}")
     ApiResponse<PriceListService.View> get(HttpServletRequest request, @PathVariable long id) {
-        return ApiResponse.success(prices.get(access.requireCompany(request, "price_list:view"), id));
+        return ApiResponse.success(prices.get(access.requireCompany(request, permission(request,"view")), id,purchase(request)));
     }
 
     @PostMapping
     ApiResponse<PriceListService.View> create(HttpServletRequest request, @RequestBody PriceListService.Input input) {
-        return ApiResponse.success(prices.save(access.requireCompany(request, "price_list:manage"), null, input));
+        return ApiResponse.success(prices.save(access.requireCompany(request, permission(request,"manage")), null, input,purchase(request)));
     }
 
     @PutMapping("/{id}")
     ApiResponse<PriceListService.View> update(HttpServletRequest request, @PathVariable long id,
                                                 @RequestBody PriceListService.Input input) {
-        return ApiResponse.success(prices.save(access.requireCompany(request, "price_list:manage"), id, input));
+        return ApiResponse.success(prices.save(access.requireCompany(request, permission(request,"manage")), id, input,purchase(request)));
     }
+    private static boolean purchase(HttpServletRequest request) { return request.getRequestURI().contains("/purchase-price-lists"); }
+    private static String permission(HttpServletRequest request,String action) { return (purchase(request)?"purchase_price_list:":"price_list:")+action; }
 }

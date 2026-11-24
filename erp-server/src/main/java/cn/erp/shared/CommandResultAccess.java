@@ -9,6 +9,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class CommandResultAccess {
     private final JdbcTemplate jdbc;
+    private org.springframework.beans.factory.ObjectProvider<QuotationScopePort> quotations;
+    @org.springframework.beans.factory.annotation.Autowired void quotations(org.springframework.beans.factory.ObjectProvider<QuotationScopePort> quotations) {this.quotations=quotations;}
     public CommandResultAccess(JdbcTemplate jdbc) {this.jdbc=jdbc;}
 
     public void verify(ActorScope actor,String operation,Object response) {
@@ -19,6 +21,21 @@ public class CommandResultAccess {
             return;
         }
         if(!(actor instanceof WarehouseScope scope) || !(response instanceof Map<?,?> row)) {return;}
+        if(operation.startsWith("sales_quote.")) {
+            String action=operation.substring(operation.indexOf('.')+1);
+            if(!(actor instanceof PermissionScope permissions) || !permissions.hasPermission("sales_quote:"+(action.equals("reject")?"approve":action))
+                    || action.equals("convert") && !permissions.hasPermission("sales_order:create"))throw new ApiException(403,"FORBIDDEN","没有读取当前报价操作结果的权限");
+            if(row.get("id")==null)throw missing();
+            quotations.getObject().requireVisible(actor,Long.parseLong(row.get("id").toString()));return;
+        }
+        if(operation.startsWith("cost_revaluation.")) {
+            String action=operation.substring(operation.indexOf('.')+1);
+            String permission="cost_revaluation:"+(action.equals("refresh")?"submit":action.equals("reject")?"approve":action);
+            FinancialScope.require(actor,"cost_revaluation:view"); FinancialScope.require(actor,permission);
+            if(row.get("id")==null || jdbc.queryForObject("SELECT COUNT(*) FROM cost_revaluation WHERE tenant_id=? AND company_id=? AND id=?",
+                    Long.class,actor.tenantId(),actor.companyId(),row.get("id"))!=1)throw missing();
+            return;
+        }
         if(operation.startsWith("refund_request.") && row.get("id")!=null) {
             var requests=jdbc.queryForList("SELECT * FROM refund_request WHERE tenant_id=? AND company_id=? AND id=?",actor.tenantId(),actor.companyId(),row.get("id"));
             if(requests.isEmpty()) throw missing();

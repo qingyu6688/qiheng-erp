@@ -60,7 +60,12 @@ public class WorkflowRuntime implements WorkflowPort {
                 "SELECT EXISTS(SELECT 1 FROM refund_request WHERE tenant_id=? AND company_id=? AND id=?"
                     + " AND refund_mode='sourceless_credit')",
                 Boolean.class, actor.tenantId(), actor.companyId(), id));
-        boolean required = legacy || !generic && (upgrade.active() || type.equals("sales_return") || creditRefund);
+        boolean purchasePriceReview=type.equals("purchase_order") && Boolean.TRUE.equals(state.jdbc.queryForObject(
+                "SELECT EXISTS(SELECT 1 FROM purchase_order h LEFT JOIN company_policy p ON p.tenant_id=h.tenant_id AND p.company_id=h.company_id"
+                    +" WHERE h.tenant_id=? AND h.company_id=? AND h.id=? AND h.above_price_list=1"
+                    +" AND (h.purchase_price_approval_required=1 OR p.purchase_over_price_policy='approval'))",
+                Boolean.class,actor.tenantId(),actor.companyId(),id));
+        boolean required = legacy || !generic && (upgrade.active() || Set.of("sales_return","cost_revaluation","sales_quote").contains(type) || creditRefund || purchasePriceReview);
         boolean unbound = !generic && state.jdbc.queryForObject(
                         "SELECT COUNT(*) FROM wf_business_binding WHERE tenant_id=? AND company_id"
                             + " IN(0,?) AND business_type=? AND enabled=1",
@@ -218,6 +223,20 @@ public class WorkflowRuntime implements WorkflowPort {
                         id)
                 .isEmpty())
             throw new ApiException(409, "WORKFLOW_IN_PROGRESS", "单据正在流程审批中，请从审批中心处理");
+    }
+
+    @Override
+    public void expireQuotation(ActorScope actor,long quotationId) {
+        if(actor.tenantId()<=0 || actor.companyId()<=0 || quotationId<=0)throw SimpleModel.invalid("报价到期范围无效");
+        var ids=state.jdbc.queryForList("SELECT id FROM wf_instance WHERE tenant_id=? AND company_id=? AND business_type='sales_quote' AND business_id=? AND status='running' ORDER BY id FOR UPDATE",
+                Long.class,actor.tenantId(),actor.companyId(),quotationId);
+        for(long id:ids) {
+            var instance=state.raw(actor.tenantId(),id,true);
+            var expired=state.jdbc.queryForList("SELECT id FROM sales_quote WHERE tenant_id=? AND company_id=? AND id=? AND status='pending' AND valid_to<? FOR UPDATE",
+                    Long.class,actor.tenantId(),actor.companyId(),quotationId,java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")));
+            if(expired.isEmpty())return;
+            end(systemActor(actor.tenantId(),actor.companyId(),"sales_quote"),instance,"terminated","报价已到期，自动结束审批",true);
+        }
     }
 
     public void prepare(DelegateExecution execution) {
@@ -501,6 +520,7 @@ public class WorkflowRuntime implements WorkflowPort {
     private static CompanyAccess systemActor(long tenant, long company, String type) {
         var permissions =
                 new HashSet<String>(Set.of(permission(type, "view"), permission(type, "reject")));
+        if(type.equals("cost_revaluation"))permissions.addAll(Set.of("cost:view","cost_revaluation:approve"));
         for (String source :
                 List.of(
                         "shipment",

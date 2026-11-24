@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class PurchaseOrderQueries {
     private final JdbcTemplate jdbc;
     private final CustomFields customFields;
+    private final tools.jackson.databind.ObjectMapper json=new tools.jackson.databind.ObjectMapper();
     public PurchaseOrderQueries(JdbcTemplate jdbc,CustomFields customFields) {this.jdbc=jdbc;this.customFields=customFields;}
 
     public Map<String,Object> header(CompanyAccess scope,long id,boolean lock) {
@@ -39,6 +40,10 @@ public class PurchaseOrderQueries {
     public Map<String,Object> get(CompanyAccess scope,long id) {
         var raw=header(scope,id,false);
         var result=camel(raw);
+        boolean above=Boolean.TRUE.equals(raw.get("above_price_list")) || raw.get("above_price_list") instanceof Number value && value.intValue()!=0;
+        boolean frozen=Boolean.TRUE.equals(raw.get("purchase_price_approval_required")) || raw.get("purchase_price_approval_required") instanceof Number value && value.intValue()!=0;
+        var policy=jdbc.queryForList("SELECT purchase_over_price_policy FROM company_policy WHERE tenant_id=? AND company_id=?",String.class,scope.tenantId(),scope.companyId());
+        result.put("purchasePriceApprovalRequired",above && (frozen || !policy.isEmpty() && policy.getFirst().equals("approval")));
         result.put("extJson",customFields.visible((String)raw.get("ext_json"),customFields.fields(scope.tenantId(),"purchase_order")));
         result.put("documentNo",raw.get("order_no"));
         result.put("supplier",reference("business_partner",scope,number(raw,"supplier_id")));
@@ -54,6 +59,9 @@ public class PurchaseOrderQueries {
 
     private Map<String,Object> lineView(CompanyAccess scope,Map<String,Object> line) {
         var result=camel(line);
+        result.remove("priceSourceSnapshot");
+        if(scope.hasPermission("cost:view") && line.get("price_source_snapshot")!=null)
+            result.put("priceSourceSnapshot",json.readValue(line.get("price_source_snapshot").toString(),cn.erp.pricing.PricingModels.PriceSource.class));
         result.put("sku",reference("sku",scope,number(line,"sku_id")));
         result.put("unit",reference("unit",scope,number(line,"unit_id")));
         result.put("warehouse",line.get("warehouse_id")==null?null:reference("warehouse",scope,number(line,"warehouse_id")));

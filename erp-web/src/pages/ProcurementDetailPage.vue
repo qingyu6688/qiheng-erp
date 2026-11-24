@@ -21,6 +21,7 @@ import PageHeader from '../components/PageHeader.vue'
 import DocumentMoreActions from '../components/DocumentMoreActions.vue'
 import DocumentDetailLayout from '../components/DocumentDetailLayout.vue'
 import DocumentLineTable from '../components/DocumentLineTable.vue'
+import PurchasePriceSource from '../components/procurement/PurchasePriceSource.vue'
 import OrderDetailOverview from '../components/OrderDetailOverview.vue'
 import { documentStateTag } from '../types/document-ui'
 import { formatDateTime, formatMoney, formatQuantity } from '../utils/format'
@@ -346,6 +347,7 @@ onMounted(async () => {
             ><template #default="{ row }">{{
               formatMoney(row.payableNet ?? row.payableAmount ?? row.debitAmount)
             }}</template></el-table-column
+          ><el-table-column v-if="kind === 'purchase-orders' && session.can('cost:view')" label="取价依据" min-width="200"><template #default="{ row }"><PurchasePriceSource :source="row.priceSourceSnapshot" /></template></el-table-column
           ><el-table-column v-if="kind === 'purchase-orders'" label="可收上限 / 已收"
             ><template #default="{ row }"
               >{{ row.receiveLimitBaseQty ?? row.receiveLimitQty ?? '—' }} /

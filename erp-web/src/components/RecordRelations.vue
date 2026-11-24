@@ -129,6 +129,9 @@ const policyFields: FormField[] = [
     ],
   },
   { key: 'purchaseFeeCostEnabled', label: '采购费用计入存货成本', kind: 'boolean' },
+  { key: 'purchaseOverPricePolicy', label: '采购高于协议价', kind: 'select', options: [
+    { value: 'warn', label: '提示' }, { value: 'approval', label: '需要另一人审批' },
+  ] },
   { key: 'purchaseFeeAllocationMethod', label: '采购费用默认分摊方式', kind: 'select', options: [
     { value: 'amount', label: '按金额' }, { value: 'quantity', label: '按基本数量' }, { value: 'weight', label: '按重量' },
   ] },
