@@ -6,6 +6,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 
@@ -17,6 +18,9 @@ public final class SalesReturnSourceMetadata {
     public SalesReturnSourceMetadata(NamedParameterJdbcTemplate jdbc) {
         this.jdbc=jdbc;
     }
+    public SalesReturnSourceMetadata(JdbcTemplate jdbc) {
+        this(new NamedParameterJdbcTemplate(jdbc));
+    }
 
     /** 仅补充当前仓库和组织范围内的单据；成本来源仍受成本权限约束。 */
     public <A extends WarehouseScope & PermissionScope> void annotate(A actor,List<Map<String,Object>> rows) {
@@ -25,6 +29,7 @@ public final class SalesReturnSourceMetadata {
         var returnIds=new HashSet<Long>();
         for(var row:rows) {
             row.remove("return_mode");row.remove("return_cost_source");
+            row.remove("return_source_id");row.remove("return_source_no");row.remove("refund_mode");
             Long id=returnId(row,reversals);
             if(id!=null)returnIds.add(id);
         }
@@ -39,10 +44,26 @@ public final class SalesReturnSourceMetadata {
             if(head==null)continue;
             row.put("return_mode",head.get("return_mode"));
             row.putIfAbsent("source_no",head.get("return_no"));
+            if(actor.hasPermission("sales_return:view")&&"sourceless".equals(head.get("return_mode"))) {
+                row.put("return_source_id",head.get("id"));row.put("return_source_no",head.get("return_no"));
+            }
             var line=lines.get(number(row.get("source_line_id")));
             if(line!=null&&number(line.get("return_id"))==id.longValue()&&line.get("cost_source")!=null)
                 row.put("return_cost_source",line.get("cost_source"));
         }
+        refunds(actor,rows);
+    }
+
+    private <A extends WarehouseScope & PermissionScope> void refunds(A actor,List<Map<String,Object>> rows) {
+        if(!actor.hasPermission("sales_return:view")||!actor.hasPermission("refund_request:view"))return;
+        var ids=new HashSet<Long>();
+        for(var row:rows)if("refund_request".equals(row.get("source_type")))ids.add(number(row.get("source_id")));
+        var visible=new HashSet<Long>();
+        for(var row:query(actor,ids,"SELECT h.id FROM refund_request h WHERE h.tenant_id=:t AND h.company_id=:c"
+                +" AND h.id IN (:ids) AND h.refund_mode='sourceless_credit'"+OrgOwnership.filter(actor,"h")
+                +" AND "+SourcelessRefundCredits.condition(actor,"h")))visible.add(number(row.get("id")));
+        for(var row:rows)if("refund_request".equals(row.get("source_type"))&&visible.contains(number(row.get("source_id"))))
+            row.put("refund_mode","sourceless_credit");
     }
 
     private <A extends WarehouseScope & PermissionScope> Map<Long,Long> reversals(A actor,List<Map<String,Object>> rows) {

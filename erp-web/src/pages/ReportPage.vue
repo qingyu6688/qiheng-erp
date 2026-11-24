@@ -20,6 +20,8 @@ import BusinessUserSelect from '../components/BusinessUserSelect.vue'
 import FinancialAmount from '../components/FinancialAmount.vue'
 import StatusTag from '../components/StatusTag.vue'
 import SalesReturnSourceTag from '../components/sales/SalesReturnSourceTag.vue'
+import SourcelessSourceLink from '../components/sales/SourcelessSourceLink.vue'
+import { sourcelessSourceTarget } from '../utils/sourceless-sources'
 const ProcurementSourceDrawer = defineAsyncComponent(
   () => import('../components/procurement/ProcurementSourceDrawer.vue'),
 )
@@ -293,6 +295,9 @@ function link(row: Record<string, unknown>): string | undefined {
   )
     return row.sourceUrl
   return documentLink(row.sourceType, row.sourceId)
+}
+function sourcePreview(row: Record<string, unknown>): boolean {
+  return Boolean(sourcelessSourceTarget(row, (permission) => session.can(permission)))
 }
 function salesPriceSourceId(row: Record<string, unknown>): string | undefined {
   return session.can('sales_price_adjustment:view') &&
@@ -695,7 +700,11 @@ watch(
             @click="salesPriceDetailId = salesPriceSourceId(row)"
           >
             {{ reportCell(field, row[field]) }}</button
-          ><router-link
+          ><SourcelessSourceLink
+            v-else-if="field === 'sourceNo' && sourcePreview(row)"
+            :source="row"
+            :label="reportCell(field, row[field])"
+          /><router-link
             v-else-if="field === 'sourceNo' && link(row)"
             class="text-link"
             :to="link(row)!"
@@ -711,7 +720,9 @@ watch(
           ><SalesReturnSourceTag
             v-if="field === 'sourceNo'"
             :mode="row.returnMode"
-            :cost-source="row.returnCostSource" /></template
+            :cost-source="row.returnCostSource" />
+          <StatusTag v-if="field === 'sourceNo' && row.refundMode === 'sourceless_credit'" label="退货信用额退款" tone="info" />
+          <div v-if="field === 'sourceNo' && row.sourceType === 'document_reversal'"><SourcelessSourceLink :source="row" original /></div></template
       ></el-table-column>
       <el-table-column
         label="追溯"
@@ -751,7 +762,8 @@ watch(
             text
             @click="salesPriceDetailId = salesPriceSourceId(row)"
             >查看原单</el-button
-          ><router-link v-else-if="link(row)" class="text-link" :to="link(row)!"
+          ><SourcelessSourceLink v-else-if="sourcePreview(row)" :source="row" label="查看原单" />
+          <router-link v-else-if="link(row)" class="text-link" :to="link(row)!"
             >查看原单</router-link
           ></template
         ></el-table-column

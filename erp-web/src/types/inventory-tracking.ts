@@ -78,6 +78,8 @@ export interface StockMovementTrace {
   sourceId?: string
   sourceNo?: string
   returnMode?: 'original' | 'sourceless'
+  returnSourceId?: string
+  returnSourceNo?: string
   returnCostSource?: 'average' | 'last_in' | 'manual'
   receiptNo?: string
   purchaseReturnNo?: string

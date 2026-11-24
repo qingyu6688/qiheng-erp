@@ -130,6 +130,12 @@ describe('报表页面请求与权限', () => {
             setup: () => ({ row }),
             template: '<div>{{label}}<slot :row="row" /></div>',
           },
+          Preview: {
+            props: ['id', 'kind'],
+            emits: ['close'],
+            template:
+              '<aside>{{kind}} {{id}}<button @click="$emit(\'close\')">关闭来源</button></aside>',
+          },
         },
       },
     })
@@ -137,7 +143,13 @@ describe('报表页面请求与权限', () => {
     await flushPromises()
     expect(wrapper.find('.return-source').text()).toContain('无原单退货')
     expect(wrapper.find('.return-source').text()).toContain('加权平均成本')
-    expect(wrapper.find('a[href="/sales-returns/90"]').text()).toBe('SR-90')
+    expect(wrapper.find('a[href="/sales-returns/90"]').exists()).toBe(false)
+    expect(wrapper.findAll('button').some((button) => button.text() === 'SR-90')).toBe(true)
+    await click(wrapper, 'SR-90')
+    expect(wrapper.get('aside').text()).toContain('sales-returns 90')
+    await click(wrapper, '关闭来源')
+    expect(reports.report).toHaveBeenCalledTimes(1)
+    expect(push).not.toHaveBeenCalled()
     session.can = (permission) => permission !== 'cost:view'
     await flushPromises()
     expect(wrapper.find('.return-source').text()).toBe('无原单退货')

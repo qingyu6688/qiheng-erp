@@ -36,6 +36,11 @@ const stubs = {
   GlAuxFields: true,
   GlOutputActions: true,
   RouterLink: { props: ['to'], template: '<a><slot/></a>' },
+  Preview: {
+    props: ['kind', 'id'],
+    emits: ['close'],
+    template: '<aside>{{kind}} {{id}}<button @click="$emit(\'close\')">关闭来源</button></aside>',
+  },
 }
 const wrappers: ReturnType<typeof mount>[] = []
 const voucher = {
@@ -139,3 +144,40 @@ it('凭证列表继续加载保留已有凭证，长编号游标原样传给服�
   expect(wrapper.text()).toContain('后续凭证')
   expect(wrapper.text()).toContain('201')
 })
+
+it.each(['sales_return', 'refund_request'])(
+  '业务凭证%s的来源只读右侧打开，不触发凭证更正',
+  async (sourceType) => {
+    route.params = { id: '10' }
+    const no = sourceType === 'sales_return' ? 'SR-51' : 'RF-92'
+    vi.mocked(api.glVoucher).mockResolvedValue({
+      ...voucher,
+      source: 'business',
+      status: 'posted',
+      sourceType,
+      sourceId: sourceType === 'sales_return' ? '51' : '92',
+      sourceNo: no,
+      returnMode: sourceType === 'sales_return' ? 'sourceless' : undefined,
+      refundMode: sourceType === 'refund_request' ? 'sourceless_credit' : undefined,
+    })
+    const wrapper = mount(GlVoucherEditPage, {
+      global: { stubs, directives: { loading: () => {} } },
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+    expect(wrapper.get('.voucher-source').text()).toContain(
+      sourceType === 'sales_return' ? '无原单退货' : '退货信用额退款',
+    )
+    const source = wrapper.findAll('button').find((button) => button.text() === no)!
+    expect(source).toBeDefined()
+    await source.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('aside').text()).toContain(
+      sourceType === 'sales_return' ? 'sales-returns 51' : 'refund-requests 92',
+    )
+    await wrapper.get('aside button').trigger('click')
+    expect(wrapper.find('aside').exists()).toBe(false)
+    expect(api.saveGlVoucher).not.toHaveBeenCalled()
+    expect(route.params.id).toBe('10')
+  },
+)

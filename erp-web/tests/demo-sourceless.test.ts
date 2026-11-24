@@ -164,5 +164,8 @@ it('退货和退款凭证借贷平衡，库存、资金与往来同总账闭合'
     )!
     expect(voucher).toBeDefined()
     expect(voucher.debitTotal).toBe(voucher.creditTotal)
+    expect(voucher.sourceNo).toBe(doc.documentNo)
+    expect(voucher.sourceId).toBe(doc.id)
+    expect(voucher.sourceType).toBe(doc.kind === 'sales-returns' ? 'sales_return' : 'refund_request')
   }
 })

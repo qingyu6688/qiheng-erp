@@ -8,6 +8,7 @@ import { useSessionStore } from '../stores/session'
 import type { DataRow } from '../types/admin'
 import type { BatchBalance, StockMovementTrace, TrackedBatch } from '../types/inventory-tracking'
 import SalesReturnSourceTag from '../components/sales/SalesReturnSourceTag.vue'
+import SourcelessSourceLink from '../components/sales/SourcelessSourceLink.vue'
 
 const session = useSessionStore()
 const route = useRoute()
@@ -232,8 +233,9 @@ function batchStatus(batch: TrackedBatch): string {
         </el-table-column>
         <el-table-column label="单据与往来单位" min-width="180">
           <template #default="{ row }">
-            <div>{{ row.sourceNo || row.receiptNo || row.shipmentNo || row.purchaseReturnNo || row.sourceId || '—' }}</div>
+            <div><SourcelessSourceLink :source="row" :label="row.sourceNo || row.receiptNo || row.shipmentNo || row.purchaseReturnNo || row.sourceId || '—'" /></div>
             <SalesReturnSourceTag :mode="row.returnMode" :cost-source="row.returnCostSource" />
+            <div v-if="row.sourceType === 'document_reversal'"><SourcelessSourceLink :source="row" original /></div>
             {{ row.supplierName || row.customerName || '' }}
           </template>
         </el-table-column>

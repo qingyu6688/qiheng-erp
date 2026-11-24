@@ -407,6 +407,10 @@ class SourcelessReturnIT {
         var reversed=report(actor,ReportType.SALES_SUMMARY);
         assertThat(reversed.items()).hasSize(4).allSatisfy(row->assertThat(row)
                 .containsEntry("returnMode","sourceless").containsEntry("returnCostSource","average"));
+        assertThat(reversed.items()).allSatisfy(row->assertThat(row)
+                .containsEntry("returnSourceId",Long.toString(source)).containsEntry("returnSourceNo",returns.get(actor,source).get("documentNo")));
+        assertThat(reversed.items()).anySatisfy(row->assertThat(row)
+                .containsEntry("sourceType","document_reversal").containsEntry("sourceId",Long.toString(reversal)));
         assertThat(new BigDecimal(reversed.summary().get("amount").toString())).isEqualByComparingTo("0");
         assertThat(new BigDecimal(reversed.summary().get("costAmount").toString())).isEqualByComparingTo("0");
         var flow=report(actor,ReportType.INVENTORY_FLOW);
@@ -417,6 +421,8 @@ class SourcelessReturnIT {
         assertThat(new BigDecimal(flow.summary().get("costAmount").toString())).isEqualByComparingTo("50");
         for(var type:List.of(ReportType.INVENTORY_FLOW,ReportType.SALES_SUMMARY))
             assertThat(report(without(d.maker,"cost:view"),type).items()).allSatisfy(row->assertThat(row).doesNotContainKeys("costAmount","returnCostSource"));
+        assertThat(report(without(d.maker,"sales_return:view"),ReportType.SALES_SUMMARY).items())
+                .allSatisfy(row->assertThat(row).doesNotContainKeys("returnSourceId","returnSourceNo"));
         zeroDifferences();
     }
 
@@ -428,7 +434,10 @@ class SourcelessReturnIT {
                 .containsEntry("sourceType","sales_return_line").containsEntry("returnMode","sourceless").containsEntry("returnCostSource","manual"));
         long reversal=applyReversal("sales_return",source);approveReversal(reversal);postReversal(reversal);
         assertThat(traceItems(actor,"SN-METADATA")).hasSize(2).allSatisfy(row->assertThat(row)
-                .containsEntry("returnMode","sourceless").containsEntry("returnCostSource","manual"));
+                .containsEntry("returnMode","sourceless").containsEntry("returnCostSource","manual")
+                .containsEntry("returnSourceId",Long.toString(source)).containsEntry("returnSourceNo",returns.get(actor,source).get("documentNo")));
+        assertThat(traceItems(actor,"SN-METADATA")).anySatisfy(row->assertThat(row)
+                .containsEntry("sourceType","document_reversal").containsEntry("sourceId",Long.toString(reversal)));
         assertThat(traceItems(without(d.maker,"cost:view"),"SN-METADATA")).hasSize(2)
                 .allSatisfy(row->assertThat(row).containsEntry("returnMode","sourceless").doesNotContainKey("returnCostSource"));
         var otherWarehouse=new CompanyAccess(d.tenant,d.maker,d.company,false,Set.of(d.warehouse+1),actor.permissions());
@@ -452,6 +461,21 @@ class SourcelessReturnIT {
 
     private ReportService.Snapshot report(CompanyAccess actor,ReportType type) {
         return reports.snapshot(actor,type,new ReportQuery(d.day,d.day,null,null,null,null,true));
+    }
+
+    @Test void refundReportAddsModeOnlyWhenTheActualBusinessSourcesAreVisible() {
+        long source=posted(List.of(line("2","10","0","passed","5","历史成本")));
+        long refund=createRefund(cash(),"10",List.of(credit(source)));
+        refundCommand(refund,"submit");reviewBusiness("refund_request",refund,d.financeA);
+        refundApplications.paid(d.actor(d.maker),refund,key(),new FinanceModels.Paid(refundVersion(refund),d.day,"来源穿透银行流水"));
+        assertThat(report(d.actor(d.maker),ReportType.CASH_JOURNAL).items()).anySatisfy(row->assertThat(row)
+                .containsEntry("sourceType","refund_request").containsEntry("sourceId",Long.toString(refund)).containsEntry("refundMode","sourceless_credit"));
+        for(String permission:List.of("sales_return:view","refund_request:view"))
+            assertThat(report(without(d.maker,permission),ReportType.CASH_JOURNAL).items()).allSatisfy(row->assertThat(row).doesNotContainKey("refundMode"));
+        var actor=d.actor(d.maker);
+        var hidden=new CompanyAccess(d.tenant,d.maker,d.company,false,Set.of(d.warehouse+1),actor.permissions(),actor.orgScope());
+        code(()->report(hidden,ReportType.CASH_JOURNAL),"FORBIDDEN");
+        zeroDifferences();
     }
 
     @Test void costReconciliationFindsOffsettingReturnLineErrorsAndTheirReversalSources() {

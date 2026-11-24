@@ -44,6 +44,7 @@ class SourcelessReturnGlIT {
     @Autowired JdbcTemplate jdbc;
     @Autowired GlBookService books;
     @Autowired GlQueryService financial;
+    @Autowired GlVoucherService vouchers;
     @Autowired GlMappingResolver mappings;
     @Autowired SalesReturnService returns;
     @Autowired RefundApplicationService refunds;
@@ -146,6 +147,8 @@ class SourcelessReturnGlIT {
         assertThat(balance("SALES_REVENUE")).isZero();assertThat(balance("OUTPUT_VAT")).isZero();
         assertThat(income("net_profit")).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM shipment WHERE tenant_id=?",Integer.class,d.tenant)).isZero();
+        assertSourceViews("sales_return",id,id,"returnMode","sourceless");
+        assertSourceViews("document_reversal",reversal,id,"returnMode","sourceless");
         consistent();
     }
 
@@ -169,7 +172,30 @@ class SourcelessReturnGlIT {
         assertThat(statementAmount("cash_flow","closing_cash")).isEqualByComparingTo("980");
         assertThatThrownBy(()->reversals.create(actor(d.maker),key(),new ReversalModels.Input("sales_return",source,DAY,"已退款不得冲回")))
                 .isInstanceOfSatisfying(ApiException.class,error->assertThat(error.getErrorCode()).isEqualTo("DEPENDENCY_EXISTS"));
+        assertSourceViews("refund_request",refund,0,"refundMode","sourceless_credit");
         consistent();
+    }
+
+    @SuppressWarnings("unchecked") private void assertSourceViews(String type,long source,long returned,String modeField,String mode) {
+        long voucher=jdbc.queryForObject("SELECT id FROM gl_voucher WHERE tenant_id=? AND company_id=? AND source_type=? AND source_id=?",Long.class,d.tenant,d.company,type,source);
+        var actor=actor(d.maker);
+        assertThat(vouchers.get(actor,voucher)).containsEntry(modeField,mode).containsEntry("sourceId",Long.toString(source));
+        assertThat(vouchers.list(actor,new GlModels.VoucherFilter(null,null,null,"business",null,200))).anySatisfy(row->assertThat(row)
+                .containsEntry("id",Long.toString(voucher)).containsEntry(modeField,mode));
+        for(String ledger:List.of("detail","multi_column"))
+            assertThat((List<Map<String,Object>>)financial.ledger(actor,ledger,new GlModels.Query(d.november,d.november,null,null,null,null,null,null,null,100)).get("items"))
+                    .filteredOn(row->type.equals(row.get("sourceType"))&&Long.toString(source).equals(row.get("sourceId")))
+                    .isNotEmpty().allSatisfy(row->assertThat(row).containsEntry(modeField,mode));
+        if(returned>0)assertThat(vouchers.get(actor,voucher)).containsEntry("returnSourceId",Long.toString(returned));
+        for(String permission:List.of("sales_return:view","refund_request:view")) {
+            var permissions=new java.util.HashSet<>(actor.permissions());permissions.remove(permission);
+            if(returned>0&&permission.equals("refund_request:view"))continue;
+            var noView=new CompanyAccess(d.tenant,d.maker,d.company,true,Set.of(),permissions,actor.orgScope());
+            assertThat(vouchers.get(noView,voucher)).doesNotContainKeys("returnSourceId","returnSourceNo","refundMode");
+        }
+        var hidden=new CompanyAccess(d.tenant,d.maker,d.company,false,Set.of(warehouse+1),actor.permissions(),actor.orgScope());
+        assertThatThrownBy(()->vouchers.get(hidden,voucher)).isInstanceOfSatisfying(ApiException.class,
+                error->assertThat(error.getErrorCode()).isEqualTo("FORBIDDEN"));
     }
 
     private long postedReturn(String manual) {

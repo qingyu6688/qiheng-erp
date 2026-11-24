@@ -70,6 +70,13 @@ export interface GlVoucher extends GlVoucherInput {
   periodId: string
   number: number
   source: 'manual' | 'business' | 'closing' | 'opening'
+  sourceType?: string
+  sourceId?: string
+  sourceNo?: string
+  returnMode?: 'original' | 'sourceless'
+  returnSourceId?: string
+  returnSourceNo?: string
+  refundMode?: 'receipt' | 'sourceless_credit'
   status: GlVoucherStatus
   makerId: string
   approverId?: string

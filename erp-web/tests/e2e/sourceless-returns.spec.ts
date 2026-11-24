@@ -301,6 +301,31 @@ test('无原单退货和信用额退款在右侧完成双人审批、原键恢�
     await page.setViewportSize({ width: 390, height: 844 })
     await fits(page, drawer)
     await page.screenshot({ path: info.outputPath('信用额退款窄屏右侧详情.png'), fullPage: true })
+    await drawer.getByRole('button', { name: '关闭', exact: true }).click()
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await page.goto(`/reports/sales-summary?detail=true&dateFrom=${day}&dateTo=${day}`)
+    const salesReportUrl = page.url()
+    await page.getByRole('button', { name: created.documentNo, exact: true }).click()
+    const reportReturn = page.getByRole('dialog', { name: '无原单销售退货', exact: true })
+    await expect(reportReturn.locator('.sourceless-panel h2').first()).toHaveText(created.documentNo)
+    await expect(reportReturn.getByRole('button', { name: '过账', exact: true })).toHaveCount(0)
+    await fits(page, reportReturn)
+    await expect(page).toHaveURL(salesReportUrl)
+    await page.screenshot({ path: info.outputPath('销售报表原位退货来源.png'), fullPage: true, animations: 'disabled' })
+    await reportReturn.getByRole('button', { name: '关闭', exact: true }).click()
+    await expect(page).toHaveURL(salesReportUrl)
+    await page.goto(`/reports/cash-journal?dateFrom=${day}&dateTo=${day}`)
+    const cashReportUrl = page.url()
+    await page.getByRole('button', { name: refund.documentNo, exact: true }).click()
+    const reportRefund = page.getByRole('dialog', { name: '退货信用额退款', exact: true })
+    await expect(reportRefund.locator('.sourceless-panel h2').first()).toHaveText(refund.documentNo)
+    await expect(reportRefund.locator('.financial-summary')).toContainText('10.00')
+    await expect(reportRefund.getByRole('button', { name: '登记已退款', exact: true })).toHaveCount(0)
+    await expect(page).toHaveURL(cashReportUrl)
+    await fits(page, reportRefund)
+    await page.screenshot({ path: info.outputPath('资金流水原位退款来源.png'), fullPage: true, animations: 'disabled' })
+    await reportRefund.getByRole('button', { name: '关闭', exact: true }).click()
+    await expect(page).toHaveURL(cashReportUrl)
     expect(createKeys).toHaveLength(1)
     expect(updateKeys).toHaveLength(1)
     expect(refundUpdateKeys).toHaveLength(1)
@@ -325,6 +350,9 @@ test('无原单退货和信用额退款在右侧完成双人审批、原键恢�
           refundWorkflowInstanceId: pendingRefund.wfInstanceId,
           listUrlPreserved: true,
           twoRealUsers: true,
+          salesReportPositionPreserved: true,
+          cashReportPositionPreserved: true,
+          reportSourcesReadOnly: true,
           pageErrors: errors,
         },
         null,

@@ -50,7 +50,12 @@ for (const doc of documents.filter((row) => ['receipts', 'payments', 'shipments'
     lines = [line('1122', 'D', doc.totalAmount, digest), line('6001', 'C', String(doc.untaxedAmount), digest),
       line('2221', 'C', String(doc.taxAmount), digest), line('6401', 'D', cost, digest), line('1405', 'C', cost, digest)]
   }
-  demoVouchers.push(voucher(demoVouchers.length, doc.businessDate, lines, 'business'))
+  const entry = voucher(demoVouchers.length, doc.businessDate, lines, 'business')
+  const sourceTypes: Record<string, string> = { receipts: 'receipt', payments: 'payment', shipments: 'shipment', 'goods-receipts': 'goods_receipt', 'sales-returns': 'sales_return', 'refund-requests': 'refund_request' }
+  Object.assign(entry, { sourceType: sourceTypes[doc.kind], sourceId: doc.id, sourceNo: doc.documentNo,
+    returnMode: doc.returnMode, refundMode: doc.refundMode,
+    ...(doc.returnMode === 'sourceless' ? { returnSourceId: doc.id, returnSourceNo: doc.documentNo } : {}) })
+  demoVouchers.push(entry)
 }
 
 /** 账簿直接汇总同一组凭证；整数分运算避免跨期累计误差。 */
@@ -69,6 +74,8 @@ export function demoLedger(type: string, params: Record<string, unknown>): GlLed
       for (const row of current) {
         balance += (row.direction === 'D' ? 1 : -1) * cents(row.amount)
         items.push({ ...base, voucherId: row.entry.id, voucherDate: row.entry.voucherDate, word: '记', number: row.entry.number,
+          sourceType: row.entry.sourceType, sourceId: row.entry.sourceId, sourceNo: row.entry.sourceNo,
+          returnMode: row.entry.returnMode, refundMode: row.entry.refundMode, returnSourceId: row.entry.returnSourceId, returnSourceNo: row.entry.returnSourceNo,
           digest: row.digest, debit: row.direction === 'D' ? row.amount : '0.00', credit: row.direction === 'C' ? row.amount : '0.00', balance: money(balance / 100) })
       }
     } else {
