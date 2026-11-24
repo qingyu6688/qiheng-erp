@@ -8,6 +8,7 @@ import { demoReports } from '../demo/scope'
 import { manufacturingProducts } from '../demo/extended-data'
 import { readExtendedDemo } from './demo-extended'
 import { readAiDemo } from './demo-ai'
+import { readCompletenessDemo } from './demo-completeness'
 
 type Params = Record<string, unknown>
 type Row = Record<string, unknown>
@@ -158,6 +159,8 @@ function workbench(): Row {
 }
 
 function readEndpoint(path: string, params: Params): unknown {
+  const completeness = readCompletenessDemo(path, params)
+  if (completeness !== undefined) return completeness
   const extended = readExtendedDemo(path, params)
   if (extended !== undefined) return extended
   if (path === '/system/version') return { apiMajor: 2 }
@@ -178,7 +181,7 @@ function readEndpoint(path: string, params: Params): unknown {
   if (path.startsWith('/custom-fields/')) return []
   if (path === '/attachments') return []
   const lists: Record<string, Row[]> = { '/warehouses': warehouses.map((row) => ({ ...row, status: 'active' })), '/partners': partners, '/cash-accounts': accounts, '/org/business-users': people, '/skus': [...products, ...manufacturingProducts].map((row) => ({ ...row, status: 'active', skuCode: row.code, skuName: row.name })) }
-  if (lists[path]) return paginate(filterRows(lists[path], params), params)
+  if (lists[path]) return paginate(filterRows(path === '/partners' ? lists[path].map((row) => ({ ...row, status: 'active', roles: [row.isSupplier ? 'supplier' : 'customer'] })) : lists[path], params), params)
   if (path.startsWith('/document-browser/')) return listDocuments(path.slice('/document-browser/'.length), params)
   if (path.startsWith('/reports/')) return report(path.slice('/reports/'.length), params)
   const parts = path.split('/').filter(Boolean)

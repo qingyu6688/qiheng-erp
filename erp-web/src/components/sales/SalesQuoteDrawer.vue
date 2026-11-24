@@ -130,7 +130,8 @@ function lineName(index: number): string {
 </template>
 
 <style scoped>
-.quote-panel { display: grid; gap: 20px; }
+.quote-panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+.quote-panel > * { min-width: 0; }
 .quote-heading, .quote-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .quote-footer { justify-content: flex-end; flex-wrap: wrap; }
 .quote-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border-block: 1px solid var(--erp-border-1); }

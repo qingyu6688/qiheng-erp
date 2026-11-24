@@ -8,9 +8,11 @@ import { SITE_URL, SITEMAP_PATHS } from './src/config/site'
 
 // GitHub Pages 项目站点挂在 /qiheng-erp/ 下；绑定自有域名时用 SITE_BASE=/ 构建
 const base = process.env.SITE_BASE ?? '/qiheng-erp/'
+const outDir = process.env.SITE_OUTPUT_DIR ?? 'dist'
 
 export default defineConfig({
   base,
+  build: { outDir },
   plugins: [vue()],
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
@@ -20,7 +22,7 @@ export default defineConfig({
     formatting: 'none',
     script: 'async',
     onFinished() {
-      const dist = resolve(fileURLToPath(new URL('.', import.meta.url)), 'dist')
+      const dist = resolve(fileURLToPath(new URL('.', import.meta.url)), outDir)
       // GitHub Pages 只认根目录的 404.html
       const notFound = resolve(dist, '404/index.html')
       if (existsSync(notFound)) {

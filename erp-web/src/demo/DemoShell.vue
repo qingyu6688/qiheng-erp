@@ -5,7 +5,7 @@ import { Box, House, ShoppingCart, Tickets, DataAnalysis, Menu, User, Tools, Wal
 import BrandMark from '../components/BrandMark.vue'
 import DisplayDensitySelect from '../components/DisplayDensitySelect.vue'
 import DemoDocumentDrawer from './DemoDocumentDrawer.vue'
-import { demoReports, demoSalesKinds, demoPurchaseKinds, demoCrmPages, demoManufacturingPages, demoFinancePages, demoAiPages } from './scope'
+import { demoReports, demoSalesKinds, demoPurchaseKinds, demoCrmPages, demoManufacturingPages, demoFinancePages, demoAiPages, demoSalesExtraPages, demoPurchaseExtraPages } from './scope'
 import { recentWorkPages } from '../utils/workbench-preferences'
 import type { RecentWorkPage } from '../utils/workbench-preferences'
 
@@ -26,10 +26,10 @@ function focusContent(): void {
   document.getElementById('demo-content')?.focus()
 }
 const groups = [
-  { title: '销售', icon: Tickets, items: demoSalesKinds },
-  { title: '采购', icon: ShoppingCart, items: demoPurchaseKinds },
+  { title: '销售', icon: Tickets, items: [...demoSalesKinds, ...demoSalesExtraPages] },
+  { title: '采购', icon: ShoppingCart, items: [...demoPurchaseKinds, ...demoPurchaseExtraPages] },
   { title: '客户关系', icon: User, items: demoCrmPages },
-  { title: '库存', icon: Box, items: [{ path: 'inventory-balances', title: '实时库存' }, { path: 'warehouse-locations', title: '仓库库位' }] },
+  { title: '库存', icon: Box, items: [{ path: 'inventory-balances', title: '实时库存' }, { path: 'warehouse-locations', title: '仓库库位' }, { path: 'cost-revaluations', title: '成本重估' }] },
   { title: '生产', icon: Tools, items: demoManufacturingPages },
   { title: '财务', icon: Wallet, items: demoFinancePages },
   { title: '业务报表', icon: DataAnalysis, items: demoReports.map((item) => ({ path: 'reports/' + item.type, title: item.title })) },
@@ -62,7 +62,7 @@ const groups = [
       </header>
       <div class="demo-notice" role="note"><strong>只读演示</strong><span>虚构数据 · 样例截至 2026-11-20 · 可筛选、查看单据与报表</span><a href="https://qiheng.site/quick-start/">部署完整版本 ↗</a></div>
       <main id="demo-content" class="demo-content content" tabindex="-1"><router-view :key="route.path" /></main>
-      <footer class="demo-footer">柒衡 ERP 2.0 · 演示数据不代表真实经营情况 · <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">鄂ICP备2026068130号-1</a></footer>
+      <footer class="demo-footer">柒衡 ERP 2.1 · 演示数据不代表真实经营情况 · <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">鄂ICP备2026068130号-1</a></footer>
       <DemoDocumentDrawer />
     </div>
   </div>

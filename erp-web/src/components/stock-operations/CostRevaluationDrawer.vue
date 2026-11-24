@@ -98,7 +98,8 @@ const actions = computed(() => document.value?.allowedActions.filter((action) =>
 </template>
 
 <style scoped>
-.revaluation-panel { display: grid; gap: 20px; }
+.revaluation-panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+.revaluation-panel > * { min-width: 0; }
 .revaluation-heading, .revaluation-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .revaluation-footer { justify-content: flex-end; flex-wrap: wrap; }
 .cost-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border-block: 1px solid var(--erp-border-1); }

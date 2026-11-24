@@ -33,6 +33,7 @@ export const demoSession: UserSession = {
     'crm_customer:view', 'crm_business:view', 'crm_contract:view', 'wms_location:view',
     'mfg_bom:view', 'mfg_work_order:view', 'gl_voucher:view', 'gl_ledger:view',
     'ai:use', 'ai_admin:view',
+    'cost_revaluation:view', 'purchase_price_list:view', 'sales_quote:view',
   ],
 }
 

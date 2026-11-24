@@ -10,6 +10,8 @@ export const demoPurchaseKinds = [
   { path: 'goods-receipts', title: '采购收货', permission: 'goods_receipt' },
   { path: 'payments', title: '付款登记', permission: 'payment' },
 ] as const
+export const demoSalesExtraPages = [{ path: 'sales-quotes', title: '销售报价' }] as const
+export const demoPurchaseExtraPages = [{ path: 'purchase-price-lists', title: '采购价格表' }] as const
 export const demoReports = [
   { type: 'sales-summary', title: '销售报表' },
   { type: 'purchase-summary', title: '采购报表' },
