@@ -52,6 +52,8 @@ public final class ExportCsv {
             case UNINVOICED_RECEIPTS -> add(columns,"partnerName","供应商","businessDate","来源日期","sourceNo","采购来源单号","originalReceiptNo","原收货单号","basisUntaxedAmount","净可到票未税额","basisTaxAmount","净可到票税额","invoicedUntaxedAmount","已到票未税额","invoicedTaxAmount","已到票税额","uninvoicedUntaxedAmount","未到票未税额","uninvoicedTaxAmount","未到票税额","uninvoicedAmount","未到票合计","invoicingStatus","到票状态","invoiceMatchNotice","核对提示");
         }
         if(Set.of(ReportType.RECEIVABLE_AGING,ReportType.PAYABLE_AGING).contains(type)&&!rows.isEmpty()&&rows.getFirst().get("agingLabels") instanceof Map<?,?> labels) {columns.keySet().removeIf(field->field.startsWith("age"));columns.put("businessUserName","业务员");columns.put("departmentName","部门");labels.forEach((field,label)->{String key=field.toString().replace("aging_","aging");columns.put(key,label.toString());});}
+        if(columns.containsKey("sourceNo")&&rows.stream().anyMatch(row->row.containsKey("returnMode")))
+            add(columns,"returnMode","退货模式","returnCostSource","退货成本来源");
         if(!cost) { columns.keySet().removeIf(field->field.toLowerCase(Locale.ROOT).contains("cost") || field.equals("grossMargin")); }
         return write(rows,columns,json);
     }
@@ -71,6 +73,8 @@ public final class ExportCsv {
                 if(column.equals("diffDisposition")) { text=Map.of("pending","待处理","returned","拒收退回","lost","运输损失","none","无差异").getOrDefault(text,text); }
                 if(column.equals("accountCode")) { text=Map.of("AR","应收","AP","应付","FUNDS","资金").getOrDefault(text,text); }
                 if(column.equals("invoicingStatus")) {text=Map.of("uninvoiced","未到票","partial","部分到票","invoiced","已到票","not_required","无待到票额度","source_unavailable","不适用或来源失效").getOrDefault(text,text);}
+                if(column.equals("returnMode"))text=Map.of("original","按原单退货","sourceless","无原单退货").getOrDefault(text,"");
+                if(column.equals("returnCostSource"))text=Map.of("average","加权平均成本","last_in","最近入库成本","manual","人工复核成本").getOrDefault(text,"");
                 // 标识及精确小数使用文本单元格，避免表格软件按浮点数截断；外部文本不能成为公式。
                 boolean exact=column.equals("id") || column.endsWith("Id") || text.matches("-?\\d+(\\.\\d+)?");
                 String stripped=text.stripLeading();

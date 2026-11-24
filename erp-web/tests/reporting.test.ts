@@ -109,6 +109,40 @@ describe('报表类型与精度', () => {
 })
 
 describe('报表页面请求与权限', () => {
+  it('库存明细在原单编号下显示无原单退货及受权限保护的成本来源', async () => {
+    const row = {
+      id: '80',
+      sourceType: 'sales_return_line',
+      sourceId: '90',
+      sourceNo: 'SR-90',
+      returnMode: 'sourceless',
+      returnCostSource: 'average',
+    }
+    route.query = { detail: 'true' }
+    vi.mocked(reports.report).mockResolvedValue({ ...result(), items: [row] })
+    const wrapper = mount(ReportPage, {
+      props: { type: 'inventory-flow' },
+      global: {
+        stubs: {
+          ...stubs,
+          ElTableColumn: {
+            props: ['label'],
+            setup: () => ({ row }),
+            template: '<div>{{label}}<slot :row="row" /></div>',
+          },
+        },
+      },
+    })
+    mounted.push(wrapper)
+    await flushPromises()
+    expect(wrapper.find('.return-source').text()).toContain('无原单退货')
+    expect(wrapper.find('.return-source').text()).toContain('加权平均成本')
+    expect(wrapper.find('a[href="/sales-returns/90"]').text()).toBe('SR-90')
+    session.can = (permission) => permission !== 'cost:view'
+    await flushPromises()
+    expect(wrapper.find('.return-source').text()).toBe('无原单退货')
+  })
+
   it('未到票突出精确金额与截止日，查看原单只打开右侧抽屉并保留筛选', async () => {
     const row = {
       id: '80',

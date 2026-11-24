@@ -23,6 +23,9 @@ import cn.erp.purchasing.PurchaseOrderService;
 import cn.erp.receiving.ReceivingModels;
 import cn.erp.receiving.ReceivingService;
 import cn.erp.reconciliation.ReconciliationChecks;
+import cn.erp.reporting.ReportQuery;
+import cn.erp.reporting.ReportService;
+import cn.erp.reporting.ReportType;
 import cn.erp.salesfinance.FinanceModels;
 import cn.erp.salesfinance.SalesReturnService;
 import cn.erp.salesorder.SalesOrderService;
@@ -53,6 +56,8 @@ class SourcelessReturnIT {
     @Autowired cn.erp.opening.OpeningService opening;
     @Autowired cn.erp.salesfinance.SalesFinanceQueries financeQueries;
     @Autowired cn.erp.fulfillment.ShipmentService shipments;
+    @Autowired ReportService reports;
+    @Autowired cn.erp.inventory.InventoryTraceQueries trace;
     private WorkflowTestData d;
     private long period;
 
@@ -282,6 +287,99 @@ class SourcelessReturnIT {
     private long posted(List<FinanceModels.ReturnLine> lines) {
         long id=create(input(lines,null));submit(d.actor(d.maker),id);approve(id,d.financeA);
         returns.command(d.actor(d.maker),id,"post",key(),command(id));return id;
+    }
+
+    @Test void reportsIdentifySourcelessReturnAndFrozenAverageCostBeforeAndAfterReversal() {
+        receive("10","5");
+        long source=posted(List.of(line("2","10","0","passed",null,null),line("2","10","0","passed",null,null)));
+        var actor=d.actor(d.maker);
+        var sales=report(actor,ReportType.SALES_SUMMARY);
+        assertThat(sales.items()).hasSize(2).allSatisfy(row->assertThat(row)
+                .containsEntry("sourceType","sales_return").containsEntry("sourceId",Long.toString(source))
+                .containsEntry("returnMode","sourceless").containsEntry("returnCostSource","average"));
+        assertThat(new BigDecimal(sales.summary().get("amount").toString())).isEqualByComparingTo("-40");
+        assertThat(new BigDecimal(sales.summary().get("costAmount").toString())).isEqualByComparingTo("-20");
+        long reversal=applyReversal("sales_return",source);approveReversal(reversal);postReversal(reversal);
+        var reversed=report(actor,ReportType.SALES_SUMMARY);
+        assertThat(reversed.items()).hasSize(4).allSatisfy(row->assertThat(row)
+                .containsEntry("returnMode","sourceless").containsEntry("returnCostSource","average"));
+        assertThat(new BigDecimal(reversed.summary().get("amount").toString())).isEqualByComparingTo("0");
+        assertThat(new BigDecimal(reversed.summary().get("costAmount").toString())).isEqualByComparingTo("0");
+        var flow=report(actor,ReportType.INVENTORY_FLOW);
+        assertThat(flow.items().stream().filter(row->"sourceless".equals(row.get("returnMode"))).toList()).hasSize(4)
+                .allSatisfy(row->assertThat(row).containsEntry("returnCostSource","average"));
+        assertThat(flow.items()).anySatisfy(row->assertThat(row).containsEntry("sourceType","document_reversal").containsEntry("sourceId",Long.toString(reversal)));
+        assertThat(new BigDecimal(flow.summary().get("qty").toString())).isEqualByComparingTo("10");
+        assertThat(new BigDecimal(flow.summary().get("costAmount").toString())).isEqualByComparingTo("50");
+        for(var type:List.of(ReportType.INVENTORY_FLOW,ReportType.SALES_SUMMARY))
+            assertThat(report(without(d.maker,"cost:view"),type).items()).allSatisfy(row->assertThat(row).doesNotContainKeys("costAmount","returnCostSource"));
+        zeroDifferences();
+    }
+
+    @Test void serialTraceIdentifiesManualReturnCostAndReversalWithinCurrentScope() {
+        jdbc.update("UPDATE sku SET serial_managed=1 WHERE tenant_id=? AND id=?",d.tenant,d.sku);
+        long source=posted(List.of(tracked("1","passed",List.of("SN-METADATA"),"5")));
+        var actor=d.actor(d.maker);
+        assertThat(traceItems(actor,"SN-METADATA")).hasSize(1).allSatisfy(row->assertThat(row)
+                .containsEntry("sourceType","sales_return_line").containsEntry("returnMode","sourceless").containsEntry("returnCostSource","manual"));
+        long reversal=applyReversal("sales_return",source);approveReversal(reversal);postReversal(reversal);
+        assertThat(traceItems(actor,"SN-METADATA")).hasSize(2).allSatisfy(row->assertThat(row)
+                .containsEntry("returnMode","sourceless").containsEntry("returnCostSource","manual"));
+        assertThat(traceItems(without(d.maker,"cost:view"),"SN-METADATA")).hasSize(2)
+                .allSatisfy(row->assertThat(row).containsEntry("returnMode","sourceless").doesNotContainKey("returnCostSource"));
+        var otherWarehouse=new CompanyAccess(d.tenant,d.maker,d.company,false,Set.of(d.warehouse+1),actor.permissions());
+        assertThat(report(otherWarehouse,ReportType.INVENTORY_FLOW).items()).isEmpty();
+        code(()->trace.serial(otherWarehouse,d.sku,"SN-METADATA",null,20),"NOT_FOUND");
+        jdbc.update("UPDATE sales_return SET owner_department_id=? WHERE id=?",d.parentDepartment,source);
+        var child=new CompanyAccess(d.tenant,d.maker,d.company,true,Set.of(),actor.permissions(),OrgScope.restricted(Set.of(d.department),Set.of(),d.department));
+        assertThat(report(child,ReportType.INVENTORY_FLOW).items()).isEmpty();
+        code(()->trace.serial(child,d.sku,"SN-METADATA",null,20),"NOT_FOUND");
+        zeroDifferences();
+    }
+
+    @Test void zeroStockReturnReportsLastInboundCostAsItsFrozenSource() {
+        receive("1","5");stockAction("loss","1",null);
+        assertThat(value("SELECT qty FROM inventory_cost WHERE tenant_id=?",d.tenant)).isZero();
+        posted(List.of(line("1","10","0","passed",null,null)));
+        assertThat(report(d.actor(d.maker),ReportType.SALES_SUMMARY).items()).hasSize(1)
+                .allSatisfy(row->assertThat(row).containsEntry("returnMode","sourceless").containsEntry("returnCostSource","last_in").containsEntry("costAmount","-5.00"));
+        zeroDifferences();
+    }
+
+    private ReportService.Snapshot report(CompanyAccess actor,ReportType type) {
+        return reports.snapshot(actor,type,new ReportQuery(d.day,d.day,null,null,null,null,true));
+    }
+
+    @Test void costReconciliationFindsOffsettingReturnLineErrorsAndTheirReversalSources() {
+        receive("10","5");
+        long source=posted(List.of(line("2","10","0","passed",null,null),line("2","10","0","passed",null,null)));
+        var original=jdbc.queryForList("SELECT id,cost_delta FROM inventory_movement WHERE tenant_id=? AND source_type='sales_return_line' AND source_id=? ORDER BY id",d.tenant,source);
+        assertThat(original).hasSize(2);
+        assertOffsettingCostErrors(original,"入库成本");
+        long reversal=applyReversal("sales_return",source);approveReversal(reversal);postReversal(reversal);
+        var reverse=jdbc.queryForList("SELECT id,cost_delta FROM inventory_movement WHERE tenant_id=? AND source_type='document_reversal' AND source_id=? ORDER BY id",d.tenant,reversal);
+        assertThat(reverse).hasSize(2);
+        assertOffsettingCostErrors(reverse,"冲销成本");
+        zeroDifferences();
+    }
+
+    private void assertOffsettingCostErrors(List<Map<String,Object>> movements,String suffix) {
+        try {
+            for(int i=0;i<movements.size();i++) {
+                var movement=movements.get(i);var amount=(BigDecimal)movement.get("cost_delta");
+                jdbc.update("UPDATE inventory_movement SET cost_delta=? WHERE tenant_id=? AND id=?",amount.add(i==0?BigDecimal.ONE:BigDecimal.ONE.negate()),d.tenant,movement.get("id"));
+            }
+            assertThat(checks.check(d.actor(d.maker),"inventory_cost",null)).hasSize(2).allSatisfy(diff->{
+                assertThat(diff.key()).contains("/无原单退货/加权平均成本/").endsWith(suffix);
+                assertThat(diff.expected().subtract(diff.actual()).abs()).isEqualByComparingTo("1");
+            });
+        } finally {
+            for(var movement:movements)jdbc.update("UPDATE inventory_movement SET cost_delta=? WHERE tenant_id=? AND id=?",movement.get("cost_delta"),d.tenant,movement.get("id"));
+        }
+        assertThat(checks.check(d.actor(d.maker),"inventory_cost",null)).isEmpty();
+    }
+    @SuppressWarnings("unchecked") private List<Map<String,Object>> traceItems(CompanyAccess actor,String serial) {
+        return (List<Map<String,Object>>)trace.serial(actor,d.sku,serial,null,20).get("items");
     }
 
     @Test void rejectedSerialCannotBeShippedWhileAnotherReturnedSerialIsAvailable() {

@@ -19,6 +19,7 @@ import { formatDateTime } from '../utils/format'
 import BusinessUserSelect from '../components/BusinessUserSelect.vue'
 import FinancialAmount from '../components/FinancialAmount.vue'
 import StatusTag from '../components/StatusTag.vue'
+import SalesReturnSourceTag from '../components/sales/SalesReturnSourceTag.vue'
 const ProcurementSourceDrawer = defineAsyncComponent(
   () => import('../components/procurement/ProcurementSourceDrawer.vue'),
 )
@@ -701,16 +702,17 @@ watch(
             >{{ reportCell(field, row[field]) }}</router-link
           ><FinancialAmount
             v-else-if="invoiceAmount(field)"
-            :value="amountValue(row[field])"
-          /><StatusTag
+            :value="amountValue(row[field])" /><StatusTag
             v-else-if="field === 'invoicingStatus' && row[field]"
             :label="reportCell(field, row[field])"
             :tone="
               row[field] === 'partial' ? 'info' : row[field] === 'invoiced' ? 'success' : 'neutral'
-            "
-          /><span v-else>{{ reportCell(field, row[field]) }}</span></template
-        ></el-table-column
-      >
+            " /><span v-else>{{ reportCell(field, row[field]) }}</span
+          ><SalesReturnSourceTag
+            v-if="field === 'sourceNo'"
+            :mode="row.returnMode"
+            :cost-source="row.returnCostSource" /></template
+      ></el-table-column>
       <el-table-column
         label="追溯"
         min-width="100"

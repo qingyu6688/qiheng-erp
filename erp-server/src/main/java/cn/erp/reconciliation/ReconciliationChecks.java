@@ -29,7 +29,9 @@ public class ReconciliationChecks {
             }
             return periodChecks(scope,period,params);
         }
-        return jdbc.query(sql(type),params,(r,n)->new Difference(type,r.getString("object_key"),r.getBigDecimal("expected"),r.getBigDecimal("actual")));
+        var differences=new ArrayList<>(jdbc.query(sql(type),params,(r,n)->new Difference(type,r.getString("object_key"),r.getBigDecimal("expected"),r.getBigDecimal("actual"))));
+        if(type.equals("inventory_cost"))differences.addAll(new SourcelessReturnCostChecks(jdbc).check(scope));
+        return List.copyOf(differences);
     }
 
     private String sql(String type) {

@@ -4,6 +4,7 @@ import cn.erp.identity.CompanyAccess;
 import cn.erp.einvoice.InboundInvoiceReportData;
 import cn.erp.salesfinance.FinanceSupport;
 import cn.erp.shared.ApiException;
+import cn.erp.shared.SalesReturnSourceMetadata;
 import java.math.BigDecimal;
 import java.time.*;
 import java.util.*;
@@ -137,6 +138,7 @@ public class ReportService {
         if(type==ReportType.PARTNER_STATEMENT&&!customerStatement)new InboundInvoiceReportData(jdbc).annotateStatement(actor,query.dateTo(),raw);
         names(actor,raw);
         documentNumbers(actor,raw);
+        new SalesReturnSourceMetadata(jdbc).annotate(actor,raw);
         var agingBounds=agingReport?aging.bounds(actor):List.<Integer>of();
         if(agingReport) {for(var row:raw)agingBuckets(row,agingBounds);if(Set.of("business_user","department").contains(query.groupBy()))raw=groupAging(raw,query.groupBy());}
         var totals=new LinkedHashMap<String,BigDecimal>();var items=new ArrayList<Map<String,Object>>();

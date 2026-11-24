@@ -8,6 +8,16 @@ import tools.jackson.databind.json.JsonMapper;
 import static org.assertj.core.api.Assertions.*;
 
 class ExportCsvTest {
+    @Test void returnCsvShowsBusinessModeAndFrozenCostSourceOnlyWithCostPermission() {
+        var rows=List.<Map<String,Object>>of(Map.of("sourceNo","SR-1","returnMode","sourceless","returnCostSource","manual","costAmount","9007199254740991.12","costBasis",Map.of("内部依据","不得导出")));
+        var json=JsonMapper.builder().build();
+        String allowed=new String(ExportCsv.writeReport(ReportType.INVENTORY_FLOW,true,true,rows,json),StandardCharsets.UTF_8);
+        assertThat(allowed).contains("退货模式","无原单退货","退货成本来源","人工复核成本","'9007199254740991.12").doesNotContain("costBasis","不得导出");
+        String hidden=new String(ExportCsv.writeReport(ReportType.INVENTORY_FLOW,true,false,rows,json),StandardCharsets.UTF_8);
+        assertThat(hidden).contains("无原单退货").doesNotContain("退货成本来源","人工复核成本","9007199254740991.12","成本变动");
+        String original=new String(ExportCsv.writeReport(ReportType.SALES_SUMMARY,true,true,List.of(Map.of("returnMode","original")),json),StandardCharsets.UTF_8);
+        assertThat(original).contains("按原单退货");
+    }
     @Test void utf8BomQuotesFormulaGuardsAndExactDecimalTextSurviveExport() {
         var row=new LinkedHashMap<String,Object>();row.put("id","9223372036854775801");row.put("amount","1234567890123456789012.34");row.put("name","=HYPERLINK(\"外部地址\")");row.put("memo","  +SUM(1,2)\r\n中文");
         byte[] bytes=ExportCsv.write(List.of(row),JsonMapper.builder().build());
