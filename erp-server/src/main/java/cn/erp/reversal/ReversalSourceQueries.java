@@ -25,7 +25,23 @@ class ReversalSourceQueries {
         if(!scope.hasPermission(ManufacturingReversalPort.viewPermission(sourceType))) {throw new cn.erp.shared.ApiException(403,"FORBIDDEN","没有查看来源单据的权限");}
         boolean warehouse=Set.of("shipment","sales_return","goods_receipt","purchase_return","stock_adjustment","stock_misc_doc").contains(sourceType);
         if(warehouse&&!scope.allWarehouses()&&scope.warehouseIds().isEmpty()) {return page(List.of(),limit);}
-        String table=sourceType.equals("sales_price_adjustment")?"price_adjustment":sourceType;
+        // 标识符不能使用参数绑定，必须从固定表名中选择，不能把请求值拼入 SQL。
+        String table=switch(sourceType) {
+            case "shipment" -> "shipment";
+            case "sales_return" -> "sales_return";
+            case "goods_receipt" -> "goods_receipt";
+            case "purchase_return" -> "purchase_return";
+            case "receipt" -> "receipt";
+            case "payment" -> "payment";
+            case "account_transfer" -> "account_transfer";
+            case "stock_adjustment" -> "stock_adjustment";
+            case "stock_misc_doc" -> "stock_misc_doc";
+            case "mfg_issue_doc" -> "mfg_issue_doc";
+            case "mfg_receipt_doc" -> "mfg_receipt_doc";
+            case "price_adjustment", "sales_price_adjustment" -> "price_adjustment";
+            case "purchase_fee_doc" -> "purchase_fee_doc";
+            default -> throw invalid("来源类型或单号筛选无效");
+        };
         String number=NUMBERS.get(sourceType),states=sourceType.equals("shipment")?"'posted','signed','signed_with_diff'":Set.of("receipt","payment","account_transfer").contains(sourceType)?"'confirmed'":"'posted'";
         var args=new ArrayList<Object>(List.of(scope.tenantId(),scope.companyId(),before,keyword));
         String filter=cn.erp.shared.OrgOwnership.filter(scope,"d");
