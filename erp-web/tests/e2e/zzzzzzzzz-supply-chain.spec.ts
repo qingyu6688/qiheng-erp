@@ -162,7 +162,7 @@ test('M17 上架任务菜单读取当前仓库，库位仓作业模式默认关�
     .toBe('required')
 
   await page.locator('.nav-group a[href="/warehouse-work"]').click()
-  await expect(page.getByRole('heading', { name: '仓储作业', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '仓储作业', level: 1, exact: true })).toBeVisible()
   await expect(page.getByRole('tab', { name: '标签打印' })).toBeVisible()
   await expect(page.getByRole('tab', { name: '拣货', exact: true })).toBeVisible()
   await expect(page.getByRole('tab', { name: '波次' })).toBeVisible()
