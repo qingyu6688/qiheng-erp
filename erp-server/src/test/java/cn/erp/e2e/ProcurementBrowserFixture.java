@@ -33,6 +33,10 @@ public class ProcurementBrowserFixture {
         long supplier=Ids.next(),warehouse=Ids.next(),unit=Ids.next(),category=Ids.next(),product=Ids.next(),sku=Ids.next();
         jdbc.update("INSERT INTO business_partner(id,tenant_id,code,name) VALUES(?,?,'E2E-M5-SUPPLIER','采购验收供应商')",supplier,tenant);
         jdbc.update("INSERT INTO partner_role(id,tenant_id,partner_id,role,price_tax_inclusive) VALUES(?,?,?,'supplier',1)",Ids.next(),tenant,supplier);
+        // 进项核对与调价会新增应付，采购闭环使用独立供应商验证全部结清。
+        long flowSupplier=Ids.next();
+        jdbc.update("INSERT INTO business_partner(id,tenant_id,code,name) VALUES(?,?,'E2E-M5-FLOW-SUPPLIER','采购闭环验收供应商')",flowSupplier,tenant);
+        jdbc.update("INSERT INTO partner_role(id,tenant_id,partner_id,role,price_tax_inclusive) VALUES(?,?,?,'supplier',1)",Ids.next(),tenant,flowSupplier);
         jdbc.update("INSERT INTO warehouse(id,tenant_id,company_id,code,name) VALUES(?,?,?,'E2E-M5-WAREHOUSE','采购验收仓')",warehouse,tenant,company);
         jdbc.update("INSERT INTO unit(id,tenant_id,name) VALUES(?,?,'采购验收件')",unit,tenant);
         jdbc.update("INSERT INTO product_category(id,tenant_id,code,name,path) VALUES(?,?,'E2E-M5-CATEGORY','采购验收分类','/')",category,tenant);
