@@ -65,6 +65,10 @@ public class SalesBrowserFixture {
         jdbc.update("INSERT INTO warehouse(id,tenant_id,company_id,code,name) VALUES(?,?,?,'E2E-WAREHOUSE','验收销售仓')",warehouse,tenant,company);
         jdbc.update("INSERT INTO business_partner(id,tenant_id,code,name) VALUES(?,?,'E2E-CUSTOMER','验收销售客户')",customer,tenant);
         jdbc.update("INSERT INTO partner_role(id,tenant_id,partner_id,role,price_tax_inclusive) VALUES(?,?,?,'customer',1)",Ids.next(),tenant,customer);
+        // 调价等用例会留下未核销往来，销售闭环的结清断言使用独立客户。
+        long flowCustomer=Ids.next();
+        jdbc.update("INSERT INTO business_partner(id,tenant_id,code,name) VALUES(?,?,'E2E-SALES-FLOW-CUSTOMER','销售闭环验收客户')",flowCustomer,tenant);
+        jdbc.update("INSERT INTO partner_role(id,tenant_id,partner_id,role,price_tax_inclusive) VALUES(?,?,?,'customer',1)",Ids.next(),tenant,flowCustomer);
         jdbc.update("INSERT INTO unit(id,tenant_id,name) VALUES(?,?,'验收件')",unit,tenant);
         jdbc.update("INSERT INTO product_category(id,tenant_id,code,name,path) VALUES(?,?,'E2E-CATEGORY','验收分类','/E2E-CATEGORY')",category,tenant);
         jdbc.update("INSERT INTO product(id,tenant_id,category_id,code,name,base_unit_id) VALUES(?,?,?,'E2E-PRODUCT','验收商品',?)",product,tenant,category,unit);

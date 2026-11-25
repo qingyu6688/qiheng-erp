@@ -93,7 +93,7 @@ async function allocate(page: Page, amount: string, creditAmount: string): Promi
   await columns.debits.locator('.el-radio').first().click()
   await columns.credits
     .locator('.el-radio')
-    .filter({ hasText: new RegExp('未核销 ' + creditAmount.replace('.', '\\.') + '$') })
+    .filter({ hasText: new RegExp('未核销 ' + creditAmount.replace('.', '\\.') + '(?: · 到期 |$)') })
     .click()
   await page.locator('#settlement-amount').fill(amount)
   await page.getByRole('button', { name: '确认核销', exact: true }).click()
