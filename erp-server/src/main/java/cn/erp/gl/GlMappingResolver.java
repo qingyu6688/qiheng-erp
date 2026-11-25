@@ -21,6 +21,8 @@ class GlMappingResolver {
                     "shipment_post",
                     "shipment_diff",
                     "sales_return",
+                    "sales_price_adjustment",
+                    "cost_revaluation",
                     "goods_receipt",
                     "purchase_return",
                     "receipt",
@@ -68,7 +70,8 @@ class GlMappingResolver {
             if (!account.isEmpty())
                 context.put("cashAccountType", account.getFirst().get("account_type").toString());
         }
-        String table = source.startsWith("shipment_") ? "shipment" : source;
+        String table = source.equals("sales_price_adjustment") ? "price_adjustment"
+                : source.startsWith("shipment_") ? "shipment" : source;
         if (SOURCES.contains(source)) {
             var rows =
                     s.jdbc.queryForList(

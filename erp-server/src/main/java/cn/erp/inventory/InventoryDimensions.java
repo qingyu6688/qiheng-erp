@@ -20,8 +20,9 @@ class InventoryDimensions {
     private static final ZoneId ZONE=ZoneId.of("Asia/Shanghai");
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
+    private final InventorySerialHolds serialHolds;
 
-    InventoryDimensions(JdbcTemplate jdbc,ObjectMapper json) {this.jdbc=jdbc;this.json=json;}
+    InventoryDimensions(JdbcTemplate jdbc,ObjectMapper json) {this.jdbc=jdbc;this.json=json;this.serialHolds=new InventorySerialHolds(jdbc);}
 
     record Config(boolean batch,boolean serial,int shelf,String strategy,boolean location,Long receiving,Long shipping,String taskMode) {
         boolean tracked(){return batch||serial||location;}
@@ -143,7 +144,7 @@ class InventoryDimensions {
         if(place!=null)location(actor,key,cfg.location(),place);
         var serials=serials(cfg,input,qty,false);
         var selected=pick(actor,posting,qty,cfg,batch,place,hold,includeOwnPick,serials,preview);
-        if(serials.isEmpty()&&cfg.serial())serials=availableSerials(actor,key,selected,qty,preview);
+        if(serials.isEmpty()&&cfg.serial())serials=availableSerials(actor,key,selected,qty,preview,hold);
         return new Pick(selected,serials);
     }
 
@@ -238,18 +239,18 @@ class InventoryDimensions {
             if(found==null || !Objects.equals(asLong(found.get("batch_id")),at.batch()) || !at.location().equals(found.get("location_key"))
                     || ((Number)found.get("warehouse_id")).longValue()!=key.warehouseId()
                     || !Set.of("in_stock","returned","reserved","quality_hold").contains(found.get("status"))
-                    || "quality_hold".equals(found.get("status"))&&!"quality_hold".equals(hold)
+                    || !serialHolds.allowed(actor,found,hold)
                     || "reserved".equals(found.get("status"))&&!ownPick)return false;
         }
         return true;
     }
 
-    private List<String> availableSerials(CompanyAccess actor,Key key,Coordinates at,BigDecimal qty,PickPreview preview) {
+    private List<String> availableSerials(CompanyAccess actor,Key key,Coordinates at,BigDecimal qty,PickPreview preview,String hold) {
         var excluded=preview==null?Set.<String>of():preview.serials(key);
         var rows=jdbc.queryForList("""
-                SELECT serial_no FROM inv_serial WHERE tenant_id=? AND company_id=? AND warehouse_id=? AND sku_id=?
-                  AND batch_id<=>? AND location_key=? AND status IN('in_stock','returned') ORDER BY id LIMIT ?
-                """+(preview==null?" FOR UPDATE":""),String.class,actor.tenantId(),actor.companyId(),key.warehouseId(),key.skuId(),
+                SELECT serial_no FROM inv_serial s WHERE tenant_id=? AND company_id=? AND warehouse_id=? AND sku_id=?
+                  AND batch_id<=>? AND location_key=? AND
+                """+InventorySerialHolds.available("s",hold)+" ORDER BY "+(hold==null?"":"CASE WHEN s.status='quality_hold' THEN 0 ELSE 1 END,")+"id LIMIT ?"+(preview==null?" FOR UPDATE":""),String.class,actor.tenantId(),actor.companyId(),key.warehouseId(),key.skuId(),
                 at.batch(),at.location(),qty.intValueExact()+excluded.size()).stream().filter(code->!excluded.contains(code))
                 .limit(qty.intValueExact()).toList();
         if(rows.size()!=qty.intValueExact())throw insufficient();
@@ -377,7 +378,8 @@ class InventoryDimensions {
         for(String code:pick.serials()){
             var old=serialRow(actor,key.skuId(),code,true);
             String prior=old==null?null:(String)old.get("status");
-            String state=inbound?("quality_hold".equals(hold)?"quality_hold":prior!=null&&prior.equals("shipped")?"returned":"in_stock"):
+            boolean qualityHold="quality_hold".equals(hold) || "sales_reject".equals(hold) && serialHolds.managedRejection(actor,posting.source());
+            String state=inbound?(qualityHold?"quality_hold":prior!=null&&prior.equals("shipped")?"returned":"in_stock"):
                     switch(posting.movementType()){
                         case "scrap" -> "scrapped";
                         case "transfer_out" -> "in_transit";
@@ -397,7 +399,7 @@ class InventoryDimensions {
                         ||"shipped".equals(prior)&&Set.of("sales_return_in","sales_reject_in","stock_misc_return_in","mfg_return_in").contains(posting.movementType())
                         ||"supplier_returned".equals(prior)&&"purchase_in".equals(posting.movementType())))throw serialConflict();
                 if(!inbound&&(!Set.of("in_stock","returned","reserved","quality_hold").contains(prior)
-                        ||"quality_hold".equals(prior)&&!"quality_hold".equals(hold)
+                        ||!serialHolds.allowed(actor,old,hold)
                         ||!Objects.equals(asLong(old.get("batch_id")),at.batch())||!Objects.equals(old.get("location_key"),at.location())
                         ||((Number)old.get("warehouse_id")).longValue()!=key.warehouseId()))throw serialConflict();
                 jdbc.update("UPDATE inv_serial SET batch_id=?,warehouse_id=?,location_key=?,status=?,last_movement_id=?,version=version+1 WHERE id=?",
@@ -430,17 +432,22 @@ class InventoryDimensions {
         }
     }
 
-    void releaseSerials(CompanyAccess actor,Posting posting,Source original,BigDecimal quantity,long movement) {
-        if(!config(actor,posting.key()).serial())return;
+    List<String> releaseSerials(CompanyAccess actor,Posting posting,Source original,String reason,BigDecimal quantity,long movement,List<String> selected) {
+        if(!config(actor,posting.key()).serial())return List.of();
+        if("sales_reject".equals(reason) && !serialHolds.managedRejection(actor,original)) return List.of();
         if(quantity.stripTrailingZeros().scale()>0)throw invalid("质检释放的序列号数量必须为整数");
-        var serials=sourceSerials(actor,original,List.of("quality_hold"));
+        // 同一序列号可能已发出并再次退回，只能释放当前仍属于该入库来源的身份。
+        var serials=sourceSerials(actor,original,List.of("quality_hold"),true).stream()
+                .filter(code->selected.isEmpty() || selected.contains(code)).toList();
         if(serials.size()<quantity.intValueExact())throw serialConflict();
-        for(String code:serials.subList(0,quantity.intValueExact())){
+        var released=serials.subList(0,quantity.intValueExact());
+        for(String code:released){
             var row=serialRow(actor,posting.key().skuId(),code,true);
             if(row==null||!"quality_hold".equals(row.get("status")))throw serialConflict();
             jdbc.update("UPDATE inv_serial SET status='in_stock',last_movement_id=?,version=version+1 WHERE id=?",movement,row.get("id"));
             linkSerial(actor,movement,asLong(row.get("id")),"quality_hold","in_stock",row.get("last_movement_id"));
         }
+        return List.copyOf(released);
     }
 
     List<String> sourceSerials(CompanyAccess actor,Source source,List<String> statuses) {
@@ -512,10 +519,32 @@ class InventoryDimensions {
     }
 
     List<HoldChange> consumeHold(CompanyAccess actor,Key key,Coordinates at,String reason,Source exact,BigDecimal qty) {
+        return consumeHold(actor,key,at,reason,exact,qty,false);
+    }
+
+    List<HoldChange> consumeSelectedHolds(CompanyAccess actor,Key key,Pick pick,String reason,Source exact,BigDecimal qty) {
+        if(pick.serials().isEmpty()) return consumeHold(actor,key,pick.at(),reason,exact,qty);
+        var selected=serialHolds.selected(actor,key,pick.at(),pick.serials(),reason,exact);
+        var result=new ArrayList<HoldChange>();var remaining=qty;
+        for(var entry:selected.entrySet()) {
+            var origin=entry.getKey();
+            result.addAll(consumeHold(actor,key,pick.at(),origin.reason(),origin.source(),entry.getValue()));
+            remaining=remaining.subtract(entry.getValue());
+        }
+        if(remaining.signum()<0)throw serialConflict();
+        // 显式选择的普通序列号不能消费另一件拒收商品的冻结量。
+        if(remaining.signum()>0) result.addAll(consumeHold(actor,key,pick.at(),reason,exact,remaining,true));
+        return result;
+    }
+
+    private List<HoldChange> consumeHold(CompanyAccess actor,Key key,Coordinates at,String reason,Source exact,BigDecimal qty,boolean excludeRejected) {
         long id=physicalId(actor,key,at,false);
         var args=new ArrayList<Object>(List.of(actor.tenantId(),actor.companyId(),id));
         String extra="";
         if(reason!=null){extra+=" AND reason=?";args.add(reason);}else extra+=" AND reason IN('legacy','manual','sales_reject')";
+        if(excludeRejected && reason==null)extra+=" AND (reason<>'sales_reject' OR source_type<>'sales_return_line' OR NOT EXISTS(SELECT 1 FROM sales_return rejected_source"
+                +" WHERE rejected_source.tenant_id=inv_block_detail.tenant_id AND rejected_source.company_id=inv_block_detail.company_id"
+                +" AND rejected_source.id=inv_block_detail.source_id AND rejected_source.return_mode='sourceless'))";
         if(exact!=null){extra+=" AND source_type=? AND source_id=? AND source_line_id=?";args.add(exact.type());args.add(exact.id());args.add(exact.lineId());}
         var holds=jdbc.queryForList("SELECT reason,source_type,source_id,source_line_id,qty FROM inv_block_detail WHERE tenant_id=? AND company_id=? AND balance_id=? AND qty>0"+extra+" ORDER BY reason,source_type,source_id,source_line_id FOR UPDATE",args.toArray());
         var remaining=qty;

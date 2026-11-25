@@ -213,6 +213,7 @@ public class GlQueryService {
                                 + " 10001",
                         args.toArray());
         if (all.size() > 10000) throw invalid("明细超过10000行，请缩小期间或科目范围");
+        new SalesReturnSourceMetadata(s.jdbc).annotate(a,all);
         BigDecimal opening = BigDecimal.ZERO;
         var subjects = subjects(a);
         for (var b : balances.snapshot(a, r.from(), r.to(), false))
@@ -260,7 +261,12 @@ public class GlQueryService {
                                                     "word",
                                                     "number",
                                                     "sourceType",
-                                                    "sourceId")) out.put(field, line.get(field));
+                                                    "sourceId",
+                                                    "sourceNo",
+                                                    "returnMode",
+                                                    "returnSourceId",
+                                                    "returnSourceNo",
+                                                    "refundMode")) if(line.containsKey(field))out.put(field, line.get(field));
                                     out.put("debit", BigDecimal.ZERO);
                                     out.put("credit", BigDecimal.ZERO);
                                     out.put("columns", new TreeMap<String, BigDecimal>());

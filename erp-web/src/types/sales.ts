@@ -1,3 +1,10 @@
+import type {
+  RefundCreditItem,
+  RefundMode,
+  ReturnCostBasis,
+  SalesReturnMode,
+} from './sourceless-returns'
+
 export type SalesKind =
   | 'sales-orders'
   | 'shipments'
@@ -53,6 +60,10 @@ export interface SalesLine {
   receivableAmount?: string
   taxAmount?: string
   costAmount?: string
+  unitCost?: string
+  manualUnitCost?: string | null
+  manualCostReason?: string | null
+  costBasis?: ReturnCostBasis | null
   signedQty?: string
   diffQty?: string
   diffDisposition?: string
@@ -71,6 +82,18 @@ export interface SalesLine {
   [key: string]: unknown
 }
 export interface SalesDocument {
+  priceSources?: import('./purchase-pricing').PurchasePriceSource[]
+  creditItemIds?: string[]
+  creditSources?: RefundCreditItem[]
+  returnMode?: SalesReturnMode
+  refundMode?: RefundMode
+  legacyReference?: string | null
+  costAmount?: string
+  wfInstanceId?: string
+  termType?: 'days' | 'monthly' | null
+  termValue?: number | null
+  termOverride?: boolean | number
+  dueDate?: string | null
   extJson?: import('../api/platform-rules').FieldValues
   workflowInstanceId?: string
   workflowStatus?: string
@@ -92,7 +115,7 @@ export interface SalesDocument {
   warehouseId?: string
   warehouse?: SalesRef
   cashAccountId?: string
-  originalReceiptId?: string
+  originalReceiptId?: string | null
   businessDate?: string
   invoiceDate?: string
   invoiceNo?: string
@@ -180,6 +203,7 @@ export const actionLabels: Record<string, string> = {
 export const statusLabels: Record<string, string> = {
   draft: '草稿',
   pending: '待审核',
+  rejected: '已驳回',
   approved: '已批准',
   change_pending: '变更待审核',
   closed: '已关闭',
@@ -214,7 +238,16 @@ export const salesStatuses: Record<SalesKind, string[]> = {
   'sales-orders': ['draft', 'pending', 'approved', 'change_pending', 'closed', 'cancelled'],
   shipments: ['draft', 'submitted', 'posted', 'signed_with_diff', 'signed', 'voided', 'reversed'],
   receipts: ['draft', 'pending_confirm', 'confirmed', 'reversed'],
-  'sales-returns': ['draft', 'submitted', 'posted', 'voided', 'reversed'],
+  'sales-returns': [
+    'draft',
+    'submitted',
+    'pending',
+    'approved',
+    'rejected',
+    'posted',
+    'voided',
+    'reversed',
+  ],
   'refund-requests': ['draft', 'pending_review', 'pending_payment', 'refunded', 'cancelled'],
   'invoice-registrations': ['registered', 'voided'],
 }

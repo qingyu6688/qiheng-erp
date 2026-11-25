@@ -27,6 +27,7 @@ import static org.assertj.core.api.Assertions.*;
 class ReportIT {
     @Autowired JdbcTemplate jdbc;
     @Autowired ReportService reports;
+    @Autowired DashboardReportSources dashboardSources;
     @Autowired ReportReadDatabase database;
     @Autowired StringRedisTemplate redis;
     @Autowired ObjectMapper json;
@@ -167,6 +168,20 @@ class ReportIT {
         var cash=snapshot(ReportType.CASH_JOURNAL);assertNumber(cash.summary(),"openingBalance","100");assertNumber(cash.summary(),"paymentAmount","20");assertNumber(cash.summary(),"closingBalance","80");
         var statement=snapshot(ReportType.PARTNER_STATEMENT);assertNumber(statement.summary(),"openingBalance","-100");assertNumber(statement.summary(),"debitAmount","20");assertNumber(statement.summary(),"closingBalance","-80");
     }
+    @Test void dueDateBasisAndDashboardExcludeUnspecifiedTerms() {
+        var scope=actor();var cutoff=LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+        jdbc.update("UPDATE receivable SET due_date=NULL WHERE tenant_id=70101 AND company_id=70201");
+        assertThat(dashboardSources.receivables(scope,cutoff,List.of(30,60,90)).value().overdue()).isEqualByComparingTo("0");
+        var dueQuery=new ReportQuery(FROM,TO,null,null,null,null,false,false,null,null,null,"due");
+        assertThat(reports.snapshot(scope,ReportType.RECEIVABLE_AGING,dueQuery).items()).isEmpty();
+        jdbc.update("UPDATE receivable SET business_date=?,due_date=? WHERE id=72401",cutoff.minusDays(31),cutoff.minusDays(1));
+        var due=reports.snapshot(scope,ReportType.RECEIVABLE_AGING,dueQuery);
+        assertThat(due.items()).singleElement().satisfies(row->assertThat(row).containsEntry("ageDays",1).containsEntry("overdueDays",1).containsEntry("dueDate",cutoff.minusDays(1).toString()));
+        assertThat(dashboardSources.receivables(scope,cutoff,List.of(30,60,90)).value().overdue()).isEqualByComparingTo("90");
+        jdbc.update("UPDATE receivable SET due_date=? WHERE id=72401",cutoff.plusDays(1));
+        assertThat(dashboardSources.receivables(scope,cutoff,List.of(30,60,90)).value().overdue()).isEqualByComparingTo("0");
+    }
+
     @Test void permissionsScopeCostVisibilityPaginationAndDateLimitsAreEnforced() {
         var noCost=new HashSet<>(permissions);noCost.remove("cost:view");var actor=new CompanyAccess(70101,1,70201,false,Set.of(70301L),noCost);
         assertThat(reports.snapshot(actor,ReportType.SALES_SUMMARY,query()).items()).allSatisfy(row->assertThat(row.keySet()).noneMatch(k->k.toLowerCase().contains("cost")||k.toLowerCase().contains("margin")));

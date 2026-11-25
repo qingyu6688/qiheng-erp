@@ -63,7 +63,12 @@ public class WorkflowDocuments {
                 || priceApproval && !actor.hasPermission("sales_order:price_approve")) return null;
         if(creditApproval&&!creditEligible(actor))return null;
         try {
+            if (review && Set.of("price_adjustment","purchase_fee_doc","cost_revaluation").contains(type)) FinancialScope.require(actor, type+":approve");
+            if (review && type.equals("sales_price_adjustment") && (!actor.allWarehouses()||!actor.orgScope().allDepartments())) return null;
+            if (review && type.equals("sales_return") && !actor.hasPermission("cost:view")) return null;
             var source = snapshot(actor, type, id);
+            if(review && type.equals("purchase_order") && Boolean.TRUE.equals(source.get("purchasePriceApprovalRequired"))
+                    && (!actor.hasPermission("cost:view") || number(source.get("createdBy"))==user))return null;
             if (review
                     && separate(tenant, company, type)
                     && (number(source.get("createdBy")) == user
@@ -141,4 +146,6 @@ public class WorkflowDocuments {
     static ApiException missing() {
         return new ApiException(404, "NOT_FOUND", "流程不存在或不在当前权限范围");
     }
+
+    static String table(String type) { return SystemWorkflowPlan.sourceTable(type); }
 }

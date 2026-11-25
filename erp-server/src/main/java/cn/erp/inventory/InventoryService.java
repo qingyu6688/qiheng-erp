@@ -17,6 +17,8 @@ public class InventoryService {
     private static final Set<String> INBOUND=Set.of("opening_in","purchase_in","sales_return_in","sales_reject_in","transfer_in","count_gain","adjust_in","stock_misc_in","stock_misc_return_in","mfg_return_in","mfg_receipt_in");
     private static final Set<String> OUTBOUND=Set.of("sales_out","transfer_out","count_loss","adjust_out","scrap","purchase_return_out","stock_misc_out","mfg_issue_out");
     private static final Set<String> DOCUMENT_LINES=Set.of("shipment_line","goods_receipt_line","purchase_return_line","sales_return_line","stock_misc_line","mfg_issue_line","mfg_receipt_line");
+    private static final int MAX_INBOUND_LINES=500;
+    private record InboundTotal(BigDecimal quantity,BigDecimal cost) {}
     private final InventoryStore store;
     private final JdbcTemplate jdbc;
     private final ReservationService reservations;
@@ -38,6 +40,30 @@ public class InventoryService {
 
     public CostResult receive(CompanyAccess scope,Posting posting,BigDecimal quantity,BigDecimal cost) {
         return receive(scope,posting,quantity,cost,null,null,null);
+    }
+
+    /** 同一单据的多行分币入库，最近入库成本按同仓SKU整组计算；每行仍执行完整追溯及冻结校验。 */
+    public List<CostResult> receiveBatch(CompanyAccess scope,List<Inbound> lines) {
+        if(lines==null || lines.isEmpty() || lines.size()>MAX_INBOUND_LINES
+                || lines.stream().anyMatch(line->line==null || line.posting()==null || line.posting().key()==null || line.posting().source()==null))
+            throw invalid("批量入库明细须在1到500行之间");
+        var first=lines.getFirst().posting();
+        for(var line:lines) {
+            var posting=line.posting();InventoryNumbers.quantity(line.quantity());InventoryNumbers.money(line.cost());
+            if(!Objects.equals(posting.source().type(),first.source().type()) || posting.source().id()!=first.source().id()
+                    || !Objects.equals(posting.businessDate(),first.businessDate()) || posting.periodId()!=first.periodId())
+                throw invalid("批量入库必须属于同一单据、业务日期和期间");
+        }
+        lockKeys(scope,lines.stream().map(line->line.posting().key()).toList());
+        var totals=new LinkedHashMap<Key,InboundTotal>();var result=new ArrayList<CostResult>();
+        for(var line:lines) {
+            result.add(receive(scope,line.posting(),line.quantity(),line.cost(),line.selection(),line.blockingReason()));
+            totals.merge(line.posting().key(),new InboundTotal(line.quantity(),line.cost()),
+                    (before,added)->new InboundTotal(before.quantity().add(added.quantity()),before.cost().add(added.cost())));
+        }
+        for(var entry:totals.entrySet()) jdbc.update("UPDATE inventory_cost SET last_in_unit_cost=?,version=version+1 WHERE tenant_id=? AND company_id=? AND warehouse_id=? AND sku_id=?",
+                InventoryNumbers.average(entry.getValue().quantity(),entry.getValue().cost()),scope.tenantId(),scope.companyId(),entry.getKey().warehouseId(),entry.getKey().skuId());
+        return List.copyOf(result);
     }
 
     public CostResult receive(CompanyAccess scope,Posting posting,BigDecimal quantity,BigDecimal cost,StockSelection selection,String blockingReason) {
@@ -127,7 +153,7 @@ public class InventoryService {
         if(hold==null&&scrap)hold=expired(scope,posting.key(),selection)?"expired":"ordinary";
         var allocated=posting.movementType().equals("sales_out")?shipmentPick(scope,posting.source().lineId()):null;
         var pick=dimensions.outgoing(scope,posting,quantity,allocated==null?selection:allocated,hold,allocated!=null);
-        var changes=consumeBlocked?dimensions.consumeHold(scope,posting.key(),pick.at(),"ordinary".equals(hold)?null:hold,held,quantity):
+        var changes=consumeBlocked?dimensions.consumeSelectedHolds(scope,posting.key(),pick,"ordinary".equals(hold)?null:hold,held,quantity):
                 List.<InventoryDimensions.HoldChange>of();
         int changed=jdbc.update("""
                 UPDATE inventory_balance SET on_hand_qty=on_hand_qty-?,reserved_qty=reserved_qty-?,
@@ -345,8 +371,9 @@ public class InventoryService {
         var at=dimensions.explicit(scope,posting.key(),selection);
         if(frozen)dimensions.requireUnpicked(scope,posting.key(),at,quantity);
         String hold=reason==null?"manual":reason;
+        var selected=frozen?List.<String>of():dimensions.serials(dimensions.config(scope,posting.key()),selection,quantity,false);
         var changes=frozen?List.of(new InventoryDimensions.HoldChange(hold,posting.source(),quantity)):
-                dimensions.consumeHold(scope,posting.key(),at,reason,exact,quantity);
+                dimensions.consumeSelectedHolds(scope,posting.key(),new InventoryDimensions.Pick(at,selected),reason,exact,quantity);
         BigDecimal delta=frozen?quantity:quantity.negate();
         int changed=jdbc.update("""
                 UPDATE inventory_balance SET blocked_qty=blocked_qty+?,version=version+1
@@ -358,8 +385,10 @@ public class InventoryService {
         if(frozen)dimensions.addHold(scope,posting.key(),at,hold,posting.source(),quantity);
         long movement=movement(scope,posting,at,BigDecimal.ZERO,delta,null,BigDecimal.ZERO);
         dimensions.recordHolds(scope,movement,changes);
-        writePostedSelection(scope,posting,new InventoryDimensions.Pick(at,List.of()));
-        if(!frozen&&exact!=null&&"quality_hold".equals(reason))dimensions.releaseSerials(scope,posting,exact,quantity,movement);
+        var released=new ArrayList<String>();
+        if(!frozen) for(var change:changes) if(Set.of("quality_hold","sales_reject").contains(change.reason()))
+            released.addAll(dimensions.releaseSerials(scope,posting,change.source(),change.reason(),change.delta().abs(),movement,selected));
+        writePostedSelection(scope,posting,new InventoryDimensions.Pick(at,released));
     }
 
     @Transactional(readOnly=true)
@@ -431,6 +460,72 @@ public class InventoryService {
     public void changed(CompanyAccess scope,List<Key> keys) {
         if (!keys.isEmpty()) events.publishEvent(new cn.erp.shared.InventoryBalanceChanged(scope.tenantId(),scope.companyId(),
                 keys.stream().map(Key::skuId).distinct().sorted().toList()));
+    }
+
+    /** 只追加采购成本调整；已出库差异单独记账，不改变当前库存成本。 */
+    public void purchasePriceCost(CompanyAccess scope,Posting posting,BigDecimal stock,BigDecimal issued) {
+        cn.erp.shared.FinancialScope.require(scope,"cost:view");
+        if(!"price_adjustment_cost".equals(posting.source().type())) throw invalid("采购成本调整来源无效");
+        supplementalCost(scope,posting,stock,issued,"purchase_price");
+    }
+
+    @Transactional(propagation=org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void purchaseFeeCost(CompanyAccess scope,Posting posting,BigDecimal stock,BigDecimal issued) {
+        if(stock==null||issued==null||stock.signum()<0||issued.signum()<0) throw invalid("采购费用成本不能为负");
+        if("purchase_fee_cost".equals(posting.source().type())) {
+            cn.erp.shared.FinancialScope.require(scope,"cost:view");
+        } else if("goods_receipt_fee".equals(posting.source().type())) {
+            // 自动费用只承接当前收货事务中尚未对外可见的入库成本。
+            var sources=jdbc.queryForList("SELECT h.* FROM purchase_fee_cost c JOIN purchase_fee_allocation a"
+                    +" ON a.tenant_id=c.tenant_id AND a.company_id=c.company_id AND a.document_id=c.document_id AND a.id=c.allocation_id"
+                    +" JOIN goods_receipt_line l ON l.tenant_id=a.tenant_id AND l.company_id=a.company_id AND l.id=a.receipt_line_id"
+                    +" JOIN goods_receipt h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.receipt_id"
+                    +" WHERE c.tenant_id=? AND c.company_id=? AND c.id=? AND h.id=? AND h.status='submitted' AND h.posted_at IS NULL"
+                    +" AND c.warehouse_id=? AND c.sku_id=? AND c.stock_amount=? AND c.issued_amount=0 FOR UPDATE",
+                    scope.tenantId(),scope.companyId(),posting.source().lineId(),posting.source().id(),posting.key().warehouseId(),posting.key().skuId(),stock);
+            if(sources.isEmpty()||issued.signum()!=0||!scope.hasPermission("goods_receipt:post")||!scope.allowsWarehouse(posting.key().warehouseId()))
+                throw new ApiException(403,"FORBIDDEN","自动费用必须随当前收货事务处理");
+            cn.erp.shared.OrgOwnership.require(scope,sources.getFirst());
+        } else throw invalid("采购费用成本来源无效");
+        supplementalCost(scope,posting,stock,issued,"purchase_fee");
+    }
+
+    private void supplementalCost(CompanyAccess scope,Posting posting,BigDecimal stock,BigDecimal issued,String type) {
+        store.lockPeriod(scope,posting);
+        if(stock.signum()!=0) {
+            var current=store.lockCost(scope,posting.key());
+            var next=decimal(current,"total_cost").add(stock);
+            if(decimal(current,"qty").signum()<=0||next.signum()<0)
+                throw new ApiException(422,"PURCHASE_COST_STOCK_CHANGED","库存已变化，无法承接本次成本调整，请刷新后重试");
+            InventoryNumbers.money(next);
+            jdbc.update("UPDATE inventory_cost SET total_cost=?,version=version+1 WHERE id=?",next,current.get("id"));
+            adjustment(scope,posting,type+"_stock",stock);
+            changed(scope,List.of(posting.key()));
+        }
+        if(issued.signum()!=0) adjustment(scope,posting,type+"_issued",issued);
+    }
+
+    public record RevaluationChange(long lineId,BigDecimal amount) {}
+
+    /** 整笔应用净差额，逐行保留成本归属，避免零库存的正负抵消过程产生临时非法余额。 */
+    @Transactional(propagation=org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void revalueCost(CompanyAccess scope,Posting posting,List<RevaluationChange> changes) {
+        cn.erp.shared.FinancialScope.require(scope,"cost_revaluation:post");
+        if (!"cost_revaluation".equals(posting.source().type()) || changes==null || changes.isEmpty()
+                || changes.stream().anyMatch(change->change==null || change.lineId()<=0 || change.amount()==null || change.amount().signum()==0))
+            throw invalid("成本重估来源或差额无效");
+        store.lockPeriod(scope,posting);
+        lockKeys(scope,List.of(posting.key()));
+        var current=store.lockCost(scope,posting.key());
+        BigDecimal delta=changes.stream().map(RevaluationChange::amount).reduce(BigDecimal.ZERO,BigDecimal::add);
+        BigDecimal next=decimal(current,"total_cost").add(delta);
+        if (next.signum()<0 || decimal(current,"qty").signum()==0 && next.signum()!=0)
+            throw new ApiException(409,"COST_REPLAY_MISMATCH","重估后库存成本无效，请重新检查差异");
+        InventoryNumbers.money(next);
+        jdbc.update("UPDATE inventory_cost SET total_cost=?,version=version+1 WHERE id=?",next,current.get("id"));
+        for(var change:changes) adjustment(scope,new Posting(posting.key(),new Source("cost_revaluation",posting.source().id(),change.lineId()),
+                posting.businessDate(),posting.periodId(),posting.movementType()),"revaluation",change.amount());
+        changed(scope,List.of(posting.key()));
     }
 
     private void adjustment(CompanyAccess scope,Posting p,String type,BigDecimal amount) {

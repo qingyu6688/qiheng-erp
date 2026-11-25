@@ -22,7 +22,7 @@ input,
 textarea,
 select {
   border: 1px solid #bac7d9;
-  border-radius: 6px;
+  border-radius: var(--erp-radius);
   padding: 7px 12px;
   background: white;
   color: #192536;
@@ -76,7 +76,7 @@ button:disabled {
 .portal-panel {
   border: 1px solid #dfe7f2;
   background: #fff;
-  border-radius: 10px;
+  border-radius: var(--erp-radius-card);
   padding: 20px;
 }
 .portal-nav {
@@ -97,7 +97,7 @@ button:disabled {
 .portal-nav .router-link-exact-active {
   background: #dfeaff;
   color: #174692;
-  border-radius: 6px;
+  border-radius: var(--erp-radius);
   font-weight: 700;
 }
 .portal-form {
@@ -121,7 +121,7 @@ button:disabled {
   color: #a62926;
   background: #fff2f1;
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: var(--erp-radius);
 }
 .portal-table {
   width: 100%;

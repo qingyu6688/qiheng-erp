@@ -45,13 +45,68 @@ export const router = createRouter({
       path: '/',
       component: () => import('../components/AppShell.vue'),
       children: [
+        {
+          path: 'sales-quotes/:id?', name: 'sales-quotes', component: () => import('../pages/SalesQuotePage.vue'),
+          meta: { company: true, title: '销售报价', permission: 'sales_quote:view' },
+        },
+        {
+          path: 'purchase-price-lists', name: 'purchase-price-lists', component: () => import('../pages/crm/PriceListsPage.vue'),
+          props: { purchase: true }, meta: { company: true, title: '采购价格表', permission: 'purchase_price_list:view', allPermissions: ['cost:view'] },
+        },
+        {
+          path: 'cost-revaluations/:id?',
+          name: 'cost-revaluations',
+          component: () => import('../pages/CostRevaluationPage.vue'),
+          meta: { company: true, title: '成本重估', permission: 'cost_revaluation:view', allPermissions: ['cost:view'] },
+        },
+        {
+          path: 'purchase-fee-documents/:id?',
+          name: 'purchase-fee-documents',
+          component: () => import('../pages/PurchaseFeePage.vue'),
+          meta: {
+            company: true,
+            title: '采购费用',
+            permission: 'purchase_fee_doc:view',
+            allPermissions: ['cost:view', 'goods_receipt:view'],
+          },
+        },
+        {
+          path: 'purchase-price-adjustments/:id?',
+          name: 'purchase-price-adjustments',
+          component: () => import('../pages/PurchasePriceAdjustmentPage.vue'),
+          meta: {
+            company: true,
+            title: '采购调价',
+            permission: 'price_adjustment:view',
+            allPermissions: ['cost:view', 'goods_receipt:view'],
+          },
+        },
+        {
+          path: 'sales-price-adjustments/:id?',
+          name: 'sales-price-adjustments',
+          component: () => import('../pages/SalesPriceAdjustmentPage.vue'),
+          meta: { company: true, title: '销售调价', permission: 'sales_price_adjustment:view' },
+        },
+        {
+          path: 'manual-invoice-reds', name: 'manual-invoice-reds',
+          component: () => import('../pages/ManualInvoiceRedPage.vue'),
+          meta: { company: true, title: '手工销项红字', permission: 'invoice_red:view', allPermissions: ['invoice_registration:view'] },
+        },
         ...manufacturingNavigation.flatMap(({ area, title, permission }) =>
-          [area, ...(['work-orders', 'issues', 'receipts'].includes(area) ? [area + '/:id'] : [])].map((path) => ({
+          [
+            area,
+            ...(['work-orders', 'issues', 'receipts'].includes(area) ? [area + '/:id'] : []),
+          ].map((path) => ({
             path: 'mfg/' + path,
             name: 'mfg-' + area + (path.endsWith('/:id') ? '-detail' : ''),
             component: () => import('../pages/mfg/ManufacturingPage.vue'),
             props: { area },
-            meta: { company: true, title, permission, allPermissions: area === 'cost-periods' ? ['cost:view'] : [] },
+            meta: {
+              company: true,
+              title,
+              permission,
+              allPermissions: area === 'cost-periods' ? ['cost:view'] : [],
+            },
           })),
         ),
         ...crmCoreNavigation.map(({ kind, title, permission }) => ({
@@ -321,7 +376,13 @@ export const router = createRouter({
           name: 'warehouse-work',
           component: () => import('../pages/WmsWorkPage.vue'),
           meta: {
-            anyPermissions: ['wms_task:view', 'wms_task:configure', 'wms_move:view', 'wms_pack:view', 'label:print'],
+            anyPermissions: [
+              'wms_task:view',
+              'wms_task:configure',
+              'wms_move:view',
+              'wms_pack:view',
+              'label:print',
+            ],
             company: true,
             title: '仓储作业',
           },

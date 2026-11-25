@@ -31,8 +31,10 @@ class AlertCenterIT {
     @Autowired AlertRules rules;
     @Autowired AlertEvents events;
     @Autowired AlertScan scanner;
+    @Autowired AlertProbes probes;
     @Autowired AlertSafetyStock safety;
     @Autowired MessageService messages;
+    @Autowired cn.erp.fulfillment.ShipmentService shipments;
 
     private final Instant now=Instant.now().truncatedTo(ChronoUnit.MILLIS);
     private final LocalDate today=LocalDate.ofInstant(now,AlertRules.ZONE);
@@ -66,15 +68,42 @@ class AlertCenterIT {
                 """,batch,tenant,company,sku,today.minusDays(2));
         jdbc.update("INSERT INTO inventory_balance(id,tenant_id,company_id,warehouse_id,sku_id,lot_key,on_hand_qty) VALUES(?,?,?,?,?,?,5)",
                 Ids.next(),tenant,company,warehouse,sku,Long.toString(batch));
-        long receivable=Ids.next();
-        jdbc.update("""
-                INSERT INTO receivable(id,tenant_id,company_id,customer_id,kind,source_type,source_id,source_line_id,amount,untaxed_amount,tax_amount,business_date,due_date,period_id)
-                VALUES(?,?,?,?,'charge','opening_entry',1,1,100,100,0,?,?,?)
-                """,receivable,tenant,company,partner,today.minusDays(10),today.minusDays(5),period);
-        jdbc.update("""
-                INSERT INTO partner_open_item(id,tenant_id,company_id,partner_id,item_type,source_id,direction,amount,open_amount,aging_date)
-                VALUES(?,?,?,?,'receivable',?,'D',100,100,?)
-                """,openItem,tenant,company,partner,receivable,today.minusDays(10));
+        seedOverdueByRealSigning(unit,product);
+
+    }
+
+    private void seedOverdueByRealSigning(long unit,long product) {
+        // 出库事实作为夹具，调用正式签收服务写入应收，禁止手工填到期日。
+        var day=today.minusDays(10);long plainSku=Ids.next(),order=Ids.next(),line=Ids.next(),shipment=Ids.next(),shipmentLine=Ids.next();
+        jdbc.update("INSERT INTO partner_role(id,tenant_id,partner_id,role) VALUES(?,?,?,'customer')",Ids.next(),tenant,partner);
+        jdbc.update("INSERT INTO sku(id,tenant_id,product_id,code,name,default_tax_rate) VALUES(?,?,?,'TERM','账期商品',0)",plainSku,tenant,product);
+        jdbc.update("INSERT INTO unit_conversion(id,tenant_id,sku_id,unit_id,rate_to_base,is_base) VALUES(?,?,?,?,1,1)",Ids.next(),tenant,plainSku,unit);
+        jdbc.update("INSERT INTO sales_order(id,tenant_id,company_id,order_no,customer_id,business_date,status,pricing_version,term_type,term_value,total_amount,untaxed_amount,price_tax_inclusive,revision,approved_at,goods_amount) VALUES(?,?,?,'TERM-SO',?,?,'approved',2,'days',5,100,100,1,1,UTC_TIMESTAMP(3),100)",order,tenant,company,partner,day);
+        jdbc.update("INSERT INTO sales_order_line(id,tenant_id,company_id,order_id,line_no,sku_id,warehouse_id,unit_id,unit_rate,qty,base_qty,unit_price,amount,line_net,receivable_net,untaxed_amount,shipped_base_qty,tax_rate,tax_amount) VALUES(?,?,?,?,1,?,?,?,1,1,1,100,100,100,100,100,1,0,0)",line,tenant,company,order,plainSku,warehouse,unit);
+        jdbc.update("INSERT INTO shipment(id,tenant_id,company_id,shipment_no,customer_id,warehouse_id,business_date,status,period_id,posted_at,owner_user_id,delivery_method) VALUES(?,?,?,'TERM-SHIP',?,?,?,'posted',?,UTC_TIMESTAMP(3),?,'delivery')",shipment,tenant,company,partner,warehouse,day,period,user);
+        jdbc.update("INSERT INTO shipment_line(id,tenant_id,company_id,shipment_id,line_no,order_line_id,sku_id,unit_id,unit_rate,qty,base_qty,unit_cost,cost_amount) VALUES(?,?,?,?,1,?,?,?,1,1,1,0,0)",shipmentLine,tenant,company,shipment,line,plainSku,unit);
+        shipments.sign(actor,shipment,java.util.UUID.randomUUID().toString(),new cn.erp.fulfillment.ShipmentModels.Signed(0L,day,
+                List.of(new cn.erp.fulfillment.ShipmentModels.SignedLine(shipmentLine,"1")),List.of()));
+        openItem=jdbc.queryForObject("SELECT o.id FROM partner_open_item o JOIN receivable r ON r.id=o.source_id AND r.tenant_id=o.tenant_id WHERE o.tenant_id=? AND o.item_type='receivable' AND r.source_id=?",Long.class,tenant,shipment);
+        assertThat(jdbc.queryForObject("SELECT due_date FROM receivable WHERE tenant_id=? AND source_id=?",java.sql.Date.class,tenant,shipment))
+                .isEqualTo(java.sql.Date.valueOf(today.minusDays(5)));
+    }
+
+    @Test void payableDueWindowAndVisibilityRequirePayableReportPermission() {
+        long expected=0;
+        for(Integer days:java.util.Arrays.asList(3,8,null)) {
+            long fact=Ids.next(),item=Ids.next();
+            jdbc.update("INSERT INTO payable(id,tenant_id,company_id,supplier_id,kind,source_type,source_id,source_line_id,amount,untaxed_amount,tax_amount,business_date,due_date,period_id) VALUES(?,?,?,?,'charge','opening_entry',?,?,20,20,0,?,?,?)",
+                    fact,tenant,company,partner,fact,fact,today,days==null?null:today.plusDays(days),period);
+            jdbc.update("INSERT INTO partner_open_item(id,tenant_id,company_id,partner_id,item_type,source_id,direction,amount,open_amount,aging_date) VALUES(?,?,?,?,'payable',?,'C',20,20,?)",item,tenant,company,partner,fact,today);
+            if(days!=null&&days==3) expected=item;
+        }
+        assertThat(probes.detect(tenant,company,rules.current(tenant,company,AlertKind.PAYABLE_DUE),now)).extracting(AlertCandidate::id).containsExactly(expected);
+        scanner.scan(tenant,company,AlertKind.PAYABLE_DUE,now,false);
+        assertThat(events.list(actor,"payable_due",null,"open",null,30).get("items")).asList().isEmpty();
+        var payerPermissions=new java.util.HashSet<>(actor.permissions());payerPermissions.add("report:payable_aging");
+        var payer=new CompanyAccess(tenant,user,company,true,Set.of(),payerPermissions);
+        assertThat(events.list(payer,"payable_due",null,"open",null,30).get("items")).asList().hasSize(1);
     }
 
     @Test void scansAllPresetQueriesAndRetainsOnlyOneEventPerOverdueItemAndBatch() {

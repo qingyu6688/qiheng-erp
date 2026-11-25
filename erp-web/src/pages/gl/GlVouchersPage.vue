@@ -6,6 +6,9 @@ import { records } from '../../api/admin'
 import { messageOf, isCancelled, newIdempotencyKey } from '../../api/http'
 import { useSessionStore } from '../../stores/session'
 import GlOutputActions from '../../components/GlOutputActions.vue'
+import SourcelessSourceLink from '../../components/sales/SourcelessSourceLink.vue'
+import SalesReturnSourceTag from '../../components/sales/SalesReturnSourceTag.vue'
+import StatusTag from '../../components/StatusTag.vue'
 import { glStatus } from '../../types/gl'
 import type { GlVoucher, GlConfigRow } from '../../types/gl'
 import type { DataRow } from '../../types/admin'
@@ -205,10 +208,15 @@ onScopeDispose(() => {
             >{{ word(row.wordId) }}-{{ row.number }}</router-link
           ></template
         ></el-table-column
-      ><el-table-column label="来源" width="90"
+      ><el-table-column label="来源" min-width="220"
         ><template #default="{ row }">{{
           row.source === 'manual' ? '手工' : row.source === 'business' ? '业务' : row.source === 'opening' ? '期初' : '结转'
-        }}</template></el-table-column
+        }}<template v-if="row.source === 'business'">
+          <div><SourcelessSourceLink :source="row" /></div>
+          <SalesReturnSourceTag :mode="row.returnMode" />
+          <StatusTag v-if="row.refundMode === 'sourceless_credit'" label="退货信用额退款" tone="info" />
+          <div v-if="row.sourceType === 'document_reversal'"><SourcelessSourceLink :source="row" original /></div>
+        </template></template></el-table-column
       ><el-table-column prop="debitTotal" label="借方合计" align="right" /><el-table-column
         prop="creditTotal"
         label="贷方合计"

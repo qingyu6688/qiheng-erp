@@ -13,7 +13,31 @@ beforeEach(() => {
 })
 
 describe('演示单据右侧抽屉', () => {
-  it.each(['/mfg/work-orders/74001', '/gl/vouchers/80001'])('新增详情 %s 保留列表筛选并支持直接访问', async (path) => {
+  it('知识、引用、回答和关联业务在同一抽屉切换，保留原列表', async () => {
+    const router = createDemoRouter(createMemoryHistory())
+    await router.push('/ai/answers?q=星桥')
+    const original = router.currentRoute.value.fullPath
+    for (const path of ['/ai/answers/95001', '/ai/sources/93001', '/ai/wiki/sales-settlement', '/ai/knowledge/92001', '/sales-orders/10112']) {
+      await router.push(path)
+      expect(previewRoute.value?.path).toBe(path)
+      expect(router.currentRoute.value.fullPath).toBe(original)
+    }
+    returnDocumentPreview()
+    expect(previewRoute.value?.path).toBe('/ai/knowledge/92001')
+    closeDocumentPreview()
+    expect(router.currentRoute.value.fullPath).toBe(original)
+  })
+
+  it.each([
+    ['/ai/wiki/sales-settlement', '/ai/wiki'], ['/ai/knowledge/92001', '/ai/knowledge'],
+    ['/ai/answers/95001', '/ai/answers'], ['/ai/sources/93001', '/ai/knowledge'],
+  ])('直接访问 %s 时在对应列表上打开详情', async (path, list) => {
+    const router = createDemoRouter(createMemoryHistory())
+    await router.push(path)
+    expect(router.currentRoute.value.path).toBe(list)
+    expect(previewRoute.value?.path).toBe(path)
+  })
+  it.each(['/mfg/work-orders/74001', '/gl/vouchers/80001', '/sales-returns/70001', '/refund-requests/71001'])('新增详情 %s 保留列表筛选并支持直接访问', async (path) => {
     const router = createDemoRouter(createMemoryHistory())
     const list = path.slice(0, path.lastIndexOf('/'))
     await router.push(list + '?status=posted')

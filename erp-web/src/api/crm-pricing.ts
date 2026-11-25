@@ -20,7 +20,7 @@ export interface PriceListItem {
   unitPrice: string
 }
 export interface PriceListTarget {
-  targetType: 'all' | 'customer' | 'customer_level'
+  targetType: 'all' | 'customer' | 'customer_level' | 'supplier'
   targetValue: string
 }
 export interface PriceListView {
@@ -34,18 +34,19 @@ export type PriceListInput = Omit<PriceListHeader, 'id' | 'currency' | 'version'
   targets: PriceListTarget[]
 }
 
-export function priceLists(cursor?: string): Promise<PageResult<PriceListHeader>> {
-  return request({ url: '/price-lists', params: { cursor, limit: 100 } }, true)
+export function priceLists(cursor?: string, purchase = false): Promise<PageResult<PriceListHeader>> {
+  return request({ url: purchase ? '/purchase-price-lists' : '/price-lists', params: { cursor, limit: 100 } }, true)
 }
 
-export function priceList(id: Id): Promise<PriceListView> {
-  return request({ url: '/price-lists/' + encodeURIComponent(id) }, true)
+export function priceList(id: Id, purchase = false): Promise<PriceListView> {
+  return request({ url: (purchase ? '/purchase-price-lists/' : '/price-lists/') + encodeURIComponent(id) }, true)
 }
 
-export function savePriceList(input: PriceListInput, id?: Id): Promise<PriceListView> {
+export function savePriceList(input: PriceListInput, id?: Id, purchase = false): Promise<PriceListView> {
+  const resource = purchase ? '/purchase-price-lists' : '/price-lists'
   return request(
     {
-      url: id ? '/price-lists/' + encodeURIComponent(id) : '/price-lists',
+      url: id ? resource + '/' + encodeURIComponent(id) : resource,
       method: id ? 'PUT' : 'POST',
       data: input,
     },

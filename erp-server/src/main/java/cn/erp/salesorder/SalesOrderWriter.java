@@ -47,6 +47,7 @@ class SalesOrderWriter {
     }
 
     private void write(CompanyAccess scope,long orderId,SalesOrderModels.Input input,PricingModels.Preview preview,boolean newOrder) {
+        PaymentTerms.saveDraft(jdbc,scope,"sales_order",orderId,input.paymentTerms(),input.inheritPaymentTerms());
         BusinessPeople.assign(jdbc,scope,"sales_order",orderId,input.salesUserId());
         areas.validate(input.deliveryAreaId());
         jdbc.update("UPDATE sales_order SET delivery_area_id=COALESCE(?,delivery_area_id),delivery_address=COALESCE(?,delivery_address) WHERE tenant_id=? AND company_id=? AND id=?",input.deliveryAreaId(),input.deliveryAddress(),scope.tenantId(),scope.companyId(),orderId);

@@ -63,6 +63,7 @@ export function firstPrintValue(...values: unknown[]): string {
 
 const labels: Record<string, string> = {
   freight: '运费',
+  loading: '装卸费',
   other: '其他费用',
   opening: '期初',
   gain: '其他入库',

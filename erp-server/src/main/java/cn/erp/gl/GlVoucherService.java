@@ -54,12 +54,11 @@ public class GlVoucherService implements WorkflowBusiness {
             args.add(q.cursor());
         }
         args.add(q.limit() == null ? 50 : Math.clamp(q.limit(), 1, 200));
-        return s
-                .jdbc
-                .queryForList(
+        var rows=s.jdbc.queryForList(
                         "SELECT * FROM gl_voucher WHERE " + where + " ORDER BY id DESC LIMIT ?",
-                        args.toArray())
-                .stream()
+                        args.toArray());
+        new SalesReturnSourceMetadata(s.jdbc).annotate(a,rows);
+        return rows.stream()
                 .map(GlSupport::view)
                 .toList();
     }
@@ -72,6 +71,7 @@ public class GlVoucherService implements WorkflowBusiness {
     Map<String, Object> detail(ActorScope a, long id) {
         var row = s.row(a, "gl_voucher", id, false);
         if (flag(row.get("is_deleted"))) throw missing();
+        if(a instanceof CompanyAccess visible)new SalesReturnSourceMetadata(s.jdbc).annotate(visible,List.of(row));
         var result = view(row);
         result.put("lines", engine.rawLines(a, id).stream().map(GlSupport::view).toList());
         return result;

@@ -4371,5 +4371,1430 @@
     "expectedRefusal": true,
     "expectedDocuments": [],
     "answerAnchors": []
+  },
+  {
+    "id": "m13-257",
+    "category": "knowledge",
+    "question": "批次、序列号、保质期和库位现在支持吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "支持"
+      ],
+      [
+        "批次"
+      ],
+      [
+        "序列号"
+      ],
+      [
+        "保质期"
+      ],
+      [
+        "库位"
+      ]
+    ]
+  },
+  {
+    "id": "m13-258",
+    "category": "knowledge",
+    "question": "数电开票是否已经完成真实服务商验收？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "真实服务商"
+      ],
+      [
+        "待"
+      ],
+      [
+        "对接验收"
+      ]
+    ]
+  },
+  {
+    "id": "m13-259",
+    "category": "knowledge",
+    "question": "总账现在可以出哪三大报表？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "资产负债表"
+      ],
+      [
+        "利润表"
+      ],
+      [
+        "现金流量表"
+      ]
+    ]
+  },
+  {
+    "id": "m13-260",
+    "category": "knowledge",
+    "question": "客户信用超额有哪些控制策略？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "提示"
+      ],
+      [
+        "审批"
+      ],
+      [
+        "禁止"
+      ]
+    ]
+  },
+  {
+    "id": "m13-261",
+    "category": "knowledge",
+    "question": "未配置信用策略的客户是否控制额度？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "未配置"
+      ],
+      [
+        "不控制"
+      ]
+    ]
+  },
+  {
+    "id": "m13-262",
+    "category": "knowledge",
+    "question": "客户角色和供应商角色可以分别设置账期吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "客户"
+      ],
+      [
+        "供应商"
+      ],
+      [
+        "分别"
+      ],
+      [
+        "账期"
+      ]
+    ]
+  },
+  {
+    "id": "m13-263",
+    "category": "knowledge",
+    "question": "按天账期和月结账期的可填范围是什么？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "365"
+      ],
+      [
+        "28"
+      ],
+      [
+        "现结"
+      ]
+    ]
+  },
+  {
+    "id": "m13-264",
+    "category": "knowledge",
+    "question": "订单审批后改客户账期会改变已审批订单吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "审批"
+      ],
+      [
+        "快照"
+      ],
+      [
+        "不改变"
+      ]
+    ]
+  },
+  {
+    "id": "m13-265",
+    "category": "knowledge",
+    "question": "2026年11月23日月结次月28日的到期日是什么？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "2026-12-28"
+      ]
+    ]
+  },
+  {
+    "id": "m13-266",
+    "category": "knowledge",
+    "question": "销售退货及冲销的到期日从哪里取？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "退货"
+      ],
+      [
+        "冲销"
+      ],
+      [
+        "沿用原"
+      ],
+      [
+        "到期日"
+      ]
+    ]
+  },
+  {
+    "id": "m13-267",
+    "category": "knowledge",
+    "question": "按到期日统计账龄时，无到期日和未到期怎样处理？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "排除无到期日"
+      ],
+      [
+        "未来"
+      ],
+      [
+        "0"
+      ]
+    ]
+  },
+  {
+    "id": "m13-268",
+    "category": "knowledge",
+    "question": "升级时会自动回填历史空到期日吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "不自动回填"
+      ],
+      [
+        "预览"
+      ],
+      [
+        "人工"
+      ]
+    ]
+  },
+  {
+    "id": "m13-269",
+    "category": "knowledge",
+    "question": "总账余额现在每张凭证还会全历史重算吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "优化文档"
+    ],
+    "answerAnchors": [
+      [
+        "O-30"
+      ],
+      [
+        "增量"
+      ],
+      [
+        "移除"
+      ]
+    ]
+  },
+  {
+    "id": "m13-270",
+    "category": "knowledge",
+    "question": "生产工单短交关闭是否还是未完成待办？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "优化文档"
+    ],
+    "answerAnchors": [
+      [
+        "O-33"
+      ],
+      [
+        "已实现"
+      ],
+      [
+        "移除"
+      ]
+    ]
+  },
+  {
+    "id": "m13-271",
+    "category": "knowledge",
+    "question": "M10到M19的基线是否仍未合并且没有版本标签？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "优化文档"
+    ],
+    "answerAnchors": [
+      [
+        "O-34"
+      ],
+      [
+        "main"
+      ],
+      [
+        "候选标签"
+      ]
+    ]
+  },
+  {
+    "id": "m13-272",
+    "category": "knowledge",
+    "question": "应付即将到期预警默认提前多少天？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "应付"
+      ],
+      [
+        "7"
+      ],
+      [
+        "天"
+      ]
+    ]
+  },
+  {
+    "id": "m13-273",
+    "category": "knowledge",
+    "question": "采购收货过账以后，结算价格还能调整吗？会改原单货款吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "已过账",
+        "采购调价"
+      ],
+      [
+        "尚未退货"
+      ],
+      [
+        "保留"
+      ]
+    ]
+  },
+  {
+    "id": "m13-274",
+    "category": "knowledge",
+    "question": "采购调价时原收货已部分出库，在库、已出库与在途成本怎么处理？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "在库"
+      ],
+      [
+        "库存成本"
+      ],
+      [
+        "成本差异"
+      ],
+      [
+        "不回写"
+      ]
+    ]
+  },
+  {
+    "id": "m13-275",
+    "category": "knowledge",
+    "question": "供应商采购折让过账后，会自动核销或自动退款吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "信用额"
+      ],
+      [
+        "不自动核销"
+      ]
+    ]
+  },
+  {
+    "id": "m13-276",
+    "category": "knowledge",
+    "question": "采购调价后再次退货怎样计算金额和税额？最后一次会有尾差吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "剩余"
+      ],
+      [
+        "累计分摊"
+      ],
+      [
+        "尾差"
+      ]
+    ]
+  },
+  {
+    "id": "m13-277",
+    "category": "knowledge",
+    "question": "采购调价可以由制单人自己批准并过账吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "另一人"
+      ],
+      [
+        "复核"
+      ],
+      [
+        "工作流"
+      ]
+    ]
+  },
+  {
+    "id": "m13-278",
+    "category": "knowledge",
+    "question": "只有部分仓库权限的人员能批准采购调价并过账吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "完整"
+      ],
+      [
+        "仓库"
+      ],
+      [
+        "部门"
+      ],
+      [
+        "成本权限"
+      ]
+    ]
+  },
+  {
+    "id": "m13-279",
+    "category": "knowledge",
+    "question": "原收货已经退货或又调价，之前保存的采购调价草稿还能直接过账吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "来源版本"
+      ],
+      [
+        "更新草稿"
+      ],
+      [
+        "作废"
+      ]
+    ]
+  },
+  {
+    "id": "m13-280",
+    "category": "knowledge",
+    "question": "采购调价过账出错可以直接删除吗？冲销前需要处理哪些下游？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "统一冲销"
+      ],
+      [
+        "反向事实"
+      ],
+      [
+        "后续退货"
+      ],
+      [
+        "库存"
+      ]
+    ]
+  },
+  {
+    "id": "m13-281",
+    "category": "knowledge",
+    "question": "公司关闭采购费用计入存货成本后，随单费用如何确认？历史费用会回溯吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "关闭"
+      ],
+      [
+        "首次收货"
+      ],
+      [
+        "整笔"
+      ],
+      [
+        "不追溯"
+      ]
+    ]
+  },
+  {
+    "id": "m13-282",
+    "category": "knowledge",
+    "question": "采购订单随单运费分批收货时怎么分摊？超收会多确认费用吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "累计收货进度"
+      ],
+      [
+        "同一订单"
+      ],
+      [
+        "超收"
+      ],
+      [
+        "不额外"
+      ]
+    ]
+  },
+  {
+    "id": "m13-283",
+    "category": "knowledge",
+    "question": "采购费用按金额、基本数量和重量分摊时各用什么权重？权重合计为零怎么办？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "未税货款"
+      ],
+      [
+        "基本数量"
+      ],
+      [
+        "每基本单位重量"
+      ],
+      [
+        "更换方式"
+      ]
+    ]
+  },
+  {
+    "id": "m13-284",
+    "category": "knowledge",
+    "question": "采购运费在一般纳税人和小规模纳税人的成本口径怎样区分，已出库部分怎么处理？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "一般纳税人"
+      ],
+      [
+        "未税费用"
+      ],
+      [
+        "小规模纳税人"
+      ],
+      [
+        "含税费用"
+      ],
+      [
+        "成本差异"
+      ]
+    ]
+  },
+  {
+    "id": "m13-285",
+    "category": "knowledge",
+    "question": "事后运费承运商与商品供应商不同可以录入吗，费用应付采用谁的账期？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "承运商"
+      ],
+      [
+        "不同"
+      ],
+      [
+        "批准时冻结"
+      ],
+      [
+        "费用日期"
+      ],
+      [
+        "不自动核销"
+      ]
+    ]
+  },
+  {
+    "id": "m13-286",
+    "category": "knowledge",
+    "question": "采购费用草稿的来源已退货、调价或重量改变，能直接审批过账吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "来源版本"
+      ],
+      [
+        "更新草稿"
+      ],
+      [
+        "作废"
+      ],
+      [
+        "成本权限"
+      ]
+    ]
+  },
+  {
+    "id": "m13-287",
+    "category": "knowledge",
+    "question": "采购费用单可以直接删除吗，随单费用和手工费用如何冲销？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "手工费用"
+      ],
+      [
+        "统一冲销"
+      ],
+      [
+        "随单费用只读"
+      ],
+      [
+        "原收货整体冲销"
+      ],
+      [
+        "进度"
+      ]
+    ]
+  },
+  {
+    "id": "m13-288",
+    "category": "knowledge",
+    "question": "查看采购费用详情会跳转页面吗，收货详情显示哪些成本，网络未知结果怎么重试？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "右侧抽屉"
+      ],
+      [
+        "保留列表"
+      ],
+      [
+        "货款成本"
+      ],
+      [
+        "分摊费用"
+      ],
+      [
+        "幂等键"
+      ]
+    ]
+  },
+  {
+    "id": "m13-289",
+    "category": "knowledge",
+    "question": "进项发票能一票核对多张收货单吗，纸质票如何登记和更正？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "多对多"
+      ],
+      [
+        "一票多单"
+      ],
+      [
+        "一单多票"
+      ],
+      [
+        "手工登记"
+      ],
+      [
+        "没有有效核对关系"
+      ],
+      [
+        "不依赖服务商网关"
+      ]
+    ]
+  },
+  {
+    "id": "m13-290",
+    "category": "knowledge",
+    "question": "进项核对容差默认多少，未税差额与税额差额可以正负抵销或分次绕过吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "1.00"
+      ],
+      [
+        "绝对值合计"
+      ],
+      [
+        "不能正负抵销"
+      ],
+      [
+        "超容差拒绝"
+      ],
+      [
+        "不自动追加应付"
+      ]
+    ]
+  },
+  {
+    "id": "m13-291",
+    "category": "knowledge",
+    "question": "供应商货款已经付清还要到票吗，99.99的票覆盖100.00应付会留下0.01未到票吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "付款结清不等于已到票"
+      ],
+      [
+        "99.99"
+      ],
+      [
+        "100.00"
+      ],
+      [
+        "不遗留一分未到票"
+      ],
+      [
+        "原应付"
+      ]
+    ]
+  },
+  {
+    "id": "m13-292",
+    "category": "knowledge",
+    "question": "采购退货或调价后，原进项核对关系怎样变化，申请或批准冲销就释放吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "公司核对锁"
+      ],
+      [
+        "整张"
+      ],
+      [
+        "待核对"
+      ],
+      [
+        "已释放历史"
+      ],
+      [
+        "仅申请或批准冲销不释放"
+      ]
+    ]
+  },
+  {
+    "id": "m13-293",
+    "category": "knowledge",
+    "question": "数电进项重复同步、红冲或与手工票同号码时怎么处理，供应商税号空白可关联吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "不增版"
+      ],
+      [
+        "不重复释放"
+      ],
+      [
+        "整批回滚"
+      ],
+      [
+        "缺失或空白税号不能关联"
+      ]
+    ]
+  },
+  {
+    "id": "m13-294",
+    "category": "knowledge",
+    "question": "有差异的进项票代表已经分完了吗，单仓人员可以核对整家公司进项吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "尚未分完"
+      ],
+      [
+        "完整公司仓库和部门范围"
+      ],
+      [
+        "独立权限"
+      ],
+      [
+        "全部历史来源"
+      ]
+    ]
+  },
+  {
+    "id": "m13-295",
+    "category": "knowledge",
+    "question": "已收货未到票报表怎样处理历史截止日、跨收货运费和暂估凭证？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "费用应付计一次"
+      ],
+      [
+        "截止日"
+      ],
+      [
+        "释放日期"
+      ],
+      [
+        "旧更新时间"
+      ],
+      [
+        "不自动生成总账凭证或次月冲回"
+      ]
+    ]
+  },
+  {
+    "id": "m13-296",
+    "category": "knowledge",
+    "question": "进项核对提交超时能改内容重试吗，关闭右侧详情后会丢筛选吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "右侧抽屉"
+      ],
+      [
+        "保留列表筛选"
+      ],
+      [
+        "原载荷与幂等键"
+      ],
+      [
+        "重新读取当前详情"
+      ],
+      [
+        "不能关闭或切换公司"
+      ]
+    ]
+  },
+  {
+    "id": "m13-297",
+    "category": "knowledge",
+    "question": "销售调价的来源和金额怎样填写，能直接改原订单吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "已签收未退货"
+      ],
+      [
+        "二选一"
+      ],
+      [
+        "补收为正"
+      ],
+      [
+        "折让为负"
+      ],
+      [
+        "原订单"
+      ]
+    ]
+  },
+  {
+    "id": "m13-298",
+    "category": "knowledge",
+    "question": "销售调价审批和过账是否需要成本权限，能自己复核吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "另一人复核"
+      ],
+      [
+        "完整仓库、部门范围"
+      ],
+      [
+        "不要求成本查看权限"
+      ],
+      [
+        "审批不自动过账"
+      ]
+    ]
+  },
+  {
+    "id": "m13-299",
+    "category": "knowledge",
+    "question": "销售补收和折让怎样影响往来、到期日、库存成本和销售毛利报表？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "不自动核销"
+      ],
+      [
+        "继承原应收到期日"
+      ],
+      [
+        "不改变库存和原销售成本"
+      ],
+      [
+        "数量和成本为零"
+      ]
+    ]
+  },
+  {
+    "id": "m13-300",
+    "category": "knowledge",
+    "question": "销售调价后再退货，货款税额、尾差和退货成本按哪个基准？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "累计舍入"
+      ],
+      [
+        "末次退货补足尾差"
+      ],
+      [
+        "已退金额不重算"
+      ],
+      [
+        "退货成本仍按原签收成本计算"
+      ],
+      [
+        "计价基准日期"
+      ]
+    ]
+  },
+  {
+    "id": "m13-301",
+    "category": "knowledge",
+    "question": "已开票销售折让可只冲红调价行吗，数电红字处理中或普通作废能继续过账吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "原票整票红字"
+      ],
+      [
+        "全部来源"
+      ],
+      [
+        "结果未知"
+      ],
+      [
+        "都不算已完成红字"
+      ],
+      [
+        "真实服务商沙箱尚未验收"
+      ]
+    ]
+  },
+  {
+    "id": "m13-302",
+    "category": "knowledge",
+    "question": "手工整票红字登记能由登记人自己确认吗，旧作废票能再次释放额度吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "等于整张原蓝票"
+      ],
+      [
+        "登记后仍保留蓝字占用"
+      ],
+      [
+        "另一人财务确认"
+      ],
+      [
+        "仅释放一次"
+      ],
+      [
+        "不能重复释放"
+      ]
+    ]
+  },
+  {
+    "id": "m13-303",
+    "category": "knowledge",
+    "question": "退货和折让后的净开票额度怎样分配，付款结清或候选可开金额是否等于已预留？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "每笔和整组共同限额"
+      ],
+      [
+        "付款结清不影响可开票额度"
+      ],
+      [
+        "未税额和税额分别"
+      ],
+      [
+        "更多来源分页"
+      ],
+      [
+        "候选不是额度预留"
+      ]
+    ]
+  },
+  {
+    "id": "m13-304",
+    "category": "knowledge",
+    "question": "销售调价冲销前要处理哪些下游，右侧详情提交超时可以换键或关窗吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "后续退货及后续调价"
+      ],
+      [
+        "恢复上一计价基准"
+      ],
+      [
+        "右侧抽屉"
+      ],
+      [
+        "原载荷、版本及幂等键"
+      ],
+      [
+        "不能关闭或切换公司"
+      ]
+    ]
+  },
+  {
+    "id": "m13-305",
+    "category": "knowledge",
+    "question": "无原单退货缺少历史发货单时如何录入，批准后是否已经入库或开具红字？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "用户使用手册"
+    ],
+    "answerAnchors": [
+      [
+        "无原单退货"
+      ],
+      [
+        "历史依据和原因"
+      ],
+      [
+        "批准不等于过账"
+      ],
+      [
+        "不表示已开具红字发票"
+      ]
+    ]
+  },
+  {
+    "id": "m13-306",
+    "category": "knowledge",
+    "question": "无原单退货的成本来源怎样选择，人工零成本及审批后的来源变化怎样处理？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "用户使用手册"
+    ],
+    "answerAnchors": [
+      [
+        "加权平均成本"
+      ],
+      [
+        "最近入库成本"
+      ],
+      [
+        "零成本也须说明"
+      ],
+      [
+        "重新提交审批"
+      ]
+    ]
+  },
+  {
+    "id": "m13-307",
+    "category": "knowledge",
+    "question": "退货信用额退款怎样选择来源，部分退款和实际付款何时登记？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "用户使用手册"
+    ],
+    "answerAnchors": [
+      [
+        "退货信用额退款"
+      ],
+      [
+        "每页20项"
+      ],
+      [
+        "银行实际完成付款"
+      ],
+      [
+        "登记已退款"
+      ]
+    ]
+  },
+  {
+    "id": "m13-308",
+    "category": "knowledge",
+    "question": "无原单退货提交网络中断后查结果404，能否换键重建或切换公司？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "用户使用手册"
+    ],
+    "answerAnchors": [
+      [
+        "确认原请求结果"
+      ],
+      [
+        "原请求重试"
+      ],
+      [
+        "不能修改请求或切换公司"
+      ],
+      [
+        "不能因一次查询404就重新建单"
+      ]
+    ]
+  },
+  {
+    "id": "m13-309",
+    "category": "knowledge",
+    "question": "CR01受控成本重估按照业务日期还是实际过账时间重放，补填旧日期会改变以前成本吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "实际过账时间、ID"
+      ],
+      [
+        "补填历史业务日期不改变过账顺序"
+      ],
+      [
+        "不回写原出库快照"
+      ]
+    ]
+  },
+  {
+    "id": "m13-310",
+    "category": "knowledge",
+    "question": "成本重估提交和执行之间库存变化怎么办，需要谁复核？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "用户使用手册"
+    ],
+    "answerAnchors": [
+      [
+        "另一人"
+      ],
+      [
+        "重新生成预览"
+      ],
+      [
+        "再提交审批"
+      ]
+    ]
+  },
+  {
+    "id": "m13-311",
+    "category": "knowledge",
+    "question": "CR01成本重估影响哪些期间和库存记录，冲销原单时如何处理重估差额？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "参与期间及调整入账期间须开放"
+      ],
+      [
+        "只追加库存调整及成本差异"
+      ],
+      [
+        "原单冲销同步追加此前重估差额"
+      ]
+    ]
+  },
+  {
+    "id": "m13-312",
+    "category": "knowledge",
+    "question": "在库存成本重估中如何选择范围，没有差异能否提交，访问需要什么范围？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "用户使用手册"
+    ],
+    "answerAnchors": [
+      [
+        "一个仓库和商品"
+      ],
+      [
+        "无差异无需提交"
+      ],
+      [
+        "完整数据范围"
+      ],
+      [
+        "成本查看"
+      ]
+    ]
+  },
+  {
+    "id": "m13-313",
+    "category": "knowledge",
+    "question": "PP01采购默认价格优先级怎样排列，协议价换算需要注意什么？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "供应商有效协议"
+      ],
+      [
+        "最近已批准采购"
+      ],
+      [
+        "SKU参考价"
+      ],
+      [
+        "明确单位和税口径"
+      ]
+    ]
+  },
+  {
+    "id": "m13-314",
+    "category": "knowledge",
+    "question": "采购价格表可以配置客户通用目标或代替销售价格表吗，为什么看不到采购价格？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "用户使用手册"
+    ],
+    "answerAnchors": [
+      [
+        "供应商"
+      ],
+      [
+        "成本查看权限"
+      ],
+      [
+        "销售价格表继续独立维护客户规则"
+      ]
+    ]
+  },
+  {
+    "id": "m13-315",
+    "category": "knowledge",
+    "question": "采购单价高于供应商协议价是提示还是需要批准，审批人需要什么权限？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "高于协议默认提示"
+      ],
+      [
+        "另一名有成本权限"
+      ],
+      [
+        "采购审批人复核"
+      ]
+    ]
+  },
+  {
+    "id": "m13-316",
+    "category": "knowledge",
+    "question": "PP01采购协议版本变化后旧订单能否继续审批，后来批准的历史采购会让手填价失效吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "协议变更需重新保存"
+      ],
+      [
+        "历史建议价不因新增其他采购单自动失效"
+      ]
+    ]
+  },
+  {
+    "id": "m13-317",
+    "category": "knowledge",
+    "question": "销售报价确认生效会预留库存或产生应收吗，转成订单后还需要哪些步骤？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "用户使用手册"
+    ],
+    "answerAnchors": [
+      [
+        "不预留库存、不产生应收"
+      ],
+      [
+        "销售订单草稿"
+      ],
+      [
+        "后续库存、信用及订单审批仍须办理"
+      ]
+    ]
+  },
+  {
+    "id": "m13-318",
+    "category": "knowledge",
+    "question": "SQ01低于最低售价的报价适用哪些策略，需要价格审批时保留什么依据？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "提示、审批或禁止"
+      ],
+      [
+        "有效人工价格复核指纹"
+      ]
+    ]
+  },
+  {
+    "id": "m13-319",
+    "category": "knowledge",
+    "question": "销售报价的商机关联和右侧订单预览怎样使用，允许重复转单吗？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "用户使用手册"
+    ],
+    "answerAnchors": [
+      [
+        "当前有权查看的客户商机"
+      ],
+      [
+        "不能重复转单"
+      ],
+      [
+        "订单可在报价右侧预览"
+      ]
+    ]
+  },
+  {
+    "id": "m13-320",
+    "category": "knowledge",
+    "question": "SQ01过期报价及正在审批的报价由谁处理，过期后原记录是否删除？",
+    "expectedRefusal": false,
+    "expectedDocuments": [
+      "业务规则"
+    ],
+    "answerAnchors": [
+      [
+        "到期自动失效"
+      ],
+      [
+        "结束在途审批"
+      ],
+      [
+        "原记录保留"
+      ]
+    ]
   }
 ]

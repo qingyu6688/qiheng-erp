@@ -58,6 +58,10 @@ class PartnerService {
     private void enrich(CompanyAccess scope,Map<String,Object> item) {
         item.put("roles",jdbc.queryForList("SELECT role FROM partner_role WHERE tenant_id=? AND partner_id=? AND status='active' ORDER BY role",
                 String.class,scope.tenantId(),item.get("id")));
+        var terms=new LinkedHashMap<String,PaymentTerms.Term>();
+        jdbc.queryForList("SELECT role,term_type,term_value FROM partner_role WHERE tenant_id=? AND partner_id=? AND status='active' ORDER BY role",scope.tenantId(),item.get("id"))
+                .forEach(row->terms.put(row.get("role").toString(),PaymentTerms.from(row)));
+        item.put("paymentTerms",terms);
         item.put("allowedActions",scope.hasPermission("partner:update")?List.of("update",
                 "active".equals(item.get("status"))?"disable":"enable"):List.of());
     }
@@ -73,6 +77,7 @@ class PartnerService {
         customFields.write(scope,"business_partner",id,input.extJson(),true);
         jdbc.update("UPDATE business_partner SET area_id=?,source_code=? WHERE tenant_id=? AND id=?",input.areaId(),input.sourceCode(),scope.tenantId(),id);
         roles(scope,id,input.roles());
+        saveTerms(scope,id,input);
         return changed(scope,id,"partner.create",null);
     }
 
@@ -87,7 +92,18 @@ class PartnerService {
                 """,requiredCode(input.code()),input.name().trim(),input.shortName(),input.taxNo(),scope.userId(),scope.tenantId(),id,input.version());
         customFields.write(scope,"business_partner",id,input.extJson(),false);
         roles(scope,id,input.roles());
+        saveTerms(scope,id,input);
         return changed(scope,id,"partner.update",before);
+    }
+
+    private void saveTerms(CompanyAccess scope,long id,PartnerModels.Partner input) {
+        if(input.paymentTerms()==null) return;
+        if(!input.roles().containsAll(input.paymentTerms().keySet())) throw ReferenceRows.invalid("账期只能设置在已选客户或供应商角色上");
+        input.paymentTerms().forEach((role,term)->{
+            PaymentTerms.validate(term);
+            jdbc.update("UPDATE partner_role SET term_type=?,term_value=? WHERE tenant_id=? AND partner_id=? AND role=?",
+                    term==null?null:term.type(),term==null?null:term.value(),scope.tenantId(),id,role);
+        });
     }
 
     private String newCode(CompanyAccess scope,String value) {

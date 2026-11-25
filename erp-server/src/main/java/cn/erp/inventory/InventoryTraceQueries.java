@@ -3,6 +3,7 @@ package cn.erp.inventory;
 import cn.erp.identity.CompanyAccess;
 import cn.erp.shared.ApiRows;
 import cn.erp.shared.OrgOwnership;
+import cn.erp.shared.SalesReturnSourceMetadata;
 import java.util.*;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -112,6 +113,7 @@ public class InventoryTraceQueries {
                 LEFT JOIN business_partner cp ON cp.tenant_id=sh.tenant_id AND cp.id=sh.customer_id
                 """.formatted(join.isEmpty()?"":",x.prior_status,x.current_status")+join+M_SCOPE+" AND m.id<:cursor"+filter+
                 warehouse(actor,"m")+sourceFilter(actor,"m")+" ORDER BY m.id DESC LIMIT :limit",args);
+        new SalesReturnSourceMetadata(jdbc).annotate(actor,rows);
         var result=page(rows,limit);
         @SuppressWarnings("unchecked")
         var items=(List<Map<String,Object>>)result.get("items");

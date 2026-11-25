@@ -1,7 +1,38 @@
 .content .panel {
-  border-color: var(--el-border-color-light);
+  border-color: var(--erp-divider);
   border-radius: var(--erp-radius-card);
   background: var(--el-bg-color);
+  box-shadow: var(--erp-shadow-1);
+}
+
+/* 级联选择与下拉框一样占满所在表单列 */
+.content .el-form-item .el-cascader {
+  width: 100%;
+}
+
+/* 页面里少量原生日期框和下拉框，外观对齐组件库输入框，避免同一行两种控件 */
+.content :is(input[type='date'], input[type='datetime-local'], input[type='month'], input[type='time']):not(.el-input__inner),
+.content select {
+  height: var(--erp-control);
+  padding-inline: 10px;
+  border: 1px solid var(--el-border-color);
+  border-radius: var(--erp-radius);
+  color: var(--el-text-color-primary);
+  background: var(--el-fill-color-blank);
+  font-size: 14px;
+  transition: border-color var(--el-transition-duration-fast);
+}
+
+.content :is(input[type='date'], input[type='datetime-local'], input[type='month'], input[type='time']):not(.el-input__inner):hover,
+.content select:hover {
+  border-color: var(--el-border-color-hover, var(--erp-primary-3));
+}
+
+.content :is(input[type='date'], input[type='datetime-local'], input[type='month'], input[type='time']):not(.el-input__inner):focus-visible,
+.content select:focus-visible {
+  border-color: var(--el-color-primary);
+  outline: 2px solid var(--erp-primary-2);
+  outline-offset: 0;
 }
 
 .content .page-heading {
@@ -196,10 +227,12 @@
   display: flex;
   align-items: center;
   flex: 1 1 460px;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 4px;
   min-width: 0;
   padding: 4px;
-  overflow-x: auto;
+  border-radius: var(--erp-radius);
+  background: var(--erp-fill-1);
 }
 
 .document-status-tabs button {
@@ -207,9 +240,9 @@
   align-items: center;
   gap: 6px;
   flex: none;
-  padding: 7px 12px;
+  padding: 5px 12px;
   border: 1px solid transparent;
-  border-radius: var(--el-border-radius-base);
+  border-radius: var(--erp-radius-sm);
   color: var(--el-text-color-secondary);
   background: transparent;
   font-size: 13px;
@@ -217,20 +250,21 @@
 }
 
 .document-status-tabs button:hover {
-  background: var(--el-fill-color-light);
+  color: var(--erp-text-1);
 }
 
 .document-status-tabs button[aria-selected='true'] {
-  border-color: var(--erp-primary-2);
+  border-color: var(--erp-divider);
   color: var(--erp-primary-7);
-  background: var(--erp-primary-1);
+  background: var(--erp-bg);
+  box-shadow: var(--erp-shadow-1);
   font-weight: 600;
 }
 
 .document-status-tabs span {
   min-width: 20px;
   padding-inline: 4px;
-  border-radius: 10px;
+  border-radius: var(--erp-radius-card);
   color: var(--el-text-color-secondary);
   background: var(--el-fill-color-light);
   text-align: center;
@@ -241,7 +275,7 @@
 
 .document-status-tabs button[aria-selected='true'] span {
   color: inherit;
-  background: var(--erp-primary-2);
+  background: var(--erp-primary-1);
 }
 
 .table-panel .el-table .cell {
@@ -291,7 +325,7 @@
 
 .sales-lines-scroll {
   border: 1px solid var(--el-border-color-light);
-  border-radius: 8px;
+  border-radius: var(--erp-radius);
 }
 
 .sales-input-table th {

@@ -1,5 +1,20 @@
 import { downloadFile } from './files'
 import { request } from './http'
+import type {
+  InboundInvoice,
+  InboundInvoiceRow,
+  InboundInvoiceDetail,
+  InboundFilters,
+  InboundPage,
+  InboundSupplier,
+  InboundMatch,
+  InboundPayableSource,
+  InboundManualInput,
+  InboundAllocationInput,
+  InboundVoidInput,
+  InboundPreview,
+} from '../types/inbound-invoices'
+export type { InboundInvoice } from '../types/inbound-invoices'
 
 const root = '/e-invoices'
 
@@ -47,19 +62,6 @@ export interface InvoiceCandidate {
   taxAmount: string
   canIssue: boolean
 }
-export interface InboundInvoice {
-  id: string
-  invoiceNo: string
-  sellerName: string
-  sellerTaxNo: string
-  invoiceDate: string
-  amount: string
-  taxAmount: string
-  status: 'normal' | 'voided' | 'red_issued'
-  checked: boolean
-  payableId: string | null
-  version: number
-}
 export interface InvoicePayable {
   id: string
   sourceId: string
@@ -83,13 +85,25 @@ export interface InvoiceSku {
   version: number
 }
 
-function read<T>(path: string, params?: Record<string, unknown>): Promise<T> {
-  return request({ method: 'GET', url: root + path, params }, true)
+function read<T>(path: string, params?: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
+  return request({ method: 'GET', url: root + path, params, ...(signal ? { signal } : {}) }, true)
 }
 
-function write<T>(path: string, method: 'PUT' | 'POST', data?: unknown, key?: string): Promise<T> {
+function write<T>(
+  path: string,
+  method: 'PUT' | 'POST',
+  data?: unknown,
+  key?: string,
+  signal?: AbortSignal,
+): Promise<T> {
   return request(
-    { method, url: root + path, data, headers: key ? { 'Idempotency-Key': key } : {} },
+    {
+      method,
+      url: root + path,
+      data,
+      headers: key ? { 'Idempotency-Key': key } : {},
+      ...(signal ? { signal } : {}),
+    },
     true,
   )
 }
@@ -97,8 +111,8 @@ function write<T>(path: string, method: 'PUT' | 'POST', data?: unknown, key?: st
 export function invoiceRequests(cursor?: string): Promise<InvoiceRequest[]> {
   return read('/requests', { cursor })
 }
-export function invoiceDetail(id: string): Promise<InvoiceDetail> {
-  return read('/requests/' + id)
+export function invoiceDetail(id: string, signal?: AbortSignal): Promise<InvoiceDetail> {
+  return read('/requests/' + id, undefined, signal)
 }
 export function invoiceCandidates(partnerId: string): Promise<InvoiceCandidate[]> {
   return read('/candidates', { partnerId })
@@ -115,8 +129,9 @@ export function invoiceAction(
   version: number,
   key: string,
   reason?: string,
+  signal?: AbortSignal,
 ): Promise<{ id: string }> {
-  return write(`/requests/${id}/${action}`, 'POST', { version, reason }, key)
+  return write(`/requests/${id}/${action}`, 'POST', { version, reason }, key, signal)
 }
 export function downloadInvoice(invoice: InvoiceDetail, file: InvoiceFile): Promise<void> {
   const label = file.variant === 'red' ? invoice.redInvoiceNo : invoice.invoiceNo
@@ -125,11 +140,74 @@ export function downloadInvoice(invoice: InvoiceDetail, file: InvoiceFile): Prom
     `${label ?? invoice.id}.${file.fileFormat}`,
   )
 }
-export function inboundInvoices(cursor?: string): Promise<InboundInvoice[]> {
-  return read('/inbound', { cursor })
+export function inboundInvoices(
+  cursor?: string,
+  filters: InboundFilters = {},
+  signal?: AbortSignal,
+): Promise<InboundInvoiceRow[]> {
+  return read('/inbound', { cursor, ...filters }, signal)
 }
-export function syncInvoices(from: string, to: string): Promise<{ count: number }> {
-  return write('/inbound/sync', 'POST', { from, to })
+export function syncInvoices(
+  from: string,
+  to: string,
+  signal?: AbortSignal,
+): Promise<{ count: number }> {
+  return write('/inbound/sync', 'POST', { from, to }, undefined, signal)
+}
+export function inboundInvoice(id: string, signal?: AbortSignal): Promise<InboundInvoiceDetail> {
+  return read(`/inbound/${id}`, undefined, signal)
+}
+export function inboundHistory(
+  id: string,
+  cursor?: string,
+  signal?: AbortSignal,
+): Promise<InboundPage<InboundMatch>> {
+  return read(`/inbound/${id}/history`, { cursor }, signal)
+}
+export function inboundSources(
+  id: string,
+  cursor?: string,
+  signal?: AbortSignal,
+): Promise<InboundPage<InboundPayableSource>> {
+  return read(`/inbound/${id}/sources`, { cursor }, signal)
+}
+export function inboundSuppliers(
+  keyword?: string,
+  cursor?: string,
+  signal?: AbortSignal,
+): Promise<InboundPage<InboundSupplier>> {
+  return read('/inbound/suppliers', { keyword, cursor }, signal)
+}
+export function saveInboundInvoice(
+  input: InboundManualInput,
+  key: string,
+  id?: string,
+  signal?: AbortSignal,
+): Promise<InboundInvoiceDetail> {
+  return write('/inbound' + (id ? '/' + id : ''), id ? 'PUT' : 'POST', input, key, signal)
+}
+export function previewInboundInvoice(
+  id: string,
+  input: InboundAllocationInput,
+  signal?: AbortSignal,
+): Promise<InboundPreview> {
+  return write(`/inbound/${id}/preview`, 'POST', input, undefined, signal)
+}
+export function allocateInboundInvoice(
+  id: string,
+  input: InboundAllocationInput,
+  key: string,
+  signal?: AbortSignal,
+): Promise<InboundInvoiceDetail> {
+  return write(`/inbound/${id}/allocations`, 'POST', input, key, signal)
+}
+export function voidInboundInvoice(
+  id: string,
+  input: InboundVoidInput,
+  key: string,
+  signal?: AbortSignal,
+): Promise<InboundInvoiceDetail> {
+  return write(`/inbound/${id}/void`, 'POST', input, key, signal)
 }
 export function payableCandidates(id: string): Promise<InvoicePayable[]> {
   return read(`/inbound/${id}/payables`)

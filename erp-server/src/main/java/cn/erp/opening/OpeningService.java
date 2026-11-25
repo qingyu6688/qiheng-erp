@@ -37,7 +37,9 @@ public class OpeningService {
     public record Entry(@NotBlank(message="请选择期初类型") @Pattern(regexp="receivable|payable|cash",message="期初类型无效") String entryType,
         Long partnerId,Long cashAccountId,@NotBlank(message="请选择借贷方向") @Pattern(regexp="D|C",message="借贷方向无效") String direction,
         @NotBlank(message="请填写期初金额") String amount,@NotNull(message="请选择业务日期") LocalDate businessDate,
-        @Size(max=200,message="备注最多200字") String remark,Long version) {}
+        @Size(max=200,message="备注最多200字") String remark,Long version,@com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) LocalDate dueDate) {
+        public Entry(String entryType,Long partnerId,Long cashAccountId,String direction,String amount,LocalDate businessDate,String remark,Long version) {this(entryType,partnerId,cashAccountId,direction,amount,businessDate,remark,version,null);}
+    }
     public record Version(@NotNull(message="请提供版本号") @PositiveOrZero(message="版本号无效") Long version,
         @Size(max=200,message="意见最多200字") String reason,@Size(max=100,message="自选节点最多100个") Map<String,List<Long>> workflowAssignees) {
         public Version(Long version,String reason) {this(version,reason,null);}
@@ -85,6 +87,7 @@ public class OpeningService {
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,id,scope.tenantId(),scope.companyId(),numbers.next(scope,"OE",input.businessDate()),input.entryType(),input.partnerId(),input.cashAccountId(),
                 input.direction(),amount(input.amount()),input.businessDate(),input.remark(),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
+            jdbc.update("UPDATE opening_entry SET due_date=? WHERE tenant_id=? AND company_id=? AND id=?",input.dueDate(),scope.tenantId(),scope.companyId(),id);
             return changed(scope,false,id,"create",null);
         });
     }
@@ -92,6 +95,7 @@ public class OpeningService {
         var before=find(scope,false,id,true);version(before,input.version());state(before,"draft");validateEntry(scope,input);
         jdbc.update("UPDATE opening_entry SET entry_type=?,partner_id=?,cash_account_id=?,direction=?,amount=?,business_date=?,remark=?,version=version+1,updated_by=? WHERE id=?",
             input.entryType(),input.partnerId(),input.cashAccountId(),input.direction(),amount(input.amount()),input.businessDate(),input.remark(),scope.userId(),id);
+        jdbc.update("UPDATE opening_entry SET due_date=? WHERE tenant_id=? AND company_id=? AND id=?",input.dueDate(),scope.tenantId(),scope.companyId(),id);
         return changed(scope,false,id,"update",before);
     }
     public Map<String,Object> command(CompanyAccess scope,boolean stock,long id,String action,String key,Version input) {
@@ -175,8 +179,9 @@ public class OpeningService {
             references.requirePartner(scope,partner,type.equals("receivable")?"customer":"supplier");
             boolean ar=type.equals("receivable");String fact=ar?"receivable":"payable",party=ar?"customer_id":"supplier_id";
             String kind=direction.equals(ar?"D":"C")?"charge":"credit";long factId=Ids.next();
-            jdbc.update("INSERT INTO "+fact+"(id,tenant_id,company_id,"+party+",kind,source_type,source_id,source_line_id,amount,untaxed_amount,tax_amount,business_date,period_id,created_by) VALUES(?,?,?,?,?,'opening_entry',?,?,?,?,0,?,?,?)",
-                factId,scope.tenantId(),scope.companyId(),partner,kind,id,id,value,value,day,period,scope.userId());
+            jdbc.update("INSERT INTO "+fact+"(id,tenant_id,company_id,"+party+",kind,source_type,source_id,source_line_id,amount,untaxed_amount,tax_amount,business_date,period_id,created_by,due_date) VALUES(?,?,?,?,?,'opening_entry',?,?,?,?,0,?,?,?,?)",
+                factId,scope.tenantId(),scope.companyId(),partner,kind,id,id,value,value,day,period,scope.userId(),
+                head.get("due_date")!=null?head.get("due_date"):PaymentTerms.dueDate(day,PaymentTerms.resolve(jdbc,scope,partner,ar?"customer":"supplier")));
             settlement.open(scope,new SettlementService.OpenItem(fact,factId,partner,direction,value,day));
         }
         String accountCode=type.equals("cash")?"FUNDS":type.equals("receivable")?"AR":"AP";

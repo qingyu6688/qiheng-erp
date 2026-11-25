@@ -9,7 +9,11 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.CountDownLatch;
@@ -24,8 +28,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import tools.jackson.databind.ObjectMapper;
 
+import cn.erp.ai.assistant.AssistantCatalog;
+import cn.erp.ai.assistant.AssistantRuntime;
 import cn.erp.ai.common.AiActor;
 import cn.erp.ai.common.AiException;
 import cn.erp.ai.gateway.ModelGateway;
@@ -36,7 +44,7 @@ import cn.erp.ai.knowledge.KnowledgeTypes.WikiDraftInput;
 import cn.erp.ai.knowledge.KnowledgeTypes.WikiReviewInput;
 
 @EnabledIfEnvironmentVariable(named = "ERP_AI_DB_URL",
-        matches = "jdbc:mysql://(?:127\\.0\\.0\\.1|localhost|\\[::1])(?::[0-9]+)?/erp_ai_test(?:\\?.*)?")
+        matches = "jdbc:mysql://(?:127\\.0\\.0\\.1|localhost|\\[::1])(?::[0-9]+)?/erp_ai_test(?:_[a-z0-9]+)?(?:\\?.*)?")
 @SpringBootTest(properties = {"erp.ai.kb-worker-enabled=false", "erp.ai.search-mode=local"})
 class KnowledgeIsolationIT {
     private final String tenant = testTenant();
@@ -48,6 +56,9 @@ class KnowledgeIsolationIT {
     @Autowired KnowledgeWork worker;
     @Autowired WikiService wiki;
     @Autowired WikiEnrichment enrichment;
+    @Autowired AssistantCatalog assistants;
+    @Autowired AssistantRuntime runtime;
+    @Autowired ObjectMapper json;
     @MockitoBean ModelGateway model;
 
     @Test
@@ -116,13 +127,114 @@ class KnowledgeIsolationIT {
     @Test
     void importsOfficialManualsIdempotentlyAndRequiresReviewBeforePublishing() {
         var seeded = catalog.seed(operator);
-        assertThat(seeded).extracting(KnowledgeTypes.Document::title).containsExactly("业务规则", "用户使用手册", "运维手册");
+        assertThat(seeded).extracting(KnowledgeTypes.Document::title).containsExactly("业务规则", "用户使用手册", "运维手册", "优化文档");
         assertThat(catalog.seed(operator)).extracting(KnowledgeTypes.Document::id)
                 .containsExactlyElementsOf(seeded.stream().map(KnowledgeTypes.Document::id).toList());
         worker.processUploads();
         wiki.processPending();
-        assertThat(wiki.reviews(operator)).hasSize(3).allMatch(item -> item.pendingRevision() != null);
+        assertThat(wiki.reviews(operator)).hasSize(4).allMatch(item -> item.pendingRevision() != null);
         assertThat(wiki.browse(operator, "")).isEmpty();
+    }
+
+    @Test
+    void refreshesChangedSeedInPlaceAndRetiresOldEvidenceOnlyAfterSuccessfulIndexing() {
+        var seeded = catalog.seed(operator);
+        worker.processUploads();
+        var rules = seeded.getFirst();
+        catalog.upload(operator, rules.libraryId(), rules.id(), rules.title(), file("旧版本库存范围尚未包含批次管理。"));
+        worker.processUploads();
+        String old = catalog.segments(operator, rules.id()).getFirst().id();
+        var refreshed = catalog.seed(operator);
+        assertThat(refreshed).extracting(KnowledgeTypes.Document::id)
+                .containsExactlyElementsOf(seeded.stream().map(KnowledgeTypes.Document::id).toList());
+        assertThat(refreshed.getFirst().versionNo()).isEqualTo(3);
+        assertThat(knowledge.canRead(operator, old, null)).isTrue();
+        worker.processUploads();
+        assertThat(knowledge.canRead(operator, old, null)).isFalse();
+        assertThat(catalog.segments(operator, rules.id())).anyMatch(segment -> segment.content().contains("批次、序列号、保质期和库位已支持"));
+        assertThat(catalog.seed(operator)).extracting(KnowledgeTypes.Document::versionNo)
+                .containsExactly(3, 1, 1, 1);
+        assertThat(jdbc.queryForList("SELECT seed_key FROM kb_document WHERE tenant_id=? ORDER BY seed_key", String.class, tenant))
+                .containsExactly("official-manual-0", "official-manual-1", "official-manual-2", "official-manual-3");
+    }
+
+    @Test
+    void answersUpdatedScopeAndPaymentTermsUsingActuallyImportedOfficialEvidence() throws Exception {
+        answersOfficialEvidence(257,272,"B09-知识问答回归.json");
+    }
+
+    @Test
+    void answersPurchasePriceRulesUsingActuallyImportedOfficialEvidence() throws Exception {
+        answersOfficialEvidence(273,280,"B02-采购调价知识问答.json");
+    }
+
+    @Test
+    void answersPurchaseFeeRulesUsingActuallyImportedOfficialEvidence() throws Exception {
+        answersOfficialEvidence(281,288,"B03-采购费用知识问答.json");
+    }
+
+    @Test
+    void answersInboundInvoiceRulesUsingActuallyImportedOfficialEvidence() throws Exception {
+        answersOfficialEvidence(289,296,"B04-进项核对知识问答.json");
+    }
+
+    @Test
+    void answersSalesPriceAndWholeInvoiceRedRulesUsingActuallyImportedOfficialEvidence() throws Exception {
+        answersOfficialEvidence(297,304,"B02-销售调价知识问答.json");
+    }
+
+    @Test
+    void answersReturnCreditAndCompletenessRulesUsingActuallyImportedOfficialEvidence() throws Exception {
+        answersOfficialEvidence(305,320,"B05-B08-业务完整性知识问答.json");
+    }
+
+    private void answersOfficialEvidence(int first,int last,String reportName) throws Exception {
+        catalog.seed(operator);
+        worker.processUploads();
+        assertThat(catalog.documents(operator, "official-manuals")).hasSize(4)
+                .allMatch(document -> "indexed".equals(document.status()));
+        var config = new AssistantCatalog.Config(null, "internal", "官方手册回归助手", "", Set.of("official-manuals"), Set.of(), Set.of(), true);
+        assistants.save(operator, config);
+        var current = assistants.require(operator, "internal");
+        // 受控模型只转述实际召回原文，评测覆盖导入、检索、引用及权限，不代表真实模型质量。
+        when(model.generate(eq(operator), eq("kb_chat"), anyString(), anyString(), any(), any())).thenAnswer(call -> {
+            call.getArgument(4, Runnable.class).run();
+            var evidence = json.readTree(call.getArgument(3, String.class)).path("evidence");
+            var paragraphs = new ArrayList<String>();
+            for (var source : evidence) {
+                String text = source.path("content").asString().replace("```", "").replace("<", "").replace(">", "").replaceAll("\\s+", " ");
+                paragraphs.add(text + "[" + source.path("number").asInt() + "]");
+            }
+            return new ModelResult(String.join("\n\n", paragraphs), "controlled-extractive", 0, 0);
+        });
+        var results = new ArrayList<Map<String, Object>>();
+        try (var input = new ClassPathResource("eval/m13-kb.json").getInputStream()) {
+            for (var test : json.readTree(input)) {
+                int number=Integer.parseInt(test.path("id").asString().substring(4));
+                if (number<first || number>last) continue;
+                var answer = runtime.answer(operator, current, test.path("question").asString(), List.of(), () -> operator);
+                boolean facts = !answer.refused();
+                for (var group : test.path("answerAnchors")) {
+                    boolean found = false;
+                    for (var anchor : group) found |= answer.text().contains(anchor.asString());
+                    facts &= found;
+                }
+                String expected = test.path("expectedDocuments").get(0).asString();
+                boolean cited = answer.citations().stream().anyMatch(citation -> expected.equals(citation.title()));
+                results.add(Map.of("id", test.path("id").asString(), "question", test.path("question").asString(),
+                        "factsCorrect", facts, "citationCorrect", cited, "refused", answer.refused(),
+                        "citations", answer.citations(), "receiptsValid", runtime.receiptsValid(operator, current, answer.receipts())));
+            }
+        }
+        Path report = Path.of(System.getenv().getOrDefault("ERP_TEST_ROOT", System.getProperty("java.io.tmpdir")), "erp-ai", reportName);
+        Files.createDirectories(report.getParent());
+        Files.writeString(report, json.writerWithDefaultPrettyPrinter().writeValueAsString(Map.of(
+                "mode", "受控摘录模型与本机检索", "total", results.size(), "results", results)), StandardCharsets.UTF_8);
+        assertThat(results).hasSize(last-first+1).allSatisfy(result -> {
+            assertThat(result.get("factsCorrect")).as("%s 答案要点", result.get("id")).isEqualTo(true);
+            assertThat(result.get("citationCorrect")).as("%s 资料引用", result.get("id")).isEqualTo(true);
+            assertThat(result.get("receiptsValid")).as("%s 当前权限", result.get("id")).isEqualTo(true);
+        });
     }
 
     @Test
@@ -183,6 +295,7 @@ class KnowledgeIsolationIT {
                 "kb_document", "kb_library_acl", "kb_library")) {
             jdbc.update("DELETE FROM " + table + " WHERE tenant_id IN (?, ?)", tenant, other);
         }
+        jdbc.update("DELETE FROM ai_assistant WHERE tenant_id IN (?, ?)", tenant, other);
     }
 
     private static AiActor actor(String tenant, Set<String> roles, Set<String> departments) {

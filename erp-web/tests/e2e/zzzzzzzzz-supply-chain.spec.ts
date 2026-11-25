@@ -56,7 +56,15 @@ test('数电发票可查看开具记录、进项台账和服务商启用状态',
   await expect(dialog.getByRole('button', { name: '提交申请' })).toBeDisabled()
   await dialog.getByRole('button', { name: '关闭', exact: true }).click()
   await page.getByRole('tab', { name: '进项台账' }).click()
-  await expect(page.getByText('暂无进项发票', { exact: true })).toBeVisible()
+  const keyword = 'E2E-EMPTY-' + crypto.randomUUID()
+  await page.getByRole('textbox', { name: '号码或销方', exact: true }).fill(keyword)
+  const filtered = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return url.pathname.endsWith('/e-invoices/inbound') && url.searchParams.get('keyword') === keyword
+  })
+  await page.getByRole('button', { name: '查询台账', exact: true }).click()
+  expect((await filtered).status()).toBe(200)
+  await expect(page.getByText('此条件下暂无进项发票', { exact: true })).toBeVisible()
   await page.getByRole('tab', { name: '服务商配置' }).click()
   await expect(page.getByRole('button', { name: '测试已保存的连接' })).toBeDisabled()
 })
@@ -124,7 +132,7 @@ test('M17 上架任务菜单读取当前仓库，库位仓作业模式默认关�
     locationManaged: true,
   })
 
-  await page.getByRole('button', { name: '仓储', exact: true }).click()
+  await page.getByRole('button', { name: '库存', exact: true }).click()
   const link = page.getByRole('link', { name: '上架任务', exact: true })
   await link.click()
   await expect(page.getByRole('heading', { name: '上架任务', exact: true })).toBeVisible()

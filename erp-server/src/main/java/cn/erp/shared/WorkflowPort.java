@@ -11,4 +11,8 @@ public interface WorkflowPort {
             Map<String, List<Long>> selections);
 
     void guard(ActorScope actor, String businessType, long businessId, String action);
+
+    default void expireQuotation(ActorScope actor,long quotationId) {
+        throw new ApiException(503,"WORKFLOW_UNAVAILABLE","报价到期处理尚未就绪");
+    }
 }

@@ -17,7 +17,8 @@ class WorkbenchController {
     private final DocumentBrowser browser;
     private final WorkbenchService workbench;
     private final TradeSummaryService trade;
-    WorkbenchController(AccessService access,DocumentBrowser browser,WorkbenchService workbench,TradeSummaryService trade) {this.access=access;this.browser=browser;this.workbench=workbench;this.trade=trade;}
+    private final SetupChecklist setup;
+    WorkbenchController(AccessService access,DocumentBrowser browser,WorkbenchService workbench,TradeSummaryService trade,SetupChecklist setup) {this.access=access;this.browser=browser;this.workbench=workbench;this.trade=trade;this.setup=setup;}
     @GetMapping("/document-browser/{kind}")
     ApiResponse<?> list(HttpServletRequest request,@PathVariable String kind,@RequestParam(required=false) String keyword,@RequestParam(required=false) String status,
             @RequestParam(required=false) Long partnerId,@RequestParam(required=false) Long warehouseId,@RequestParam(required=false) LocalDate dateFrom,
@@ -44,6 +45,8 @@ class WorkbenchController {
     }
     @GetMapping("/workbench/summary")
     ApiResponse<?> summary(HttpServletRequest request) {return ApiResponse.success(workbench.summary(access.requireCompany(request,null)));}
+    @GetMapping("/workbench/setup")
+    ApiResponse<?> setup(HttpServletRequest request) {return ApiResponse.success(setup.status(access.requireCompany(request,null)));}
     @GetMapping("/workbench/trade-summary")
     ApiResponse<?> tradeSummary(HttpServletRequest request,@RequestParam(defaultValue="12") int months) {
         return ApiResponse.success(trade.summary(access.requireCompany(request,null),months));

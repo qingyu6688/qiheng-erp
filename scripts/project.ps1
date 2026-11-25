@@ -89,7 +89,7 @@ if ($Action -in 'web','e2e','e2e-web') {
                 $previewDirectory = Join-Path $testRoot ('e2e-web/dist-' + [Guid]::NewGuid().ToString('N'))
                 Assert-ErpTestOutputPath $previewDirectory
                 $outputOptions = @('--outDir', $previewDirectory)
-                npm --ignore-scripts run build -- @outputOptions
+                npm --ignore-scripts run build -- @outputOptions 2>&1 | Tee-Object -FilePath ($previewDirectory + '.build.log')
             } else {
                 npm run build
             }

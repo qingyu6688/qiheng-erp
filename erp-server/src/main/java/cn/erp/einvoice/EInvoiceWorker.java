@@ -33,16 +33,19 @@ class EInvoiceWorker {
     private final EInvoiceProvider provider;
     private final InvoiceService invoices;
     private final AuditService audit;
+    private final cn.erp.shared.SalesInvoiceLock invoiceLock;
 
     EInvoiceWorker(JdbcTemplate jdbc,PlatformTransactionManager manager,EInvoiceService requests,EInvoiceConfig config,
-                   EInvoiceProvider provider,InvoiceService invoices,AuditService audit,ManagedJobs jobs) {
+                   EInvoiceProvider provider,InvoiceService invoices,AuditService audit,ManagedJobs jobs,cn.erp.shared.SalesInvoiceLock invoiceLock) {
         this.jdbc=jdbc;
         this.transaction=new TransactionTemplate(manager);
+        this.transaction.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED);
         this.requests=requests;
         this.config=config;
         this.provider=provider;
         this.invoices=invoices;
         this.audit=audit;
+        this.invoiceLock=invoiceLock;
         jobs.register("einv.issue",this::runOne);
     }
 
@@ -102,6 +105,7 @@ class EInvoiceWorker {
     }
 
     private void finish(Claim claim,EInvoiceProvider.Result result) {
+        invoiceLock.lock(claim.actor());
         var lock=jdbc.queryForList("""
                 SELECT id FROM einv_issue_request WHERE tenant_id=? AND company_id=? AND id=? AND version=? AND lease_owner=? FOR UPDATE
                 """,claim.tenant(),claim.company(),claim.id(),claim.version(),claim.lease());

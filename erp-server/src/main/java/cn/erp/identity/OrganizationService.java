@@ -86,7 +86,7 @@ class OrganizationService {
         var policies=jdbc.query("SELECT * FROM company_policy WHERE tenant_id=? AND company_id=?",(r,n)->
                 new PolicyView(r.getString("taxpayer_type"),r.getInt("reservation_valid_days"),r.getInt("reservation_grace_days"),
                         r.getBigDecimal("over_receipt_pct").toPlainString(),r.getBoolean("separate_order_approver"),
-                        r.getBoolean("separate_receipt_confirmer"),r.getLong("version"),r.getString("below_min_price_policy")),actor.tenantId(),id);
+                        r.getBoolean("separate_receipt_confirmer"),r.getLong("version"),r.getString("below_min_price_policy"),new cn.erp.shared.PaymentTerms.Term(r.getString("default_term_type"),r.getObject("default_term_value",Integer.class)),r.getBoolean("purchase_fee_cost_enabled"),r.getString("purchase_fee_allocation_method"),r.getBigDecimal("invoice_match_tolerance").toPlainString(),r.getString("purchase_over_price_policy")),actor.tenantId(),id);
         return policies.isEmpty()?new PolicyView("general",30,7,"0.00",true,true,0):policies.getFirst();
     }
 
@@ -94,14 +94,23 @@ class OrganizationService {
     PolicyView policy(CompanyAccess actor,long id,PolicyInput input) {
         company(actor,id,true);
         var before=policy(actor,id);
+        cn.erp.shared.PaymentTerms.validate(input.defaultPaymentTerms());
+        if(input.purchaseOverPricePolicy()!=null && !java.util.Set.of("warn","approval").contains(input.purchaseOverPricePolicy()))
+            throw new ApiException(400,"VALIDATION_FAILED","采购超协议价控制方式无效");
+        if(input.purchaseFeeAllocationMethod()!=null&&!java.util.Set.of("amount","quantity","weight").contains(input.purchaseFeeAllocationMethod())) throw new ApiException(400,"VALIDATION_FAILED","采购费用分摊方式无效");
+        if(input.invoiceMatchTolerance()!=null&&!input.invoiceMatchTolerance().matches("[0-9]{1,22}(?:\\.[0-9]{1,2})?"))throw new ApiException(400,"VALIDATION_FAILED","进项核对容差须为非负金额，最多两位小数");
         version(input.version(),before.version());
         jdbc.update("INSERT IGNORE INTO company_policy(id,tenant_id,company_id,created_by) VALUES(?,?,?,?)",Ids.next(),actor.tenantId(),id,actor.userId());
         jdbc.update("""
                 UPDATE company_policy SET taxpayer_type=?,reservation_valid_days=?,reservation_grace_days=?,
-                over_receipt_pct=?,separate_order_approver=?,separate_receipt_confirmer=?,below_min_price_policy=COALESCE(?,below_min_price_policy),version=version+1,updated_by=?
+                over_receipt_pct=?,separate_order_approver=?,separate_receipt_confirmer=?,below_min_price_policy=COALESCE(?,below_min_price_policy),purchase_fee_cost_enabled=COALESCE(?,purchase_fee_cost_enabled),purchase_fee_allocation_method=COALESCE(?,purchase_fee_allocation_method),invoice_match_tolerance=COALESCE(?,invoice_match_tolerance),version=version+1,updated_by=?
                 WHERE tenant_id=? AND company_id=?
                 """,input.taxpayerType(),input.reservationValidDays(),input.reservationGraceDays(),new java.math.BigDecimal(input.overReceiptPct()),
-                input.separateOrderApprover(),input.separateReceiptConfirmer(),input.belowMinPricePolicy(),actor.userId(),actor.tenantId(),id);
+                input.separateOrderApprover(),input.separateReceiptConfirmer(),input.belowMinPricePolicy(),input.purchaseFeeCostEnabled(),input.purchaseFeeAllocationMethod(),input.invoiceMatchTolerance()==null?null:new java.math.BigDecimal(input.invoiceMatchTolerance()).setScale(2),actor.userId(),actor.tenantId(),id);
+        if(input.purchaseOverPricePolicy()!=null)jdbc.update("UPDATE company_policy SET purchase_over_price_policy=? WHERE tenant_id=? AND company_id=?",
+                input.purchaseOverPricePolicy(),actor.tenantId(),id);
+        if(input.defaultPaymentTerms()!=null) jdbc.update("UPDATE company_policy SET default_term_type=?,default_term_value=? WHERE tenant_id=? AND company_id=?",
+                input.defaultPaymentTerms().type(),input.defaultPaymentTerms().value(),actor.tenantId(),id);
         var after=policy(actor,id);
         audit.record(companyScope(actor,id),"company_policy.update","company_policy",id,before,after);
         return after;

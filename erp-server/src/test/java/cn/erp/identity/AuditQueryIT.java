@@ -67,6 +67,21 @@ class AuditQueryIT {
         assertThatThrownBy(()->service.list(actor,filter(null,null),"错误",20)).isInstanceOf(ApiException.class);
         assertThatThrownBy(()->service.list(actor,new AuditQueryService.Filter(null,null,null,null,null,today,today.plusYears(2),null),null,20)).isInstanceOf(ApiException.class);
     }
+    @Test void sourcelessReturnHistoryKeepsBothReviewsAndRedactsWholeCostBasis() {
+        var old=Map.of("returnMode","sourceless","costAmount","20.00","lines",List.of(Map.of(
+                "skuId","9007199254740993","unitCost","5.00000000","costAmount","20.00",
+                "manualUnitCost","0.00000000","manualCostReason","历史成本凭据",
+                "costBasis",Map.of("source","average","stockAmount","500.00","stockQuantity","100.000000"))));
+        var current=Map.of("returnMode","sourceless","costAmount","24.00","lines",List.of(Map.of(
+                "skuId","9007199254740993","costBasis",Map.of("source","average","unitCost","6.00000000","stockAmount","1200.00"))));
+        jdbc.update("INSERT INTO audit_log(id,tenant_id,company_id,operator_id,action,object_type,object_id,before_data,after_data) VALUES(?,?,?,?,'sales_return.submit','sales_return',456,?,?)",
+                Ids.next(),tenant,company,user,json.writeValueAsString(old),json.writeValueAsString(current));
+        String hidden=json.writeValueAsString(service.list(actor,filter("sales_return.submit",company),null,20));
+        assertThat(hidden).contains("sourceless","9007199254740993").doesNotContain("Cost","cost","stockAmount","stockQuantity","历史成本凭据");
+        var reviewer=new CompanyAccess(tenant,user,0,true,Set.of(),Set.of("audit:view","cost:view"));
+        String complete=json.writeValueAsString(service.list(reviewer,filter("sales_return.submit",company),null,20));
+        assertThat(complete).contains("20.00","24.00","500.00","1200.00","5.00000000","6.00000000","历史成本凭据");
+    }
     @Test void financeAuditUsesDomainPermissionsAndDefaultsUnknownFinanceActionsToHidden() {
         var actions=Map.of("gl_config.save","gl_subject","gl_opening.save","gl_account_book","gl_voucher.save","gl_voucher","gl_business.generated","gl_voucher","gl_closing.close","gl_period_close","credit_limit.save","ar_credit_limit","credit_increase.approve","credit_increase","bad_debt.approve","ar_bad_debt","aging_config.save","company","collection.follow","ar_collection_plan");
         for(var entry:actions.entrySet())jdbc.update("INSERT INTO audit_log(id,tenant_id,company_id,operator_id,action,object_type,after_data) VALUES(?,?,?,?,?,?,?)",Ids.next(),tenant,company,user,entry.getKey(),entry.getValue(),"{\"amount\":\"123.45\"}");

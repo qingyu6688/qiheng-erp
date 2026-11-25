@@ -46,6 +46,30 @@ class IdentityAdministrationIT {
         actor=new CompanyAccess(tenant,user,0,true,Set.of(),Set.copyOf(jdbc.queryForList("SELECT code FROM sys_permission",String.class)));
     }
 
+    @Test void defaultPaymentTermsAreValidatedAndPreservedForOldClients() {
+        var created=organization.create(actor,UUID.randomUUID().toString(),new CompanyInput("TERM","账期公司",null,null,null,null));
+        long id=Long.parseLong(created.id());
+        var saved=organization.policy(actor,id,new PolicyInput("general",30,7,"0.00",true,true,0L,"warn",new cn.erp.shared.PaymentTerms.Term("days",30)));
+        assertThat(saved.defaultPaymentTerms()).isEqualTo(new cn.erp.shared.PaymentTerms.Term("days",30));
+        var oldClient=organization.policy(actor,id,new PolicyInput("general",30,7,"0.00",true,true,saved.version()));
+        assertThat(oldClient.defaultPaymentTerms()).isEqualTo(saved.defaultPaymentTerms());
+        assertThatThrownBy(()->organization.policy(actor,id,new PolicyInput("general",30,7,"0.00",true,true,oldClient.version(),"warn",new cn.erp.shared.PaymentTerms.Term("monthly",29))))
+                .isInstanceOf(ApiException.class);
+    }
+
+    @Test void invoiceToleranceIsValidatedAndAnOldPolicyClientKeepsItsValue() {
+        var created=organization.create(actor,UUID.randomUUID().toString(),new CompanyInput("INV-TOL","发票容差公司",null,null,null,null));
+        long id=Long.parseLong(created.id());
+        assertThat(organization.policy(actor,id).invoiceMatchTolerance()).isEqualTo("1.00");
+        var saved=organization.policy(actor,id,new PolicyInput("general",30,7,"0.00",true,true,0L,"warn",null,true,"amount","0.05"));
+        assertThat(saved.invoiceMatchTolerance()).isEqualTo("0.05");
+        var oldClient=organization.policy(actor,id,new PolicyInput("general",30,7,"0.00",true,true,saved.version()));
+        assertThat(oldClient.invoiceMatchTolerance()).isEqualTo("0.05");
+        for(String invalid:List.of("-1","0.001","10000000000000000000000"))
+            assertThatThrownBy(()->organization.policy(actor,id,new PolicyInput("general",30,7,"0.00",true,true,oldClient.version(),"warn",null,true,"amount",invalid))).isInstanceOf(ApiException.class);
+        assertThat(organization.policy(actor,id).version()).isEqualTo(oldClient.version());
+    }
+
     @Test
     void companyAndPolicyChangesAreVersionedAndAudited() {
         var input=new CompanyInput("N","新公司",null,null,null,null);

@@ -41,7 +41,8 @@ class ReceivingIT {
             "purchase_return:view","purchase_return:create","purchase_return:update","purchase_return:submit","purchase_return:void","purchase_return:post","cost:view"));
         jdbc.update("INSERT INTO tenant(id,code,name) VALUES(?,?,'采购收退货测试')",tenant,"RCV"+tenant);
         jdbc.update("INSERT INTO company(id,tenant_id,code,name) VALUES(?,?,'A','公司甲')",company,tenant);
-        jdbc.update("INSERT INTO company_policy(id,tenant_id,company_id) VALUES(?,?,?)",Ids.next(),tenant,company);
+        // 本组保留原费用路径回归，新默认资本化流程在 PurchaseFeeIT 验收。
+        jdbc.update("INSERT INTO company_policy(id,tenant_id,company_id,purchase_fee_cost_enabled) VALUES(?,?,?,0)",Ids.next(),tenant,company);
         jdbc.update("INSERT INTO business_partner(id,tenant_id,code,name) VALUES(?,?,'S','测试供应商')",supplier,tenant);
         jdbc.update("INSERT INTO partner_role(id,tenant_id,partner_id,role) VALUES(?,?,?,'supplier')",Ids.next(),tenant,supplier);
         for(long id:List.of(warehouse,otherWarehouse)) {jdbc.update("INSERT INTO warehouse(id,tenant_id,company_id,code,name) VALUES(?,?,?,?,?)",id,tenant,company,"W"+id,"仓库"+id);}
@@ -56,8 +57,8 @@ class ReceivingIT {
     @AfterEach void cleanup() {
         jdbc.update("DELETE FROM inbox_event WHERE event_id IN(SELECT id FROM outbox_event WHERE tenant_id=?)",tenant);
         jdbc.update("UPDATE purchase_order_fee SET recognized_receipt_id=NULL WHERE tenant_id=?",tenant);
-        for(String table:List.of("outbox_event","ledger_balance","journal_line","journal","settlement_allocation","partner_open_item","payable","document_change","approval_record",
-            "purchase_return_line","purchase_return","goods_receipt_line","goods_receipt","inventory_reservation_change","inventory_reservation","cost_adjustment","inv_movement_hold","inventory_movement","inventory_cost","inventory_balance",
+        for(String table:List.of("einv_inbound_match","einv_inbound","inbound_invoice_lock","outbox_event","ledger_balance","journal_line","journal","settlement_allocation","partner_open_item","payable","document_change","approval_record",
+            "purchase_fee_cost","purchase_fee_allocation","purchase_fee_doc_line","purchase_fee_doc","purchase_return_line","purchase_return","goods_receipt_line","goods_receipt","inventory_reservation_change","inventory_reservation","cost_adjustment","inv_movement_hold","inventory_movement","inventory_cost","inventory_balance",
             "purchase_order_fee","purchase_order_line","purchase_order","audit_log","idempotency_record","document_sequence","accounting_period",
             "unit_conversion","sku","product","product_category","unit","partner_role","business_partner","warehouse","company_policy","company")) {
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant);
@@ -250,6 +251,26 @@ class ReceivingIT {
         jdbc.update("UPDATE goods_receipt_line SET base_qty=1.5 WHERE receipt_id=?",receipt);
         assertCode(()->service.command(scope,false,receipt,"submit",key(),0L),"SOURCE_CHANGED");
         assertThat(value("SELECT pending_receive_base_qty FROM purchase_order_line WHERE id=?",source)).isEqualByComparingTo("0");
+        zeroDifferences();
+    }
+
+    @Test void realApprovalReceiptFeeAndReturnKeepTheSameDueDate() {
+        jdbc.update("UPDATE partner_role SET term_type='monthly',term_value=28 WHERE tenant_id=? AND partner_id=?",tenant,supplier);
+        var input=new PurchaseOrderModels.Input(Long.toString(supplier),DAY.minusDays(5),null,true,"0",
+                List.of(new PurchaseOrderModels.Line(null,null,Long.toString(sku),Long.toString(warehouse),Long.toString(unit),"2","10",null,null,null,"0")),
+                List.of(new PurchaseOrderModels.Fee(null,"freight","buyer","3",null)),null,null,null);
+        var order=purchaseOrders.create(scope,key(),input);long orderId=documentId(order);
+        var submitted=purchaseOrders.command(scope,orderId,"submit",key(),new PurchaseOrderModels.Command(0L,null,null));
+        var reviewer=new CompanyAccess(tenant,Ids.next(),company,true,Set.of(),scope.permissions());
+        purchaseOrders.command(reviewer,orderId,"approve",key(),new PurchaseOrderModels.Command(((Number)submitted.get("version")).longValue(),null,null));
+        jdbc.update("UPDATE partner_role SET term_type='days',term_value=90 WHERE tenant_id=? AND partner_id=?",tenant,supplier);
+        long source=jdbc.queryForObject("SELECT id FROM purchase_order_line WHERE order_id=?",Long.class,orderId);
+        long receipt=receive(source,"2",DAY);
+        assertThat(jdbc.queryForList("SELECT due_date FROM payable WHERE tenant_id=? AND source_id=?",java.sql.Date.class,tenant,receipt))
+                .hasSize(2).allMatch(value->value.equals(java.sql.Date.valueOf(LocalDate.of(2026,12,28))));
+        long returned=returned(receiptLine(receipt),"1");
+        assertThat(jdbc.queryForObject("SELECT due_date FROM payable WHERE tenant_id=? AND source_id=?",java.sql.Date.class,tenant,returned))
+                .isEqualTo(java.sql.Date.valueOf(LocalDate.of(2026,12,28)));
         zeroDifferences();
     }
 

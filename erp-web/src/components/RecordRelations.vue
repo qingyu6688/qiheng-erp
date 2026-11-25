@@ -19,7 +19,12 @@ const policyHelp = [
   '启用后制单人与审核人须为不同用户。',
   '启用后登记人与收付款确认人须为不同用户。',
   '按折后含税基本单位价格判断；需要审批时必须绑定含价格审批节点的流程。',
+  '开启后随收货进度确认费用并计入成本；关闭后首次收货整笔记采购费用。',
+  '重量按基本数量乘每基本单位重量计算，权重合计不能为零。',
 ]
+import PaymentTermsField from './PaymentTermsField.vue'
+import { readPaymentTerm } from '../utils/payment-terms'
+
 const props = defineProps<{ resource: string; row: DataRow; inline?: boolean }>()
 const emit = defineEmits<{
   close: []
@@ -37,6 +42,10 @@ const notice = ref('')
 const items = ref<DataRow[]>([])
 const options = reactive<Record<string, SelectOption[]>>({})
 const input = reactive<Record<string, unknown>>({})
+const defaultPaymentTerms = computed({
+  get: () => readPaymentTerm(input.defaultPaymentTerms),
+  set: (value) => { input.defaultPaymentTerms = value ?? { type: null, value: null } },
+})
 const roleIds = ref<string[]>([])
 const permissionCodes = ref<string[]>([])
 const permissions = ref<{ code: string; name: string }[]>([])
@@ -106,6 +115,7 @@ const policyFields: FormField[] = [
   { key: 'reservationValidDays', label: '预留有效天数', kind: 'number', max: 365 },
   { key: 'reservationGraceDays', label: '交货日后宽限天数', kind: 'number', max: 90 },
   { key: 'overReceiptPct', label: '采购超收容差（百分比）' },
+  { key: 'invoiceMatchTolerance', label: '进项发票核对容差（元）', max: 25 },
   { key: 'separateOrderApprover', label: '订单审批经办复核分离', kind: 'boolean' },
   { key: 'separateReceiptConfirmer', label: '收付款确认经办复核分离', kind: 'boolean' },
   {
@@ -118,6 +128,13 @@ const policyFields: FormField[] = [
       { value: 'block', label: '禁止' },
     ],
   },
+  { key: 'purchaseFeeCostEnabled', label: '采购费用计入存货成本', kind: 'boolean' },
+  { key: 'purchaseOverPricePolicy', label: '采购高于协议价', kind: 'select', options: [
+    { value: 'warn', label: '提示' }, { value: 'approval', label: '需要另一人审批' },
+  ] },
+  { key: 'purchaseFeeAllocationMethod', label: '采购费用默认分摊方式', kind: 'select', options: [
+    { value: 'amount', label: '按金额' }, { value: 'quantity', label: '按基本数量' }, { value: 'weight', label: '按重量' },
+  ] },
 ]
 const allContactFields: FormField[] = [
   { key: 'name', label: '姓名', required: true, max: 50 },
@@ -396,6 +413,8 @@ function createContact(): void {
           :disabled="busy"
           @change="(k, v) => (input[k] = v)"
         />
+        <PaymentTermsField v-model="defaultPaymentTerms" label="默认账期" />
+        <p>往来单位未设置账期时使用本值；两处均未设置时不计算逾期。</p>
         <ul class="policy-help">
           <li v-for="(help, index) in policyHelp" :key="help">
             {{ policyFields[index]?.label }}：{{ help }}

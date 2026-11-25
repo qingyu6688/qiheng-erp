@@ -6,7 +6,7 @@
     <groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId>
     <version>4.1.2</version><relativePath/>
   </parent>
-  <groupId>cn.erp</groupId><artifactId>erp-ai</artifactId><version>2.0.0</version>
+  <groupId>cn.erp</groupId><artifactId>erp-ai</artifactId><version>2.1.0</version>
   <name>柒衡 ERP AI 服务</name>
   <properties>
     <java.version>21</java.version>
@@ -44,6 +44,10 @@
       <resource>
         <directory>${project.basedir}/../docs/运维</directory><targetPath>kb-seed</targetPath>
         <includes><include>运维手册.md</include></includes>
+      </resource>
+      <resource>
+        <directory>${project.basedir}/../docs/规划</directory><targetPath>kb-seed</targetPath>
+        <includes><include>优化文档.md</include></includes>
       </resource>
     </resources>
     <plugins>

@@ -9,12 +9,12 @@ import cn.erp.identity.*;
 import cn.erp.salesorder.*;
 import cn.erp.shared.*;
 
-final class WorkflowTestData {
+public final class WorkflowTestData {
     final JdbcTemplate jdbc;
     final AccessService access;
     final SalesOrderService sales;
     final WorkflowModels models;
-    final long tenant = Ids.next(),
+    public final long tenant = Ids.next(),
             company = Ids.next(),
             warehouse = Ids.next(),
             customer = Ids.next(),
@@ -23,13 +23,13 @@ final class WorkflowTestData {
             department = Ids.next(),
             parentDepartment = Ids.next(),
             post = Ids.next();
-    final long maker = Ids.next(),
+    public final long maker = Ids.next(),
             manager = Ids.next(),
             financeA = Ids.next(),
             financeB = Ids.next();
-    final LocalDate day = LocalDate.of(2026, 11, 15);
+    public final LocalDate day = LocalDate.of(2026, 11, 15);
 
-    WorkflowTestData(
+    public WorkflowTestData(
             JdbcTemplate jdbc,
             AccessService access,
             SalesOrderService sales,
@@ -202,7 +202,7 @@ final class WorkflowTestData {
                 sku);
     }
 
-    CompanyAccess actor(long user) {
+    public CompanyAccess actor(long user) {
         return access.forUser(tenant, user, company);
     }
 
@@ -321,7 +321,7 @@ final class WorkflowTestData {
                 false);
     }
 
-    void cleanup(org.flowable.engine.ProcessEngine engine) {
+    public void cleanup(org.flowable.engine.ProcessEngine engine) {
         for (var deployment :
                 engine.getRepositoryService()
                         .createDeploymentQuery()
@@ -336,13 +336,17 @@ final class WorkflowTestData {
             if (task.getExecutionId() == null)
                 engine.getTaskService().deleteTask(task.getId(), true);
         jdbc.update("UPDATE org_department SET parent_id=NULL WHERE tenant_id=?", tenant);
+        jdbc.update("UPDATE purchase_order_fee SET recognized_receipt_id=NULL WHERE tenant_id=?", tenant);
         for (String table :
                 List.of(
+                        "cost_revaluation_line", "cost_revaluation", "sales_quote_line", "sales_quote",
+                        "einv_inbound_match","einv_inbound","inbound_invoice_lock",
                         "sys_login_log",
                         "sys_api_access_log",
                         "sys_api_error_log",
                         "notify_send_log",
                         "notify_message",
+                        "alert_event","alert_sku_safety_stock","alert_rule",
                         "job_item_failure",
                         "job_run_log",
                         "job_definition",
@@ -373,10 +377,15 @@ final class WorkflowTestData {
                         "receivable",
                         "refund_request",
                         "receipt",
+                        "payment",
                         "cash_account",
                         "stock_adjustment_line",
                         "stock_adjustment",
+                        "stock_transfer_event_line","stock_transfer_line","stock_transfer",
                         "document_reversal",
+                        "purchase_fee_cost","purchase_fee_allocation","purchase_fee_doc_line","purchase_fee_doc",
+                        "price_adjustment_cost","price_adjustment_line","price_adjustment","document_change",
+                        "purchase_return_line","purchase_return","payable","goods_receipt_line","goods_receipt",
                         "purchase_order_fee",
                         "purchase_order_line",
                         "purchase_order",
@@ -388,6 +397,7 @@ final class WorkflowTestData {
                         "sales_order_line",
                         "sales_order",
                         "document_sequence",
+                        "price_list_item", "price_list_target", "price_list",
                         "unit_conversion",
                         "sku",
                         "product",
@@ -413,7 +423,13 @@ final class WorkflowTestData {
                         "job_run_log",
                         "job_definition",
                         "company"))
+        {
+            if(table.equals("payable")) jdbc.update("DELETE FROM payable WHERE tenant_id=? AND posting_action='reverse'",tenant);
+            if(table.equals("receivable")) jdbc.update("DELETE FROM receivable WHERE tenant_id=? AND posting_action='reverse'",tenant);
+            if(table.equals("journal")) jdbc.update("DELETE FROM journal WHERE tenant_id=? AND posting_action='reverse'",tenant);
+            if(table.equals("inventory_movement")) jdbc.update("DELETE FROM inventory_movement WHERE tenant_id=? AND posting_action='reverse'",tenant);
             jdbc.update("DELETE FROM " + table + " WHERE tenant_id=?", tenant);
+        }
         jdbc.update("DELETE FROM tenant WHERE id=?", tenant);
     }
 }

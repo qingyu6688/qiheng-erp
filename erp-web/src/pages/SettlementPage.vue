@@ -31,6 +31,7 @@ let key = newIdempotencyKey(),
   revokeKey = newIdempotencyKey()
 function selected(row: Record<string, unknown>): string {
   return String(row.sourceNo ?? row.id) + ' · 未核销 ' + formatMoney(String(row.openAmount))
+    + (row.dueDate ? ` · 到期 ${row.dueDate} · 逾期 ${row.overdueDays ?? 0} 天` : '')
 }
 function changePartner(): void {
   debit.value = ''

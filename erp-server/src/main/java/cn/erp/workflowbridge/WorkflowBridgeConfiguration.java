@@ -279,7 +279,7 @@ class WorkflowBridgeConfiguration {
                 result.put("totalAmount", money(raw));
                 result.put("status", raw.get("status"));
                 result.put("version", raw.get("version"));
-                for (String field : List.of("adjustType", "sourceType"))
+                for (String field : List.of("adjustType", "sourceType", "abovePriceList", "purchasePriceApprovalRequired"))
                     if (raw.get(field) != null) result.put(field, raw.get(field));
                 var goods = new BigDecimal(Objects.toString(raw.get("goodsAmount"), "0"));
                 var discount =

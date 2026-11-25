@@ -171,6 +171,6 @@ const aiGuide = repoDoc('使用说明/M13人工智能使用与验收.md')
       </FaqSection>
     </section>
 
-    <CtaPanel title="从实际业务流程开始了解" desc="在线演示提供客户、采购、销售、库存、生产计划和财务的只读浏览。AI 助手需要单独部署与配置，本次演示不包含 AI。" primary="在线演示" :secondary="{ label: '快速开始', href: '/quick-start' }" />
+    <CtaPanel title="查看知识与回答样例" desc="在线演示提供知识百科、知识库和带来源引用的预设 AI 回答，只供浏览。真实问答需要单独部署与配置模型。" primary="在线演示" :secondary="{ label: '快速开始', href: '/quick-start' }" />
   </main>
 </template>

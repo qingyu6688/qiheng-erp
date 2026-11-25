@@ -62,6 +62,12 @@ public class SalesOrderService {
         return createDraft(scope,input,"crm_contract",contractId);
     }
 
+    public Map<String,Object> createFromQuotation(CompanyAccess scope,long quotationId,SalesOrderModels.Input input) {
+        if(!scope.hasPermission("sales_order:create") || !scope.hasPermission("sales_quote:convert") || quotationId<=0)
+            throw new ApiException(403,"FORBIDDEN","没有从报价创建销售订单的权限");
+        return createDraft(scope,input,"sales_quote",quotationId);
+    }
+
     private Map<String,Object> createDraft(CompanyAccess scope,SalesOrderModels.Input input,String sourceType,long sourceId) {
         var preview=writer.price(scope,input,sourceId>0);
         long id=Ids.next();String no=numbers.next(scope,"SO",input.businessDate());
@@ -106,6 +112,7 @@ public class SalesOrderService {
                 case "reject" -> {state(before,"pending");reason(input.comment());changeState(scope,id,"draft");approval(scope,id,before,"reject",input.comment());}
                 case "approve" -> {
                     state(before,"pending");separateApprover(scope,before);minimumPrices.approving(scope,id);credit.order(scope,id,"approve");active(scope,before,rows,true);reserveRows(scope,before,rows);
+                    PaymentTerms.snapshot(jdbc,scope,"sales_order",id,number(before,"customer_id"),"customer");
                     jdbc.update("UPDATE sales_order SET status='approved',revision=revision+1,approved_by=?,approved_at=UTC_TIMESTAMP(3),version=version+1,updated_by=? WHERE id=? AND tenant_id=? AND company_id=?",
                             scope.userId(),scope.userId(),id,scope.tenantId(),scope.companyId());
                     approval(scope,id,before,"approve",input.comment());

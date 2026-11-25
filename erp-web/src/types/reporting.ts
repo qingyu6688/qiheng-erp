@@ -88,6 +88,8 @@ export const reportSpecs = [
       'partnerName',
       'sourceNo',
       'agingDate',
+      'dueDate',
+      'overdueDays',
       'direction',
       'openAmount',
       'ageDays',
@@ -106,6 +108,8 @@ export const reportSpecs = [
       'partnerName',
       'sourceNo',
       'agingDate',
+      'dueDate',
+      'overdueDays',
       'direction',
       'openAmount',
       'ageDays',
@@ -130,6 +134,28 @@ export const reportSpecs = [
       'creditAmount',
       'openingBalance',
       'runningBalance',
+      'invoicingStatus',
+    ],
+  },
+  {
+    type: 'uninvoiced-receipts',
+    title: '已收货未到票',
+    fields: [
+      'sourceNo',
+      'partnerName',
+      'originalReceiptNo',
+      'businessDate',
+      'warehouseName',
+      'skuName',
+      'uninvoicedUntaxedAmount',
+      'uninvoicedTaxAmount',
+      'invoicingStatus',
+      'basisUntaxedAmount',
+      'basisTaxAmount',
+      'invoicedUntaxedAmount',
+      'invoicedTaxAmount',
+      'invoiceMatchNotice',
+      'uninvoicedAmount',
     ],
   },
   {
@@ -163,6 +189,17 @@ export const reportSpecs = [
   },
 ]
 export const reportLabels: Record<string, string> = {
+  originalReceiptNo: '原收货单号',
+  basisUntaxedAmount: '净可到票未税额',
+  basisTaxAmount: '净可到票税额',
+  invoicedUntaxedAmount: '已到票未税额',
+  invoicedTaxAmount: '已到票税额',
+  uninvoicedUntaxedAmount: '未到票未税额',
+  uninvoicedTaxAmount: '未到票税额',
+  uninvoicedAmount: '未到票合计',
+  invoicingStatus: '到票状态（截至结束日）',
+  invoiceMatchNotice: '核对提示',
+  invoiceCutoff: '到票截止日',
   businessUserName: '业务员',
   brandName: '品牌',
   warehouseName: '仓库',
@@ -192,6 +229,8 @@ export const reportLabels: Record<string, string> = {
   untaxedAmount: '不含税金额',
   taxAmount: '税额',
   agingDate: '起算日期',
+  dueDate: '到期日',
+  overdueDays: '逾期天数',
   direction: '方向',
   openAmount: '未核销金额',
   ageDays: '账龄天数',
@@ -232,6 +271,18 @@ export function reportPermission(type: string, operation = 'report'): string {
 export function reportCell(field: string, value: unknown): string {
   if (value === null || value === undefined || typeof value === 'object') return '—'
   const text = String(value)
+  if (field === 'invoicingStatus')
+    return (
+      (
+        {
+          uninvoiced: '未到票',
+          partial: '部分到票',
+          invoiced: '已到票',
+          not_required: '无待到票额度',
+          source_unavailable: '不适用或来源失效',
+        } as Record<string, string>
+      )[text] ?? text
+    )
   if (field === 'direction')
     return (
       (
@@ -277,6 +328,9 @@ export function documentLink(type: unknown, id: unknown): string | undefined {
     purchase_order: 'purchase-orders',
     goods_receipt: 'goods-receipts',
     purchase_return: 'purchase-returns',
+    price_adjustment: 'purchase-price-adjustments',
+    sales_price_adjustment: 'sales-price-adjustments',
+    purchase_fee_doc: 'purchase-fee-documents',
     payment: 'payments',
     account_transfer: 'account-transfers',
     stock_adjustment: 'stock-adjustments',
@@ -297,6 +351,11 @@ export function documentLink(type: unknown, id: unknown): string | undefined {
     goods_receipt_line: 'goods_receipt',
     purchase_order_fee: 'goods_receipt',
     purchase_return_line: 'purchase_return',
+    price_adjustment_line: 'price_adjustment',
+    price_adjustment_cost: 'price_adjustment',
+    purchase_fee_doc_line: 'purchase_fee_doc',
+    purchase_fee_cost: 'purchase_fee_doc',
+    goods_receipt_fee: 'goods_receipt',
     stock_transfer_out: 'stock_transfer',
     stock_transfer_in: 'stock_transfer',
     stock_transfer_diff: 'stock_transfer',

@@ -171,6 +171,18 @@ describe('销售订单接口对齐', () => {
     wrapper.unmount()
   })
 
+  it('新单的空白明细在选客户前不标红，选了客户再提示还缺什么', async () => {
+    const wrapper = mount(OrderEditor, { global: { stubs } })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('处需要修改')
+    expect(wrapper.find('td[data-error]').exists()).toBe(false)
+    await wrapper.get('#order-customer').setValue('20')
+    await flushPromises()
+    expect(wrapper.text()).toContain('处需要修改')
+    expect(wrapper.get('td[data-error]').attributes('data-error')).toBe('请选择商品')
+    wrapper.unmount()
+  })
+
   it('切换箱单位后由服务端换算参考价，并显示真实预览金额', async () => {
     const wrapper = mount(OrderEditor, { props: { original: order }, global: { stubs } })
     await flushPromises()

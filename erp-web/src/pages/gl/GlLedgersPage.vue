@@ -7,6 +7,9 @@ import { useSessionStore } from '../../stores/session'
 import { messageOf, isCancelled } from '../../api/http'
 import GlAuxFields from '../../components/GlAuxFields.vue'
 import GlOutputActions from '../../components/GlOutputActions.vue'
+import SourcelessSourceLink from '../../components/sales/SourcelessSourceLink.vue'
+import SalesReturnSourceTag from '../../components/sales/SalesReturnSourceTag.vue'
+import StatusTag from '../../components/StatusTag.vue'
 import { ledgerLabels } from '../../types/gl'
 import type { GlLedger, GlSubject, GlQuery, GlAux } from '../../types/gl'
 import type { DataRow } from '../../types/admin'
@@ -39,6 +42,7 @@ const labels: Record<string, string> = {
   word: '凭证字',
   number: '凭证号',
   digest: '摘要',
+  sourceNo: '业务来源',
   balance: '余额',
   quantity: '数量',
   amount: '金额',
@@ -244,7 +248,12 @@ onScopeDispose(() => {
             class="text-link"
             :to="'/gl/vouchers/' + row.voucherId"
             >{{ row[column] }}</router-link
-          ><span v-else>{{ value(row[column]) }}</span></template
+          ><template v-else-if="column === 'sourceNo'">
+            <SourcelessSourceLink :source="row" />
+            <SalesReturnSourceTag :mode="row.returnMode" />
+            <StatusTag v-if="row.refundMode === 'sourceless_credit'" label="退货信用额退款" tone="info" />
+            <div v-if="row.sourceType === 'document_reversal'"><SourcelessSourceLink :source="row" original /></div>
+          </template><span v-else>{{ value(row[column]) }}</span></template
         ></el-table-column
       ><el-table-column
         v-for="code in type === 'multi_column' ? multiColumns() : []"

@@ -3,7 +3,10 @@ package cn.erp.reporting;
 import cn.erp.shared.ApiException;
 import java.time.*;
 
-public record ReportQuery(LocalDate dateFrom,LocalDate dateTo,Long warehouseId,Long skuId,Long partnerId,Long cashAccountId,Boolean detail,Boolean feesOnly,Long businessUserId,String groupBy,LocalDate agingDate) {
+public record ReportQuery(LocalDate dateFrom,LocalDate dateTo,Long warehouseId,Long skuId,Long partnerId,Long cashAccountId,Boolean detail,Boolean feesOnly,Long businessUserId,String groupBy,LocalDate agingDate,@com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String agingBasis) {
+    public ReportQuery(LocalDate dateFrom,LocalDate dateTo,Long warehouseId,Long skuId,Long partnerId,Long cashAccountId,Boolean detail,Boolean feesOnly,Long businessUserId,String groupBy,LocalDate agingDate) {
+        this(dateFrom,dateTo,warehouseId,skuId,partnerId,cashAccountId,detail,feesOnly,businessUserId,groupBy,agingDate,null);
+    }
     public ReportQuery(LocalDate dateFrom,LocalDate dateTo,Long warehouseId,Long skuId,Long partnerId,Long cashAccountId,Boolean detail,Boolean feesOnly,Long businessUserId,String groupBy) {
         this(dateFrom,dateTo,warehouseId,skuId,partnerId,cashAccountId,detail,feesOnly,businessUserId,groupBy,null);
     }
@@ -26,6 +29,7 @@ public record ReportQuery(LocalDate dateFrom,LocalDate dateTo,Long warehouseId,L
         if(businessUserId!=null&&businessUserId<0 || groupBy!=null&&!java.util.Set.of("standard","business_user","department","brand","customer","sku").contains(groupBy)) throw new ApiException(400,"VALIDATION_FAILED","业务员或汇总方式无效");
         if(groupBy!=null&&!"standard".equals(groupBy)&&Boolean.TRUE.equals(detail)) throw new ApiException(400,"VALIDATION_FAILED","汇总和明细不能同时选择");
         if(agingDate!=null&&(agingDate.isAfter(today)||agingDate.getYear()<1900))throw new ApiException(400,"VALIDATION_FAILED","账龄截止日期超出业务日期范围");
-        return new ReportQuery(from,to,warehouseId,skuId,partnerId,cashAccountId,Boolean.TRUE.equals(detail),Boolean.TRUE.equals(feesOnly),businessUserId,groupBy==null?"standard":groupBy,agingDate);
+        if(agingBasis!=null&&!java.util.Set.of("business","due").contains(agingBasis)) throw new ApiException(400,"VALIDATION_FAILED","账龄口径无效");
+        return new ReportQuery(from,to,warehouseId,skuId,partnerId,cashAccountId,Boolean.TRUE.equals(detail),Boolean.TRUE.equals(feesOnly),businessUserId,groupBy==null?"standard":groupBy,agingDate,"due".equals(agingBasis)?"due":null);
     }
 }

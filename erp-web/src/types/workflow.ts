@@ -1,5 +1,8 @@
 export type WorkflowBusinessType =
+  | 'sales_quote'
+  | 'cost_revaluation'
   | 'sales_order'
+  | 'sales_return'
   | 'purchase_order'
   | 'refund_request'
   | 'document_reversal'
@@ -15,6 +18,9 @@ export type WorkflowBusinessType =
   | 'gl_voucher'
   | 'qc_inspection'
   | 'ar_bad_debt'
+  | 'price_adjustment'
+  | 'sales_price_adjustment'
+  | 'purchase_fee_doc'
   | 'wf_generic_request'
 export type NodeType =
   | 'start'
@@ -289,6 +295,9 @@ export interface StartOptions {
 }
 export type WorkflowSelections = Record<string, string[]>
 export const businessLabels: Record<WorkflowBusinessType, string> = {
+  sales_quote: '销售报价',
+  cost_revaluation: '成本重估',
+  sales_return: '无原单销售退货',
   sales_order: '销售订单',
   purchase_order: '采购订单',
   refund_request: '退款申请',
@@ -305,6 +314,9 @@ export const businessLabels: Record<WorkflowBusinessType, string> = {
   gl_voucher: '总账凭证',
   qc_inspection: '来料检验',
   ar_bad_debt: '坏账处理',
+  price_adjustment: '价格调整',
+  sales_price_adjustment: '销售调价',
+  purchase_fee_doc: '采购费用单',
   wf_generic_request: '通用申请',
 }
 export const workflowStatus: Record<string, string> = {
@@ -358,6 +370,7 @@ export const nodeLabels: Record<NodeType, string> = {
   trigger: '触发事件',
 }
 export const fieldLabels: Record<string, string> = {
+  abovePriceList: '采购是否高于协议价', purchasePriceApprovalRequired: '采购是否需要超价审批',
   totalAmount: '单据金额',
   discountRate: '折后比例（%，100为原价）',
   belowMinPrice: '是否低于最低售价',
@@ -379,6 +392,9 @@ export const fieldLabels: Record<string, string> = {
   createdBy: '创建人',
 }
 export const businessRoutes: Partial<Record<WorkflowBusinessType, string>> = {
+  sales_quote: 'sales-quotes',
+  cost_revaluation: 'cost-revaluations',
+  sales_return: 'sales-returns',
   sales_order: 'sales-orders',
   purchase_order: 'purchase-orders',
   refund_request: 'refund-requests',

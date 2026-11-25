@@ -83,7 +83,7 @@ public class DashboardReportSources {
                     SELECT COALESCE(SUM(f.open_amount),0) FROM %s f
                     JOIN partner_open_item o ON o.tenant_id=:t AND o.company_id=:c AND o.id=f.id
                     JOIN receivable r ON r.tenant_id=o.tenant_id AND r.company_id=o.company_id AND r.id=o.source_id
-                    WHERE f.direction='D' AND COALESCE(r.due_date,o.aging_date)<:today
+                    WHERE f.direction='D' AND r.due_date IS NOT NULL AND r.due_date<:today
                     """.formatted(facts(actor,ReportType.RECEIVABLE_AGING)),params,BigDecimal.class);
             return sampled(new Receivables(total,overdue,List.copyOf(types)));
         });
@@ -124,7 +124,7 @@ public class DashboardReportSources {
 
     public static Map<String,Object> params(CompanyAccess actor,LocalDate from,LocalDate to) {
         var params=new LinkedHashMap<String,Object>();
-        params.put("t",actor.tenantId());params.put("c",actor.companyId());
+        params.put("t",actor.tenantId());params.put("c",actor.companyId());params.put("agingBasis","business");
         if (from!=null) params.put("f",from);
         if (to!=null) params.put("d",to);
         params.put("warehouses",actor.warehouseIds().isEmpty()?Set.of(-1L):actor.warehouseIds());

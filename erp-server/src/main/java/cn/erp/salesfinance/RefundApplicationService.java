@@ -38,12 +38,12 @@ public class RefundApplicationService {
         if(status!=null&&!Set.of("draft","pending_review","pending_payment","refunded","cancelled").contains(status)) {throw invalid("退款状态无效");}
         var rows=jdbc.queryForList("""
                 SELECT r.id,r.refund_no document_no,r.customer_id,p.name customer_name,r.original_receipt_id,
-                r.cash_account_id,a.name cash_account_name,r.amount,r.business_date,r.status,r.version,r.created_by FROM refund_request r
+                r.cash_account_id,a.name cash_account_name,r.amount,r.business_date,r.status,r.version,r.created_by,r.refund_mode FROM refund_request r
                 JOIN business_partner p ON p.tenant_id=r.tenant_id AND p.id=r.customer_id
                 JOIN cash_account a ON a.tenant_id=r.tenant_id AND a.company_id=r.company_id AND a.id=r.cash_account_id
                 WHERE r.tenant_id=? AND r.company_id=? AND r.id<? AND (? IS NULL OR r.customer_id=?) AND (? IS NULL OR r.status=?)
                 %s ORDER BY r.id DESC LIMIT ?
-                """.formatted(cn.erp.shared.OrgOwnership.filter(scope,"r")),scope.tenantId(),scope.companyId(),before,customerId,customerId,status,status,limit+1);
+                """.formatted(OrgOwnership.filter(scope,"r")+" AND "+SourcelessRefundCredits.condition(scope,"r")),scope.tenantId(),scope.companyId(),before,customerId,customerId,status,status,limit+1);
         var result=page(rows,limit);
         @SuppressWarnings("unchecked") var items=(List<Map<String,Object>>)result.get("items");
         for(int i=0;i<items.size();i++) {items.get(i).put("allowedActions",actions(scope,rows.get(i)));}
@@ -52,12 +52,55 @@ public class RefundApplicationService {
 
     public Map<String,Object> get(CompanyAccess scope,long id) {
         var raw=support.find(scope,"refund_request",id,false);
+        if(SourcelessRefundCredits.usesCredit(raw)) requirePermission(scope,"view");
+        SourcelessRefundCredits.requireRequest(jdbc,scope,raw,false,false);
         var result=row(raw);result.remove("creditItemIds");
         result.put("creditItemIds",readIds(raw.get("credit_item_ids")).stream().map(String::valueOf).toList());
+        if(SourcelessRefundCredits.usesCredit(raw))result.put("creditSources",selectedCreditSources(scope,raw));
         result.put("documentNo",raw.get("refund_no"));
         result.put("customerName",jdbc.queryForObject("SELECT name FROM business_partner WHERE tenant_id=? AND id=?",String.class,scope.tenantId(),raw.get("customer_id")));
         result.put("cashAccountName",jdbc.queryForObject("SELECT name FROM cash_account WHERE tenant_id=? AND company_id=? AND id=?",String.class,scope.tenantId(),scope.companyId(),raw.get("cash_account_id")));
         result.put("allowedActions",actions(scope,raw));cn.erp.shared.WorkflowViews.decorate(jdbc,scope,"refund_request",id,result);return result;
+    }
+
+    public Map<String,Object> creditItems(CompanyAccess scope,long customer,Long cursor,int limit) {
+        if(!scope.hasPermission("refund_request:view") || !scope.hasPermission("sales_return:view"))
+            throw new ApiException(403,"FORBIDDEN","没有查看退款及退货信用额的权限");
+        if(customer<=0) throw invalid("请选择有效客户");
+        long before=cursor(cursor,limit);
+        return page(jdbc.queryForList("""
+                SELECT i.id,i.partner_id,r.amount,i.open_amount,r.business_date,h.id source_id,h.return_no source_no,
+                  h.return_mode,h.warehouse_id,w.name warehouse_name,l.id source_line_id,s.name sku_name
+                FROM partner_open_item i
+                JOIN receivable r ON r.tenant_id=i.tenant_id AND r.company_id=i.company_id AND r.id=i.source_id
+                  AND i.item_type='receivable' AND i.direction='C' AND r.kind='credit' AND r.posting_action='post' AND r.source_type='sales_return_line'
+                JOIN sales_return h ON h.tenant_id=r.tenant_id AND h.company_id=r.company_id AND h.id=r.source_id
+                  AND h.return_mode='sourceless' AND h.status='posted'
+                JOIN sales_return_line l ON l.tenant_id=h.tenant_id AND l.company_id=h.company_id AND l.return_id=h.id AND l.id=r.source_line_id
+                JOIN sku s ON s.tenant_id=l.tenant_id AND s.id=l.sku_id
+                JOIN warehouse w ON w.tenant_id=h.tenant_id AND w.company_id=h.company_id AND w.id=h.warehouse_id
+                WHERE i.tenant_id=? AND i.company_id=? AND i.id<? AND i.partner_id=? AND r.customer_id=? AND h.customer_id=? AND i.open_amount>0 AND %s
+                ORDER BY i.id DESC LIMIT ?
+                """.formatted(SalesInvoiceScope.receivableCondition(scope,"r")),scope.tenantId(),scope.companyId(),before,customer,customer,customer,limit+1),limit);
+    }
+
+    private List<Map<String,Object>> selectedCreditSources(CompanyAccess actor,Map<String,Object> header) {
+        var selected=readIds(header.get("credit_item_ids"));
+        if(selected.isEmpty())return List.of();
+        var args=new ArrayList<Object>(List.of(actor.tenantId(),actor.companyId(),header.get("customer_id")));args.addAll(selected);
+        // get已逐项校验当前来源可见性；此处只读至多200条原选项，不扫描全部候选分页。
+        return jdbc.queryForList("""
+                SELECT i.id,i.partner_id,r.amount,i.open_amount,r.business_date,h.id source_id,h.return_no source_no,
+                  h.return_mode,h.status source_status,h.warehouse_id,w.name warehouse_name,l.id source_line_id,s.name sku_name
+                FROM partner_open_item i
+                JOIN receivable r ON r.tenant_id=i.tenant_id AND r.company_id=i.company_id AND r.id=i.source_id
+                  AND i.item_type='receivable' AND r.kind='credit' AND r.posting_action='post' AND r.source_type='sales_return_line'
+                JOIN sales_return h ON h.tenant_id=r.tenant_id AND h.company_id=r.company_id AND h.id=r.source_id AND h.return_mode='sourceless'
+                JOIN sales_return_line l ON l.tenant_id=h.tenant_id AND l.company_id=h.company_id AND l.return_id=h.id AND l.id=r.source_line_id
+                JOIN sku s ON s.tenant_id=l.tenant_id AND s.id=l.sku_id
+                JOIN warehouse w ON w.tenant_id=h.tenant_id AND w.company_id=h.company_id AND w.id=h.warehouse_id
+                WHERE i.tenant_id=? AND i.company_id=? AND i.partner_id=? AND i.id IN (
+                """+String.join(",",Collections.nCopies(selected.size(),"?"))+") ORDER BY i.id DESC",args.toArray()).stream().map(FinanceSupport::row).toList();
     }
 
     private List<String> actions(CompanyAccess scope,Map<String,Object> raw) {
@@ -82,21 +125,40 @@ public class RefundApplicationService {
 
     @Transactional
     public Map<String,Object> create(CompanyAccess scope,String key,FinanceModels.Refund input) {
+        String mode=SourcelessRefundCredits.mode(input.refundMode());
+        if(mode.equals("sourceless_credit")) requirePermission(scope,"create");
         return execute(scope,"refund_request.create",key,input,201,()->{
             validate(scope,input);
             long id=Ids.next();String no=numbers.next(scope,"RF",input.businessDate());
             jdbc.update("""
                     INSERT INTO refund_request(id,tenant_id,company_id,refund_no,customer_id,original_receipt_id,cash_account_id,amount,business_date,
-                    request_key,reason,credit_item_ids,created_by,updated_by,owner_user_id,owner_department_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    request_key,reason,credit_item_ids,created_by,updated_by,owner_user_id,owner_department_id,refund_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,id,scope.tenantId(),scope.companyId(),no,input.customerId(),input.originalReceiptId(),input.cashAccountId(),amount(input.amount()),
-                    input.businessDate(),UUID.randomUUID().toString(),input.reason(),json.writeValueAsString(input.creditItemIds()),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope));
+                    input.businessDate(),UUID.randomUUID().toString(),input.reason(),json.writeValueAsString(input.creditItemIds()),scope.userId(),scope.userId(),scope.userId(),cn.erp.shared.OrgOwnership.department(scope),mode);
             audit.record(scope,"refund_request.create","refund_request",id,null,Map.of("documentNo",no));return get(scope,id);
         });
     }
 
     @Transactional
     public Map<String,Object> update(CompanyAccess scope,long id,FinanceModels.Refund input) {
+        return update(scope,id,null,input);
+    }
+
+    @Transactional
+    public Map<String,Object> update(CompanyAccess scope,long id,String key,FinanceModels.Refund input) {
+        var current=support.find(scope,"refund_request",id,false);
+        if(!SourcelessRefundCredits.mode(input.refundMode()).equals(current.get("refund_mode"))) throw invalid("退款模式在建单后不能更改");
+        if(SourcelessRefundCredits.usesCredit(current)) {
+            preflight(scope,id,"update");
+            return execute(scope,"refund_request.update",key,List.of(id,input),200,()->updateDraft(scope,id,input));
+        }
+        return updateDraft(scope,id,input);
+    }
+
+    private Map<String,Object> updateDraft(CompanyAccess scope,long id,FinanceModels.Refund input) {
         var before=support.find(scope,"refund_request",id,true);version(before,input.version());state(before,"draft");validate(scope,input);
+        if(!SourcelessRefundCredits.mode(input.refundMode()).equals(before.get("refund_mode"))) throw invalid("退款模式在建单后不能更改");
+        if(SourcelessRefundCredits.usesCredit(before)) {requirePermission(scope,"update");SourcelessRefundCredits.requireRequest(jdbc,scope,before,false,false);}
         // 驳回保留占用历史，调整金额和日期时同步恢复后的借方未清项。
         var history=jdbc.queryForList("SELECT id,partner_id FROM partner_open_item WHERE tenant_id=? AND company_id=? AND item_type='refund_request' AND source_id=? FOR UPDATE",scope.tenantId(),scope.companyId(),id);
         if(!history.isEmpty()) {
@@ -115,6 +177,7 @@ public class RefundApplicationService {
 
     @Transactional
     public Map<String,Object> command(CompanyAccess scope,long id,String action,String key,FinanceModels.Version input) {
+        preflight(scope,id,action);
         return execute(scope,"refund_request."+action,key,List.of(id,input),200,()->{
             workflow.guard(scope,"refund_request",id,action);
             var snapshot=support.find(scope,"refund_request",id,false);
@@ -126,7 +189,7 @@ public class RefundApplicationService {
                     state(before,"draft");references.requireCashAccount(scope,id(before,"cash_account_id"));
                     references.requirePartner(scope,id(before,"customer_id"),"customer");
                     var ids=readIds(before.get("credit_item_ids"));
-                    if(ids.isEmpty()) {ids=availableCredits(scope,id(before,"customer_id"));}
+                    if(ids.isEmpty() && !SourcelessRefundCredits.usesCredit(before)) {ids=availableCredits(scope,id(before,"customer_id"));}
                     if(ids.isEmpty()) {throw new ApiException(422,"REFUND_AMOUNT_EXCEEDED","客户贷方可用额度不足");}
                     refunds.reserve(scope,id,ids);
                 }
@@ -149,6 +212,7 @@ public class RefundApplicationService {
 
     @Transactional
     public Map<String,Object> paid(CompanyAccess scope,long id,String key,FinanceModels.Paid input) {
+        preflight(scope,id,"register_paid");
         return execute(scope,"refund_request.register_paid",key,List.of(id,input),200,()->{
             long period=support.period(scope,input.paidDate());
             var before=support.find(scope,"refund_request",id,true);version(before,input.version());state(before,"pending_payment","refunded");
@@ -161,8 +225,16 @@ public class RefundApplicationService {
     }
 
     private void validate(CompanyAccess scope,FinanceModels.Refund input) {
-        cn.erp.shared.OrgOwnership.require(jdbc,scope,"receipt",input.originalReceiptId());
+        String mode=SourcelessRefundCredits.mode(input.refundMode());
+        if(input.customerId()==null || input.customerId()<=0 || input.cashAccountId()==null || input.cashAccountId()<=0) throw invalid("请选择有效客户和退款账户");
         date(input.businessDate());amount(input.amount());references.requirePartner(scope,input.customerId(),"customer");references.requireCashAccount(scope,input.cashAccountId());
+        if(mode.equals("sourceless_credit")) {
+            if(input.originalReceiptId()!=null) throw invalid("无原单信用额退款不能引用原收款");
+            if(input.reason()==null || input.reason().isBlank() || input.reason().length()>200) throw invalid("请填写200字以内的退款原因");
+            SourcelessRefundCredits.require(jdbc,scope,input.customerId(),input.creditItemIds(),false,true);return;
+        }
+        if(input.originalReceiptId()==null || input.originalReceiptId()<=0) throw invalid("原收款退款须选择有效原收款");
+        cn.erp.shared.OrgOwnership.require(jdbc,scope,"receipt",input.originalReceiptId());
         if(jdbc.queryForObject("SELECT COUNT(*) FROM receipt WHERE tenant_id=? AND company_id=? AND id=? AND partner_id=? AND receipt_type='customer' AND status='confirmed'",
                 Long.class,scope.tenantId(),scope.companyId(),input.originalReceiptId(),input.customerId())!=1) {throw missing();}
         if(input.creditItemIds()!=null&&(input.creditItemIds().stream().anyMatch(Objects::isNull)||new HashSet<>(input.creditItemIds()).size()!=input.creditItemIds().size())) {throw invalid("退款额度来源不能重复或为空");}
@@ -180,6 +252,7 @@ public class RefundApplicationService {
 
     private Set<Long> affectedOrders(CompanyAccess scope,Map<String,Object> refund) {
         var ids=new TreeSet<Long>();
+        if(SourcelessRefundCredits.usesCredit(refund)) return ids;
         // 自动选择可能跨多张订单，预先锁定客户所有退货来源的订单头，保持与签收相同的锁序。
         ids.addAll(jdbc.queryForList("""
                 SELECT DISTINCT o.order_id FROM sales_return h JOIN sales_return_line r ON r.tenant_id=h.tenant_id AND r.company_id=h.company_id AND r.return_id=h.id
@@ -202,6 +275,16 @@ public class RefundApplicationService {
         var array=json.readTree(data.toString());
         if(!array.isArray()) {return List.of();}
         var result=new ArrayList<Long>();array.forEach(node->result.add(node.asLong()));return result;
+    }
+    private void preflight(CompanyAccess scope,long id,String action) {
+        var current=support.find(scope,"refund_request",id,false);
+        if(SourcelessRefundCredits.usesCredit(current)) {
+            requirePermission(scope,action);SourcelessRefundCredits.requireRequest(jdbc,scope,current,false,false);
+        }
+    }
+    private void requirePermission(CompanyAccess scope,String action) {
+        if(!scope.hasPermission("refund_request:view") || !scope.hasPermission("refund_request:"+action))
+            throw new ApiException(403,"FORBIDDEN","没有当前信用额退款操作权限");
     }
     @SuppressWarnings({"unchecked","rawtypes"})
     private Map<String,Object> execute(CompanyAccess scope,String operation,String key,Object payload,int status,java.util.function.Supplier<Map<String,Object>> work) {

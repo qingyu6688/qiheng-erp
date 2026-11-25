@@ -28,12 +28,14 @@ public class InventoryReversalService {
         String types=switch(type) {
             case "shipment" -> "'shipment_line','shipment_diff'";
             case "sales_return" -> "'sales_return_line'";
-            case "goods_receipt" -> "'goods_receipt_line'";
+            case "goods_receipt" -> "'goods_receipt_line','goods_receipt_fee'";
             case "purchase_return" -> "'purchase_return_line'";
             case "stock_adjustment" -> "'stock_adjustment'";
             case "stock_misc_doc" -> "'stock_misc_line'";
             case "mfg_issue_doc" -> "'mfg_issue_line'";
             case "mfg_receipt_doc" -> "'mfg_receipt_line'";
+            case "purchase_fee_doc" -> "'purchase_fee_cost'";
+            case "price_adjustment" -> "'price_adjustment_cost'";
             default -> null;
         };
         if(types==null)return;
@@ -49,9 +51,23 @@ public class InventoryReversalService {
             amounts[2]=amounts[2].subtract(number(row,"cost_delta"));
         }
         for(var row:adjustments) {
+            if(Set.of("purchase_price_issued","purchase_fee_issued").contains(row.get("adjust_type")))continue;
             var amounts=changes.computeIfAbsent(key(row),ignored->zeros());amounts[2]=amounts[2].subtract(number(row,"amount"));
         }
         inventory.lockKeys(scope,new ArrayList<>(changes.keySet()));
+        // 成本重估与冲销共用成本锁，持锁后才读取追加差额，防止等待期间漏掉新过账重估。
+        var revaluations=jdbc.queryForList("SELECT a.* FROM cost_adjustment a JOIN cost_revaluation_line l"
+                +" ON l.tenant_id=a.tenant_id AND l.company_id=a.company_id AND l.id=a.source_line_id"
+                +" JOIN inventory_movement m ON m.tenant_id=l.tenant_id AND m.company_id=l.company_id AND m.id=l.movement_id"
+                +" WHERE a.tenant_id=? AND a.company_id=? AND a.source_type='cost_revaluation' AND a.adjust_type='revaluation'"
+                +" AND m.source_id=? AND m.source_type IN("+types+") AND m.posting_action='post' ORDER BY a.warehouse_id,a.sku_id,a.id",
+                scope.tenantId(),scope.companyId(),source);
+        for(var row:revaluations) {
+            var amounts=changes.get(key(row));
+            if(amounts==null)throw new ApiException(409,"COST_REPLAY_MISMATCH","重估差额与原库存流水范围不一致");
+            amounts[2]=amounts[2].subtract(number(row,"amount"));
+        }
+        adjustments.addAll(revaluations);
         for(var entry:changes.entrySet())apply(scope,entry.getKey(),entry.getValue());
         for(var row:movements.reversed()){
             var key=key(row);
@@ -70,12 +86,22 @@ public class InventoryReversalService {
         }
         for(Key key:changes.keySet()) {
             var inbound=jdbc.queryForList("""
-                SELECT m.unit_cost FROM inventory_movement m WHERE m.tenant_id=? AND m.company_id=? AND m.warehouse_id=? AND m.sku_id=?
+                SELECT m.unit_cost,m.source_type,m.source_id FROM inventory_movement m WHERE m.tenant_id=? AND m.company_id=? AND m.warehouse_id=? AND m.sku_id=?
                 AND m.posting_action='post' AND m.on_hand_delta>0 AND m.unit_cost IS NOT NULL
                 AND NOT EXISTS(SELECT 1 FROM inventory_movement r WHERE r.reverses_movement_id=m.id)
                 ORDER BY m.posted_at DESC,m.id DESC LIMIT 1
-                """,BigDecimal.class,scope.tenantId(),scope.companyId(),key.warehouseId(),key.skuId());
-            jdbc.update("UPDATE inventory_cost SET last_in_unit_cost=? WHERE tenant_id=? AND company_id=? AND warehouse_id=? AND sku_id=?",inbound.isEmpty()?null:inbound.getFirst(),scope.tenantId(),scope.companyId(),key.warehouseId(),key.skuId());
+                """,scope.tenantId(),scope.companyId(),key.warehouseId(),key.skuId());
+            BigDecimal last=inbound.isEmpty()?null:number(inbound.getFirst(),"unit_cost");
+            if(!inbound.isEmpty() && "sales_return_line".equals(inbound.getFirst().get("source_type"))
+                    && jdbc.queryForObject("SELECT COUNT(*) FROM sales_return WHERE tenant_id=? AND company_id=? AND id=? AND return_mode='sourceless'",Long.class,
+                            scope.tenantId(),scope.companyId(),inbound.getFirst().get("source_id"))==1) {
+                // 无源退货按整组分币，最后一行可能为零，不能用该行金额倒推出最近单价。
+                var group=jdbc.queryForMap("SELECT SUM(on_hand_delta) qty,SUM(cost_delta) amount FROM inventory_movement m WHERE tenant_id=? AND company_id=? AND warehouse_id=? AND sku_id=?"
+                        +" AND source_type='sales_return_line' AND source_id=? AND posting_action='post' AND on_hand_delta>0 AND NOT EXISTS(SELECT 1 FROM inventory_movement r WHERE r.reverses_movement_id=m.id)",
+                        scope.tenantId(),scope.companyId(),key.warehouseId(),key.skuId(),inbound.getFirst().get("source_id"));
+                last=InventoryNumbers.average(number(group,"qty"),number(group,"amount"));
+            }
+            jdbc.update("UPDATE inventory_cost SET last_in_unit_cost=? WHERE tenant_id=? AND company_id=? AND warehouse_id=? AND sku_id=?",last,scope.tenantId(),scope.companyId(),key.warehouseId(),key.skuId());
         }
         inventory.changed(scope,new ArrayList<>(changes.keySet()));
     }

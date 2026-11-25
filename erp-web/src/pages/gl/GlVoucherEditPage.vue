@@ -11,6 +11,9 @@ import type { GlLine, GlSubject, GlConfigRow, GlVoucher, GlVoucherInput } from '
 import GlOutputActions from '../../components/GlOutputActions.vue'
 import GlAuxFields from '../../components/GlAuxFields.vue'
 import { registerCompanyLeaveGuard } from '../../utils/unsaved'
+import SourcelessSourceLink from '../../components/sales/SourcelessSourceLink.vue'
+import SalesReturnSourceTag from '../../components/sales/SalesReturnSourceTag.vue'
+import StatusTag from '../../components/StatusTag.vue'
 const readOnlyPreview = inject('erp.readOnlyPreview', false)
 const route = useRoute(),
   router = useRouter(),
@@ -174,6 +177,12 @@ onScopeDispose(() => {
     </div>
   </div>
   <el-alert v-if="error" :title="error" type="error" :closable="false" />
+  <section v-if="saved?.source === 'business' && saved.sourceNo" class="voucher-source">
+    <strong>业务来源：</strong><SourcelessSourceLink :source="saved" />
+    <SalesReturnSourceTag :mode="saved.returnMode" />
+    <StatusTag v-if="saved.refundMode === 'sourceless_credit'" label="退货信用额退款" tone="info" />
+    <SourcelessSourceLink v-if="saved.sourceType === 'document_reversal'" :source="saved" original />
+  </section>
   <GlOutputActions v-if="saved" type="vouchers" :print-id="saved.id" />
   <section v-loading="busy" class="panel voucher-form">
     <div class="voucher-header">
@@ -280,6 +289,13 @@ onScopeDispose(() => {
   </section>
 </template>
 <style scoped>
+.voucher-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-block: 16px;
+}
 .voucher-form {
   padding: 20px;
 }

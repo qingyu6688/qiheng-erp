@@ -1,7 +1,7 @@
 ﻿#requires -Version 7.0
 [CmdletBinding()]
 param(
-    [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+$')][string]$Version='1.0.0',
+    [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+$')][string]$Version='2.1.0',
     [ValidatePattern('^rc\.[1-9][0-9]*$')][string]$Candidate,
     [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local/release'),
     [string]$SbomDirectory,
@@ -82,6 +82,7 @@ foreach($file in 'engine.py','data.py','upgrade.py','audit_seal.py','03-permissi
 }
 Copy-Item -LiteralPath (Join-Path $root 'scripts/verify-observability.py') -Destination (Join-Path $stage 'scripts')
 Copy-Item -LiteralPath (Join-Path $root 'scripts/check_deployment_resources.py') -Destination (Join-Path $stage 'scripts')
+Copy-Item -LiteralPath (Join-Path $root 'scripts/preview-payment-terms.py') -Destination (Join-Path $stage 'scripts')
 $javaDirectory=Join-Path $root 'scripts/java'
 if(Test-Path -LiteralPath $javaDirectory -PathType Container){
  New-Item -ItemType Directory -Path (Join-Path $stage 'scripts/java') | Out-Null
@@ -90,7 +91,7 @@ if(Test-Path -LiteralPath $javaDirectory -PathType Container){
 # 按源码中的相对目录复制发布清单里的文档。
 $documents=@(
  '运维/运维手册.md','运维/部署说明.md','产品/用户使用手册.md','测试/测试报告.md','测试/容量测试报告.md','设计/接口设计.md','设计/数据库设计.md','规划/开发计划.md',
- '规划/优化文档.md','规划/项目总结.md','运维/环境检查.md','更新日志.md','运维/上线准备清单.md','测试/验收记录/本机期初导入与业务试运行报告.md',
+ '规划/优化文档.md','规划/业务完整性评估与改进方案.md','规划/业务完整性实施进度.md','规划/项目总结.md','运维/环境检查.md','更新日志.md','运维/上线准备清单.md','测试/验收记录/本机期初导入与业务试运行报告.md',
  '使用说明/多方式登录配置.md','规划/企业级演进规划.md','设计/UI设计规范.md','设计/可观测性设计.md','使用说明/M14平台二期使用与验收.md',
  '使用说明/M14单点登录与MFA使用说明.md','使用说明/M14开放平台接入手册.md','使用说明/M14工作流二期使用说明.md','运维/2.0不兼容变更预告.md',
  '运维/1.x升级到2.0指南.md','测试/验收记录/1.0.0候选版本本机上线演练报告.md','设计/重构设计方案.md','测试/验收记录/M11部门数据范围本机验收报告.md',

@@ -30,6 +30,7 @@ import {
   workbenchScope,
 } from '../utils/workbench-preferences'
 import WorkbenchTradeSummary from '../components/WorkbenchTradeSummary.vue'
+import WorkbenchSetupGuide from '../components/WorkbenchSetupGuide.vue'
 
 const shortcutIcons = new Map([
   ['/sales-orders/new', Plus],
@@ -175,9 +176,11 @@ async function confirm(): Promise<void> {
   }
 }
 
+const setupGuide = ref<InstanceType<typeof WorkbenchSetupGuide>>()
 function refresh(): void {
   ++refreshKey.value
   void load()
+  void setupGuide.value?.load()
 }
 
 function workbenchTime(value?: string): string {
@@ -239,6 +242,7 @@ onScopeDispose(() => {
     当前账户没有可访问的公司，请联系管理员配置数据范围。
   </p>
   <template v-else>
+    <WorkbenchSetupGuide ref="setupGuide" :scope="scope" />
     <section class="panel workbench-shortcuts" aria-label="快捷入口">
       <div class="panel-heading">
         <h2>快捷入口</h2>
@@ -479,7 +483,7 @@ onScopeDispose(() => {
   min-height: 42px;
   padding: 6px 8px;
   border: 1px solid var(--el-border-color-light);
-  border-radius: 6px;
+  border-radius: var(--erp-radius);
   color: var(--erp-text-1);
   text-decoration: none;
 }
@@ -493,7 +497,7 @@ onScopeDispose(() => {
   flex: none;
   width: 28px;
   height: 28px;
-  border-radius: 6px;
+  border-radius: var(--erp-radius);
   background: var(--el-color-primary-light-9);
   color: var(--el-color-primary);
 }
@@ -529,7 +533,7 @@ onScopeDispose(() => {
   min-height: 32px;
   padding: 4px 8px;
   border: 1px solid transparent;
-  border-radius: 5px;
+  border-radius: var(--erp-radius-sm);
   background: transparent;
   color: var(--erp-text-1);
   font: inherit;

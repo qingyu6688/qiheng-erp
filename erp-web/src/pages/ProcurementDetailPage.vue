@@ -3,7 +3,7 @@ import WorkflowStarterSelector from '../components/workflow/WorkflowStarterSelec
 import type { WorkflowSelections } from '../types/workflow'
 
 import WorkflowProgressPanel from '../components/workflow/WorkflowProgressPanel.vue'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { procurementDocument, procurementCommand } from '../api/procurement'
 import { commandResult, financeWrite } from '../api/sales'
@@ -12,6 +12,8 @@ import { actionLabels, statusLabels } from '../types/sales'
 import { procurementSpecs, procurementAction, adjustmentLabels } from '../types/procurement'
 import type { ProcurementDocument, ProcurementKind } from '../types/procurement'
 import ProcurementEditor from '../components/procurement/ProcurementEditor.vue'
+import PurchasePriceAdjustmentDrawer from '../components/procurement/PurchasePriceAdjustmentDrawer.vue'
+import PurchaseFeeDrawer from '../components/procurement/PurchaseFeeDrawer.vue'
 import { useSessionStore } from '../stores/session'
 import DocumentFilesPanel from '../components/DocumentFilesPanel.vue'
 import StatusTag from '../components/StatusTag.vue'
@@ -19,6 +21,7 @@ import PageHeader from '../components/PageHeader.vue'
 import DocumentMoreActions from '../components/DocumentMoreActions.vue'
 import DocumentDetailLayout from '../components/DocumentDetailLayout.vue'
 import DocumentLineTable from '../components/DocumentLineTable.vue'
+import PurchasePriceSource from '../components/procurement/PurchasePriceSource.vue'
 import OrderDetailOverview from '../components/OrderDetailOverview.vue'
 import { documentStateTag } from '../types/document-ui'
 import { formatDateTime, formatMoney, formatQuantity } from '../utils/format'
@@ -32,6 +35,9 @@ const value = ref<ProcurementDocument>(),
   error = ref(''),
   editing = ref(false),
   changing = ref(false),
+  pricing = ref(false),
+  addingFee = ref(false),
+  feeId = ref<string>(),
   action = ref(''),
   reason = ref(''),
   busy = ref(false),
@@ -39,9 +45,15 @@ const value = ref<ProcurementDocument>(),
   conflict = ref(false)
 const closeRows = ref<{ lineId: string; name: string; qty: string; remaining: string }[]>([])
 const orderPage = computed(() => props.kind === 'purchase-orders')
-const orderRelations = computed(() => orderPage.value && value.value ? {
-  kind: 'purchase-orders' as const, id: value.value.id, version: value.value.version,
-} : undefined)
+const orderRelations = computed(() =>
+  orderPage.value && value.value
+    ? {
+        kind: 'purchase-orders' as const,
+        id: value.value.id,
+        version: value.value.version,
+      }
+    : undefined,
+)
 const moreActions = computed(() =>
   orderPage.value
     ? (value.value?.allowedActions ?? []).filter((action) =>
@@ -61,6 +73,12 @@ const workflowSubmit = computed(
 )
 let submittedPayload: Record<string, unknown> | undefined
 let key = newIdempotencyKey()
+watch(
+  () => [session.companyId, route.params.id],
+  () => {
+    pricing.value = false
+  },
+)
 function label(name: string): string {
   return procurementAction(props.kind, name) || actionLabels[name] || name
 }
@@ -201,7 +219,8 @@ async function verify(): Promise<void> {
 onMounted(async () => {
   const path = route.path
   await load()
-  if (route.path !== path || !orderPage.value || route.query.next !== 'submit' || !value.value) return
+  if (route.path !== path || !orderPage.value || route.query.next !== 'submit' || !value.value)
+    return
   const query = { ...route.query }
   delete query.next
   if (value.value.allowedActions.includes('submit')) choose('submit')
@@ -223,6 +242,18 @@ onMounted(async () => {
       />
     </template>
     <template v-if="value" #actions>
+      <el-button
+        v-if="
+          kind === 'goods-receipts' &&
+          value.status === 'posted' &&
+          session.can('price_adjustment:create') &&
+          session.can('price_adjustment:view') &&
+          session.can('cost:view')
+        "
+        @click="pricing = true"
+        >采购调价</el-button
+      >
+      <el-button v-if="kind === 'goods-receipts' && value.status === 'posted' && session.can('purchase_fee_doc:create') && session.can('purchase_fee_doc:view') && session.can('cost:view')" @click="addingFee = true">分摊采购费用</el-button>
       <router-link
         v-if="orderPage && session.can(spec.permission + ':print')"
         class="text-link"
@@ -316,17 +347,26 @@ onMounted(async () => {
             ><template #default="{ row }">{{
               formatMoney(row.payableNet ?? row.payableAmount ?? row.debitAmount)
             }}</template></el-table-column
+          ><el-table-column v-if="kind === 'purchase-orders' && session.can('cost:view')" label="取价依据" min-width="200"><template #default="{ row }"><PurchasePriceSource :source="row.priceSourceSnapshot" /></template></el-table-column
           ><el-table-column v-if="kind === 'purchase-orders'" label="可收上限 / 已收"
             ><template #default="{ row }"
               >{{ row.receiveLimitBaseQty ?? row.receiveLimitQty ?? '—' }} /
               {{ row.progress?.receivedQty ?? row.receivedBaseQty ?? '0' }}</template
             ></el-table-column
-          ><el-table-column v-if="session.can('cost:view')" label="成本"
+          ><el-table-column v-if="session.can('cost:view')" :label="kind === 'goods-receipts' ? '货款成本' : '成本'"
             ><template #default="{ row }">{{
               formatMoney(row.costAmount ?? row.inputTotalCost)
             }}</template></el-table-column
+          ><el-table-column v-if="kind === 'goods-receipts' && session.can('cost:view')" label="分摊费用" min-width="110"><template #default="{ row }">{{ formatMoney(row.purchaseFeeCost) }}</template></el-table-column
+          ><el-table-column v-if="kind === 'goods-receipts' && session.can('cost:view')" label="含费成本" min-width="110"><template #default="{ row }">{{ formatMoney(row.landedCostAmount) }}</template></el-table-column
           ></DocumentLineTable
         >
+      </section>
+      <section v-if="kind === 'goods-receipts' && session.can('cost:view')" class="panel receipt-fees">
+        <h2>收货成本构成</h2>
+        <p>货款成本 {{ formatMoney(value.goodsCostAmount) }} 元 · 资本化费用 {{ formatMoney(value.purchaseFeeCost) }} 元 · 含费成本 {{ formatMoney(value.landedCostAmount) }} 元</p>
+        <p class="receipt-fees-help">按本收货来源归集，包含后续已出库的费用成本；实际在库余额以库存台账为准。</p>
+        <el-button v-for="fee in value.feeDocuments" :key="fee.id" link type="primary" @click="feeId = fee.id">{{ fee.documentNo }} · {{ fee.sourceKind === 'receipt' ? '随收货确认' : '事后费用' }}</el-button>
       </section>
       <template #progress>
         <WorkflowProgressPanel
@@ -420,9 +460,18 @@ onMounted(async () => {
       ></template
     ></el-dialog
   >
+  <PurchaseFeeDrawer v-if="(addingFee || feeId) && value" :key="feeId ?? 'new-fee'" :id="feeId" :initial-receipt="addingFee ? value : undefined" @close="addingFee = false; feeId = undefined; load()" @saved="load" />
+  <PurchasePriceAdjustmentDrawer
+    v-if="pricing && value"
+    :initial-receipt="value"
+    @close="pricing = false"
+  />
 </template>
 
 <style scoped>
+.receipt-fees { padding: 20px 24px; }
+.receipt-fees h2 { font-size: 16px; margin: 0 0 14px; }
+.receipt-fees-help { color: var(--text-secondary); font-size: 12px; }
 .document-section-title {
   display: flex;
   justify-content: space-between;

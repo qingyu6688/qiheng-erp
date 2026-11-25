@@ -20,6 +20,9 @@ const router = createRouter({
         { path: path + '/:id(\\d+)', name: path + '-detail', component: () => import('../pages/ProcurementDetailPage.vue'), props: { kind: path }, meta: { title, demoDocument: true } },
       ]),
       { path: 'inventory-balances', component: () => import('../pages/InventoryPage.vue'), meta: { title: '实时库存' } },
+      ...['cost-revaluations', 'cost-revaluations/:id(\\d+)'].map((path) => ({ path, component: () => import('../pages/CostRevaluationPage.vue'), meta: { title: '成本重估' } })),
+      ...['sales-quotes', 'sales-quotes/:id(\\d+)'].map((path) => ({ path, component: () => import('../pages/SalesQuotePage.vue'), meta: { title: '销售报价' } })),
+      { path: 'purchase-price-lists', component: () => import('../pages/crm/PriceListsPage.vue'), props: { purchase: true }, meta: { title: '采购价格表' } },
       { path: 'warehouse-locations', component: () => import('../pages/WarehouseLocationsPage.vue'), meta: { title: '仓库库位' } },
       { path: 'crm/customers', component: () => import('../pages/crm/CrmCorePage.vue'), props: { kind: 'customers' }, meta: { title: '客户档案' } },
       ...(['businesses', 'contracts'] as const).map((kind) => ({ path: 'crm/' + kind, component: () => import('../pages/crm/CrmCyclePage.vue'), props: { kind }, meta: { title: kind === 'businesses' ? '销售商机' : '客户合同' } })),
@@ -29,6 +32,14 @@ const router = createRouter({
       { path: 'gl/vouchers', component: () => import('../pages/gl/GlVouchersPage.vue'), meta: { title: '总账凭证' } },
       { path: 'gl/vouchers/:id(\\d+)', component: () => import('../pages/gl/GlVoucherEditPage.vue'), meta: { title: '总账凭证', demoDocument: true } },
       { path: 'gl/ledgers', component: () => import('../pages/gl/GlLedgersPage.vue'), meta: { title: '财务账簿' } },
+      { path: 'ai/wiki', name: 'ai-wiki', component: () => import('../pages/ai/AiWikiPage.vue'), meta: { title: '知识百科' } },
+      { path: 'ai/wiki/:slug([a-z0-9-]+)', name: 'ai-wiki-article', component: () => import('../pages/ai/AiWikiPage.vue'), meta: { title: '知识百科', demoDocument: true } },
+      { path: 'ai/knowledge', component: () => import('../pages/ai/AiKnowledgePage.vue'), meta: { title: '知识库' } },
+      { path: 'ai/answers', component: () => import('./ai/DemoAiAnswersPage.vue'), meta: { title: 'AI 回答样例' } },
+      ...(['knowledge', 'answers', 'sources'] as const).map((kind) => ({
+        path: 'ai/' + kind + '/:id(\\d+)', component: () => import('./ai/DemoAiPreview.vue'),
+        meta: { title: kind === 'knowledge' ? '知识资料' : kind === 'answers' ? 'AI 回答样例' : '引用原文', demoDocument: true, demoList: kind === 'sources' ? '/ai/knowledge' : '/ai/' + kind },
+      })),
       { path: 'reports', redirect: '/reports/sales-summary' },
       ...demoReports.map(({ type, title }) => ({
         path: 'reports/' + type, component: () => import('../pages/ReportPage.vue'), props: { type }, meta: { title },
@@ -42,7 +53,7 @@ router.beforeEach(async (to, from) => {
   await useSessionStore().restore()
   if (to.meta.demoDocument) {
     openDocumentPreview(to)
-    if (!from.matched.length) return { path: to.path.slice(0, to.path.lastIndexOf('/')), query: to.query, replace: true }
+    if (!from.matched.length) return { path: String(to.meta.demoList || to.path.slice(0, to.path.lastIndexOf('/'))), query: to.query, replace: true }
     return false
   }
   const query = { ...to.query }

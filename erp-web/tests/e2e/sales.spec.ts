@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import type { Page, Locator } from '@playwright/test'
 import { env } from 'node:process'
 
-const customer = '验收销售客户'
+const customer = '销售闭环验收客户'
 const warehouse = '验收销售仓'
 const account = '验收银行'
 

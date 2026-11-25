@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.*;
 class WorkbenchIT extends OpeningTestData {
     @Autowired DocumentBrowser browser;
     @Autowired WorkbenchService workbench;
+    @Autowired cn.erp.workbench.SetupChecklist setup;
     @AfterEach void cleanupOrders() {
         jdbc.update("DELETE FROM sales_order_line WHERE tenant_id=?",tenant);
         jdbc.update("DELETE FROM sales_order WHERE tenant_id=?",tenant);
@@ -57,6 +58,33 @@ class WorkbenchIT extends OpeningTestData {
         var viewer=new CompanyAccess(tenant,user,company,false,Set.of(warehouse),Set.of("warehouse:view"));
         var hidden=workbench.summary(viewer);assertThat(hidden.get("blocks")).asList().isEmpty();assertThat(hidden).doesNotContainKeys("inventoryAlerts","periods","recentActions");
         assertThat(hidden).containsEntry("todosByType",Map.of());
+    }
+    @Test void setupChecklistFollowsCompanyDataAndHidesStepsWithoutPermission() {
+        // 期间按真实日期判断，测试里让期间覆盖今天，避免随运行日期变化
+        var today=LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+        jdbc.update("UPDATE accounting_period SET start_date=?,end_date=? WHERE id=?",today.withDayOfMonth(1),today.withDayOfMonth(today.lengthOfMonth()),period);
+        var before=setup.status(maker);
+        assertThat(before).containsEntry("completed",false);
+        assertThat(steps(before)).containsEntry("warehouse",true).containsEntry("customer",true).containsEntry("supplier",true)
+                .containsEntry("sku",true).containsEntry("cash-account",true).containsEntry("period",true)
+                .containsEntry("stock-opening",false).containsEntry("partner-opening",false).containsEntry("first-document",false);
+        var other=new CompanyAccess(tenant,user,otherCompany,true,Set.of(),maker.permissions());
+        assertThat(steps(setup.status(other))).containsEntry("warehouse",false).containsEntry("cash-account",false).containsEntry("period",false);
+        order(warehouse,"draft",false,today.toString());
+        var after=setup.status(maker);
+        assertThat(after).containsEntry("completed",true);assertThat(steps(after)).containsEntry("first-document",true);
+        // 今天不在任何开放期间内时，清单回到未完成
+        jdbc.update("UPDATE accounting_period SET start_date=?,end_date=? WHERE id=?",today.minusYears(1).withDayOfMonth(1),today.minusYears(1).withDayOfMonth(1),period);
+        assertThat(setup.status(maker)).containsEntry("completed",false);
+        var viewer=new CompanyAccess(tenant,user,company,false,Set.of(warehouse),Set.of("warehouse:view"));
+        var limited=setup.status(viewer);
+        assertThat(steps(limited)).containsOnlyKeys("warehouse");assertThat(limited.toString()).doesNotContain("customer","period");
+    }
+    @SuppressWarnings("unchecked")
+    static Map<String,Boolean> steps(Map<String,Object> status) {
+        var result=new LinkedHashMap<String,Boolean>();
+        for(var step:(List<Map<String,Object>>)status.get("steps")) result.put((String)step.get("key"),(Boolean)step.get("done"));
+        return result;
     }
     @Test void cursorPaginationAndFilterValidationRemainStable() {
         order(warehouse,"pending",false,"2026-11-01");order(warehouse,"pending",false,"2026-11-01");

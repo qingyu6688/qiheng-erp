@@ -1,8 +1,10 @@
 package cn.erp.reporting;
 
 import cn.erp.identity.CompanyAccess;
+import cn.erp.einvoice.InboundInvoiceReportData;
 import cn.erp.salesfinance.FinanceSupport;
 import cn.erp.shared.ApiException;
+import cn.erp.shared.SalesReturnSourceMetadata;
 import java.math.BigDecimal;
 import java.time.*;
 import java.util.*;
@@ -29,7 +31,7 @@ public class ReportService {
         result.put("reportType",type.code());result.put("asOf",snapshot.asOf());
         result.put("dataSource",database.replicaEnabled()?"replica":"primary");
         result.put("visibilityBasis",type==ReportType.INVENTORY_SUMMARY?"共享仓库实物快照，按公司和仓库范围查看":"当前公司、仓库与部门范围内的单据事实");
-        result.put("statisticDate",(query.agingDate()==null?LocalDate.now(ZoneId.of("Asia/Shanghai")):query.agingDate()).toString());
+        result.put("statisticDate",(type==ReportType.UNINVOICED_RECEIPTS?query.normalized().dateTo():query.agingDate()==null?LocalDate.now(ZoneId.of("Asia/Shanghai")):query.agingDate()).toString());
         result.put("items",snapshot.items().subList(offset,Math.min(offset+limit,snapshot.items().size())));
         result.put("nextCursor",offset+limit<snapshot.items().size()?Integer.toString(offset+limit):null);
         result.put("summary",snapshot.summary());result.put("rowCount",snapshot.items().size());return result;
@@ -60,12 +62,15 @@ public class ReportService {
     private Snapshot snapshotInside(CompanyAccess actor,ReportType type,ReportQuery input,boolean customerStatement) {
         type.authorize(actor,false);var query=input.normalized();
         if(query.warehouseId()!=null && !actor.allowsWarehouse(query.warehouseId())) { throw new ApiException(404,"NOT_FOUND","仓库不存在或无权查看"); }
+        if(type==ReportType.UNINVOICED_RECEIPTS)return uninvoiced(actor,query);
         var params=new HashMap<String,Object>();params.put("t",actor.tenantId());params.put("c",actor.companyId());
         var today=LocalDate.now(ZoneId.of("Asia/Shanghai"));
         boolean agingReport=agingReport(type);
         if(query.agingDate()!=null&&!agingReport)throw invalid("账龄截止日期仅用于应收和应付账龄报表");
         var statisticDate=query.agingDate()==null?today:query.agingDate();
         params.put("f",query.dateFrom());params.put("d",query.dateTo());params.put("today",statisticDate);
+        if(!agingReport&&"due".equals(query.agingBasis())) throw invalid("到期日口径仅用于应收和应付账龄报表");
+        params.put("agingBasis",query.agingBasis()==null?"business":query.agingBasis());
         params.put("agingNow",statisticDate.equals(today));
         params.put("agingEnd",statisticDate.plusDays(1).atStartOfDay(ZoneId.of("Asia/Shanghai")).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime());
         String sql="SELECT q.* FROM ("+ReportSql.query(type,Boolean.TRUE.equals(query.detail()),actor)+") q WHERE 1=1";
@@ -130,8 +135,10 @@ public class ReportService {
         if(raw.size()>MAX_ROWS) { throw invalid("报表超过50000行，请缩小日期或筛选范围后重试"); }
         var asOf=database.asOf();
         if(type==ReportType.PARTNER_STATEMENT || type==ReportType.CASH_JOURNAL) { raw=balances(raw,query,type); }
+        if(type==ReportType.PARTNER_STATEMENT&&!customerStatement)new InboundInvoiceReportData(jdbc).annotateStatement(actor,query.dateTo(),raw);
         names(actor,raw);
         documentNumbers(actor,raw);
+        new SalesReturnSourceMetadata(jdbc).annotate(actor,raw);
         var agingBounds=agingReport?aging.bounds(actor):List.<Integer>of();
         if(agingReport) {for(var row:raw)agingBuckets(row,agingBounds);if(Set.of("business_user","department").contains(query.groupBy()))raw=groupAging(raw,query.groupBy());}
         var totals=new LinkedHashMap<String,BigDecimal>();var items=new ArrayList<Map<String,Object>>();
@@ -177,6 +184,30 @@ public class ReportService {
         return new Snapshot(asOf,List.copyOf(items),summary);
     }
 
+    private Snapshot uninvoiced(CompanyAccess actor,ReportQuery query) {
+        if(query.cashAccountId()!=null||query.businessUserId()!=null||query.agingDate()!=null||"due".equals(query.agingBasis())
+                ||!"standard".equals(query.groupBy())||Boolean.TRUE.equals(query.feesOnly()))
+            throw invalid("未到票报表支持来源日期、供应商、仓库和商品筛选");
+        var rows=new InboundInvoiceReportData(jdbc).sources(actor,query.dateFrom(),query.dateTo(),query.partnerId()).stream().filter(row->{
+            var day=LocalDate.parse(row.get("business_date").toString());
+            return !day.isBefore(query.dateFrom())&&(query.warehouseId()==null||query.warehouseId().toString().equals(Objects.toString(row.get("warehouse_id"))))
+                    &&(query.skuId()==null||query.skuId().toString().equals(Objects.toString(row.get("sku_id"))))
+                    &&(row.get("warehouse_id")==null?actor.allWarehouses():actor.allowsWarehouse(Long.parseLong(row.get("warehouse_id").toString())))
+                    &&((BigDecimal)row.get("uninvoiced_amount")).signum()>0;
+        }).sorted(Comparator.<Map<String,Object>,String>comparing(row->row.get("business_date").toString()).thenComparingLong(row->Long.parseLong(row.get("id").toString()))).toList();
+        names(actor,rows);
+        var totals=new LinkedHashMap<String,BigDecimal>();var items=new ArrayList<Map<String,Object>>();
+        for(var row:rows) {
+            row.forEach((field,value)->{if(value instanceof BigDecimal amount)totals.merge(field,amount,BigDecimal::add);});
+            var item=FinanceSupport.row(row);source(item);items.add(item);
+        }
+        var summary=new LinkedHashMap<String,Object>();totals.forEach((field,value)->summary.put(camel(field),value.toPlainString()));
+        for(String field:List.of("basisUntaxedAmount","basisTaxAmount","invoicedUntaxedAmount","invoicedTaxAmount","uninvoicedUntaxedAmount","uninvoicedTaxAmount","uninvoicedAmount"))summary.putIfAbsent(field,"0.00");
+        summary.put("dateFrom",query.dateFrom().toString());summary.put("dateTo",query.dateTo().toString());summary.put("invoiceCutoff",query.dateTo().toString());summary.put("basis","historical_snapshot");
+        summary.put("invoiceMatchNotice","按采购来源业务日期筛选，并还原截止日的到票额度；资金已结清仍可未到票。旧版迁移关系的核对日期按旧记录更新时间还原。");
+        return new Snapshot(database.asOf(),List.copyOf(items),summary);
+    }
+
     private static boolean agingReport(ReportType type) {
         return type==ReportType.RECEIVABLE_AGING||type==ReportType.PAYABLE_AGING;
     }
@@ -210,6 +241,7 @@ public class ReportService {
         types.put("stock_adjustment","adjust_no");types.put("stock_count","count_no");types.put("stock_transfer","transfer_no");types.put("refund_request","refund_no");
         types.put("stock_misc_doc","document_no");
         types.put("mfg_issue_doc","document_no");types.put("mfg_receipt_doc","document_no");
+        types.put("price_adjustment","adjust_no");types.put("sales_price_adjustment","adjust_no");types.put("purchase_fee_doc","document_no");
         for(var type:types.entrySet()) {
             var ids=new HashSet<Object>();
             for(var row:rows) { if(row.get("source_no")==null && type.getKey().equals(documentType(row.get("source_type"))) && row.get("source_id")!=null) { ids.add(row.get("source_id")); } }
@@ -217,7 +249,9 @@ public class ReportService {
             var params=Map.<String,Object>of("t",actor.tenantId(),"c",actor.companyId(),"ids",ids);
             var documents=new HashMap<String,Map<String,Object>>();
             String extra=type.getKey().equals("stock_misc_doc")?",direction":"";
-            for(var value:jdbc.queryForList("SELECT id,"+type.getValue()+" no"+extra+" FROM "+type.getKey()+" WHERE tenant_id=:t AND company_id=:c AND id IN (:ids)",params)) {
+            String table=type.getKey().equals("sales_price_adjustment")?"price_adjustment":type.getKey();
+            if(table.equals("price_adjustment"))extra+=",kind";
+            for(var value:jdbc.queryForList("SELECT id,"+type.getValue()+" no"+extra+" FROM "+table+" WHERE tenant_id=:t AND company_id=:c AND id IN (:ids)",params)) {
                 documents.put(value.get("id").toString(),value);
             }
             for(var row:rows) {
@@ -225,6 +259,7 @@ public class ReportService {
                 var document=documents.get(Objects.toString(row.get("source_id")));
                 if(document==null)continue;
                 row.put("source_no",document.get("no"));
+                if("sales".equals(document.get("kind")))row.put("source_type","sales_price_adjustment");
                 if(document.containsKey("direction"))row.put("source_url","/stock-misc-"+document.get("direction")+"/"+row.get("source_id"));
             }
         }
@@ -235,6 +270,9 @@ public class ReportService {
             case "shipment_post","shipment_sign","shipment_diff","shipment_line","sales_order_fee" -> "shipment";
             case "sales_return_line" -> "sales_return";case "goods_receipt_line","purchase_order_fee" -> "goods_receipt";
             case "purchase_return_line" -> "purchase_return";
+            case "price_adjustment_line","price_adjustment_cost" -> "price_adjustment";
+            case "purchase_fee_doc_line","purchase_fee_cost" -> "purchase_fee_doc";
+            case "goods_receipt_fee" -> "goods_receipt";
             case "stock_transfer_out","stock_transfer_in","stock_transfer_diff" -> "stock_transfer";
             case "stock_misc_line" -> "stock_misc_doc";
             case "mfg_issue_line" -> "mfg_issue_doc";
@@ -277,7 +315,7 @@ public class ReportService {
         for(String key:List.of("age_0_30","age_31_60","age_61_90","age_91_180","age_over_180")) { row.put(key,key.equals(bucket)?row.get("open_amount"):BigDecimal.ZERO); }
     }
     private static List<Map<String,Object>> groupAging(List<Map<String,Object>> rows,String by) {
-        String field=by.equals("department")?"department_id":"business_user_id";var groups=new LinkedHashMap<Object,Map<String,Object>>();for(var row:rows) {Object key=row.get(field);var total=groups.get(key);if(total==null) {total=new LinkedHashMap<>(row);for(var e:row.entrySet())if(e.getValue() instanceof BigDecimal)total.put(e.getKey(),BigDecimal.ZERO);total.remove("source_type");total.remove("source_id");total.remove("source_line_id");total.remove("source_no");total.remove("partner_id");total.remove("partner_name");total.remove("direction");total.put("source_count",0L);if(by.equals("department")) {total.remove("business_user_id");total.put("business_user_name","多位业务员");}else {total.remove("department_id");total.put("department_name","按业务员汇总");}groups.put(key,total);}for(var e:row.entrySet())if(e.getValue() instanceof BigDecimal value)total.put(e.getKey(),((BigDecimal)total.get(e.getKey())).add(value));total.put("source_count",((Long)total.get("source_count"))+1);}
+        String field=by.equals("department")?"department_id":"business_user_id";var groups=new LinkedHashMap<Object,Map<String,Object>>();for(var row:rows) {Object key=row.get(field);var total=groups.get(key);if(total==null) {total=new LinkedHashMap<>(row);for(var e:row.entrySet())if(e.getValue() instanceof BigDecimal)total.put(e.getKey(),BigDecimal.ZERO);total.remove("source_type");total.remove("source_id");total.remove("source_line_id");total.remove("source_no");total.remove("due_date");total.remove("overdue_days");total.remove("partner_id");total.remove("partner_name");total.remove("direction");total.put("source_count",0L);if(by.equals("department")) {total.remove("business_user_id");total.put("business_user_name","多位业务员");}else {total.remove("department_id");total.put("department_name","按业务员汇总");}groups.put(key,total);}for(var e:row.entrySet())if(e.getValue() instanceof BigDecimal value)total.put(e.getKey(),((BigDecimal)total.get(e.getKey())).add(value));total.put("source_count",((Long)total.get("source_count"))+1);}
         return new ArrayList<>(groups.values());
     }
     private static boolean costField(String key) { return key.contains("cost") || key.equals("gross_margin"); }
@@ -288,6 +326,9 @@ public class ReportService {
         String route=switch(name) {
             case "shipment_post","shipment_sign","shipment_diff","shipment" -> "shipments";
             case "goods_receipt","goods_receipt_fee" -> "goods-receipts";
+            case "price_adjustment" -> "purchase-price-adjustments";
+            case "sales_price_adjustment" -> "sales-price-adjustments";
+            case "purchase_fee_doc" -> "purchase-fee-documents";
             case "sales_return" -> "sales-returns";case "purchase_return" -> "purchase-returns";
             case "receipt" -> "receipts";case "payment" -> "payments";case "document_reversal" -> "document-reversals";
             case "stock_transfer","stock_transfer_out","stock_transfer_in","stock_transfer_diff" -> "stock-transfers";

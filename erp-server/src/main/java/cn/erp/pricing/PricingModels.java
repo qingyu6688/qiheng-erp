@@ -42,7 +42,7 @@ public final class PricingModels {
                        String lineDiscountRatio,String taxRate) {}
 
     public record Fee(
-            @NotNull(message="请输入费用类型") @Pattern(regexp="freight|other",message="费用类型无效") String feeType,
+            @NotNull(message="请输入费用类型") @Pattern(regexp="freight|loading|other",message="费用类型无效") String feeType,
             @NotNull(message="请选择费用承担方") @Pattern(regexp="buyer|seller",message="费用承担方无效") String bearer,
             @NotBlank(message="请输入费用金额") String amount,
             String taxRate) {}
@@ -50,7 +50,16 @@ public final class PricingModels {
     public record Preview(int pricingVersion,boolean priceTaxInclusive,String currency,String goodsAmount,
                           String lineDiscountAmount,String orderDiscountAmount,String feeAmount,
                           String totalAmount,String untaxedAmount,String taxAmount,
-                          List<LineResult> lines,List<FeeResult> fees,List<Warning> warnings) {}
+                          List<LineResult> lines,List<FeeResult> fees,List<Warning> warnings,List<PriceSource> priceSources) {
+        public Preview(int pricingVersion,boolean priceTaxInclusive,String currency,String goodsAmount,
+                       String lineDiscountAmount,String orderDiscountAmount,String feeAmount,String totalAmount,String untaxedAmount,
+                       String taxAmount,List<LineResult> lines,List<FeeResult> fees,List<Warning> warnings) {
+            this(pricingVersion,priceTaxInclusive,currency,goodsAmount,lineDiscountAmount,orderDiscountAmount,feeAmount,totalAmount,
+                    untaxedAmount,taxAmount,lines,fees,warnings,List.of());
+        }
+    }
+    public record PriceSource(int lineNo,String source,String referenceSource,String suggestedUnitPrice,
+                              String priceListId,Integer priceListVersion,String historyLineId,boolean abovePriceList) {}
 
     public record LineResult(int lineNo,boolean priceTaxInclusive,String skuId,String unitId,String warehouseId,
                              String qty,String unitRate,String baseQty,String unitPrice,

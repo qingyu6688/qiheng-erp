@@ -46,11 +46,14 @@ public final class ExportCsv {
                 if(type==ReportType.GROSS_MARGIN) { add(columns,"grossMargin","毛利"); }
                 else if(!detail) { add(columns,"sourceCount","明细行数"); }
             }
-            case RECEIVABLE_AGING,PAYABLE_AGING -> add(columns,"partnerName",type==ReportType.RECEIVABLE_AGING?"客户":"供应商","sourceNo","来源单号","agingDate","账龄起算日","direction","方向","openAmount","未核销金额","ageDays","账龄天数","age030","0至30天","age3160","31至60天","age6190","61至90天","age91180","91至180天","ageOver180","180天以上");
-            case PARTNER_STATEMENT -> add(columns,"partnerName","往来单位","businessDate","业务日期","sourceNo","来源单号","accountCode","科目","direction","方向","debitAmount","借方发生额","creditAmount","贷方发生额","openingBalance","期初余额","runningBalance","本行余额");
+            case RECEIVABLE_AGING,PAYABLE_AGING -> add(columns,"partnerName",type==ReportType.RECEIVABLE_AGING?"客户":"供应商","sourceNo","来源单号","agingDate","账龄起算日","dueDate","到期日","overdueDays","逾期天数","direction","方向","openAmount","未核销金额","ageDays","账龄天数","age030","0至30天","age3160","31至60天","age6190","61至90天","age91180","91至180天","ageOver180","180天以上");
+            case PARTNER_STATEMENT -> add(columns,"partnerName","往来单位","businessDate","业务日期","sourceNo","来源单号","accountCode","科目","direction","方向","debitAmount","借方发生额","creditAmount","贷方发生额","openingBalance","期初余额","runningBalance","本行余额","invoicingStatus","到票状态（截至结束日）");
             case CASH_JOURNAL -> add(columns,"cashAccountName","资金账户","businessDate","业务日期","sourceNo","来源单号","receiptAmount","收入","paymentAmount","支出","openingBalance","期初余额","runningBalance","本行余额");
+            case UNINVOICED_RECEIPTS -> add(columns,"partnerName","供应商","businessDate","来源日期","sourceNo","采购来源单号","originalReceiptNo","原收货单号","basisUntaxedAmount","净可到票未税额","basisTaxAmount","净可到票税额","invoicedUntaxedAmount","已到票未税额","invoicedTaxAmount","已到票税额","uninvoicedUntaxedAmount","未到票未税额","uninvoicedTaxAmount","未到票税额","uninvoicedAmount","未到票合计","invoicingStatus","到票状态","invoiceMatchNotice","核对提示");
         }
         if(Set.of(ReportType.RECEIVABLE_AGING,ReportType.PAYABLE_AGING).contains(type)&&!rows.isEmpty()&&rows.getFirst().get("agingLabels") instanceof Map<?,?> labels) {columns.keySet().removeIf(field->field.startsWith("age"));columns.put("businessUserName","业务员");columns.put("departmentName","部门");labels.forEach((field,label)->{String key=field.toString().replace("aging_","aging");columns.put(key,label.toString());});}
+        if(columns.containsKey("sourceNo")&&rows.stream().anyMatch(row->row.containsKey("returnMode")))
+            add(columns,"returnMode","退货模式","returnCostSource","退货成本来源");
         if(!cost) { columns.keySet().removeIf(field->field.toLowerCase(Locale.ROOT).contains("cost") || field.equals("grossMargin")); }
         return write(rows,columns,json);
     }
@@ -69,6 +72,9 @@ public final class ExportCsv {
                 if(column.equals("postingAction")) { text=Map.of("post","过账","reverse","冲销","adjustment","成本调整").getOrDefault(text,text); }
                 if(column.equals("diffDisposition")) { text=Map.of("pending","待处理","returned","拒收退回","lost","运输损失","none","无差异").getOrDefault(text,text); }
                 if(column.equals("accountCode")) { text=Map.of("AR","应收","AP","应付","FUNDS","资金").getOrDefault(text,text); }
+                if(column.equals("invoicingStatus")) {text=Map.of("uninvoiced","未到票","partial","部分到票","invoiced","已到票","not_required","无待到票额度","source_unavailable","不适用或来源失效").getOrDefault(text,text);}
+                if(column.equals("returnMode"))text=Map.of("original","按原单退货","sourceless","无原单退货").getOrDefault(text,"");
+                if(column.equals("returnCostSource"))text=Map.of("average","加权平均成本","last_in","最近入库成本","manual","人工复核成本").getOrDefault(text,"");
                 // 标识及精确小数使用文本单元格，避免表格软件按浮点数截断；外部文本不能成为公式。
                 boolean exact=column.equals("id") || column.endsWith("Id") || text.matches("-?\\d+(\\.\\d+)?");
                 String stripped=text.stripLeading();

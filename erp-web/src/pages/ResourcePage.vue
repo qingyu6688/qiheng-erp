@@ -535,10 +535,6 @@ defineExpose({ confirmDiscard, edit })
       @close="closeRelations"
       @saved="relationsSaved"
     />
-    <section v-if="!embedded && !editing && !relations" class="panel resource-placeholder">
-      <h2>资料维护</h2>
-      <p>从左侧选择“编辑”或相关设置，详情在这里显示。新增、保存和停用仍由当前权限控制。</p>
-    </section>
   </div>
   <el-dialog
     :model-value="Boolean(statusRow)"
@@ -562,27 +558,21 @@ defineExpose({ confirmDiscard, edit })
 </template>
 
 <style scoped>
+/* 没有打开编辑时列表占满整行，打开后右侧出现编辑区，不再放一块空说明 */
 .resource-split {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(360px, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
   align-items: start;
 }
-.resource-placeholder {
-  padding: 24px;
-}
-.resource-placeholder h2 {
-  font-size: 16px;
-  margin: 0;
+.resource-split.has-editor {
+  grid-template-columns: minmax(0, 1.4fr) minmax(360px, 1fr);
 }
 .resource-split > .table-panel {
   min-width: 0;
 }
-.resource-embedded:not(.has-editor) {
-  grid-template-columns: minmax(0, 1fr);
-}
 @media (max-width: 1150px) {
-  .resource-split {
+  .resource-split.has-editor {
     grid-template-columns: minmax(0, 1fr);
   }
 }

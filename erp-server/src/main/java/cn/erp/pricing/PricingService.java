@@ -50,7 +50,9 @@ public class PricingService {
             if(checkedWarehouses.add(line.warehouseId())) {warehouse(scope,line.warehouseId());}
         }
         var defaults=catalog.requireActiveSkus(scope,keys);
-        var quotes=sales?priceLists.quotes(scope,partner,input.businessDate(),selections(input.lines())):Map.<Integer,PriceListService.Quote>of();
+        var quotes=sales?priceLists.quotes(scope,partner,input.businessDate(),selections(input.lines()))
+                :scope.hasPermission("cost:view")?priceLists.purchaseQuotes(scope,partner,input.businessDate(),allSelections(input.lines()))
+                :Map.<Integer,PriceListService.Quote>of();
         List<PricingModels.Line> lines=new ArrayList<>();
         for(int index=0;index<input.lines().size();index++) {
             var line=input.lines().get(index);
@@ -61,11 +63,28 @@ public class PricingService {
             if(input.fees().size()>50) {throw invalid("费用最多50行");}
             for(var fee:input.fees()) {
                 if(fee==null) {throw invalid("费用行不能为空");}
+                if(sales&&"loading".equals(fee.feeType())) throw invalid("销售费用类型须为运费或其他费用");
                 String tax=chosenTax(scope,fee.taxRate(),DEFAULT_FEE_TAX_RATE);
                 fees.add(new PricingModels.Fee(fee.feeType(),fee.bearer(),fee.amount(),tax));
             }
         }
-        return engine.calculate(new PricingModels.Calculation(inclusive,input.orderDiscountAmount(),List.copyOf(lines),List.copyOf(fees)));
+        var calculated=engine.calculate(new PricingModels.Calculation(inclusive,input.orderDiscountAmount(),List.copyOf(lines),List.copyOf(fees)));
+        if(sales)return calculated;
+        var sources=new ArrayList<PricingModels.PriceSource>();
+        var warnings=new ArrayList<>(calculated.warnings());
+        for(int index=0;index<calculated.lines().size();index++) {
+            var actual=calculated.lines().get(index);var request=input.lines().get(index);var quote=quotes.get(index);
+            String reference=quote==null?"reference":quote.source();
+            String suggested=quote==null?(!scope.hasPermission("cost:view") || defaults.get(keys.get(index)).get("purchase_price")==null?null:referencePrice(scope,false,defaults.get(keys.get(index))))
+                    :taxBasis(quote,inclusive,new BigDecimal(actual.taxRate()));
+            boolean above=quote!=null && quote.source().equals("supplier_price_list") && new BigDecimal(actual.unitPrice()).compareTo(new BigDecimal(suggested))>0;
+            sources.add(new PricingModels.PriceSource(index+1,request.unitPrice()==null && request.amountInput()==null?reference:"manual",reference,suggested,
+                    quote==null?null:quote.priceListId(),quote==null?null:quote.priceListVersion(),quote==null?null:quote.historyLineId(),above));
+            if(above)warnings.add(new PricingModels.Warning(index+1,"ABOVE_SUPPLIER_PRICE","采购单价高于供应商协议价，请确认价格依据"));
+        }
+        return new PricingModels.Preview(calculated.pricingVersion(),calculated.priceTaxInclusive(),calculated.currency(),calculated.goodsAmount(),
+                calculated.lineDiscountAmount(),calculated.orderDiscountAmount(),calculated.feeAmount(),calculated.totalAmount(),calculated.untaxedAmount(),
+                calculated.taxAmount(),calculated.lines(),calculated.fees(),List.copyOf(warnings),List.copyOf(sources));
     }
 
     PricingModels.DefaultPrice defaultPrice(CompanyAccess scope,String partnerId,String sku,String unit,String qty,
@@ -82,12 +101,31 @@ public class PricingService {
         return new PricingModels.DefaultPrice(value,inclusive,selected==null?"reference":selected.source());
     }
 
+    /** 保存采购单据时执行内部比较，返回值仅供业务快照，不能直接作为无成本权限的取价响应。 */
+    public PricingModels.Preview purchaseDocumentPreview(CompanyAccess scope,PricingModels.PreviewRequest input) {
+        if(!"purchase_order".equals(input.documentType()))throw invalid("采购取价单据类型无效");
+        if(!scope.hasPermission("cost:view") && input.lines().stream().anyMatch(line->line.unitPrice()==null && line.amountInput()==null))
+            throw new ApiException(403,"FORBIDDEN","读取默认采购价格需要成本查看权限");
+        var permissions=new java.util.HashSet<>(scope.permissions());permissions.add("cost:view");
+        var internal=new CompanyAccess(scope.tenantId(),scope.userId(),scope.companyId(),scope.allWarehouses(),scope.warehouseIds(),permissions,scope.orgScope());
+        return preview(internal,input);
+    }
+
     private List<PriceListService.Selection> selections(List<PricingModels.PreviewLine> lines) {
         var result=new ArrayList<PriceListService.Selection>();
         for(int index=0;index<lines.size();index++) {
             var line=lines.get(index);
             if(line.unitPrice()==null&&line.amountInput()==null)
                 result.add(new PriceListService.Selection(index,line.skuId(),line.unitId(),quantity(line.qty(),"数量").toPlainString()));
+        }
+        return result;
+    }
+
+    private List<PriceListService.Selection> allSelections(List<PricingModels.PreviewLine> lines) {
+        var result=new ArrayList<PriceListService.Selection>();
+        for(int index=0;index<lines.size();index++) {
+            var line=lines.get(index);
+            result.add(new PriceListService.Selection(index,line.skuId(),line.unitId(),quantity(line.qty(),"数量").toPlainString()));
         }
         return result;
     }

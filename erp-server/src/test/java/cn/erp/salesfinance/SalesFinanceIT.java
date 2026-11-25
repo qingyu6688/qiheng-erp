@@ -169,6 +169,15 @@ class SalesFinanceIT {
         return location;
     }
 
+    @Test void salesReturnCreditInheritsOriginalDueDate() {
+        jdbc.update("UPDATE receivable SET due_date=? WHERE tenant_id=? AND source_line_id=?",DATE.plusDays(30),tenant,shipmentLine);
+        var draft=returns.create(maker,key(),returnInput("1","passed",null));long returnId=identifier(draft);
+        returns.command(maker,returnId,"submit",key(),version(draft));
+        returns.command(maker,returnId,"post",key(),version(returns.get(maker,returnId)));
+        assertThat(jdbc.queryForObject("SELECT due_date FROM receivable WHERE tenant_id=? AND source_type='sales_return_line' AND source_id=?",java.sql.Date.class,tenant,returnId))
+                .isEqualTo(java.sql.Date.valueOf(DATE.plusDays(30)));
+    }
+
     @Test void completeReturnRefundSampleHasNoReconciliationDifferencesAndPaidRetryIsStable() {
         long receipt=confirmedReceipt("137.50");
         long receiptItem=jdbc.queryForObject("SELECT id FROM partner_open_item WHERE tenant_id=? AND item_type='receipt' AND source_id=?",Long.class,tenant,receipt);

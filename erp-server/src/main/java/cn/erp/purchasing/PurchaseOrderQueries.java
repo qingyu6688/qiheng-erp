@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class PurchaseOrderQueries {
     private final JdbcTemplate jdbc;
     private final CustomFields customFields;
+    private final tools.jackson.databind.ObjectMapper json=new tools.jackson.databind.ObjectMapper();
     public PurchaseOrderQueries(JdbcTemplate jdbc,CustomFields customFields) {this.jdbc=jdbc;this.customFields=customFields;}
 
     public Map<String,Object> header(CompanyAccess scope,long id,boolean lock) {
@@ -39,6 +40,10 @@ public class PurchaseOrderQueries {
     public Map<String,Object> get(CompanyAccess scope,long id) {
         var raw=header(scope,id,false);
         var result=camel(raw);
+        boolean above=Boolean.TRUE.equals(raw.get("above_price_list")) || raw.get("above_price_list") instanceof Number value && value.intValue()!=0;
+        boolean frozen=Boolean.TRUE.equals(raw.get("purchase_price_approval_required")) || raw.get("purchase_price_approval_required") instanceof Number value && value.intValue()!=0;
+        var policy=jdbc.queryForList("SELECT purchase_over_price_policy FROM company_policy WHERE tenant_id=? AND company_id=?",String.class,scope.tenantId(),scope.companyId());
+        result.put("purchasePriceApprovalRequired",above && (frozen || !policy.isEmpty() && policy.getFirst().equals("approval")));
         result.put("extJson",customFields.visible((String)raw.get("ext_json"),customFields.fields(scope.tenantId(),"purchase_order")));
         result.put("documentNo",raw.get("order_no"));
         result.put("supplier",reference("business_partner",scope,number(raw,"supplier_id")));
@@ -54,6 +59,9 @@ public class PurchaseOrderQueries {
 
     private Map<String,Object> lineView(CompanyAccess scope,Map<String,Object> line) {
         var result=camel(line);
+        result.remove("priceSourceSnapshot");
+        if(scope.hasPermission("cost:view") && line.get("price_source_snapshot")!=null)
+            result.put("priceSourceSnapshot",json.readValue(line.get("price_source_snapshot").toString(),cn.erp.pricing.PricingModels.PriceSource.class));
         result.put("sku",reference("sku",scope,number(line,"sku_id")));
         result.put("unit",reference("unit",scope,number(line,"unit_id")));
         result.put("warehouse",line.get("warehouse_id")==null?null:reference("warehouse",scope,number(line,"warehouse_id")));
@@ -132,7 +140,7 @@ public class PurchaseOrderQueries {
             WHERE p.tenant_id=? AND p.company_id=? AND p.kind='charge' AND p.posting_action='post'
               AND NOT EXISTS(SELECT 1 FROM payable reversed WHERE reversed.tenant_id=p.tenant_id AND reversed.company_id=p.company_id AND reversed.reverses_payable_id=p.id) AND
               ((p.source_type='goods_receipt_line' AND EXISTS(SELECT 1 FROM goods_receipt_line g JOIN purchase_order_line l ON l.id=g.order_line_id WHERE g.id=p.source_line_id AND l.order_id=?))
-              OR (p.source_type='purchase_order_fee' AND EXISTS(SELECT 1 FROM purchase_order_fee f WHERE f.id=p.source_line_id AND f.order_id=?)))
+              OR (p.source_type='purchase_order_fee' AND EXISTS(SELECT 1 FROM purchase_order_fee f LEFT JOIN purchase_fee_doc_line nf ON nf.tenant_id=f.tenant_id AND nf.company_id=f.company_id AND nf.order_fee_id=f.id AND nf.id=p.source_line_id WHERE f.tenant_id=p.tenant_id AND f.company_id=p.company_id AND (f.id=p.source_line_id OR nf.id IS NOT NULL) AND f.order_id=?)))
             """,scope.tenantId(),scope.companyId(),orderId,orderId);
         String fulfillment=received.compareTo(needed)>=0?"full":received.signum()>0?"partial":"none";
         String settlement=decimal(open,"amount").signum()==0||decimal(open,"remaining").compareTo(decimal(open,"amount"))==0?"none":decimal(open,"remaining").signum()==0?"full":"partial";

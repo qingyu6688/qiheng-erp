@@ -24,6 +24,9 @@ import static cn.erp.receiving.ReceivingQueries.*;
 @Service
 @Transactional
 public class ReceivingService {
+    private cn.erp.shared.InboundInvoiceChangePort invoices;
+    @org.springframework.beans.factory.annotation.Autowired
+    void invoices(cn.erp.shared.InboundInvoiceChangePort invoices) {this.invoices=invoices;}
     private final JdbcTemplate jdbc;
     private final ReceivingQueries queries;
     private final BusinessCommands commands;
@@ -38,14 +41,18 @@ public class ReceivingService {
     private final PurchaseOrderQueries orders;
     private final ReceiptQualityPort quality;
     private final PutawayPort putawayTasks;
+    private final tools.jackson.databind.ObjectMapper json;
     public ReceivingService(JdbcTemplate jdbc,ReceivingQueries queries,BusinessCommands commands,DocumentNumbers numbers,AuditService audit,
             CatalogAvailability catalog,ReferenceAvailability references,PricingEngine pricing,InventoryService inventory,
             LedgerService ledger,SettlementService settlement,PurchaseOrderQueries orders,ReceiptQualityPort quality,
-            PutawayPort putawayTasks) {
+            PutawayPort putawayTasks,tools.jackson.databind.ObjectMapper json) {
         this.jdbc=jdbc;this.queries=queries;this.commands=commands;this.numbers=numbers;this.audit=audit;this.catalog=catalog;
         this.references=references;this.pricing=pricing;this.inventory=inventory;this.ledger=ledger;this.settlement=settlement;this.orders=orders;this.quality=quality;
-        this.putawayTasks=putawayTasks;
+        this.putawayTasks=putawayTasks;this.json=json;
     }
+    private cn.erp.purchasefees.ReceiptFeePosting receiptFees;
+    @org.springframework.beans.factory.annotation.Autowired
+    void receiptFees(cn.erp.purchasefees.ReceiptFeePosting receiptFees) {this.receiptFees=receiptFees;}
     private record Line(long sourceId,long unitId,String qty,StockSelection selection) {}
     public Map<String,Object> createReceipt(CompanyAccess scope,String key,ReceivingModels.ReceiptInput input) {
         return execute(scope,false,"create",key,input,201,()->create(scope,false,input.supplierId(),input.warehouseId(),input.businessDate(),input.remark(),input.lines().stream().map(l->new Line(l.orderLineId(),l.unitId(),l.qty(),l.stockSelection())).toList(),input.buyerUserId()));
@@ -93,9 +100,11 @@ public class ReceivingService {
                     Ids.next(),scope.tenantId(),scope.companyId(),header,++no,input.sourceId(),original.get("sku_id"),input.unitId(),rate,qty,base,inventory.encodeSelection(input.selection()),scope.userId(),scope.userId());
         }
     }
+    @Transactional(isolation=org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public Map<String,Object> command(CompanyAccess scope,boolean returning,long id,String action,String key,Long expectedVersion) {
         queries.header(scope,returning,id,false);
         return execute(scope,returning,action,key,List.of(id,expectedVersion==null?-1:expectedVersion),200,()->{
+            if(returning&&action.equals("post"))invoices.lock(scope);
             var snapshot=queries.header(scope,returning,id,false);
             Long period=Set.of("submit","post").contains(action)?period(scope,date(snapshot,"business_date")):null;
             var before=queries.header(scope,returning,id,true);version(expectedVersion,before);
@@ -103,7 +112,10 @@ public class ReceivingService {
             var lines=lockSources(scope,returning,id);
             if(action.equals("submit")) {submit(scope,returning,before,lines);}
             else if(action.equals("void")) {release(scope,returning,before,lines);}
-            else if(action.equals("post")) {post(scope,returning,before,lines,period);}
+            else if(action.equals("post")) {
+                post(scope,returning,before,lines,period);
+                if(returning)invoices.changed(scope,"purchase_return",id,"采购退货已过账，来源额度变化，请重新核对");
+            }
             else {throw invalid("单据操作无效");}
             var result=safe(scope,returning,id);audit.record(scope,table(returning)+"."+action,table(returning),id,Map.of("status",before.get("status"),"version",before.get("version")),result);return result;
         });
@@ -186,6 +198,7 @@ public class ReceivingService {
             var hold=quality.beforePurchaseReturn(scope,id,lineId,id(line,"receipt_line_id"),decimal(line,"base_qty"));
             if(hold!=null)holds.put(lineId,hold);
         }
+        if(!returning) jdbc.queryForObject("SELECT id FROM company WHERE tenant_id=? AND id=? FOR SHARE",Long.class,scope.tenantId(),scope.companyId());
         inventory.lockKeys(scope,lines.stream().map(line->new Key(warehouse,id(line,"sku_id"))).toList());
         boolean inclusive=false;
         if(!returning) {
@@ -194,12 +207,13 @@ public class ReceivingService {
             jdbc.update("UPDATE goods_receipt SET cost_tax_inclusive=? WHERE id=?",inclusive,id);
         }
         BigDecimal amount=ZERO,tax=ZERO,cost=ZERO;var journal=new ArrayList<LedgerService.Line>();
+        var dueDates=new HashMap<Long,LocalDate>();
         for(var line:lines) {
             var original=originalSource(scope,returning,id(line,source(returning)),true);validateSource(scope,returning,supplier,warehouse,day,original,true);
-            BigDecimal[] posted=returning?postReturnLine(scope,id,supplier,warehouse,day,period,line,original,holds.get(id(line,"id")),journal):postReceiptLine(scope,id,supplier,warehouse,day,period,line,original,inclusive,journal);
+            BigDecimal[] posted=returning?postReturnLine(scope,id,supplier,warehouse,day,period,line,original,holds.get(id(line,"id")),journal):postReceiptLine(scope,id,supplier,warehouse,day,period,line,original,inclusive,journal,dueDates);
             amount=amount.add(posted[0]);tax=tax.add(posted[1]);cost=cost.add(posted[2]);
         }
-        if(!returning) {var fees=postFees(scope,id,supplier,day,period,lines,inclusive,journal);amount=amount.add(fees[0]);tax=tax.add(fees[1]);}
+        if(!returning) {var fees=postFees(scope,id,supplier,day,period,lines,inclusive,journal,dueDates);amount=amount.add(fees[0]);tax=tax.add(fees[1]);}
         postJournal(scope,table(returning),id,period,day,journal);
         jdbc.update("UPDATE "+table(returning)+" SET status='posted',"+(returning?"debit_amount":"payable_amount")+"=?,tax_amount=?,untaxed_amount=?,cost_amount=?,period_id=?,posted_at=UTC_TIMESTAMP(3),posted_by=?,version=version+1,updated_by=? WHERE id=?",
                 amount,tax,amount.subtract(tax),cost,period,scope.userId(),scope.userId(),id);
@@ -207,7 +221,7 @@ public class ReceivingService {
         if(!returning) putawayTasks.createFromReceipt(scope,warehouse,"goods_receipt",id);
     }
     private BigDecimal[] postReceiptLine(CompanyAccess scope,long header,long supplier,long warehouse,LocalDate day,long period,
-            Map<String,Object> line,Map<String,Object> original,boolean inclusive,List<LedgerService.Line> journal) {
+            Map<String,Object> line,Map<String,Object> original,boolean inclusive,List<LedgerService.Line> journal,Map<Long,LocalDate> dueDates) {
         long lineId=id(line,"id");BigDecimal qty=decimal(line,"base_qty"),previous=decimal(original,"received_base_qty"),total=decimal(original,"base_qty");
         if(decimal(original,"pending_receive_base_qty").compareTo(qty)<0) {throw new ApiException(409,"STATE_CONFLICT","采购待收占用不一致");}
         BigDecimal amount=part(decimal(original,"payable_net"),total,previous,previous.add(qty));
@@ -224,20 +238,22 @@ public class ReceivingService {
         }
         jdbc.update("UPDATE goods_receipt_line SET payable_amount=?,tax_amount=?,untaxed_amount=?,unit_cost=?,cost_amount=?,version=version+1,updated_by=? WHERE id=?",amount,tax,amount.subtract(tax),result.unitCost(),cost,scope.userId(),lineId);
         jdbc.update("UPDATE purchase_order_line SET pending_receive_base_qty=pending_receive_base_qty-?,received_base_qty=received_base_qty+?,recognized_amount=recognized_amount+?,recognized_tax=recognized_tax+?,version=version+1,updated_by=? WHERE id=?",qty,qty,amount,tax,scope.userId(),original.get("id"));
-        long open=payable(scope,supplier,"charge","goods_receipt_line",header,lineId,amount,tax,day,period);
+        long open=payable(scope,supplier,"charge","goods_receipt_line",header,lineId,amount,tax,day,period,dueForOrder(scope,id(original,"order_id"),day,dueDates));
         if(open!=0) {settlement.autoAllocatePurchaseOrder(scope,id(original,"order_id"),open);}
         add(journal,"INVENTORY","D",cost,null,warehouse,id(line,"sku_id"),lineId);
         add(journal,"INPUT_VAT","D",inclusive?ZERO:tax,null,null,null,lineId);
         add(journal,"AP","C",amount,supplier,null,null,lineId);return new BigDecimal[]{amount,tax,cost};
     }
-    private BigDecimal[] postFees(CompanyAccess scope,long receipt,long supplier,LocalDate day,long period,List<Map<String,Object>> lines,boolean inclusive,List<LedgerService.Line> journal) {
-        var orderIds=orderIds(scope,false,lines);BigDecimal amount=ZERO,tax=ZERO;
+    private BigDecimal[] postFees(CompanyAccess scope,long receipt,long supplier,LocalDate day,long period,List<Map<String,Object>> lines,boolean inclusive,List<LedgerService.Line> journal,Map<Long,LocalDate> dueDates) {
+        var automatic=receiptFees.post(scope,receipt,day,period,inclusive,journal);
+        if(automatic.enabled()) return new BigDecimal[]{automatic.amount(),automatic.tax()};
+        var orderIds=orderIds(scope,false,lines);BigDecimal amount=automatic.amount(),tax=automatic.tax();
         for(long order:orderIds) {
             var fees=jdbc.queryForList("SELECT * FROM purchase_order_fee WHERE tenant_id=? AND company_id=? AND order_id=? AND bearer='buyer' AND recognized_receipt_id IS NULL ORDER BY id FOR UPDATE",scope.tenantId(),scope.companyId(),order);
             for(var fee:fees) {
                 BigDecimal gross=decimal(fee,"total_amount"),vat=decimal(fee,"tax_amount");long id=id(fee,"id");
-                jdbc.update("UPDATE purchase_order_fee SET recognized_receipt_id=?,version=version+1,updated_by=? WHERE id=?",receipt,scope.userId(),id);
-                long open=payable(scope,supplier,"charge","purchase_order_fee",receipt,id,gross,vat,day,period);if(open!=0) {settlement.autoAllocatePurchaseOrder(scope,order,open);}
+                jdbc.update("UPDATE purchase_order_fee SET recognized_receipt_id=?,recognized_amount=total_amount,recognized_tax=tax_amount,version=version+1,updated_by=? WHERE id=?",receipt,scope.userId(),id);
+                long open=payable(scope,supplier,"charge","purchase_order_fee",receipt,id,gross,vat,day,period,dueForOrder(scope,order,day,dueDates));if(open!=0) {settlement.autoAllocatePurchaseOrder(scope,order,open);}
                 add(journal,"PURCHASE_FEE","D",inclusive?gross:gross.subtract(vat),null,null,null,id);
                 add(journal,"INPUT_VAT","D",inclusive?ZERO:vat,null,null,null,id);add(journal,"AP","C",gross,supplier,null,null,id);
                 amount=amount.add(gross);tax=tax.add(vat);
@@ -248,19 +264,20 @@ public class ReceivingService {
             Map<String,Object> line,Map<String,Object> original,ReceiptQualityPort.Hold hold,List<LedgerService.Line> journal) {
         long lineId=id(line,"id");BigDecimal qty=decimal(line,"base_qty"),previous=decimal(original,"returned_base_qty"),total=decimal(original,"base_qty");
         if(decimal(original,"pending_return_base_qty").compareTo(qty)<0||previous.add(qty).compareTo(total)>0) {throw new ApiException(422,"RETURN_QTY_EXCEEDED","原收货可退数量不足");}
-        BigDecimal amount=part(decimal(original,"payable_amount"),total,previous,previous.add(qty)),tax=part(decimal(original,"tax_amount"),total,previous,previous.add(qty));
+        var price=ReceiptReturnPricing.calculate(original,qty,day,json);
+        BigDecimal amount=price.amount(),tax=price.tax();
         long originalLine=id(original,"id");
         var origin=new Source("goods_receipt_line",id(original,"receipt_id"),originalLine);
         var posting=new Posting(new Key(warehouse,id(line,"sku_id")),new Source("purchase_return_line",header,lineId),day,period,"purchase_return_out");
         var selected=inventory.returnSelection(scope,posting.key(),origin,"purchase_in",inventory.decodeSelection(line.get("stock_selection")),qty,
                 hold==null?null:"quality_hold");
-        var result=inventory.purchaseReturn(scope,posting,qty,decimal(original,"unit_cost"),selected,
+        var result=inventory.purchaseReturn(scope,posting,qty,price.unitCost(),selected,
                 hold==null?null:new Source("goods_receipt_line",hold.sourceId(),hold.lineId()));
         BigDecimal cost=result.movementCost().subtract(result.adjustment());
-        jdbc.update("UPDATE purchase_return_line SET debit_amount=?,tax_amount=?,untaxed_amount=?,unit_cost=?,cost_amount=?,cost_adjust_amount=?,version=version+1,updated_by=? WHERE id=?",amount,tax,amount.subtract(tax),original.get("unit_cost"),cost,result.adjustment(),scope.userId(),lineId);
+        jdbc.update("UPDATE purchase_return_line SET debit_amount=?,tax_amount=?,untaxed_amount=?,unit_cost=?,cost_amount=?,cost_adjust_amount=?,version=version+1,updated_by=? WHERE id=?",amount,tax,amount.subtract(tax),price.unitCost(),cost,result.adjustment(),scope.userId(),lineId);
         jdbc.update("UPDATE goods_receipt_line SET pending_return_base_qty=pending_return_base_qty-?,returned_base_qty=returned_base_qty+?,debited_amount=debited_amount+?,debited_tax=debited_tax+?,version=version+1,updated_by=? WHERE id=?",qty,qty,amount,tax,scope.userId(),original.get("id"));
         jdbc.update("UPDATE purchase_order_line SET returned_base_qty=returned_base_qty+?,version=version+1,updated_by=? WHERE id=?",qty,scope.userId(),original.get("order_line_id"));
-        payable(scope,supplier,"credit","purchase_return_line",header,lineId,amount,tax,day,period);
+        payable(scope,supplier,"credit","purchase_return_line",header,lineId,amount,tax,day,period,PaymentTerms.original(jdbc,scope,"payable","goods_receipt_line",originalLine));
         boolean inclusive=original.get("cost_tax_inclusive")==null?decimal(original,"cost_amount").compareTo(decimal(original,"payable_amount"))==0:original.get("cost_tax_inclusive") instanceof Boolean flag?flag:((Number)original.get("cost_tax_inclusive")).intValue()!=0;
         BigDecimal vat=inclusive?ZERO:tax;
         add(journal,"AP","D",amount,supplier,null,null,lineId);add(journal,"INPUT_VAT","C",vat,null,null,null,lineId);
@@ -269,9 +286,13 @@ public class ReceivingService {
         add(journal,"COST_VARIANCE","C",amount.subtract(vat).subtract(cost),null,null,null,lineId);
         return new BigDecimal[]{amount,tax,cost};
     }
-    private long payable(CompanyAccess scope,long supplier,String kind,String source,long header,long line,BigDecimal amount,BigDecimal tax,LocalDate day,long period) {
+    private LocalDate dueForOrder(CompanyAccess scope,long order,LocalDate day,Map<Long,LocalDate> dueDates) {
+        if(!dueDates.containsKey(order)) dueDates.put(order,PaymentTerms.forOrder(jdbc,scope,order,"supplier",day));
+        return dueDates.get(order);
+    }
+    private long payable(CompanyAccess scope,long supplier,String kind,String source,long header,long line,BigDecimal amount,BigDecimal tax,LocalDate day,long period,LocalDate dueDate) {
         if(amount.signum()==0) {return 0;}
-        long id=Ids.next();jdbc.update("INSERT INTO payable(id,tenant_id,company_id,supplier_id,kind,source_type,source_id,source_line_id,amount,untaxed_amount,tax_amount,business_date,period_id,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",id,scope.tenantId(),scope.companyId(),supplier,kind,source,header,line,amount,amount.subtract(tax),tax,day,period,scope.userId());
+        long id=Ids.next();jdbc.update("INSERT INTO payable(id,tenant_id,company_id,supplier_id,kind,source_type,source_id,source_line_id,amount,untaxed_amount,tax_amount,business_date,period_id,created_by,due_date) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",id,scope.tenantId(),scope.companyId(),supplier,kind,source,header,line,amount,amount.subtract(tax),tax,day,period,scope.userId(),dueDate);
         return settlement.open(scope,new SettlementService.OpenItem("payable",id,supplier,kind.equals("charge")?"C":"D",amount,day));
     }
     private Set<Long> orderIds(CompanyAccess scope,boolean returning,List<Map<String,Object>> lines) {

@@ -30,9 +30,12 @@ class UpgradeWorkflows {
 
     List<String> types(boolean legacy) {
         var types = new TreeSet<>(SystemWorkflowPlan.LABELS.keySet());
-        if (legacy) types.retainAll(jdbc.queryForList("""
+        if (legacy) {
+            var tables=new java.util.HashSet<>(jdbc.queryForList("""
                 SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema=DATABASE()
                 """, String.class));
+            types.removeIf(type->!tables.contains(SystemWorkflowPlan.sourceTable(type)));
+        }
         return List.copyOf(types);
     }
 
@@ -93,6 +96,7 @@ class UpgradeWorkflows {
     }
 
     private List<Map<String, Object>> documents(String type) {
+        String table=SystemWorkflowPlan.sourceTable(type);
         String submitAction = switch (type) {
             case "document_reversal" -> "reversal.create";
             case "credit_increase" -> "credit_increase.submit";
@@ -109,7 +113,7 @@ class UpgradeWorkflows {
         String reference = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE()
                   AND table_name=? AND column_name='wf_instance_id'
-                """, Integer.class, type) == 0 ? "0" : "d.wf_instance_id";
+                """, Integer.class, table) == 0 ? "0" : "d.wf_instance_id";
         return jdbc.queryForList("""
                 SELECT d.id,d.tenant_id,d.company_id,%s wf_instance_id,
                   COALESCE(%s(SELECT a.operator_id FROM audit_log a
@@ -118,13 +122,13 @@ class UpgradeWorkflows {
                     ORDER BY a.id DESC LIMIT 1),%s,0) starter
                 FROM %s d JOIN company c ON c.tenant_id=d.tenant_id AND c.id=d.company_id AND c.status='active'
                 JOIN tenant t ON t.id=c.tenant_id AND t.status='active'
-                WHERE d.status=? AND NOT EXISTS (
+                WHERE d.status=? AND %s AND NOT EXISTS (
                     SELECT 1 FROM wf_instance i JOIN ACT_RU_EXECUTION e
                       ON e.ID_=i.flowable_instance_id AND e.TENANT_ID_=CAST(i.tenant_id AS CHAR)
                     WHERE i.tenant_id=d.tenant_id AND i.company_id=d.company_id AND i.business_type=?
                       AND i.business_id=d.id AND i.id=%s AND i.status='running'
                 ) ORDER BY d.tenant_id,d.company_id,d.id
-                """.formatted(reference, starter, maker, type, reference), type, submitAction,
+                """.formatted(reference, starter, maker, table, SystemWorkflowPlan.sourceKind(type,"d"), reference), type, submitAction,
                 SystemWorkflowPlan.pendingStatus(type), type);
     }
 

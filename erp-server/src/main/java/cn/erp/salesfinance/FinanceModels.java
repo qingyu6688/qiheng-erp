@@ -1,6 +1,7 @@
 package cn.erp.salesfinance;
 
 import cn.erp.inventory.InventoryModels.StockSelection;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.time.LocalDate;
@@ -25,21 +26,35 @@ public final class FinanceModels {
     public record ReturnInput(
         @NotNull(message="请选择客户") Long customerId,@NotNull(message="请选择退回仓库") Long warehouseId,
         @NotNull(message="请选择业务日期") LocalDate businessDate,@NotBlank(message="请填写退货原因") @Size(max=200,message="原因最多200字") String reason,
-        @NotEmpty(message="请填写退货明细") @Size(max=500,message="最多500行") List<@NotNull @Valid ReturnLine> lines,Long version, @Positive(message="业务员编号无效") Long salesUserId) {
+        @NotEmpty(message="请填写退货明细") @Size(max=500,message="最多500行") List<@NotNull @Valid ReturnLine> lines,Long version, @Positive(message="业务员编号无效") Long salesUserId,
+        @JsonInclude(JsonInclude.Include.NON_NULL) @Pattern(regexp="original|sourceless",message="退货模式无效") String returnMode,
+        @JsonInclude(JsonInclude.Include.NON_NULL) @Size(max=500,message="历史依据最多500字") String legacyReference) {
+        public ReturnInput(Long customerId,Long warehouseId,LocalDate businessDate,String reason,List<ReturnLine> lines,Long version,Long salesUserId) {this(customerId,warehouseId,businessDate,reason,lines,version,salesUserId,null,null);}
         public ReturnInput(Long customerId,Long warehouseId,LocalDate businessDate,String reason,List<ReturnLine> lines,Long version) {this(customerId,warehouseId,businessDate,reason,lines,version,null);}
     }
-    public record ReturnLine(@NotNull(message="请选择原发货行") Long shipmentLineId,@NotNull(message="请选择退货单位") Long unitId,
+    public record ReturnLine(Long shipmentLineId,@NotNull(message="请选择退货单位") Long unitId,
         @NotBlank(message="请输入退货数量") String qty,
         @NotNull(message="请选择质检结果") @Pattern(regexp="pending|passed|failed",message="质检结果无效") String qualityResult,
-        @Valid StockSelection stockSelection) {
+        @Valid StockSelection stockSelection,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Long skuId,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String unitPrice,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String taxRate,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String manualUnitCost,
+        @JsonInclude(JsonInclude.Include.NON_NULL) @Size(max=200,message="成本依据最多200字") String manualCostReason) {
+        public ReturnLine(Long shipmentLineId,Long unitId,String qty,String qualityResult,StockSelection stockSelection){this(shipmentLineId,unitId,qty,qualityResult,stockSelection,null,null,null,null,null);}
         public ReturnLine(Long shipmentLineId,Long unitId,String qty,String qualityResult){this(shipmentLineId,unitId,qty,qualityResult,null);}
     }
     public record Refund(
-        @NotNull(message="请选择客户") Long customerId,@NotNull(message="请选择原收款") Long originalReceiptId,
+        @NotNull(message="请选择客户") Long customerId,Long originalReceiptId,
         @NotNull(message="请选择退款账户") Long cashAccountId,@NotBlank(message="请输入退款金额") String amount,
         @NotNull(message="请选择业务日期") LocalDate businessDate,
         @NotBlank(message="请填写退款原因") @Size(max=200,message="原因最多200字") String reason,
-        @Size(max=200,message="额度来源最多200项") List<Long> creditItemIds,Long version) {}
+        @Size(max=200,message="额度来源最多200项") List<Long> creditItemIds,Long version,
+        @JsonInclude(JsonInclude.Include.NON_NULL) @Pattern(regexp="receipt|sourceless_credit",message="退款模式无效") String refundMode) {
+        public Refund(Long customerId,Long originalReceiptId,Long cashAccountId,String amount,LocalDate businessDate,String reason,List<Long> creditItemIds,Long version) {
+            this(customerId,originalReceiptId,cashAccountId,amount,businessDate,reason,creditItemIds,version,null);
+        }
+    }
     public record Paid(@NotNull(message="请提供版本号") Long version,@NotNull(message="请选择退款日期") LocalDate paidDate,
                        @NotBlank(message="请填写银行流水号") @Size(max=64,message="银行流水号最多64字") String bankSerialNo) {}
     public record Allocation(@NotNull(message="请选择借方未清项") Long debitItemId,

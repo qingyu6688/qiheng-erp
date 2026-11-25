@@ -12,6 +12,9 @@ import static cn.erp.pricing.PricingDecimals.*;
 /** R3 的精确计算入口，输入是已选定的价格与税率快照。 */
 @Component
 public class PricingEngine {
+    private static final int MAX_ALLOCATION_LINES=500;
+    private static final int MAX_WEIGHT_SCALE=8;
+    private static final int MAX_WEIGHT_INTEGER_DIGITS=22;
     public PricingModels.Preview calculate(PricingModels.Calculation input) {
         if(input==null || input.lines()==null || input.lines().isEmpty() || input.lines().size()>500) {
             throw invalid("商品明细须在1到500行之间");
@@ -67,18 +70,31 @@ public class PricingEngine {
         return new PricedLine(input,qty,rate,base,unitPrice,lineAmount,discount,lineAmount.subtract(discount),taxRate);
     }
 
-    private static List<BigDecimal> allocate(List<BigDecimal> bases,BigDecimal discount) {
-        BigInteger total=sum(bases).unscaledValue();
-        if(discount.compareTo(new BigDecimal(total,2))>0) {throw invalid("整单优惠不能超过商品净额");}
-        if(total.signum()==0) {return bases.stream().map(v->ZERO).toList();}
+    private List<BigDecimal> allocate(List<BigDecimal> bases,BigDecimal discount) {
+        if(discount.compareTo(sum(bases))>0) {throw invalid("整单优惠不能超过商品净额");}
+        return allocateAmount(discount,bases);
+    }
+
+    /** R3 最大余数法，也供数量权重的成本分摊使用；输入顺序是尾差同余时的行号顺序。 */
+    public List<BigDecimal> allocateAmount(BigDecimal value,List<BigDecimal> weights) {
+        if(value==null || weights==null || weights.isEmpty() || weights.size()>MAX_ALLOCATION_LINES)
+            throw invalid("分摊金额及明细有误，最多500行");
+        BigDecimal amount=amount(value.toPlainString(),"分摊金额");
+        for(var weight:weights) if(weight==null || weight.signum()<0 || weight.scale()>MAX_WEIGHT_SCALE
+                || (long)weight.precision()-weight.scale()>MAX_WEIGHT_INTEGER_DIGITS) throw invalid("分摊权重的范围或精度有误");
+        BigInteger total=sum(weights).setScale(MAX_WEIGHT_SCALE).unscaledValue();
+        if(total.signum()==0) {
+            if(amount.signum()!=0) throw invalid("正金额必须有可分摊的权重");
+            return weights.stream().map(weight->ZERO).toList();
+        }
         List<Share> shares=new ArrayList<>();
         BigInteger used=BigInteger.ZERO;
-        for(int i=0;i<bases.size();i++) {
-            BigInteger[] divided=bases.get(i).unscaledValue().multiply(discount.unscaledValue()).divideAndRemainder(total);
+        for(int i=0;i<weights.size();i++) {
+            BigInteger[] divided=weights.get(i).setScale(MAX_WEIGHT_SCALE).unscaledValue().multiply(amount.unscaledValue()).divideAndRemainder(total);
             shares.add(new Share(i,divided[0],divided[1]));
             used=used.add(divided[0]);
         }
-        int remainder=discount.unscaledValue().subtract(used).intValueExact();
+        int remainder=amount.unscaledValue().subtract(used).intValueExact();
         List<Share> ordered=shares.stream().sorted(Comparator.comparing(Share::remainder).reversed().thenComparingInt(Share::index)).toList();
         BigInteger[] cents=shares.stream().map(Share::cents).toArray(BigInteger[]::new);
         for(int i=0;i<remainder;i++) {int index=ordered.get(i).index();cents[index]=cents[index].add(BigInteger.ONE);}
@@ -100,7 +116,7 @@ public class PricingEngine {
         if(values==null) {return result;}
         for(int i=0;i<values.size();i++) {
             var fee=values.get(i);
-            if(fee==null || fee.feeType()==null || !List.of("freight","other").contains(fee.feeType())
+            if(fee==null || fee.feeType()==null || !List.of("freight","loading","other").contains(fee.feeType())
                     || fee.bearer()==null || !List.of("buyer","seller").contains(fee.bearer())) {throw invalid("费用类型或承担方有误");}
             BigDecimal amount=amount(fee.amount(),"费用金额");
             if(amount.signum()==0) {throw invalid("费用金额必须大于零");}

@@ -88,8 +88,8 @@ describe('扩展只读演示', () => {
     const closing = (code: string): number => { const row = current.find((item) => item.subjectCode === code)!; return Number(row.closingDebit) - Number(row.closingCredit) }
     const total = (kind: string): number => documents.filter((row) => row.kind === kind).reduce((sum, row) => sum + Number(row.totalAmount), 0)
     expect(closing('1405')).toBeCloseTo(inventoryRows().reduce((sum, row) => sum + Number(row.costAmount), 0), 2)
-    expect(closing('1002')).toBeCloseTo(100000 + total('receipts') - total('payments'), 2)
-    expect(closing('1122')).toBeCloseTo(total('shipments') - total('receipts'), 2)
+    expect(closing('1002')).toBeCloseTo(100000 + total('receipts') - total('payments') - total('refund-requests'), 2)
+    expect(closing('1122')).toBeCloseTo(total('shipments') - total('receipts') - total('sales-returns') + total('refund-requests'), 2)
     expect(closing('2202')).toBeCloseTo(total('payments') - total('goods-receipts'), 2)
     expect(current.reduce((sum, row) => sum + Number(row.closingDebit) - Number(row.closingCredit), 0)).toBeCloseTo(0, 2)
   })

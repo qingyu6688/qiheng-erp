@@ -10,6 +10,9 @@ import { customFields } from '../api/platform-rules'
 import type { CustomField, FieldValues } from '../api/platform-rules'
 import DataFields from './DataFields.vue'
 import RecordFrame from './RecordFrame.vue'
+import PaymentTermsField from './PaymentTermsField.vue'
+import { readPaymentTerm } from '../utils/payment-terms'
+import type { PaymentTerm } from '../types/payment-terms'
 
 const props = defineProps<{ spec: ResourceSpec; row?: DataRow; inline?: boolean }>()
 const emit = defineEmits<{
@@ -27,6 +30,10 @@ const entity =
 const extended = ref<CustomField[]>([]),
   ext = ref<FieldValues>({ ...(props.row?.extJson as FieldValues | undefined) })
 const values = reactive(fieldValues(fields.value, props.row))
+const paymentTerms = reactive<Record<string, PaymentTerm>>({
+  customer: readPaymentTerm((props.row?.paymentTerms as Record<string, unknown> | undefined)?.customer),
+  supplier: readPaymentTerm((props.row?.paymentTerms as Record<string, unknown> | undefined)?.supplier),
+})
 const options = reactive<Record<string, SelectOption[]>>({})
 const busy = ref(false)
 const loading = ref(true)
@@ -37,6 +44,7 @@ const key = newIdempotencyKey()
 function payload(): Record<string, unknown> {
   return {
     ...editorPayload(fields.value, values, props.row),
+    ...(props.spec.path === 'partners' ? { paymentTerms: Object.fromEntries(Object.entries(paymentTerms).filter(([role]) => Array.isArray(values.roles) && values.roles.includes(role))) } : {}),
     ...(extended.value.length ? { extJson: ext.value } : {}),
   }
 }
@@ -167,6 +175,10 @@ async function checkResult(): Promise<void> {
         :disabled="busy || loading || uncertain || conflict"
         @change="(k, v) => (values[k] = v)"
       />
+      <template v-if="spec.path === 'partners'">
+        <PaymentTermsField v-if="Array.isArray(values.roles) && values.roles.includes('customer')" v-model="paymentTerms.customer!" label="客户账期" inherit-label="使用公司默认账期" />
+        <PaymentTermsField v-if="Array.isArray(values.roles) && values.roles.includes('supplier')" v-model="paymentTerms.supplier!" label="供应商账期" inherit-label="使用公司默认账期" />
+      </template>
       <el-form v-if="extended.length" label-position="top"
         ><h3>其他信息</h3>
         <DynamicFields v-model="ext" :fields="extended" prefix="master-extra-"

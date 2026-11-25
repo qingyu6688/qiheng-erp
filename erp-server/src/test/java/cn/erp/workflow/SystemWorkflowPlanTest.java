@@ -31,4 +31,18 @@ class SystemWorkflowPlanTest {
         assertThat(WorkflowRuntime.pricePath(plan, both)).isTrue();
         assertThat(WorkflowRuntime.reviewPath(plan, both, true)).isTrue();
     }
+
+    @Test void logicalAdjustmentTypesShareStorageAndKeepTheirOwnKind() {
+        assertThat(SystemWorkflowPlan.sourceTable("sales_price_adjustment")).isEqualTo("price_adjustment");
+        assertThat(SystemWorkflowPlan.sourceKind("sales_price_adjustment","d")).isEqualTo("d.kind='sales'");
+        assertThat(SystemWorkflowPlan.sourceKind("price_adjustment","d")).isEqualTo("d.kind='purchase'");
+        org.assertj.core.api.Assertions.assertThatThrownBy(()->SystemWorkflowPlan.sourceTable("unknown_table")).isInstanceOf(cn.erp.shared.ApiException.class);
+    }
+
+    @Test void existingReversalSourcesRemainAvailableToWorkflowVisibility() {
+        for(String type:java.util.List.of("shipment","sales_return","goods_receipt","purchase_return",
+                "receipt","payment","account_transfer","stock_adjustment","stock_misc_doc",
+                "mfg_issue_doc","mfg_receipt_doc","price_adjustment","purchase_fee_doc"))
+            assertThat(SystemWorkflowPlan.sourceTable(type)).isEqualTo(type);
+    }
 }

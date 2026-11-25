@@ -36,18 +36,26 @@ export const demoVouchers: GlVoucher[] = [voucher(0, '2025-12-01', [
   line('4001', 'C', money(100000 + openingInventory), '演示期初投入'),
 ], 'opening')]
 
-for (const doc of documents.filter((row) => ['receipts', 'payments', 'shipments', 'goods-receipts'].includes(row.kind)).sort((a, b) => a.businessDate.localeCompare(b.businessDate) || a.id.localeCompare(b.id))) {
+for (const doc of documents.filter((row) => ['receipts', 'payments', 'shipments', 'goods-receipts', 'sales-returns', 'refund-requests'].includes(row.kind)).sort((a, b) => a.businessDate.localeCompare(b.businessDate) || a.id.localeCompare(b.id))) {
   const digest = doc.documentNo + ' · ' + doc.partnerName
   let lines: GlLine[]
   if (doc.kind === 'receipts') lines = [line('1002', 'D', doc.totalAmount, digest), line('1122', 'C', doc.totalAmount, digest)]
   else if (doc.kind === 'payments') lines = [line('2202', 'D', doc.totalAmount, digest), line('1002', 'C', doc.totalAmount, digest)]
+  else if (doc.kind === 'refund-requests') lines = [line('1122', 'D', doc.totalAmount, digest), line('1002', 'C', doc.totalAmount, digest)]
   else if (doc.kind === 'goods-receipts') lines = [line('1405', 'D', doc.totalAmount, digest), line('2202', 'C', doc.totalAmount, digest)]
+  else if (doc.kind === 'sales-returns') lines = [line('6001', 'D', String(doc.untaxedAmount), digest), line('2221', 'D', String(doc.taxAmount), digest),
+    line('1122', 'C', doc.totalAmount, digest), line('1405', 'D', String(doc.costAmount), digest), line('6401', 'C', String(doc.costAmount), digest)]
   else {
     const cost = money(doc.quantity * products.find((product) => product.id === doc.productId)!.cost)
     lines = [line('1122', 'D', doc.totalAmount, digest), line('6001', 'C', String(doc.untaxedAmount), digest),
       line('2221', 'C', String(doc.taxAmount), digest), line('6401', 'D', cost, digest), line('1405', 'C', cost, digest)]
   }
-  demoVouchers.push(voucher(demoVouchers.length, doc.businessDate, lines, 'business'))
+  const entry = voucher(demoVouchers.length, doc.businessDate, lines, 'business')
+  const sourceTypes: Record<string, string> = { receipts: 'receipt', payments: 'payment', shipments: 'shipment', 'goods-receipts': 'goods_receipt', 'sales-returns': 'sales_return', 'refund-requests': 'refund_request' }
+  Object.assign(entry, { sourceType: sourceTypes[doc.kind], sourceId: doc.id, sourceNo: doc.documentNo,
+    returnMode: doc.returnMode, refundMode: doc.refundMode,
+    ...(doc.returnMode === 'sourceless' ? { returnSourceId: doc.id, returnSourceNo: doc.documentNo } : {}) })
+  demoVouchers.push(entry)
 }
 
 /** 账簿直接汇总同一组凭证；整数分运算避免跨期累计误差。 */
@@ -66,6 +74,8 @@ export function demoLedger(type: string, params: Record<string, unknown>): GlLed
       for (const row of current) {
         balance += (row.direction === 'D' ? 1 : -1) * cents(row.amount)
         items.push({ ...base, voucherId: row.entry.id, voucherDate: row.entry.voucherDate, word: '记', number: row.entry.number,
+          sourceType: row.entry.sourceType, sourceId: row.entry.sourceId, sourceNo: row.entry.sourceNo,
+          returnMode: row.entry.returnMode, refundMode: row.entry.refundMode, returnSourceId: row.entry.returnSourceId, returnSourceNo: row.entry.returnSourceNo,
           digest: row.digest, debit: row.direction === 'D' ? row.amount : '0.00', credit: row.direction === 'C' ? row.amount : '0.00', balance: money(balance / 100) })
       }
     } else {

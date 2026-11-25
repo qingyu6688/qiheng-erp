@@ -9,6 +9,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class CommandResultAccess {
     private final JdbcTemplate jdbc;
+    private org.springframework.beans.factory.ObjectProvider<QuotationScopePort> quotations;
+    @org.springframework.beans.factory.annotation.Autowired void quotations(org.springframework.beans.factory.ObjectProvider<QuotationScopePort> quotations) {this.quotations=quotations;}
     public CommandResultAccess(JdbcTemplate jdbc) {this.jdbc=jdbc;}
 
     public void verify(ActorScope actor,String operation,Object response) {
@@ -19,6 +21,73 @@ public class CommandResultAccess {
             return;
         }
         if(!(actor instanceof WarehouseScope scope) || !(response instanceof Map<?,?> row)) {return;}
+        if(operation.startsWith("sales_quote.")) {
+            String action=operation.substring(operation.indexOf('.')+1);
+            if(!(actor instanceof PermissionScope permissions) || !permissions.hasPermission("sales_quote:"+(action.equals("reject")?"approve":action))
+                    || action.equals("convert") && !permissions.hasPermission("sales_order:create"))throw new ApiException(403,"FORBIDDEN","没有读取当前报价操作结果的权限");
+            if(row.get("id")==null)throw missing();
+            quotations.getObject().requireVisible(actor,Long.parseLong(row.get("id").toString()));return;
+        }
+        if(operation.startsWith("cost_revaluation.")) {
+            String action=operation.substring(operation.indexOf('.')+1);
+            String permission="cost_revaluation:"+(action.equals("refresh")?"submit":action.equals("reject")?"approve":action);
+            FinancialScope.require(actor,"cost_revaluation:view"); FinancialScope.require(actor,permission);
+            if(row.get("id")==null || jdbc.queryForObject("SELECT COUNT(*) FROM cost_revaluation WHERE tenant_id=? AND company_id=? AND id=?",
+                    Long.class,actor.tenantId(),actor.companyId(),row.get("id"))!=1)throw missing();
+            return;
+        }
+        if(operation.startsWith("refund_request.") && row.get("id")!=null) {
+            var requests=jdbc.queryForList("SELECT * FROM refund_request WHERE tenant_id=? AND company_id=? AND id=?",actor.tenantId(),actor.companyId(),row.get("id"));
+            if(requests.isEmpty()) throw missing();
+            if(SourcelessRefundCredits.usesCredit(requests.getFirst())) {
+                if(!(actor instanceof PermissionScope permission) || !permission.hasPermission("refund_request:view")
+                        || !permission.hasPermission("refund_request:"+operation.substring(operation.indexOf('.')+1)))
+                    throw new ApiException(403,"FORBIDDEN","没有读取当前信用额退款操作结果的权限");
+                SourcelessRefundCredits.requireRequest(jdbc,actor,requests.getFirst(),false,false);
+            }
+        }
+        if(operation.startsWith("sales_return.") && row.get("id")!=null) {
+            var modes=jdbc.queryForList("SELECT return_mode FROM sales_return WHERE tenant_id=? AND company_id=? AND id=?",String.class,
+                    actor.tenantId(),actor.companyId(),row.get("id"));
+            if(modes.isEmpty()) throw missing();
+            if(modes.getFirst().equals("sourceless")) {
+                String action=operation.substring(operation.indexOf('.')+1);
+                boolean review=java.util.Set.of("approve","reject").contains(action);
+                if(!(actor instanceof PermissionScope permissions) || !permissions.hasPermission("sales_return:view")
+                        || !permissions.hasPermission("sales_return:"+(review?"approve":action))
+                        || !permissions.hasPermission(review?"cost:view":"sales_return:sourceless"))
+                    throw new ApiException(403,"FORBIDDEN","没有读取当前无原单退货操作结果的权限");
+            }
+        }
+        if(operation.startsWith("sales_price_adjustment.")&&row.get("id")!=null) {
+            if(!(actor instanceof PermissionScope permissions)||!permissions.hasPermission("sales_price_adjustment:view"))throw new ApiException(403,"FORBIDDEN","无权查看销售调价结果");
+            var headers=jdbc.queryForList("SELECT * FROM price_adjustment WHERE tenant_id=? AND company_id=? AND id=? AND kind='sales'",actor.tenantId(),actor.companyId(),row.get("id"));
+            if(headers.isEmpty())throw missing();PriceAdjustmentScope.require(jdbc,actor,headers.getFirst());
+            if(row.get("lines") instanceof List<?> lines)for(Object line:lines)if(line instanceof Map<?,?> fields&&fields.get("redInvoices") instanceof List<?> invoices)
+                for(Object invoice:invoices)if(invoice instanceof Map<?,?> reference) {
+                    if(!permissions.hasPermission("invoice_registration:view"))throw new ApiException(403,"FORBIDDEN","无权读取原票摘要");
+                    if(reference.get("invoiceId")==null)throw missing();
+                    SalesInvoiceScope.registration(jdbc,actor,Long.parseLong(reference.get("invoiceId").toString()));
+                }
+            return;
+        }
+        if(java.util.Set.of("einv.create","einv.submit","einv.red_issue").contains(operation)&&row.get("id")!=null)
+            for(long ar:jdbc.queryForList("SELECT receivable_id FROM einv_issue_line WHERE tenant_id=? AND company_id=? AND request_id=?",Long.class,actor.tenantId(),actor.companyId(),row.get("id")))
+                SalesInvoiceScope.receivable(jdbc,actor,ar);
+        if(operation.startsWith("invoice_registration.")&&row.get("id")!=null)
+            SalesInvoiceScope.registration(jdbc,actor,Long.parseLong(row.get("id").toString()));
+        if(operation.startsWith("invoice_red.")) {
+            String action=operation.substring(operation.indexOf('.')+1);
+            if(!(actor instanceof PermissionScope permissions)||!permissions.hasPermission("invoice_red:view")
+                    ||!permissions.hasPermission("invoice_registration:view")||!permissions.hasPermission("invoice_red:"+action))
+                throw new ApiException(403,"FORBIDDEN","无权读取当前红字登记操作结果");
+            SalesInvoiceScope.red(jdbc,actor,row.get("id"));return;
+        }
+        if(operation.startsWith("einv.inbound_")) {
+            String permission=operation.equals("einv.inbound_register")||operation.equals("einv.inbound_update")?"einv:inbound_register":operation.equals("einv.inbound_void")?"einv:inbound_void":"einv:inbound";
+            if(!(actor instanceof PermissionScope permissions)||!permissions.hasPermission("einv:view")||!permissions.hasPermission("einv:inbound")||!permissions.hasPermission(permission))throw new ApiException(403,"FORBIDDEN","无权读取当前进项操作结果");
+            InboundInvoiceScope.require(jdbc,actor,row.get("id"));return;
+        }
         if(operation.startsWith("credit_limit.")||operation.startsWith("credit_increase.")||operation.startsWith("bad_debt.")||operation.startsWith("aging_config.")) {
             String action=operation.substring(operation.indexOf('.')+1);String permission=operation.startsWith("bad_debt.")?(java.util.Set.of("approve","reject").contains(action)?"bad_debt:approve":"bad_debt:edit"):operation.startsWith("aging_config.")?"aging_config:edit":java.util.Set.of("approve","reject").contains(action)||action.equals("cancel")&&row.get("approvedBy")!=null?"credit_limit:approve":"credit_limit:edit";
             FinancialScope.require(actor,permission);return;
@@ -36,6 +105,12 @@ public class CommandResultAccess {
         if(operation.equals("role.assign_data_scope")&&!OrgOwnership.scope(actor).allDepartments()) throw new ApiException(403,"FORBIDDEN","没有查看部门范围管理结果的权限");
         String document=operation.startsWith("reversal.")?"document_reversal":operation.substring(0,operation.indexOf('.'));
         if(OrgOwnership.TABLES.contains(document)&&row.get("id")!=null) OrgOwnership.require(jdbc,actor,document,row.get("id"));
+        if(document.equals("purchase_fee_doc") && row.get("id")!=null) OrgOwnership.requireSource(jdbc,actor,"purchase_fee_doc",row.get("id"));
+        if(document.equals("price_adjustment") && row.get("id")!=null) {
+            var headers=jdbc.queryForList("SELECT * FROM price_adjustment WHERE tenant_id=? AND company_id=? AND id=?",actor.tenantId(),actor.companyId(),row.get("id"));
+            if(headers.isEmpty()) throw missing();
+            PriceAdjustmentScope.require(jdbc,actor,headers.getFirst());
+        }
         if(operation.startsWith("settlement.")) {
             if(row.get("id")!=null) OrgOwnership.requireAllocation(jdbc,actor,row.get("id"));
             if(row.get("items") instanceof List<?> values) for(Object value:values) if(value instanceof Map<?,?> item && item.get("id")!=null) OrgOwnership.requireAllocation(jdbc,actor,item.get("id"));
@@ -48,6 +123,12 @@ public class CommandResultAccess {
         if(java.util.Set.of("period.close","period.reopen","outbox.replay","reconciliation.run").contains(operation)&&(!scope.allWarehouses()||!OrgOwnership.scope(actor).allDepartments())) {throw new ApiException(403,"FORBIDDEN","操作结果需要整家公司数据范围");}
         if(operation.startsWith("reversal.")) {
             String type=String.valueOf(row.get("sourceType"));
+            if(type.equals("purchase_fee_doc")) OrgOwnership.requireSource(jdbc,actor,type,row.get("sourceId"));
+            if(java.util.Set.of("price_adjustment","sales_price_adjustment").contains(type)) {
+                var prices=jdbc.queryForList("SELECT * FROM price_adjustment WHERE tenant_id=? AND company_id=? AND id=?",actor.tenantId(),actor.companyId(),row.get("sourceId"));
+                if(prices.isEmpty())throw missing();
+                PriceAdjustmentScope.require(jdbc,actor,prices.getFirst());
+            }
             if(ManufacturingReversalPort.supports(type)) {verifyProduction(actor,type,row.get("sourceId"));return;}
             if(!(actor instanceof PermissionScope permissions)||!permissions.hasPermission(type+":view")) {throw new ApiException(403,"FORBIDDEN","没有查看冲销来源单据的权限");}
             if(!scope.allWarehouses()) {
@@ -107,6 +188,8 @@ public class CommandResultAccess {
             case "stock_count" -> "stock_count";
             case "stock_misc_doc" -> "stock_misc_doc";
             case "qc_inspection" -> "qc_inspection";
+            case "price_adjustment" -> "price_adjustment";
+            case "purchase_fee_doc" -> "purchase_fee_doc";
             default -> null;
         };
     }

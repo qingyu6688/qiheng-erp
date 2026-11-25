@@ -27,6 +27,17 @@ public class MinimumSalePrice {
     }
 
     private Map<String, Object> inspect(CompanyAccess actor, long order, boolean persist, Set<Long> insertedLineIds) {
+        return inspect(actor,order,persist,insertedLineIds,false);
+    }
+
+    public Map<String,Object> inspectQuotation(CompanyAccess actor,long quotation,boolean persist) {
+        return inspect(actor,quotation,persist,null,true);
+    }
+    public Map<String,Object> inspectQuotation(CompanyAccess actor,long quotation,Set<Long> insertedLines) {
+        return inspect(actor,quotation,true,insertedLines,true);
+    }
+
+    private Map<String,Object> inspect(CompanyAccess actor,long order,boolean persist,Set<Long> insertedLineIds,boolean quotation) {
         var policies =
                 jdbc.queryForList(
                         "SELECT below_min_price_policy FROM company_policy WHERE tenant_id=? AND"
@@ -36,7 +47,7 @@ public class MinimumSalePrice {
                         actor.tenantId(),
                         actor.companyId());
         String policy = policies.isEmpty() ? "warn" : policies.getFirst();
-        var rows = prices(actor, order, persist, insertedLineIds);
+        var rows = prices(actor, order, persist, insertedLineIds,quotation);
         boolean below = false;
         var fingerprint = new StringBuilder(policy);
         var affected = new ArrayList<String>();
@@ -65,7 +76,7 @@ public class MinimumSalePrice {
                     .append(minimum.stripTrailingZeros().toPlainString());
             if (persist)
                 jdbc.update(
-                        "UPDATE sales_order_line SET below_min_price=?,min_sale_price_snapshot=?"
+                        "UPDATE "+(quotation?"sales_quote_line":"sales_order_line")+" SET below_min_price=?,min_sale_price_snapshot=?"
                             + " WHERE tenant_id=? AND company_id=? AND id=?",
                         low,
                         minimum,
@@ -84,10 +95,10 @@ public class MinimumSalePrice {
                 affected);
     }
 
-    private List<Map<String,Object>> prices(CompanyAccess actor, long order, boolean persist, Set<Long> insertedLineIds) {
-        String select = "SELECT l.id,l.base_qty,l.untaxed_amount,l.tax_amount,s.min_sale_price FROM sales_order_line l";
+    private List<Map<String,Object>> prices(CompanyAccess actor, long order, boolean persist, Set<Long> insertedLineIds,boolean quotation) {
+        String select = "SELECT l.id,l.base_qty,l.untaxed_amount,l.tax_amount,s.min_sale_price FROM "+(quotation?"sales_quote_line":"sales_order_line")+" l";
         String scope = " sku s ON s.tenant_id=l.tenant_id AND s.id=l.sku_id"
-                + " WHERE l.tenant_id=? AND l.company_id=? AND l.order_id=? AND l.is_deleted=0";
+                + " WHERE l.tenant_id=? AND l.company_id=? AND l."+(quotation?"quote_id":"order_id")+"=? AND l.is_deleted=0";
         if (insertedLineIds == null) {
             return jdbc.queryForList(select + " JOIN" + scope + " ORDER BY l.id" + (persist ? " FOR SHARE" : ""),
                     actor.tenantId(), actor.companyId(), order);

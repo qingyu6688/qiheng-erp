@@ -1,12 +1,22 @@
-param([string]$OutputDirectory = '.local/demo-1panel-20261120')
+param(
+  [string]$OutputDirectory = '.local/demo-20261124-release',
+  [string]$WebsiteDirectory = 'qiheng-website/dist',
+  [string]$DemoDirectory = 'erp-web/dist-demo',
+  [string]$Version = '2.1.0-demo.8',
+  [string]$ArchiveName = 'qiheng-readonly-demo-20261124.zip'
+)
 $ErrorActionPreference = 'Stop'
 $workspace = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$output = [IO.Path]::GetFullPath((Join-Path $workspace $OutputDirectory))
-if (-not $output.StartsWith($workspace + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
-  throw '输出目录必须位于项目目录内。'
+function Resolve-PackagePath([string]$Value) {
+  if ([IO.Path]::IsPathFullyQualified($Value)) { return [IO.Path]::GetFullPath($Value) }
+  return [IO.Path]::GetFullPath((Join-Path $workspace $Value))
 }
-$website = Join-Path $workspace 'qiheng-website/dist'
-$demo = Join-Path $workspace 'erp-web/dist-demo'
+$output = Resolve-PackagePath $OutputDirectory
+$website = Resolve-PackagePath $WebsiteDirectory
+$demo = Resolve-PackagePath $DemoDirectory
+if ($Version -notmatch '^\d+\.\d+\.\d+-demo\.\d+$' -or $ArchiveName -notmatch '^[a-z0-9-]+\.zip$') {
+  throw '请使用有效的演示版本和静态发布包名称。'
+}
 foreach ($entry in @((Join-Path $website 'index.html'), (Join-Path $demo 'index.html'))) {
   if (-not (Test-Path -LiteralPath $entry -PathType Leaf)) { throw "尚未构建静态入口：$entry" }
 }
@@ -17,12 +27,12 @@ $demoTarget = Join-Path $stage 'experience'
 New-Item -ItemType Directory -Path $demoTarget | Out-Null
 Get-ChildItem -LiteralPath $demo -Force | Copy-Item -Destination $demoTarget -Recurse
 Copy-Item -LiteralPath (Join-Path $workspace 'LICENSE') -Destination (Join-Path $demoTarget 'LICENSE.txt')
-$manifest = [ordered]@{ version = '2.0.0-demo.2'; snapshotDate = '2026-11-20'; mode = 'readonly'; entry = '/experience/'; files = @() }
+$manifest = [ordered]@{ version = $Version; snapshotDate = '2026-11-20'; mode = 'readonly'; entry = '/experience/'; files = @() }
 $manifest.files = @(Get-ChildItem -LiteralPath $stage -File -Recurse | ForEach-Object {
   [ordered]@{ path = [IO.Path]::GetRelativePath($stage, $_.FullName).Replace('\', '/'); sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
 })
 $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $stage 'demo-manifest.json') -Encoding utf8NoBOM
-$zip = Join-Path $output 'qiheng-readonly-demo-20261120.zip'
+$zip = Join-Path $output $ArchiveName
 if (Test-Path -LiteralPath $zip) { throw '发布包已存在，请使用新的输出目录保留历史包。' }
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [IO.Compression.ZipFile]::CreateFromDirectory($stage, $zip, [IO.Compression.CompressionLevel]::Optimal, $false)

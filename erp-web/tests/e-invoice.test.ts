@@ -12,11 +12,120 @@ import {
 import type { InboundInvoice, InvoiceDetail } from '../src/api/e-invoice'
 import { downloadFile } from '../src/api/files'
 import { request } from '../src/api/http'
+import {
+  allocateInboundInvoice,
+  inboundHistory,
+  inboundInvoice,
+  inboundInvoices,
+  inboundSources,
+  inboundSuppliers,
+  previewInboundInvoice,
+  saveInboundInvoice,
+  voidInboundInvoice,
+} from '../src/api/e-invoice'
 
 vi.mock('../src/api/http', () => ({ request: vi.fn() }))
 vi.mock('../src/api/files', () => ({ downloadFile: vi.fn() }))
 
 describe('数电发票接口', () => {
+  it('多对多进项入口保留字符串金额、版本、幂等键和取消信号', async () => {
+    const signal = new AbortController().signal
+    const input = {
+      version: 7,
+      lines: [
+        {
+          payableId: '9007199254740995',
+          invoiceUntaxedAmount: '12345678901234567890.01',
+          invoiceTaxAmount: '0.00',
+          payableUntaxedAmount: '12345678901234567890.02',
+          payableTaxAmount: '0.00',
+        },
+      ],
+    }
+    await allocateInboundInvoice('9007199254740993', input, 'original-key', signal)
+    expect(request).toHaveBeenLastCalledWith(
+      {
+        method: 'POST',
+        url: '/e-invoices/inbound/9007199254740993/allocations',
+        data: input,
+        headers: { 'Idempotency-Key': 'original-key' },
+        signal,
+      },
+      true,
+    )
+    await previewInboundInvoice('21', input, signal)
+    expect(request).toHaveBeenLastCalledWith(
+      { method: 'POST', url: '/e-invoices/inbound/21/preview', data: input, headers: {}, signal },
+      true,
+    )
+    await voidInboundInvoice('21', { version: 7, reason: '原票录入错误' }, 'void-key', signal)
+    expect(request).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        url: '/e-invoices/inbound/21/void',
+        headers: { 'Idempotency-Key': 'void-key' },
+        signal,
+      }),
+      true,
+    )
+    const manual = {
+      supplierId: '11',
+      invoiceNo: 'P-1',
+      sellerTaxNo: 'TEST12345678',
+      invoiceDate: '2026-11-23',
+      receivedDate: '2026-11-23',
+      amount: '1.00',
+      taxAmount: '0.00',
+    }
+    await saveInboundInvoice(manual, 'new-key', undefined, signal)
+    expect(request).toHaveBeenLastCalledWith(
+      expect.objectContaining({ method: 'POST', url: '/e-invoices/inbound', data: manual, signal }),
+      true,
+    )
+    await saveInboundInvoice({ ...manual, version: 2 }, 'edit-key', '21', signal)
+    expect(request).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        method: 'PUT',
+        url: '/e-invoices/inbound/21',
+        data: { ...manual, version: 2 },
+      }),
+      true,
+    )
+  })
+  it('列表、供应商、来源和历史分页使用当前公司作用域', async () => {
+    await inboundInvoices('21', { source: 'manual', matchStatus: 'difference', keyword: '供应商' })
+    expect(request).toHaveBeenLastCalledWith(
+      {
+        method: 'GET',
+        url: '/e-invoices/inbound',
+        params: { cursor: '21', source: 'manual', matchStatus: 'difference', keyword: '供应商' },
+      },
+      true,
+    )
+    await inboundSuppliers('TEST', '11')
+    expect(request).toHaveBeenLastCalledWith(
+      {
+        method: 'GET',
+        url: '/e-invoices/inbound/suppliers',
+        params: { keyword: 'TEST', cursor: '11' },
+      },
+      true,
+    )
+    await inboundSources('21', '41')
+    expect(request).toHaveBeenLastCalledWith(
+      { method: 'GET', url: '/e-invoices/inbound/21/sources', params: { cursor: '41' } },
+      true,
+    )
+    await inboundHistory('21', '71')
+    expect(request).toHaveBeenLastCalledWith(
+      { method: 'GET', url: '/e-invoices/inbound/21/history', params: { cursor: '71' } },
+      true,
+    )
+    await inboundInvoice('21')
+    expect(request).toHaveBeenLastCalledWith(
+      { method: 'GET', url: '/e-invoices/inbound/21', params: undefined },
+      true,
+    )
+  })
   beforeEach(() => {
     vi.clearAllMocks()
   })

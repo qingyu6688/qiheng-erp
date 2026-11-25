@@ -15,6 +15,20 @@ import static org.assertj.core.api.Assertions.*;
 @SpringBootTest(classes=ErpApplication.class)
 @ActiveProfiles("test")
 class OpeningIT extends OpeningTestData {
+    @Test void openingUsesExplicitDueDateOrCurrentPaymentTerms() {
+        jdbc.update("INSERT INTO company_policy(id,tenant_id,company_id,default_term_type,default_term_value) VALUES(?,?,?,'days',30)",cn.erp.shared.Ids.next(),tenant,company);
+        for(boolean explicit:List.of(false,true)) {
+            var original=entry("receivable","D","10",null);
+            var input=new OpeningService.Entry(original.entryType(),original.partnerId(),original.cashAccountId(),original.direction(),original.amount(),original.businessDate(),original.remark(),null,explicit?DAY.plusDays(7):null);
+            var draft=service.createEntry(maker,key(),input);long id=id(draft);
+            var approved=command(reviewer,false,id,"approve",version(draft));
+            command(maker,false,id,"post",version(approved));
+            assertThat(jdbc.queryForObject("SELECT due_date FROM receivable WHERE tenant_id=? AND source_type='opening_entry' AND source_id=?",java.sql.Date.class,tenant,id))
+                    .isEqualTo(java.sql.Date.valueOf(DAY.plusDays(explicit?7:30)));
+        }
+        assertZero();
+    }
+
     @Test void inventoryOpeningUsesCapturedUnitConversionAndInputTotalCostExactlyOnce() {
         var input=new OpeningService.Stock("opening",warehouse,DAY,"库存期初",List.of(
                 new OpeningService.StockLine(sku,box,"2","220"),new OpeningService.StockLine(zeroSku,unit,"3","0")),null);

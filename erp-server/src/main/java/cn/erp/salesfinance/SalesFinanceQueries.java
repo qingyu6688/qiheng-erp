@@ -21,27 +21,42 @@ public class SalesFinanceQueries {
     private final AuditService audit;
     private final SalesOrderQueries orders;
     private final PurchaseOrderQueries purchaseOrders;
-    public SalesFinanceQueries(JdbcTemplate jdbc,FinanceSupport support,SettlementService settlement,BusinessCommands commands,AuditService audit,SalesOrderQueries orders,PurchaseOrderQueries purchaseOrders) {
-        this.jdbc=jdbc;this.support=support;this.settlement=settlement;this.commands=commands;this.audit=audit;this.orders=orders;this.purchaseOrders=purchaseOrders;
+    private final SalesInvoiceAmounts invoiceAmounts;
+    private final SalesReceivableLabels receivableLabels;
+    public SalesFinanceQueries(JdbcTemplate jdbc,FinanceSupport support,SettlementService settlement,BusinessCommands commands,AuditService audit,SalesOrderQueries orders,PurchaseOrderQueries purchaseOrders,SalesInvoiceAmounts invoiceAmounts,SalesReceivableLabels receivableLabels) {
+        this.jdbc=jdbc;this.support=support;this.settlement=settlement;this.commands=commands;this.audit=audit;this.orders=orders;this.purchaseOrders=purchaseOrders;this.invoiceAmounts=invoiceAmounts;this.receivableLabels=receivableLabels;
     }
 
     public Map<String,Object> receivables(CompanyAccess scope,Long customer,boolean openOnly,Long cursor,int limit) {
+        return receivables(scope,customer,openOnly,cursor,limit,false);
+    }
+
+    public Map<String,Object> receivables(CompanyAccess scope,Long customer,boolean openOnly,Long cursor,int limit,boolean invoiceable) {
         long before=cursor(cursor,limit);
-        return page(jdbc.queryForList("""
+        var rows=jdbc.queryForList("""
                 SELECT r.id,r.customer_id,r.kind,r.amount,r.tax_amount,r.untaxed_amount,r.business_date,
-                r.source_type,r.source_id,r.source_line_id,r.invoiced_amount,
-                CASE WHEN r.source_type='sales_return_line' THEN sr.return_no ELSE sh.shipment_no END source_no,s.name sku_name
+                r.source_type,r.source_id,r.source_line_id,r.invoiced_amount
                 FROM receivable r LEFT JOIN partner_open_item i ON i.tenant_id=r.tenant_id AND i.company_id=r.company_id
                     AND i.item_type='receivable' AND i.source_id=r.id
-                LEFT JOIN shipment sh ON sh.tenant_id=r.tenant_id AND sh.company_id=r.company_id AND r.source_type IN('shipment_line','sales_order_fee') AND sh.id=r.source_id
-                LEFT JOIN shipment_line sl ON sl.tenant_id=r.tenant_id AND sl.company_id=r.company_id AND r.source_type='shipment_line' AND sl.id=r.source_line_id
-                LEFT JOIN sales_return sr ON sr.tenant_id=r.tenant_id AND sr.company_id=r.company_id AND r.source_type='sales_return_line' AND sr.id=r.source_id
-                LEFT JOIN sales_return_line rl ON rl.tenant_id=r.tenant_id AND rl.company_id=r.company_id AND r.source_type='sales_return_line' AND rl.id=r.source_line_id
-                LEFT JOIN sku s ON s.tenant_id=r.tenant_id AND s.id=COALESCE(sl.sku_id,rl.sku_id)
                 WHERE r.tenant_id=? AND r.company_id=? AND r.id<? AND (? IS NULL OR r.customer_id=?)
                     AND r.posting_action='post' AND r.source_type<>'document_reversal' AND NOT EXISTS(SELECT 1 FROM receivable reversed WHERE reversed.tenant_id=r.tenant_id AND reversed.company_id=r.company_id AND reversed.reverses_receivable_id=r.id)
-                    AND (?=0 OR i.open_amount>0) AND %s ORDER BY r.id DESC LIMIT ?
-                """.formatted(cn.erp.shared.OrgOwnership.sourceCondition(scope,"r.source_type","r.source_id")),scope.tenantId(),scope.companyId(),before,customer,customer,openOnly,limit+1),limit);
+                    AND (?=0 OR i.open_amount>0) AND (?=0 OR r.kind='charge') AND %s ORDER BY r.id DESC LIMIT ?
+                """.formatted(SalesInvoiceScope.receivableCondition(scope,"r")),scope.tenantId(),scope.companyId(),before,customer,customer,openOnly,invoiceable,limit+1);
+        var visible=rows.stream().limit(limit).toList();
+        var ids=visible.stream().map(row->((Number)row.get("id")).longValue()).toList();
+        var labels=receivableLabels.labels(scope,ids);
+        var capacities=invoiceable?invoiceAmounts.capacities(scope,ids):Map.<Long,SalesInvoiceAmounts.Capacity>of();
+        for(var row:visible) {
+            long id=((Number)row.get("id")).longValue();
+            row.putAll(labels.getOrDefault(id,Map.of()));
+            var capacity=capacities.get(id);
+            if(capacity!=null) {
+                row.put("invoice_quota_amount",capacity.amount());
+                row.put("invoice_available_amount",capacity.available());
+                row.put("invoice_available_tax_amount",capacity.availableTax());
+            }
+        }
+        return page(rows,limit);
     }
 
     public Map<String,Object> payables(CompanyAccess scope,Long supplier,boolean openOnly,Long cursor,int limit) {
@@ -50,7 +65,7 @@ public class SalesFinanceQueries {
                 SELECT a.id,a.supplier_id,p.name supplier_name,a.kind,a.source_type,a.source_id,a.source_line_id,
                     a.amount,a.untaxed_amount,a.tax_amount,a.invoiced_amount,a.business_date,COALESCE(i.open_amount,0) open_amount,
                     CASE a.source_type WHEN 'purchase_return_line' THEN pr.return_no
-                        WHEN 'opening_entry' THEN oe.entry_no ELSE gr.receipt_no END source_no
+                        WHEN 'opening_entry' THEN oe.entry_no WHEN 'price_adjustment_line' THEN pa.adjust_no WHEN 'purchase_fee_doc_line' THEN fd.document_no ELSE gr.receipt_no END source_no
                 FROM payable a JOIN business_partner p ON p.tenant_id=a.tenant_id AND p.id=a.supplier_id
                 LEFT JOIN partner_open_item i ON i.tenant_id=a.tenant_id AND i.company_id=a.company_id
                     AND i.item_type='payable' AND i.source_id=a.id
@@ -58,6 +73,8 @@ public class SalesFinanceQueries {
                     AND a.source_type IN('goods_receipt_line','purchase_order_fee') AND gr.id=a.source_id
                 LEFT JOIN purchase_return pr ON pr.tenant_id=a.tenant_id AND pr.company_id=a.company_id
                     AND a.source_type='purchase_return_line' AND pr.id=a.source_id
+                LEFT JOIN purchase_fee_doc fd ON fd.tenant_id=a.tenant_id AND fd.company_id=a.company_id AND fd.id=a.source_id AND a.source_type='purchase_fee_doc_line'
+                LEFT JOIN price_adjustment pa ON pa.tenant_id=a.tenant_id AND pa.company_id=a.company_id AND pa.id=a.source_id AND a.source_type='price_adjustment_line'
                 LEFT JOIN opening_entry oe ON oe.tenant_id=a.tenant_id AND oe.company_id=a.company_id
                     AND a.source_type='opening_entry' AND oe.id=a.source_id
                 WHERE a.tenant_id=? AND a.company_id=? AND a.id<? AND (? IS NULL OR a.supplier_id=?)
@@ -70,9 +87,10 @@ public class SalesFinanceQueries {
         if(!Set.of("ar","ap").contains(side)) {throw invalid("往来侧须为ar或ap");}
         return page(jdbc.queryForList("""
                 SELECT i.*,p.name partner_name,DATEDIFF(DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')),i.aging_date) aging_days,
+                  COALESCE(ar.due_date,ap.due_date) due_date,GREATEST(0,DATEDIFF(DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')),COALESCE(ar.due_date,ap.due_date))) overdue_days,
                   CASE i.item_type WHEN 'receipt' THEN r.receipt_no WHEN 'refund_request' THEN f.refund_no
                     WHEN 'payment' THEN pm.payment_no
-                    WHEN 'payable' THEN CASE ap.source_type WHEN 'purchase_return_line' THEN pr.return_no ELSE gr.receipt_no END
+                    WHEN 'payable' THEN CASE ap.source_type WHEN 'purchase_return_line' THEN pr.return_no WHEN 'price_adjustment_line' THEN pa.adjust_no ELSE gr.receipt_no END
                     WHEN 'receivable' THEN CASE ar.source_type WHEN 'sales_return_line' THEN sr.return_no ELSE sh.shipment_no END ELSE NULL END source_no,
                   CASE WHEN i.item_type IN('payable','payment') OR r.receipt_type='supplier_refund' THEN 'ap' ELSE 'ar' END side
                 FROM partner_open_item i JOIN business_partner p ON p.tenant_id=i.tenant_id AND p.id=i.partner_id
@@ -83,6 +101,8 @@ public class SalesFinanceQueries {
                 LEFT JOIN shipment sh ON sh.tenant_id=ar.tenant_id AND sh.company_id=ar.company_id AND ar.source_type IN('shipment_line','sales_order_fee') AND sh.id=ar.source_id
                 LEFT JOIN payment pm ON pm.tenant_id=i.tenant_id AND pm.company_id=i.company_id AND i.item_type='payment' AND pm.id=i.source_id
                 LEFT JOIN payable ap ON ap.tenant_id=i.tenant_id AND ap.company_id=i.company_id AND i.item_type='payable' AND ap.id=i.source_id
+                LEFT JOIN purchase_fee_doc fd ON fd.tenant_id=ap.tenant_id AND fd.company_id=ap.company_id AND fd.id=ap.source_id AND ap.source_type='purchase_fee_doc_line'
+                LEFT JOIN price_adjustment pa ON pa.tenant_id=ap.tenant_id AND pa.company_id=ap.company_id AND pa.id=ap.source_id AND ap.source_type='price_adjustment_line'
                 LEFT JOIN goods_receipt gr ON gr.tenant_id=ap.tenant_id AND gr.company_id=ap.company_id AND ap.source_type IN('goods_receipt_line','purchase_order_fee') AND gr.id=ap.source_id
                 LEFT JOIN purchase_return pr ON pr.tenant_id=ap.tenant_id AND pr.company_id=ap.company_id AND ap.source_type='purchase_return_line' AND pr.id=ap.source_id
                 WHERE i.tenant_id=? AND i.company_id=? AND i.id<? AND (? IS NULL OR i.partner_id=?)
@@ -193,7 +213,8 @@ public class SalesFinanceQueries {
                 WHERE i.tenant_id=? AND i.company_id=? AND i.id=?
                 UNION SELECT f.order_id FROM partner_open_item i
                 JOIN payable a ON a.tenant_id=i.tenant_id AND a.company_id=i.company_id AND i.item_type='payable' AND a.id=i.source_id
-                JOIN purchase_order_fee f ON f.tenant_id=a.tenant_id AND f.company_id=a.company_id AND a.source_type='purchase_order_fee' AND f.id=a.source_line_id
+                LEFT JOIN purchase_fee_doc_line new_fee ON new_fee.tenant_id=a.tenant_id AND new_fee.company_id=a.company_id AND a.source_type='purchase_order_fee' AND new_fee.id=a.source_line_id
+                JOIN purchase_order_fee f ON f.tenant_id=a.tenant_id AND f.company_id=a.company_id AND a.source_type='purchase_order_fee' AND f.id=COALESCE(new_fee.order_fee_id,a.source_line_id)
                 WHERE i.tenant_id=? AND i.company_id=? AND i.id=?
                 """,Long.class,scope.tenantId(),scope.companyId(),item,scope.tenantId(),scope.companyId(),item));
         }

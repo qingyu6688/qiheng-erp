@@ -503,7 +503,7 @@ onScopeDispose(() => {
 }
 .assistant-message {
   padding: 12px 14px;
-  border-radius: 8px;
+  border-radius: var(--erp-radius);
   margin-bottom: 10px;
   border: 1px solid var(--el-border-color-lighter);
 }

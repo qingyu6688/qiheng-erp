@@ -33,6 +33,30 @@ export function workbenchSummary(signal?: AbortSignal): Promise<WorkbenchSummary
   return request({ method: 'GET', url: '/workbench/summary', signal }, true)
 }
 
+export type SetupStepKey =
+  | 'warehouse'
+  | 'customer'
+  | 'supplier'
+  | 'sku'
+  | 'cash-account'
+  | 'period'
+  | 'stock-opening'
+  | 'partner-opening'
+  | 'first-document'
+export interface SetupStep {
+  key: SetupStepKey
+  required: boolean
+  done: boolean
+}
+/** 新公司上线清单；steps 只含当前用户有查看权限的步骤，completed 按全部必做步骤计算 */
+export interface SetupStatus {
+  completed: boolean
+  steps: SetupStep[]
+}
+export function setupStatus(signal?: AbortSignal): Promise<SetupStatus> {
+  return request({ method: 'GET', url: '/workbench/setup', signal }, true)
+}
+
 export interface TradeAmounts {
   today: string
   yesterday: string

@@ -490,6 +490,37 @@ class SalesOrderIT {
         assertThatThrownBy(()->queries.get(maker,oid(order))).isInstanceOf(ApiException.class);
     }
 
+    @Test void paymentTermsAreFrozenAtApprovalAndWrittenByRealPickup() {
+        jdbc.update("UPDATE partner_role SET term_type='days',term_value=30 WHERE tenant_id=? AND partner_id=?",tenant,customer);
+        receive(warehouse,sku,"3");
+        var order=approved("2");
+        assertThat(queries.get(maker,oid(order))).containsEntry("termType","days").containsEntry("termValue",30);
+        jdbc.update("UPDATE partner_role SET term_value=90 WHERE tenant_id=? AND partner_id=?",tenant,customer);
+        long sourceLine=Long.parseLong(lines(queries.get(maker,oid(order))).getFirst().get("id").toString());
+        var shipment=shipments.create(maker,key(),new cn.erp.fulfillment.ShipmentModels.Input(customer,warehouse,date,"pickup",null,
+                List.of(new cn.erp.fulfillment.ShipmentModels.InputLine(sourceLine,unit,"1")),null));
+        var submitted=shipments.submit(maker,oid(shipment),key(),0L);
+        shipments.post(maker,oid(shipment),key(),((Number)submitted.get("version")).longValue());
+        assertThat(jdbc.queryForObject("SELECT due_date FROM receivable WHERE tenant_id=? AND source_id=?",java.sql.Date.class,tenant,oid(shipment)))
+                .isEqualTo(java.sql.Date.valueOf(date.plusDays(30)));
+        assertThat(queries.get(maker,oid(order))).containsEntry("termValue",30);
+    }
+
+    @Test void orderCanOverrideTermsBeforeApprovalAndCannotChangeThemAfterwards() {
+        receive(warehouse,sku,"3");
+        jdbc.update("UPDATE company_policy SET default_term_type='monthly',default_term_value=28 WHERE tenant_id=? AND company_id=?",tenant,company);
+        var inherited=approved("1");
+        assertThat(queries.get(maker,oid(inherited))).containsEntry("termType","monthly").containsEntry("termValue",28);
+        var custom=new Input(id(customer),date,null,true,"0",List.of(line(null,sku,warehouse,"1","10",null)),List.of(),null,null,null,
+                null,null,null,null,new PaymentTerms.Term("days",7),false);
+        var order=service.create(maker,key(),custom);command(maker,order,"submit");command(reviewer,order,"approve");
+        assertThat(queries.get(maker,oid(order))).containsEntry("termType","days").containsEntry("termValue",7);
+        var item=lines(queries.get(maker,oid(order))).getFirst();
+        var change=new Input(id(customer),date,null,true,"0",List.of(line(item.get("id").toString(),sku,warehouse,"1","10",null)),List.of(),null,version(order),"调整账期",
+                null,null,null,null,new PaymentTerms.Term("days",60),false);
+        assertThatThrownBy(()->service.change(maker,oid(order),key(),change)).isInstanceOfSatisfying(ApiException.class,e->assertThat(e.getErrorCode()).isEqualTo("CHANGE_NOT_ALLOWED"));
+    }
+
     private Map<String,Object> create(String qty) {return service.create(maker,key(),input(qty,null,null));}
     private Map<String,Object> reservation(Map<String,Object> order) {return jdbc.queryForMap("SELECT r.* FROM inventory_reservation r JOIN sales_order_line l ON l.id=r.order_line_id WHERE l.order_id=? AND r.status='active' ORDER BY r.id LIMIT 1",oid(order));}
     private Map<String,Object> approved(String qty) {var order=create(qty);command(maker,order,"submit");command(reviewer,order,"approve");return order;}

@@ -20,8 +20,14 @@ import type { StockSelection } from '../../types/inventory-tracking'
 import EditableTable from '../EditableTable.vue'
 import FixedFooter from '../FixedFooter.vue'
 import OrderLineImport from '../OrderLineImport.vue'
+import EmptyOptionHint from '../EmptyOptionHint.vue'
 import { ORDER_LINE_LIMIT } from '../../utils/order-line-paste'
 import type { PastedOrderLine } from '../../utils/order-line-paste'
+
+import PaymentTermsField from '../PaymentTermsField.vue'
+import PurchasePriceSource from './PurchasePriceSource.vue'
+import { readPaymentTerm } from '../../utils/payment-terms'
+import type { PaymentTerm } from '../../types/payment-terms'
 
 const props = defineProps<{
   kind: ProcurementKind
@@ -30,6 +36,7 @@ const props = defineProps<{
   inline?: boolean
 }>()
 const emit = defineEmits<{ close: []; saved: [ProcurementDocument, boolean?]; dirty: [boolean] }>()
+const paymentTerms = ref<PaymentTerm | null>(props.original?.termOverride ? readPaymentTerm({ type: props.original.termType, value: props.original.termValue }) : null)
 let submitRequested = false
 const session = useSessionStore(),
   spec = computed(() => procurementSpecs.find((s) => s.path === props.kind)!)
@@ -56,6 +63,7 @@ const form = reactive({
   toAccountId: props.original?.toAccountId ?? '',
   feeAmount: props.original?.feeAmount ?? '0',
   entryType: props.original?.entryType ?? 'cash',
+  dueDate: props.original?.dueDate ?? '',
   direction: props.original?.direction ?? 'D',
   adjustType: props.original?.adjustType ?? 'opening',
 })
@@ -137,9 +145,17 @@ const importer = ref<InstanceType<typeof OrderLineImport>>()
 const populatedLineCount = computed(
   () => lines.value.filter((line) => line.skuId || line.id).length,
 )
+// 新单默认带一行空明细：选好往来单位或点过保存之前不标红，避免一打开就报错；
+// 保存按钮在资料不全时是禁用的，所以选了往来单位就开始提示还缺什么
+const saveAttempted = ref(false)
+const linesTouched = computed(() => saveAttempted.value || Boolean(form.supplierId))
+const NO_LINE_ERRORS = { skuId: '', unitId: '', qty: '', unitPrice: '' }
+function untouchedLine(line: { skuId?: string; unitId?: string; qty: string; unitPrice: string }): boolean {
+  return !line.skuId && !line.unitId && (line.qty === '1' || line.qty === '') && !line.unitPrice
+}
 const lineErrors = computed(() =>
   order.value
-    ? lines.value.map((line) => ({
+    ? lines.value.map((line) => untouchedLine(line) && !linesTouched.value ? NO_LINE_ERRORS : {
         skuId: !line.skuId ? '请选择商品' : '',
         unitId: !line.unitId ? '请选择单位' : '',
         qty:
@@ -150,7 +166,7 @@ const lineErrors = computed(() =>
           line.unitPrice && !/^\d{1,16}(?:\.\d{1,8})?$/.test(line.unitPrice)
             ? '单价须为非负数且最多16位整数、8位小数'
             : '',
-      }))
+      })
     : [],
 )
 const errorCount = computed(() =>
@@ -311,6 +327,8 @@ function body(): Record<string, unknown> {
       ...common,
       extJson: fields.value.length ? ext.value : undefined,
       supplierId: form.supplierId,
+      paymentTerms: props.change ? undefined : paymentTerms.value,
+      inheritPaymentTerms: props.change ? undefined : paymentTerms.value === null,
       deliveryDate: form.deliveryDate || null,
       priceTaxInclusive: form.priceTaxInclusive,
       orderDiscountAmount: form.orderDiscountAmount,
@@ -394,6 +412,7 @@ function body(): Record<string, unknown> {
   return {
     ...common,
     entryType: form.entryType,
+    dueDate: form.entryType === 'cash' ? null : form.dueDate || null,
     direction: form.direction,
     partnerId: form.entryType === 'cash' ? null : form.supplierId,
     cashAccountId: form.entryType === 'cash' ? form.cashAccountId : null,
@@ -502,8 +521,19 @@ onMounted(async () => {
     loading.value = false
   }
 })
+// 在新标签页补完往来单位或商品后，回到这里刷新下拉，不影响已填内容
+async function reloadChoices(): Promise<void> {
+  try {
+    if (hasPartner.value || order.value || props.kind === 'opening-entries')
+      partners.value = await allRecords('partners')
+    if (products.value) skus.value = await allRecords('skus')
+  } catch (cause: unknown) {
+    if (!isCancelled(cause)) error.value = messageOf(cause)
+  }
+}
 async function save(submitAfterSave = false): Promise<void> {
   if (busy.value) return
+  saveAttempted.value = true
   if (errorCount.value) {
     locateError()
     return
@@ -591,7 +621,12 @@ async function verify(): Promise<void> {
               v-for="p in partners.filter((p) => p.status === 'active')"
               :key="p.id"
               :value="p.id"
-              :label="String(p.name)" /></el-select
+              :label="String(p.name)" /><template #empty
+              ><EmptyOptionHint
+                :text="kind === 'opening-entries' ? '找不到往来单位？' : '找不到供应商？往来单位需要勾选“供应商”角色。'"
+                to="/partners"
+                label="去添加往来单位（新标签页）"
+                @reload="reloadChoices" /></template></el-select
         ></el-form-item>
         <el-form-item v-if="warehouseHead" label="仓库" for="purchase-warehouse"
           ><el-select id="purchase-warehouse" v-model="form.warehouseId"
@@ -706,6 +741,11 @@ async function verify(): Promise<void> {
           for="purchase-reason"
           ><el-input id="purchase-reason" v-model="form.reason" maxlength="200"
         /></el-form-item>
+        <PaymentTermsField v-if="order && !change" v-model="paymentTerms" label="订单账期" allow-inherit />
+        <el-form-item v-if="kind === 'opening-entries' && form.entryType !== 'cash'" label="到期日" for="opening-due-date">
+          <el-input id="opening-due-date" v-model="form.dueDate" type="date" />
+          <span>不填时按往来单位或公司账期计算。</span>
+        </el-form-item>
         <el-form-item label="备注" for="purchase-remark"
           ><el-input id="purchase-remark" v-model="form.remark" maxlength="200"
         /></el-form-item>
@@ -792,7 +832,13 @@ async function verify(): Promise<void> {
                   :key="s.id"
                   :value="s.id"
                   :label="String(s.code) + ' ' + String(s.name)"
-              /></el-select>
+                /><template #empty
+                  ><EmptyOptionHint
+                    text="找不到商品？"
+                    to="/skus"
+                    label="去添加商品（新标签页）"
+                    @reload="reloadChoices" /></template
+              ></el-select>
             </td>
             <td v-if="order">
               <el-select v-model="line.warehouseId" :aria-label="'采购仓库' + (index + 1)" clearable
@@ -830,8 +876,9 @@ async function verify(): Promise<void> {
                 <el-input
                   v-model="line.unitPrice"
                   :aria-label="'采购单价' + (index + 1)"
-                  placeholder="参考价"
+                  placeholder="留空使用默认价格"
                 />
+                <PurchasePriceSource v-if="session.can('cost:view')" :source="preview?.priceSources?.[index]" />
               </td>
               <td>
                 <el-input
@@ -900,7 +947,7 @@ async function verify(): Promise<void> {
       <section v-if="order" class="sale-fees">
         <div v-for="(fee, index) in fees" :key="index" class="relation-row">
           <el-select v-model="fee.feeType" aria-label="采购费用类型"
-            ><el-option value="freight" label="运费" /><el-option
+            ><el-option value="freight" label="运费" /><el-option value="loading" label="装卸费" /><el-option
               value="other"
               label="其他费用" /></el-select
           ><el-select v-model="fee.bearer" aria-label="采购费用承担方"

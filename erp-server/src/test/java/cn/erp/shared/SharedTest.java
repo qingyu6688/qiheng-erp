@@ -28,6 +28,9 @@ class SharedTest {
     void mapsOnlyRecognisedDatabaseConstraints() {
         assertThat(ConstraintErrors.from("Duplicate entry 'A' for key 'warehouse.uk_warehouse_code'").getStatus()).isEqualTo(409);
         assertThat(ConstraintErrors.from("Check constraint 'ck_shipment_line_sign' is violated").getErrorCode()).isEqualTo("SIGN_QTY_EXCEEDED");
+        assertThat(ConstraintErrors.from("Duplicate entry '1' for key 'invoice_red_registration.uk_invoice_red_active'").getErrorCode()).isEqualTo("INVOICE_RED_EXISTS");
+        assertThat(ConstraintErrors.from("Duplicate entry 'RED' for key 'invoice_red_registration.uk_invoice_red_number'").getErrorCode()).isEqualTo("DUPLICATE");
+        assertThat(ConstraintErrors.from("Check constraint 'ck_invoice_red_review' is violated").getErrorCode()).isEqualTo("TWO_PERSON_REQUIRED");
         assertThat(ConstraintErrors.from("unknown").getStatus()).isEqualTo(500);
     }
 

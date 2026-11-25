@@ -282,7 +282,7 @@ function displayValue(value: unknown): string {
 <style scoped>
 .ai-tool-result {
   border: 1px solid var(--el-border-color-light);
-  border-radius: 6px;
+  border-radius: var(--erp-radius);
   padding: 10px;
   margin-top: 8px;
 }

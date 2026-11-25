@@ -16,6 +16,7 @@ import java.util.function.Supplier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 
 import static cn.erp.einvoice.EInvoiceSources.*;
 
@@ -28,10 +29,12 @@ class EInvoiceService {
     private final InvoiceService invoices;
     private final BusinessCommands commands;
     private final AuditService audit;
+    private final cn.erp.shared.SalesInvoiceLock invoiceLock;
 
     EInvoiceService(JdbcTemplate jdbc,EInvoiceSources sources,EInvoiceConfig config,InvoiceService invoices,
-                    BusinessCommands commands,AuditService audit) {
+                    BusinessCommands commands,AuditService audit,cn.erp.shared.SalesInvoiceLock invoiceLock) {
         this.jdbc=jdbc;this.sources=sources;this.config=config;this.invoices=invoices;this.commands=commands;this.audit=audit;
+        this.invoiceLock=invoiceLock;
     }
 
     record Draft(@NotNull(message="请选择客户") @Positive(message="客户编号无效") Long partnerId,
@@ -40,7 +43,7 @@ class EInvoiceService {
     record Revision(@NotNull(message="请提供版本号") @PositiveOrZero(message="版本号无效") Long version,
                     @Size(max=200,message="红字原因最多二百字") String reason) {}
 
-    @Transactional
+    @Transactional(isolation=Isolation.READ_COMMITTED)
     Map<String,Object> create(CompanyAccess actor,String key,Draft input) {
         var created=command(actor,"einv.create",key,input,()->{
             var selected=sources.selected(actor,input.partnerId(),input.receivableIds());
@@ -69,10 +72,11 @@ class EInvoiceService {
         return created;
     }
 
-    @Transactional
+    @Transactional(isolation=Isolation.READ_COMMITTED)
     Map<String,Object> submit(CompanyAccess actor,long id,String key,Revision revision) {
         scoped(actor,id,false);
         return command(actor,"einv.submit",key,List.of(id,revision),()->{
+            invoiceLock.lock(actor);
             var row=state(actor,id,revision.version(),"draft");
             config.credentials(actor.tenantId(),actor.companyId());
             if(number(row,"requested_by")==actor.userId())
@@ -93,10 +97,11 @@ class EInvoiceService {
         });
     }
 
-    @Transactional
+    @Transactional(isolation=Isolation.READ_COMMITTED)
     Map<String,Object> redIssue(CompanyAccess actor,long id,String key,Revision revision) {
         scoped(actor,id,false);
         return command(actor,"einv.red_issue",key,List.of(id,revision),()->{
+            invoiceLock.lock(actor);
             state(actor,id,revision.version(),"issued");
             config.credentials(actor.tenantId(),actor.companyId());
             if(revision.reason()==null||revision.reason().isBlank())throw EInvoiceConfig.invalid("请填写红字原因");

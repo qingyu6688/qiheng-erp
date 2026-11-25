@@ -90,7 +90,7 @@ class OpenController {
 
     @PostMapping("/partners")
     ResponseEntity<ApiResponse<OpenPartners.Partner>> createPartner(HttpServletRequest req,@Valid @RequestBody PartnerInput input) {
-        return created(partners.create(actor(req,"partner:create"),commandKey(req),input.code(),input.name(),input.shortName(),input.roles(),input.extJson()));
+        return created(partners.create(actor(req,"partner:create"),commandKey(req),input.code(),input.name(),input.shortName(),input.roles(),input.extJson(),input.paymentTerms()));
     }
 
     @GetMapping("/warehouses")

@@ -18,6 +18,7 @@ public final class InventoryModels {
 
     public record Source(String type, long id, long lineId) {}
     public record Posting(Key key, Source source, LocalDate businessDate, long periodId, String movementType) {}
+    public record Inbound(Posting posting,BigDecimal quantity,BigDecimal cost,StockSelection selection,String blockingReason) {}
     public record StockSelection(Long batchId,String batchNo,LocalDate productionDate,LocalDate expiryDate,
                                  Long locationId,List<String> serials) {}
     public record ReservationRequest(long orderLineId, Key key, BigDecimal quantity, Instant expiresAt) {}

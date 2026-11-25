@@ -65,13 +65,19 @@ public class PrintService {
                 if (!names.isEmpty()) { document.put(actor.getKey() + "Name", names.getFirst()); }
             }
         }
-        if (type.equals("goods_receipt") || type.equals("shipment")) {
-            String table = type.equals("goods_receipt") ? "purchase_order_fee" : "sales_order_fee";
-            String reference = type.equals("goods_receipt") ? "recognized_receipt_id" : "recognized_shipment_id";
-            document.put("recognizedFees", jdbc.queryForList("SELECT fee_type,bearer,amount,total_amount,tax_rate,untaxed_amount,tax_amount FROM "
-                    + table + " WHERE tenant_id=? AND company_id=? AND " + reference + "=? ORDER BY id",
+        if (type.equals("shipment")) {
+            document.put("recognizedFees", jdbc.queryForList("SELECT fee_type,bearer,amount,total_amount,tax_rate,untaxed_amount,tax_amount FROM sales_order_fee"
+                    + " WHERE tenant_id=? AND company_id=? AND recognized_shipment_id=? ORDER BY id",
                     scope.tenantId(), scope.companyId(), id).stream().map(FinanceSupport::row).toList());
         }
+        if(type.equals("goods_receipt")) document.put("recognizedFees",jdbc.queryForList("SELECT f.fee_type,f.bearer,f.amount,f.total_amount,f.tax_rate,f.untaxed_amount,f.tax_amount FROM purchase_order_fee f"
+                +" WHERE f.tenant_id=? AND f.company_id=? AND f.recognized_receipt_id=?"
+                +" AND NOT EXISTS(SELECT 1 FROM purchase_fee_doc_line nl JOIN purchase_fee_doc nh ON nh.tenant_id=nl.tenant_id AND nh.company_id=nl.company_id AND nh.id=nl.document_id"
+                +" WHERE nl.tenant_id=f.tenant_id AND nl.company_id=f.company_id AND nl.order_fee_id=f.id AND nh.source_receipt_id=?)"
+                +" UNION ALL SELECT l.fee_type,'buyer',l.amount,l.amount,l.tax_rate,l.untaxed_amount,l.tax_amount FROM purchase_fee_doc_line l"
+                +" JOIN purchase_fee_doc h ON h.tenant_id=l.tenant_id AND h.company_id=l.company_id AND h.id=l.document_id"
+                +" WHERE h.tenant_id=? AND h.company_id=? AND h.source_kind='receipt' AND h.source_receipt_id=?",
+                scope.tenantId(),scope.companyId(),id,id,scope.tenantId(),scope.companyId(),id).stream().map(FinanceSupport::row).toList());
         List<Map<String, Object>> approvals = jdbc.queryForList("""
                 SELECT a.action,a.revision,a.comment,a.created_at,u.display_name AS operator_name FROM approval_record a
                 JOIN sys_user u ON u.tenant_id=a.tenant_id AND u.id=a.operator_id

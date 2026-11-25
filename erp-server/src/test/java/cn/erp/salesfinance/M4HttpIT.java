@@ -163,6 +163,24 @@ class M4HttpIT {
         String body="{\"tenantCode\":\"M4HTTP"+tenant+"\",\"username\":\"operator\",\"password\":\"M4Test!2026\"}";
         assertThat(http("POST","/auth/login",body,null,false,company).statusCode()).isEqualTo(200);
     }
+
+    @Test void sourcelessReturnUpdateResultIsAvailableThroughHttpAndRechecksCurrentPermission() throws Exception {
+        for(String code:List.of("sales_return:view","sales_return:create","sales_return:update","sales_return:sourceless","cost:view"))grant(code);
+        login();
+        String body="{\"returnMode\":\"sourceless\",\"customerId\":\""+customer+"\",\"warehouseId\":\""+warehouse+"\",\"businessDate\":\"2026-11-01\",\"reason\":\"历史退回\",\"lines\":[{\"skuId\":\""+sku+"\",\"unitId\":\""+unit+"\",\"qty\":\"1\",\"unitPrice\":\"10\",\"taxRate\":\"0\",\"qualityResult\":\"passed\",\"manualUnitCost\":\"5\",\"manualCostReason\":\"历史台账\"}]}";
+        var created=http("POST","/sales-returns",body,key(),true,company);assertThat(created.statusCode()).isEqualTo(201);
+        String id=json.readTree(created.body()).path("data").path("id").asText(),updateKey=key();
+        String update=body.substring(0,body.length()-1)+",\"version\":0}";
+        var saved=http("PUT","/sales-returns/"+id,update,updateKey,true,company);assertThat(saved.statusCode()).isEqualTo(200);
+        String path="/command-results?operation=sales_return.update&key="+updateKey;
+        var result=http("GET",path,null,null,false,company);assertThat(result.statusCode()).isEqualTo(200);
+        var response=json.readTree(result.body()).path("data").path("response");
+        assertThat(response.path("id").asText()).isEqualTo(id);
+        assertThat(response.path("version").asLong()).isEqualTo(1);
+        assertThat(response.has("costAmount")).isFalse();assertThat(response.path("lines").get(0).has("manualUnitCost")).isFalse();
+        revoke("sales_return:update");assertThat(http("GET",path,null,null,false,company).statusCode()).isEqualTo(403);
+        jdbc.update("DELETE FROM sales_return_line WHERE tenant_id=?",tenant);jdbc.update("DELETE FROM sales_return WHERE tenant_id=?",tenant);
+    }
     private String receiptBody() {
         return "{\"receiptType\":\"customer\",\"partnerId\":\""+customer+"\",\"cashAccountId\":\""+account+"\",\"amount\":\"10.00\",\"businessDate\":\"2026-11-01\"}";
     }
