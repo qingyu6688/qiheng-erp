@@ -3,6 +3,30 @@ import type { Page } from '@playwright/test'
 import { env } from 'node:process'
 import { createHash } from 'node:crypto'
 
+interface OnlineSessionsPage {
+  items: { id: string }[]
+  nextCursor: string | null
+}
+
+async function findOnlineSession(page: Page, publicId: string): Promise<void> {
+  const loaded = () => page.waitForResponse((response) =>
+    new URL(response.url()).pathname === '/api/v1/sys/online-users' && response.request().method() === 'GET',
+  )
+  let pending = loaded()
+  await page.goto('/sys/online-users')
+  const visited = new Set<string>()
+  for (;;) {
+    const response = await pending
+    expect(response.status(), '在线用户查询失败').toBe(200)
+    const result = (await response.json()).data as OnlineSessionsPage
+    if (result.items.some((row) => row.id === publicId) || !result.nextCursor) return
+    expect(visited.has(result.nextCursor), '在线用户分页游标不能重复').toBe(false)
+    visited.add(result.nextCursor)
+    pending = loaded()
+    await page.getByRole('button', { name: '下一页', exact: true }).click()
+  }
+}
+
 async function login(page: Page): Promise<void> {
   if (!env.ERP_E2E_PASSWORD || !env.ERP_E2E_TENANT_CODE?.startsWith('E2E-'))
     throw new Error('请使用隔离企业的浏览器演练命令')
@@ -139,7 +163,7 @@ test('M11 平台资料、任务与消息中心，两会话实时提醒和强制�
     const publicId = createHash('sha256')
       .update(Buffer.from(sessionCookie.value, 'base64').toString('utf8'))
       .digest('hex')
-    await page.goto('/sys/online-users')
+    await findOnlineSession(page, publicId)
     const rows = page
       .locator('.el-table__body-wrapper')
       .getByRole('row')
