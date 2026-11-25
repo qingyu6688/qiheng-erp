@@ -31,6 +31,7 @@ import { messageOf, isCancelled } from '../api/http'
 import { workbenchSummary } from '../api/workbench'
 import { openAiDocument } from '../hooks/ai-document'
 import type { AiDocumentContext } from '../types/ai'
+import { version as appVersion } from '../../package.json'
 import BrandMark from './BrandMark.vue'
 import NotificationBell from './NotificationBell.vue'
 import DisplayDensitySelect from './DisplayDensitySelect.vue'
@@ -55,6 +56,9 @@ const title = computed(() =>
   String(route.meta.title ?? (route.name === 'password' ? '账户设置' : '工作台')),
 )
 const accountName = computed(() => session.user?.displayName || session.user?.username || '账户')
+const companyName = computed(
+  () => session.user?.companies?.find((company) => company.id === session.companyId)?.name ?? '',
+)
 const AiAssistantDrawer = defineAsyncComponent(() => import('./AiAssistantDrawer.vue'))
 const assistantOpen = ref(false)
 const assistantOpened = ref(false)
@@ -713,7 +717,13 @@ async function logout(): Promise<void> {
       @keydown.tab="trapNavigationFocus"
     >
       <div class="sidebar-head">
-        <BrandMark :compact="collapsed" />
+        <router-link to="/" class="sidebar-brand" aria-label="返回工作台">
+          <BrandMark compact />
+          <span v-if="!collapsed" class="sidebar-brand-text"
+            ><span class="sidebar-brand-name">柒衡 ERP</span
+            ><small v-if="companyName">{{ companyName }}</small></span
+          >
+        </router-link>
         <button
           v-if="mobile"
           ref="closeButton"
@@ -790,6 +800,7 @@ async function logout(): Promise<void> {
           >{{ item.title }}<span v-if="item.path === 'shipments' && overdue" class="nav-count">{{ overdue }}</span></router-link>
         </section>
       </nav>
+      <footer v-if="!collapsed" class="sidebar-foot">柒衡 ERP v{{ appVersion }}</footer>
     </div>
     <div class="workspace" :inert="mobileNavigation">
       <header class="topbar">

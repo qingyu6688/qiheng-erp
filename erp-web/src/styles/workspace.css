@@ -26,17 +26,48 @@
   border-right: 1px solid var(--workspace-border);
   background: var(--el-bg-color);
 }
+/* 品牌区与只读演示一致：72px 高，名称下面一行显示当前公司 */
 .sidebar-head {
   flex: none;
-  min-height: var(--topbar-height);
-  padding: 10px 16px;
+  min-height: 72px;
+  padding: 16px 20px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   --brand-icon-size: 32px;
 }
-.sidebar-head .brand {
-  font-size: 16px;
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--erp-text-1);
+  text-decoration: none;
+}
+.sidebar-brand-text {
+  display: grid;
+  min-width: 0;
+}
+.sidebar-brand-name {
+  font-size: 17px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.sidebar-brand-text small {
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--erp-text-3);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-foot {
+  flex: none;
+  margin: 0 20px 20px;
+  padding-top: 15px;
+  border-top: 1px solid var(--workspace-border);
+  color: var(--erp-text-3);
+  font-size: 12px;
 }
 .sidebar.is-collapsed .sidebar-head {
   justify-content: center;
@@ -58,14 +89,14 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 40px;
-  padding: 0 10px;
+  min-height: 42px;
+  padding: 8px 12px;
   border: 0;
   border-radius: var(--erp-radius);
   background: transparent;
-  color: var(--el-text-color-regular);
+  color: var(--erp-text-2);
   font: inherit;
-  font-weight: 500;
+  font-size: 14px;
   text-align: left;
   text-decoration: none;
   cursor: pointer;
@@ -95,7 +126,7 @@
   padding: 2px 0 8px 28px;
 }
 .nav-caption {
-  margin: 10px 10px 4px;
+  margin: 10px 12px 4px;
   color: var(--el-text-color-placeholder);
   font: inherit;
   font-size: 12px;
@@ -106,9 +137,9 @@
   align-items: center;
   min-height: 34px;
   gap: 8px;
-  padding: 0 10px;
+  padding: 6px 12px;
   border-radius: var(--erp-radius);
-  color: var(--el-text-color-regular);
+  color: var(--erp-text-2);
   font-size: 13px;
   text-decoration: none;
 }
@@ -223,12 +254,15 @@
   min-width: 0;
 }
 .topbar {
+  position: sticky;
+  z-index: 20;
+  top: 0;
   min-height: var(--topbar-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 22px;
+  padding: 8px 24px;
   border-bottom: 1px solid var(--workspace-border);
   background: var(--el-bg-color);
 }
@@ -354,7 +388,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 7px 22px;
+  padding: 7px 24px;
   border-bottom: 1px solid var(--workspace-border);
   overflow-x: auto;
   background: var(--el-bg-color);

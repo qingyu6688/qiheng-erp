@@ -87,6 +87,10 @@ export interface HomeContent {
     items: IconCard[]
     stats: { value: string; count?: number; suffix?: string; label: string }[]
   }
+  release: SectionHeadContent & {
+    items: IconCard[]
+    links: LinkItem[]
+  }
   ai: SectionHeadContent & {
     pipelineLabel: string
     pipeline: { n: string; title: string; desc: string; hi?: boolean }[]
