@@ -14,6 +14,7 @@ import HomeScenarios from '@/components/home/HomeScenarios.vue'
 import HomeSecurity from '@/components/home/HomeSecurity.vue'
 import HomeStack from '@/components/home/HomeStack.vue'
 import HomeTrust from '@/components/home/HomeTrust.vue'
+import HomeRelease from '@/components/home/HomeRelease.vue'
 import { homeEn } from '@/content/home.en'
 import { homeZh } from '@/content/home.zh'
 import { useLocale } from '@/hooks/useLocale'
@@ -47,6 +48,7 @@ useScrollSpy(root)
     <HomeScenarios :scenarios="content.scenarios" />
     <HomeFlows :flows="content.flows" />
     <HomeTrust :trust="content.trust" />
+    <HomeRelease :release="content.release" />
     <AiBand :ai="content.ai" />
     <HomeModules :modules="content.modules" />
     <HomeGallery :gallery="content.gallery" />

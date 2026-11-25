@@ -3,7 +3,7 @@ export function withBase(path: string): string {
   return import.meta.env.BASE_URL + path.replace(/^\//, '')
 }
 
-export type ShotKey = 'workbench' | 'orders' | 'detail' | 'approval' | 'org' | 'pda'
+export type ShotKey = 'workbench' | 'orders' | 'detail' | 'quotes' | 'revaluation' | 'pda'
 
 /** 界面截图的 1 倍图地址 */
 export function shotSrc(key: ShotKey): string {
