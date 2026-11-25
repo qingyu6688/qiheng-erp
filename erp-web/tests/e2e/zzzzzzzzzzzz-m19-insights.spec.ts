@@ -35,7 +35,8 @@ test('M19 报表导航、打印模板与预警按当前账户权限访问', asyn
   const headers = { 'X-Company-Id': company.id }
   for (const entry of entries) {
     const module = entry.route === '/print-templates' ? '设置' : '分析'
-    await page.getByRole('button', { name: module, exact: true }).click()
+    const moduleButton = page.getByRole('button', { name: module, exact: true })
+    if ((await moduleButton.getAttribute('aria-expanded')) !== 'true') await moduleButton.click()
     const link = page.getByRole('link', { name: entry.label, exact: true })
     await link.click()
     await expect(page).toHaveURL(new RegExp(`${entry.route}(?:\\?.*)?$`))
